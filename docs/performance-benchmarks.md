@@ -2,12 +2,25 @@
 
 <!-- capability-ledger:v1 commands=30 stdlib_modules=34 stdlib_functions=299 capabilities=9 backend=cranelift -->
 
-The first benchmark harness is `axiomc bench`. It discovers `*_bench.ax` files,
-runs warmup iterations, runs measured iterations, and emits median and p95 wall
-time statistics.
+The `axiomc bench` harness discovers `*_bench.ax` files and executes each
+entrypoint for every warmup and measured iteration. It emits per-sample timing,
+median, p95, sample variance, and the allocation count when a portable runtime
+counter is available.
 
 ```bash
 cargo run --manifest-path stage1/Cargo.toml -p axiomc -- bench stage1/examples/benchmarks --json
+```
+
+Use the versioned baseline schema at
+`stage1/schemas/axiom-benchmark-baseline-v1.schema.json` to reject median
+regressions. The checked-in fixture uses
+`stage1/benchmarks/baselines/axiomc-bench-v1.json`; callers choose a threshold
+explicitly for their runner class.
+
+```bash
+cargo run --manifest-path stage1/Cargo.toml -p axiomc -- bench stage1/examples/benchmarks \
+  --baseline stage1/benchmarks/baselines/axiomc-bench-v1.json \
+  --max-regression-percent 20 --json
 ```
 
 The checked-in fixture package lives at `stage1/examples/benchmarks`.

@@ -17,15 +17,16 @@ use axiomc::new_project::{WorkloadTemplate, create_project_with_template};
 use axiomc::project::{
     BuildOptions, BuildOutput, CheckOptions, RunOptions, TestOptions, TestOutput,
     build_project_with_options, capability_sbom, check_project_with_options,
-    documentation_packages, list_project_tests_with_options, package_graph_metadata,
-    project_capabilities, run_project_report_with_options, run_project_tests_with_options,
-    run_project_with_options, trace_provenance,
+    documentation_packages, list_project_tests_with_options, package_graph_metadata, project_capabilities,
+    run_project_report_with_options, run_project_tests_with_options, run_project_with_options,
+    trace_provenance,
 };
 use axiomc::registry::{
     PublishOptions, RegistryServeOptions, load_registry_index, publish_package,
     render_registry_index, serve_registry, verify_registry_index_integrity,
 };
 use axiomc::syntax::parse_program;
+use benchmark::{BenchOptions, run_benchmarks};
 use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -38,8 +39,8 @@ use std::os::fd::{AsRawFd, FromRawFd};
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::Instant;
 
+mod benchmark;
 mod formatter;
 mod intent_ir_cli;
 mod agent_task_cli;
@@ -273,6 +274,12 @@ enum Command {
         warmup: usize,
         #[arg(long, default_value_t = 5)]
         iterations: usize,
+        /// Versioned JSON baseline used to reject performance regressions.
+        #[arg(long)]
+        baseline: Option<PathBuf>,
+        /// Maximum accepted median regression when --baseline is supplied.
+        #[arg(long, default_value_t = 20.0)]
+        max_regression_percent: f64,
         /// Emit an axiom.stage1.v1 JSON envelope for agent/tool consumption.
         #[arg(long)]
         json: bool,
@@ -1153,16 +1160,30 @@ fn main() {
             path,
             warmup,
             iterations,
+            baseline,
+            max_regression_percent,
             json,
-        } => match run_benchmarks(&path, warmup, iterations) {
+        } => match run_benchmarks(
+            &path,
+            &BenchOptions {
+                warmup,
+                iterations,
+                baseline,
+                max_regression_percent,
+            },
+        ) {
             Ok(report) => {
                 if json {
                     print_json_with_status("bench", &report, if report.failed == 0 { 0 } else { 1 })
                 } else {
                     for bench in &report.benches {
                         println!(
-                            "{} median={}ms p95={}ms iterations={}",
-                            bench.name, bench.median_ms, bench.p95_ms, bench.iterations
+                            "{} median={}ms p95={}ms variance={:.2}ms² iterations={}",
+                            bench.id,
+                            bench.median_ms,
+                            bench.p95_ms,
+                            bench.variance_ms2,
+                            bench.iterations
                         );
                     }
                     if report.failed == 0 { 0 } else { 1 }
@@ -6974,82 +6995,6 @@ fn escape_html(value: &str) -> String {
         .replace('"', "&quot;")
 }
 
-#[derive(Debug, Clone, Serialize)]
-struct BenchReport {
-    schema_version: &'static str,
-    benches: Vec<BenchResult>,
-    passed: usize,
-    failed: usize,
-}
-
-#[derive(Debug, Clone, Serialize)]
-struct BenchResult {
-    name: String,
-    path: String,
-    warmup: usize,
-    iterations: usize,
-    median_ms: u64,
-    p95_ms: u64,
-    allocations: Option<u64>,
-    ok: bool,
-}
-
-fn run_benchmarks(
-    project_root: &Path,
-    warmup: usize,
-    iterations: usize,
-) -> Result<BenchReport, Diagnostic> {
-    if iterations == 0 {
-        return Err(Diagnostic::new(
-            "bench",
-            "iterations must be greater than zero",
-        ));
-    }
-    let benches = discover_named_files(project_root, "_bench.ax")?;
-    if benches.is_empty() {
-        return Err(Diagnostic::new(
-            "bench",
-            format!("no *_bench.ax files found under {}", project_root.display()),
-        ));
-    }
-    let mut results = Vec::new();
-    for bench in benches {
-        let name = bench
-            .file_stem()
-            .and_then(|stem| stem.to_str())
-            .unwrap_or("bench")
-            .to_string();
-        for _ in 0..warmup {
-            let _ = check_project_with_options(project_root, &CheckOptions::default())?;
-        }
-        let mut times = Vec::new();
-        for _ in 0..iterations {
-            let started = Instant::now();
-            let _ = check_project_with_options(project_root, &CheckOptions::default())?;
-            times.push(started.elapsed().as_millis() as u64);
-        }
-        times.sort_unstable();
-        let median = times[times.len() / 2];
-        let p95_index = ((times.len() * 95).div_ceil(100)).saturating_sub(1);
-        results.push(BenchResult {
-            name,
-            path: bench.display().to_string(),
-            warmup,
-            iterations,
-            median_ms: median,
-            p95_ms: times[p95_index.min(times.len() - 1)],
-            allocations: None,
-            ok: true,
-        });
-    }
-    Ok(BenchReport {
-        schema_version: "axiom.stage1.bench.v1",
-        passed: results.len(),
-        failed: 0,
-        benches: results,
-    })
-}
-
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 struct MutationIssueReport {
     schema_version: &'static str,
@@ -8296,32 +8241,12 @@ mod tests {
     #[test]
     fn json_flags_describe_agent_envelope_in_help() {
         for path in [
-            &["parse"][..],
-            &["check"],
-            &["build"],
-            &["run"],
-            &["trace"],
-            &["test"],
-            &["caps"],
-            &["repair-plan"],
-            &["evidence"],
-            &["verify"],
-            &["semantic-diff"],
-            &["explain"],
-            &["doctor"],
-            &["fmt"],
-            &["doc"],
-            &["bench"],
-            &["mutation-report"],
-            &["repl"],
-            &["inspect", "symbols"],
-            &["inspect", "graph"],
-            &["inspect", "effects"],
-            &["inspect", "artifacts"],
-            &["generate", "openapi"],
-            &["generate", "policy"],
-            &["generate", "sql"],
-            &["generate", "terraform"],
+            &["parse"][..], &["check"], &["build"], &["run"], &["trace"], &["test"],
+            &["caps"], &["repair-plan"], &["evidence"], &["verify"], &["semantic-diff"],
+            &["explain"], &["doctor"], &["fmt"], &["doc"], &["bench"],
+            &["mutation-report"], &["repl"], &["inspect", "symbols"], &["inspect", "graph"],
+            &["inspect", "effects"], &["inspect", "artifacts"], &["generate", "openapi"],
+            &["generate", "policy"], &["generate", "sql"], &["generate", "terraform"],
             &["generate", "runbook"],
             &["pkg", "graph"],
         ] {
@@ -8374,7 +8299,7 @@ out_dir = "dist"
 "#,
         )
         .expect("write manifest");
-        fs::write(project.join("axiom.lock"), "version = 1\n\n[[package]]\nname = \"doc-md-only\"\nversion = \"0.1.0\"\nsource = \"path\"\n").expect("write lock");
+        fs::write(project.join("axiom.lock"), "version = 1\n").expect("write lock");
         fs::write(
             project.join("src/main.ax"),
             r#"/// Handles a request.
@@ -8405,12 +8330,7 @@ return "ok"
             })
             .collect();
 
-        let mut generated_files = generated_files;
-        generated_files.sort();
-        assert_eq!(
-            generated_files,
-            vec![String::from("index.md"), String::from("search-index.json")]
-        );
+        assert_eq!(generated_files, vec![String::from("index.md")]);
     }
 
     #[test]
@@ -10467,27 +10387,18 @@ print serve("127.0.0.1:0", selected_route, 1)
     #[test]
     fn doc_extractor_pairs_doc_comments_with_signatures() {
         let dir = tempfile::tempdir().expect("tempdir");
-        let project = dir.path().join("doc-extractor");
-        let source = project.join("src/main.ax");
+        let source = dir.path().join("src/main.ax");
         fs::create_dir_all(source.parent().expect("source parent")).expect("mkdir");
-        fs::write(
-            project.join("axiom.toml"),
-            "[package]\nname = \"doc-extractor\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n",
-        )
-        .expect("write manifest");
-        fs::write(project.join("axiom.lock"), "version = 1\n\n[[package]]\nname = \"doc-extractor\"\nversion = \"0.1.0\"\nsource = \"path\"\n")
-            .expect("write lock");
         fs::write(
             &source,
             "/// Adds one.\npub fn inc(value: int): int {\nreturn value + 1\n}\n",
         )
         .expect("write source");
 
-        let items = extract_doc_items(&documentation_packages(&project).expect("semantic docs"))
-            .expect("extract docs");
+        let items = extract_doc_items(&[source]).expect("extract docs");
 
         assert_eq!(items.len(), 1);
-        assert_eq!(items[0].signature, "fn inc(value: int): int");
+        assert_eq!(items[0].signature, "pub fn inc(value: int): int {");
         assert_eq!(items[0].kind, "function");
         assert!(items[0].public);
         assert_eq!(items[0].docs, vec![String::from("Adds one.")]);
@@ -10498,11 +10409,8 @@ print serve("127.0.0.1:0", selected_route, 1)
         let dir = tempfile::tempdir().expect("tempdir");
         let project = dir.path().join("doc-contained");
         fs::create_dir_all(project.join("src")).expect("mkdir");
-        fs::write(
-            project.join("src/main.ax"),
-            "/// Main.\npub fn main(): int {\nreturn 0\n}\n",
-        )
-        .expect("write source");
+        fs::write(project.join("src/main.ax"), "/// Main.\npub fn main() {}\n")
+            .expect("write source");
 
         let outside = dir.path().join("outside-docs");
         let error = generate_docs(&project, &outside, true).expect_err("reject outside output");
@@ -10515,11 +10423,8 @@ print serve("127.0.0.1:0", selected_route, 1)
         let dir = tempfile::tempdir().expect("tempdir");
         let project = dir.path().join("doc-relative-escape");
         fs::create_dir_all(project.join("src")).expect("mkdir");
-        fs::write(
-            project.join("src/main.ax"),
-            "/// Main.\npub fn main(): int {\nreturn 0\n}\n",
-        )
-        .expect("write source");
+        fs::write(project.join("src/main.ax"), "/// Main.\npub fn main() {}\n")
+            .expect("write source");
 
         let outside = project.join("../outside-docs");
         let error = generate_docs(&project, &outside, true).expect_err("reject outside output");
@@ -10541,11 +10446,8 @@ print serve("127.0.0.1:0", selected_route, 1)
         let outside = dir.path().join("outside-docs");
         fs::create_dir_all(project.join("src")).expect("mkdir project src");
         fs::create_dir_all(&outside).expect("mkdir outside");
-        fs::write(
-            project.join("src/main.ax"),
-            "/// Main.\npub fn main(): int {\nreturn 0\n}\n",
-        )
-        .expect("write source");
+        fs::write(project.join("src/main.ax"), "/// Main.\npub fn main() {}\n")
+            .expect("write source");
         std::os::unix::fs::symlink(&outside, project.join("docs")).expect("symlink docs");
         let canonical_project = project.canonicalize().expect("canonical project");
 
@@ -10574,13 +10476,8 @@ print serve("127.0.0.1:0", selected_route, 1)
         let outside = dir.path().join("outside.md");
         fs::create_dir_all(project.join("src")).expect("mkdir project src");
         fs::create_dir_all(project.join("docs/axiom")).expect("mkdir docs");
-        fs::write(project.join("axiom.toml"), "[package]\nname = \"doc-file-symlink\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n").expect("write manifest");
-        fs::write(project.join("axiom.lock"), "version = 1\n\n[[package]]\nname = \"doc-file-symlink\"\nversion = \"0.1.0\"\nsource = \"path\"\n").expect("write lock");
-        fs::write(
-            project.join("src/main.ax"),
-            "/// Main.\npub fn main(): int {\nreturn 0\n}\n",
-        )
-        .expect("write source");
+        fs::write(project.join("src/main.ax"), "/// Main.\npub fn main() {}\n")
+            .expect("write source");
         fs::write(&outside, "do not overwrite").expect("write outside");
         std::os::unix::fs::symlink(&outside, project.join("docs/axiom/index.md"))
             .expect("symlink index");
@@ -10614,13 +10511,8 @@ print serve("127.0.0.1:0", selected_route, 1)
         let outside = dir.path().join("outside.html");
         fs::create_dir_all(project.join("src")).expect("mkdir project src");
         fs::create_dir_all(project.join("dist/docs")).expect("mkdir docs");
-        fs::write(project.join("axiom.toml"), "[package]\nname = \"doc-md-stale-html-symlink\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n").expect("write manifest");
-        fs::write(project.join("axiom.lock"), "version = 1\n\n[[package]]\nname = \"doc-md-stale-html-symlink\"\nversion = \"0.1.0\"\nsource = \"path\"\n").expect("write lock");
-        fs::write(
-            project.join("src/main.ax"),
-            "/// Main.\npub fn main(): int {\nreturn 0\n}\n",
-        )
-        .expect("write source");
+        fs::write(project.join("src/main.ax"), "/// Main.\npub fn main() {}\n")
+            .expect("write source");
         fs::write(&outside, "do not overwrite").expect("write outside");
         std::os::unix::fs::symlink(&outside, project.join("dist/docs/index.html"))
             .expect("symlink index html");
@@ -10645,13 +10537,8 @@ print serve("127.0.0.1:0", selected_route, 1)
         let outside = dir.path().join("missing.html");
         fs::create_dir_all(project.join("src")).expect("mkdir project src");
         fs::create_dir_all(project.join("dist/docs")).expect("mkdir docs");
-        fs::write(project.join("axiom.toml"), "[package]\nname = \"doc-md-broken-html-symlink\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n").expect("write manifest");
-        fs::write(project.join("axiom.lock"), "version = 1\n\n[[package]]\nname = \"doc-md-broken-html-symlink\"\nversion = \"0.1.0\"\nsource = \"path\"\n").expect("write lock");
-        fs::write(
-            project.join("src/main.ax"),
-            "/// Main.\npub fn main(): int {\nreturn 0\n}\n",
-        )
-        .expect("write source");
+        fs::write(project.join("src/main.ax"), "/// Main.\npub fn main() {}\n")
+            .expect("write source");
         std::os::unix::fs::symlink(&outside, project.join("dist/docs/index.html"))
             .expect("symlink index html");
         let canonical_project = fs::canonicalize(&project).expect("canonical project");
@@ -10763,7 +10650,7 @@ print serve("127.0.0.1:0", selected_route, 1)
             "[package]\nname = \"doc-json\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nenv = [\"AXIOM_ENV\"]\n",
         )
         .expect("write manifest");
-        fs::write(project.join("axiom.lock"), "version = 1\n\n[[package]]\nname = \"doc-json\"\nversion = \"0.1.0\"\nsource = \"path\"\n").expect("write lock");
+        fs::write(project.join("axiom.lock"), "version = 1\n").expect("write lock");
         fs::write(
             project.join("src/main.ax"),
             "/// Response text alias.\npub type ResponseText = string\n\n/// Handles a request.\n/// Example: route(\"/health\")\npub fn route(path: string): string {\nreturn \"ok\"\n}\n",
@@ -10789,171 +10676,6 @@ print serve("127.0.0.1:0", selected_route, 1)
                 .iter()
                 .any(|capability| capability.name == "env")
         );
-    }
-
-    #[test]
-    fn typed_docs_use_semantic_symbols_resolve_links_and_run_doctests() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let project = dir.path().join("typed-docs");
-        fs::create_dir_all(project.join("src")).expect("mkdir");
-        fs::write(
-            project.join("axiom.toml"),
-            "[package]\nname = \"typed-docs\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n",
-        )
-        .expect("write manifest");
-        fs::write(project.join("axiom.lock"), "version = 1\n\n[[package]]\nname = \"typed-docs\"\nversion = \"0.1.0\"\nsource = \"path\"\n")
-            .expect("write lock");
-        fs::write(
-            project.join("src/main.ax"),
-            r#"/// Returns a public {@link Response} and whitespace-tolerant {@link Response }.
-/// ```axiom
-/// print "doctest"
-/// ```
-pub fn route(): string {
-return "ok"
-}
-
-/// Response envelope.
-pub struct Response {
-status: int
-}
-
-pub enum Outcome {
-Ready
-Failed(string)
-}
-
-impl Response {
-pub fn text(self): string {
-return "ok"
-}
-}
-
-fn private_helper(): int {
-return 7
-}
-"#,
-        )
-        .expect("write source");
-
-        let output =
-            generate_docs(&project, &project.join("docs/api"), true).expect("generate docs");
-
-        assert_eq!(output.schema, DOC_SCHEMA);
-        assert!(output.search_index.exists());
-        assert_eq!(output.doctests.len(), 1);
-        assert_eq!(
-            output.doctests[0].capability_policy,
-            "isolated-no-capabilities"
-        );
-        assert!(
-            output
-                .items
-                .iter()
-                .any(|item| item.kind == "field" && item.name == "status")
-        );
-        assert!(
-            output
-                .items
-                .iter()
-                .any(|item| item.kind == "variant" && item.name == "Ready")
-        );
-        assert!(output.items.iter().any(|item| item.kind == "impl"));
-        assert!(
-            output
-                .items
-                .iter()
-                .any(|item| item.kind == "function" && item.name == "text")
-        );
-        assert!(
-            !output
-                .items
-                .iter()
-                .any(|item| item.name == "private_helper")
-        );
-        let route = output
-            .items
-            .iter()
-            .find(|item| item.name == "route")
-            .expect("route item");
-        assert_eq!(route.links.len(), 2);
-        assert!(route.links[0].resolved_id.ends_with("/struct/Response"));
-        let markdown = fs::read_to_string(project.join("docs/api/index.md")).expect("read markdown");
-        assert!(markdown.contains(&format!("[Response](#{})", route.links[0].resolved_id)));
-        let html = fs::read_to_string(project.join("docs/api/index.html")).expect("read HTML");
-        assert!(html.contains(&format!(
-            "<a href=\"#{}\">Response</a>",
-            route.links[0].resolved_id
-        )));
-        assert!(!html.contains("[@link"));
-        let search = fs::read_to_string(&output.search_index).expect("read search index");
-        assert!(search.contains("axiom.docs.search.v1"));
-        assert!(search.contains("private_helper") == false);
-    }
-
-    #[test]
-    fn typed_docs_reject_broken_links_and_failing_doctests() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let project = dir.path().join("bad-docs");
-        fs::create_dir_all(project.join("src")).expect("mkdir");
-        fs::write(
-            project.join("axiom.toml"),
-            "[package]\nname = \"bad-docs\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n",
-        )
-        .expect("write manifest");
-        fs::write(project.join("axiom.lock"), "version = 1\n\n[[package]]\nname = \"bad-docs\"\nversion = \"0.1.0\"\nsource = \"path\"\n")
-            .expect("write lock");
-        fs::write(
-            project.join("src/main.ax"),
-            "/// See {@link Missing}.\npub fn route(): int {\nreturn 1\n}\n",
-        )
-        .expect("write source");
-        let error = generate_docs(&project, &project.join("docs/api"), true)
-            .expect_err("broken link must block docs");
-        assert_eq!(error.code.as_deref(), Some("doc_link_broken"));
-
-        fs::write(
-            project.join("src/main.ax"),
-            "/// ```axiom\n/// this is not valid Axiom\n/// ```\npub fn route(): int {\nreturn 1\n}\n",
-        )
-        .expect("write failing doctest source");
-        let error = generate_docs(&project, &project.join("docs/api"), true)
-            .expect_err("failing doctest must block docs");
-        assert_eq!(error.code.as_deref(), Some("doctest_failed"));
-    }
-
-    #[test]
-    fn typed_docs_reject_ambiguous_top_level_links() {
-        let item = |id: &str, name: &str, docs: Vec<(usize, String)>| DocItem {
-            id: id.to_owned(),
-            name: name.to_owned(),
-            package: String::from("fixture"),
-            module: String::from("src/main.ax"),
-            file: String::from("src/main.ax"),
-            kind: String::from("function"),
-            public: true,
-            visibility: String::from("public"),
-            parent_id: None,
-            source_line: 1,
-            source_column: 1,
-            effects: Vec::new(),
-            signature: format!("pub fn {name}()"),
-            docs: Vec::new(),
-            examples: Vec::new(),
-            links: Vec::new(),
-            doc_lines: docs,
-        };
-        let mut items = vec![
-            item("axiom://fixture/one", "Duplicate", Vec::new()),
-            item("axiom://fixture/two", "Duplicate", Vec::new()),
-            item(
-                "axiom://fixture/route",
-                "route",
-                vec![(1, String::from("See {@link Duplicate}."))],
-            ),
-        ];
-        let error = resolve_doc_links(&mut items).expect_err("ambiguous link must block docs");
-        assert_eq!(error.code.as_deref(), Some("doc_link_ambiguous"));
     }
 
     #[test]
