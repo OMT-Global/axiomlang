@@ -12,10 +12,10 @@ CRAP = complexity^2 * (1 - coverage)^3 + complexity
 ```
 
 The proposal script is dependency-free so it can run in the existing shell-only
-CI shape. It estimates function complexity from Rust control-flow tokens and can
-fold in line coverage from an optional LCOV report. When no coverage report is
-available, functions are ranked as if uncovered so the output is conservative,
-but still report-only.
+CI shape. It estimates function complexity from Rust control-flow tokens and
+uses line coverage from an optional LCOV report. Without an LCOV report,
+functions are explicitly reported as **unmeasured**: they do not receive a
+fabricated zero-coverage CRAP score and cannot trip an enforcement gate.
 
 ## Proposed thresholds
 
@@ -44,7 +44,8 @@ This writes `stage1/quality/crap-threshold-proposal.json` with:
 
 - report-only status and `ciBlocking: false`
 - the proposed threshold bands above
-- observed bootstrap thresholds from the current hotspot distribution
+- measured and unmeasured function counts, plus observed scores when coverage
+  evidence was supplied
 - the top stage1 Rust hotspots for review
 
 Optional LCOV input can be supplied directly:
@@ -55,4 +56,6 @@ python3 scripts/ci/propose-stage1-crap-thresholds.py \
   --output stage1/quality/crap-threshold-proposal.json
 ```
 
-Do not wire `--enforce` into CI until the proposal is explicitly accepted.
+`--enforce` requires `--lcov`; this prevents default-zero estimates from
+blocking work. Do not wire enforcement into CI until the baseline policy is
+explicitly accepted.
