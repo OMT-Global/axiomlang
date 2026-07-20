@@ -13,3 +13,5 @@ Buffers have explicit byte length and `borrowed_call`, `borrowed_event`, or `own
 Each call declares its capability/effect, which is checked and audited before dispatch. Audit records provider identity, operation class, capability, and decision—never buffer content, credentials, paths, addresses, or raw handles. Cancellation drains/acknowledges before teardown; v1 events are synchronous only.
 
 Faults, ABI violations, invalid output, and unacknowledged cancellation become `provider_fault`; the runtime quarantines the provider and invalidates its handles. The reference C fixture demonstrates descriptor-only calls and deterministic release.
+
+The required Fast Checks lane validates the contract and runs its negative self-test. The portable C reference fixture is compiled by the supported-target matrix lane; each matrix entry passes its target label to the same validator so all supported runner targets exercise the fixture.
