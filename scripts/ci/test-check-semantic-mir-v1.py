@@ -37,6 +37,26 @@ def main():
         path.write_text(json.dumps(value))
         if run(root).returncode == 0:
             raise SystemExit("Semantic MIR block without provenance was accepted")
+        value = json.loads(SNAPSHOT.read_text())
+        del value["migration"]
+        path.write_text(json.dumps(value))
+        if run(root).returncode == 0:
+            raise SystemExit("Semantic MIR fixture without required migration was accepted")
+        value = json.loads(SNAPSHOT.read_text())
+        value["package_id"] = "not-an-axiom-id"
+        path.write_text(json.dumps(value))
+        if run(root).returncode == 0:
+            raise SystemExit("Semantic MIR fixture with invalid package id was accepted")
+        value = json.loads(SNAPSHOT.read_text())
+        value["functions"][0]["span"]["line"] = 0
+        path.write_text(json.dumps(value))
+        if run(root).returncode == 0:
+            raise SystemExit("Semantic MIR fixture with invalid source span was accepted")
+        value = json.loads(SNAPSHOT.read_text())
+        value["unexpected_schema_violation"] = True
+        path.write_text(json.dumps(value))
+        if run(root).returncode == 0:
+            raise SystemExit("Semantic MIR fixture with unexpected schema field was accepted")
     print("Semantic MIR v1 checker tests passed")
 
 if __name__ == "__main__":
