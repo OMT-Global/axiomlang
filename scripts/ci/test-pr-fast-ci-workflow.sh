@@ -189,4 +189,12 @@ if (( orphaned_self_tests )); then
   exit 1
 fi
 
+provider_abi_check=$(grep -nF "scripts/ci/check-provider-abi-v1.py" "$fast_checks_script" || true)
+provider_abi_self_test=$(grep -nF "scripts/ci/test-check-provider-abi-v1.py" "$fast_checks_script" || true)
+provider_abi_matrix=$(grep -nF "provider-abi-target-matrix:" "$workflow" || true)
+if [[ -z "$provider_abi_check" || -z "$provider_abi_self_test" || -z "$provider_abi_matrix" ]]; then
+  echo "Provider ABI validator, self-test, and target matrix must remain required" >&2
+  exit 1
+fi
+
 echo "pr-fast-ci workflow validation passed"
