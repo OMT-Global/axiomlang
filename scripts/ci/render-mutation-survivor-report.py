@@ -39,9 +39,24 @@ def survivor_entries(payload: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def recommended_fixture(entry: dict[str, Any]) -> str:
+
+
     area = slug(str(entry.get("area", "stage1")))
     name = slug(str(entry.get("name", entry.get("test_filter", "survivor"))))
     return f"{area}_{name}_survivor_test.ax"
+
+def render_governing_issue(payload: dict[str, Any]) -> str:
+    issue = payload.get("governing_issue")
+    if not isinstance(issue, dict):
+        return "unknown"
+    number = issue.get("number")
+    url = issue.get("url")
+    if isinstance(number, int) and isinstance(url, str) and url:
+        return f"[#{number}]({url})"
+    if isinstance(number, int):
+        return f"#{number}"
+    return "unknown"
+
 
 
 def render_report(payload: dict[str, Any]) -> str:
@@ -63,6 +78,7 @@ def render_report(payload: dict[str, Any]) -> str:
         f"- Total mutants: `{summary.get('total', 'unknown')}`",
         f"- Killed: `{summary.get('killed', 'unknown')}`",
         f"- Survived: `{len(survivors)}`",
+        f"- Governing issue: {render_governing_issue(payload)}",
         "",
     ]
     if not survivors:

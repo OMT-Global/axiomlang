@@ -11,6 +11,10 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 AXIOMC_MANIFEST = REPO_ROOT / "stage1/Cargo.toml"
+GOVERNING_ISSUE = {
+    "number": 1463,
+    "url": "https://github.com/OMT-Global/axiomlang/issues/1463",
+}
 
 
 @dataclass(frozen=True)
@@ -139,6 +143,7 @@ def main() -> int:
     survivors = [result for result in results if result["status"] == "survived"]
     report = {
         "schema_version": "axiom.stage1.mutation-smoke.v1",
+        "governing_issue": GOVERNING_ISSUE,
         "mutants": results,
         "summary": {
             "total": len(results),
