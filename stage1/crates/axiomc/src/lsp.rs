@@ -11,7 +11,7 @@ use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-const TEXT_DOCUMENT_SYNC_KIND_FULL: u8 = 1;
+const TEXT_DOCUMENT_SYNC_KIND_INCREMENTAL: u8 = 2;
 const MAX_DOCUMENT_BYTES: usize = 1024 * 1024;
 const MAX_WORKSPACE_BYTES: usize = 16 * 1024 * 1024;
 const MAX_WORKSPACE_DOCUMENTS: usize = 2048;
@@ -369,7 +369,7 @@ pub fn handle_message(payload: &str) -> Result<LspResponse, Diagnostic> {
 pub fn publish_diagnostics(uri: &str, source: &str) -> Value {
     let diagnostics = analyze_source(uri, source)
         .into_iter()
-        .map(lsp_diagnostic)
+        .map(|diagnostic| lsp_diagnostic(source, diagnostic))
         .collect::<Vec<Value>>();
     json!({
         "jsonrpc": "2.0",
@@ -388,7 +388,7 @@ fn initialize_response(id: Value) -> Value {
         "result": {
             "serverInfo": { "name": "axiom-analyzer", "version": env!("CARGO_PKG_VERSION") },
             "capabilities": {
-                "textDocumentSync": { "openClose": true, "change": TEXT_DOCUMENT_SYNC_KIND_FULL },
+                "textDocumentSync": { "openClose": true, "change": TEXT_DOCUMENT_SYNC_KIND_INCREMENTAL },
                 "hoverProvider": true,
                 "definitionProvider": true,
                 "referencesProvider": true,
@@ -497,7 +497,7 @@ fn symbols_for_program(uri: &str, source: &str, program: &syntax::Program) -> Ve
             kind,
             uri: uri.to_owned(),
             line,
-            column,
+            column: utf16_column_for_source_position(source, line, column),
             detail: source_line(source, line).to_owned(),
         });
     };
@@ -545,7 +545,8 @@ fn symbols_for_incomplete_source(uri: &str, source: &str) -> Vec<LspSymbol> {
         let Some((rest, kind)) = kind else { continue };
         let name = rest.chars().take_while(|character| character.is_ascii_alphanumeric() || *character == '_').collect::<String>();
         if name.is_empty() { continue }
-        let column = line.find(&name).unwrap_or_default() + 1;
+        let scalar_column = line[..line.find(&name).unwrap_or_default()].chars().count() + 1;
+        let column = utf16_column_for_line(line, scalar_column);
         symbols.push(LspSymbol { name, kind, uri: uri.to_owned(), line: line_index + 1, column, detail: line.trim().to_owned() });
     }
     symbols
@@ -588,12 +589,46 @@ fn position_offset(source: &str, position: &Value) -> Option<usize> {
     let mut offset = 0usize;
     for (index, text) in source.split_inclusive('\n').enumerate() {
         if index == line {
-            let byte_offset = text.char_indices().nth(character).map(|(offset, _)| offset).unwrap_or(text.len());
+            let byte_offset = byte_offset_for_utf16_position(text, character)?;
             return Some(offset + byte_offset);
         }
         offset += text.len();
     }
     if line == source.lines().count() && character == 0 { Some(source.len()) } else { None }
+}
+
+fn byte_offset_for_utf16_position(line: &str, character: usize) -> Option<usize> {
+    let line = line
+        .strip_suffix("\r\n")
+        .or_else(|| line.strip_suffix('\n'))
+        .unwrap_or(line);
+    let mut utf16_offset = 0usize;
+    for (byte_offset, scalar) in line.char_indices() {
+        if utf16_offset == character {
+            return Some(byte_offset);
+        }
+        utf16_offset = utf16_offset.saturating_add(scalar.len_utf16());
+        if utf16_offset > character {
+            return None;
+        }
+    }
+    (utf16_offset == character).then_some(line.len())
+}
+
+fn utf16_column_for_source_position(source: &str, line: usize, scalar_column: usize) -> usize {
+    source
+        .lines()
+        .nth(line.saturating_sub(1))
+        .map(|text| utf16_column_for_line(text, scalar_column))
+        .unwrap_or(1)
+}
+
+fn utf16_column_for_line(line: &str, scalar_column: usize) -> usize {
+    line.chars()
+        .take(scalar_column.saturating_sub(1))
+        .map(char::len_utf16)
+        .sum::<usize>()
+        .saturating_add(1)
 }
 
 fn range_offsets(source: &str, range: &Value) -> Option<(usize, usize)> {
@@ -628,7 +663,8 @@ fn word_occurrences(source: &str, word: &str) -> Vec<(usize, usize)> {
             let start = cursor + relative;
             let end = start + word.len();
             if (start == 0 || !is_identifier_byte(line.as_bytes()[start - 1])) && (end == line.len() || !is_identifier_byte(line.as_bytes()[end])) {
-                occurrences.push((line_index + 1, line[..start].chars().count() + 1));
+                let scalar_column = line[..start].chars().count() + 1;
+                occurrences.push((line_index + 1, utf16_column_for_line(line, scalar_column)));
             }
             cursor = end;
         }
@@ -723,22 +759,26 @@ fn diagnostic_with_default_path(mut diagnostic: Diagnostic, path: &Path) -> Diag
     diagnostic
 }
 
-fn lsp_diagnostic(diagnostic: Diagnostic) -> Value {
+fn lsp_diagnostic(source: &str, diagnostic: Diagnostic) -> Value {
     let start_line = diagnostic.line.unwrap_or(1);
     let start_column = diagnostic.column.unwrap_or(1);
     let end_line = diagnostic.end_line.unwrap_or(start_line);
     let end_column = diagnostic
         .end_column
         .unwrap_or_else(|| start_column.saturating_add(1));
+    let start_character = utf16_column_for_source_position(source, start_line, start_column)
+        .saturating_sub(1);
+    let end_character = utf16_column_for_source_position(source, end_line, end_column)
+        .saturating_sub(1);
     json!({
         "range": {
             "start": {
                 "line": start_line.saturating_sub(1),
-                "character": start_column.saturating_sub(1)
+                "character": start_character
             },
             "end": {
                 "line": end_line.saturating_sub(1),
-                "character": end_column.saturating_sub(1)
+                "character": end_character
             }
         },
         "severity": 1,
@@ -804,7 +844,7 @@ mod tests {
     }
 
     #[test]
-    fn initialize_advertises_full_document_diagnostics_sync() {
+    fn initialize_advertises_incremental_document_sync() {
         let response =
             handle_message(r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"#)
                 .expect("handle initialize");
@@ -818,7 +858,7 @@ mod tests {
         );
         assert_eq!(
             response.messages[0]["result"]["capabilities"]["textDocumentSync"]["change"],
-            json!(TEXT_DOCUMENT_SYNC_KIND_FULL)
+            json!(2)
         );
     }
 
@@ -940,13 +980,29 @@ mod tests {
             .with_code("use_after_move")
             .with_span_range(2, 7, 2, 15);
 
-        let payload = lsp_diagnostic(diagnostic);
+        let payload = lsp_diagnostic("first\nsecond diagnostic\n", diagnostic);
 
         assert_eq!(
             payload["range"],
             json!({
                 "start": { "line": 1, "character": 6 },
                 "end": { "line": 1, "character": 14 }
+            })
+        );
+    }
+
+    #[test]
+    fn lsp_diagnostic_uses_utf16_characters_after_astral_unicode() {
+        let diagnostic = Diagnostic::new("type", "undefined variable")
+            .with_span_range(1, 2, 1, 7);
+
+        let payload = lsp_diagnostic("😀value\n", diagnostic);
+
+        assert_eq!(
+            payload["range"],
+            json!({
+                "start": { "line": 0, "character": 2 },
+                "end": { "line": 0, "character": 7 }
             })
         );
     }
@@ -1021,6 +1077,79 @@ mod tests {
 
         assert_eq!(response.messages.len(), 1);
         assert_eq!(server.documents["file:///tmp/good.ax"].text, "}print 1\\n");
+    }
+
+    #[test]
+    fn did_change_interprets_ranges_as_utf16_code_units() {
+        let uri = "file:///tmp/utf16-change.ax";
+        let open = notification(
+            "textDocument/didOpen",
+            json!({
+                "textDocument": {
+                    "uri": uri,
+                    "languageId": "axiom",
+                    "version": 1,
+                    "text": "😀beta\n"
+                }
+            }),
+        );
+        let change = notification(
+            "textDocument/didChange",
+            json!({
+                "textDocument": { "uri": uri, "version": 2 },
+                "contentChanges": [{
+                    "range": {
+                        "start": { "line": 0, "character": 2 },
+                        "end": { "line": 0, "character": 6 }
+                    },
+                    "text": "gamma"
+                }]
+            }),
+        );
+
+        let mut server = LspServer::default();
+        server.handle_message(&open).expect("open document");
+        server.handle_message(&change).expect("apply incremental change");
+
+        assert_eq!(server.documents[uri].text, "😀gamma\n");
+    }
+
+    #[test]
+    fn references_emit_utf16_positions_after_astral_unicode() {
+        let uri = "file:///tmp/utf16-navigation.ax";
+        let mut server = LspServer::default();
+        server
+            .handle_message(&notification(
+                "textDocument/didOpen",
+                json!({
+                    "textDocument": {
+                        "uri": uri,
+                        "languageId": "axiom",
+                        "version": 1,
+                        "text": "// 😀 health\npub fn health(): int {\nreturn 1\n}\n"
+                    }
+                }),
+            ))
+            .expect("open document");
+
+        let response = server
+            .handle_message(&request(
+                1,
+                "textDocument/references",
+                json!({
+                    "textDocument": { "uri": uri },
+                    "position": { "line": 1, "character": 7 },
+                    "context": { "includeDeclaration": true }
+                }),
+            ))
+            .expect("find references");
+        let locations = response.messages[0]["result"].as_array().expect("locations");
+
+        assert!(locations.iter().any(|location| {
+            location["uri"] == json!(uri)
+                && location["range"]["start"] == json!({ "line": 0, "character": 6 })
+                && location["range"]["end"] == json!({ "line": 0, "character": 12 })
+        }));
     }
 
     #[test]
