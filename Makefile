@@ -162,6 +162,7 @@ stage1-stdlib-test:
 
 stage1-stdlib-catalog-test:
 	python3 scripts/ci/check-stdlib-catalog.py --json
+	python3 scripts/ci/test-check-stdlib-catalog.py
 
 stage1-compiler-property-test:
 	bash scripts/ci/run-compiler-property-checks.sh

@@ -6,2076 +6,3746 @@
   "modules": [
     {
       "name": "std/async.ax",
+      "module_id": "axiom://stdlib/stage1-v1/async",
+      "module_loading": {
+        "kind": "embedded_source",
+        "source_path": "stage1/crates/axiomc/src/stdlib.rs",
+        "source_digest": "ca01757dc8cd79f1a931e5cc2c5aef3cfe9fef018cf0c9a91186e302db96efcd"
+      },
       "capabilities": [
         "async"
       ],
-      "source_identity": "embedded+source:stage1/crates/axiomc/src/stdlib.rs",
       "symbols": [
         {
           "name": "cancel",
+          "signature": "fn cancel<T>(task: Task<T>): Task<T>",
           "effect": "capability:async",
           "binding": "axiom://provider/stage1-v1/async/cancel",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/async/cancel",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "channel",
+          "signature": "fn channel<T>(): AsyncChannel<T>",
           "effect": "capability:async",
           "binding": "axiom://provider/stage1-v1/async/channel",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/async/channel",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "is_canceled",
+          "signature": "fn is_canceled<T>(task: Task<T>): bool",
           "effect": "capability:async",
           "binding": "axiom://provider/stage1-v1/async/is_canceled",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/async/is_canceled",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "join",
+          "signature": "fn join<T>(handle: JoinHandle<T>): Task<T>",
           "effect": "capability:async",
           "binding": "axiom://provider/stage1-v1/async/join",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/async/join",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "ready",
+          "signature": "fn ready<T>(value: T): Task<T>",
           "effect": "capability:async",
           "binding": "axiom://provider/stage1-v1/async/ready",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/async/ready",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "recv",
+          "signature": "fn recv<T>(channel: AsyncChannel<T>): Task<Option<T>>",
           "effect": "capability:async",
           "binding": "axiom://provider/stage1-v1/async/recv",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/async/recv",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "select",
+          "signature": "fn select<T>(left: Task<Option<T>>, right: Task<Option<T>>): Task<SelectResult<T>>",
           "effect": "capability:async",
           "binding": "axiom://provider/stage1-v1/async/select",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/async/select",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "selected",
+          "signature": "fn selected<T>(result: SelectResult<T>): int",
           "effect": "capability:async",
           "binding": "axiom://provider/stage1-v1/async/selected",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/async/selected",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "selected_value",
+          "signature": "fn selected_value<T>(result: SelectResult<T>): Option<T>",
           "effect": "capability:async",
           "binding": "axiom://provider/stage1-v1/async/selected_value",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/async/selected_value",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "send",
+          "signature": "fn send<T>(channel: AsyncChannel<T>, value: T): Task<AsyncChannel<T>>",
           "effect": "capability:async",
           "binding": "axiom://provider/stage1-v1/async/send",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/async/send",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "spawn",
+          "signature": "fn spawn<T>(task: Task<T>): JoinHandle<T>",
           "effect": "capability:async",
           "binding": "axiom://provider/stage1-v1/async/spawn",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/async/spawn",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "timeout",
+          "signature": "fn timeout<T>(task: Task<T>, milliseconds: int): Task<Option<T>>",
           "effect": "capability:async",
           "binding": "axiom://provider/stage1-v1/async/timeout",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/async/timeout",
+            "kind": "declared_provider"
+          }
         }
       ]
     },
     {
       "name": "std/async_net.ax",
+      "module_id": "axiom://stdlib/stage1-v1/async_net",
+      "module_loading": {
+        "kind": "embedded_source",
+        "source_path": "stage1/crates/axiomc/src/stdlib.rs",
+        "source_digest": "16438ee3099645efdb0a9a7e6156579f6cff92fc73b86c0599d843229bdbe258"
+      },
       "capabilities": [
         "async",
         "net"
       ],
-      "source_identity": "embedded+source:stage1/crates/axiomc/src/stdlib.rs",
       "symbols": [
         {
           "name": "accept",
+          "signature": "async fn accept(listener: TcpListener): TcpStream",
           "effect": "capability:async,net",
           "binding": "axiom://provider/stage1-v1/async_net/accept",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/async_net/accept",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "close",
+          "signature": "fn close(stream: TcpStream): int",
           "effect": "capability:async,net",
           "binding": "axiom://provider/stage1-v1/async_net/close",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/async_net/close",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "close_listener",
+          "signature": "fn close_listener(listener: TcpListener): int",
           "effect": "capability:async,net",
           "binding": "axiom://provider/stage1-v1/async_net/close_listener",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/async_net/close_listener",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "listen",
+          "signature": "async fn listen(bind: string): TcpListener",
           "effect": "capability:async,net",
           "binding": "axiom://provider/stage1-v1/async_net/listen",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/async_net/listen",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "local_port",
+          "signature": "fn local_port(listener: TcpListener): int",
           "effect": "capability:async,net",
           "binding": "axiom://provider/stage1-v1/async_net/local_port",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/async_net/local_port",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "recv_text",
+          "signature": "async fn recv_text(stream: TcpStream, max_bytes: int): string",
           "effect": "capability:async,net",
           "binding": "axiom://provider/stage1-v1/async_net/recv_text",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/async_net/recv_text",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "send_text",
+          "signature": "async fn send_text(stream: TcpStream, message: string): int",
           "effect": "capability:async,net",
           "binding": "axiom://provider/stage1-v1/async_net/send_text",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/async_net/send_text",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "tcp_dial",
+          "signature": "async fn tcp_dial(host: string, port: int, message: string, timeout_ms: int): Option<string>",
           "effect": "capability:async,net",
           "binding": "axiom://provider/stage1-v1/async_net/tcp_dial",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/async_net/tcp_dial",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "tcp_listen_loopback_once",
+          "signature": "async fn tcp_listen_loopback_once(response: string, timeout_ms: int): Option<int>",
           "effect": "capability:async,net",
           "binding": "axiom://provider/stage1-v1/async_net/tcp_listen_loopback_once",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/async_net/tcp_listen_loopback_once",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "udp_bind_loopback_once",
+          "signature": "async fn udp_bind_loopback_once(response: string, timeout_ms: int): Option<int>",
           "effect": "capability:async,net",
           "binding": "axiom://provider/stage1-v1/async_net/udp_bind_loopback_once",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/async_net/udp_bind_loopback_once",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "udp_send_recv",
+          "signature": "async fn udp_send_recv(host: string, port: int, message: string, timeout_ms: int): Option<string>",
           "effect": "capability:async,net",
           "binding": "axiom://provider/stage1-v1/async_net/udp_send_recv",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/async_net/udp_send_recv",
+            "kind": "declared_provider"
+          }
         }
       ]
     },
     {
       "name": "std/async_time.ax",
+      "module_id": "axiom://stdlib/stage1-v1/async_time",
+      "module_loading": {
+        "kind": "embedded_source",
+        "source_path": "stage1/crates/axiomc/src/stdlib.rs",
+        "source_digest": "1c23a9ae4127cc878238d4134ebfc93b130c74c20584b8d1791a3fc22464565b"
+      },
       "capabilities": [
         "async",
         "clock"
       ],
-      "source_identity": "embedded+source:stage1/crates/axiomc/src/stdlib.rs",
       "symbols": [
         {
           "name": "sleep_duration_ms",
+          "signature": "async fn sleep_duration_ms(milliseconds: int): int",
           "effect": "capability:async,clock",
           "binding": "axiom://provider/stage1-v1/async_time/sleep_duration_ms",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/async_time/sleep_duration_ms",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "sleep_ms",
+          "signature": "async fn sleep_ms(milliseconds: int): int",
           "effect": "capability:async,clock",
           "binding": "axiom://provider/stage1-v1/async_time/sleep_ms",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/async_time/sleep_ms",
+            "kind": "declared_provider"
+          }
         }
       ]
     },
     {
       "name": "std/cli.ax",
+      "module_id": "axiom://stdlib/stage1-v1/cli",
+      "module_loading": {
+        "kind": "embedded_source",
+        "source_path": "stage1/crates/axiomc/src/stdlib.rs",
+        "source_digest": "c5ee00bc3ad34cffe94f585c9497012255dcd1a949194ef1b9ef6e32de355375"
+      },
       "capabilities": [],
-      "source_identity": "embedded+source:stage1/crates/axiomc/src/stdlib.rs",
       "symbols": [
         {
           "name": "arg",
+          "signature": "fn arg(index: int): Option<string>",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/cli/arg",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/cli/arg",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "arg_count",
+          "signature": "fn arg_count(): int",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/cli/arg_count",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/cli/arg_count",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "args",
+          "signature": "fn args(): [string]",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/cli/args",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/cli/args",
+            "kind": "declared_provider"
+          }
         }
       ]
     },
     {
       "name": "std/collections.ax",
+      "module_id": "axiom://stdlib/stage1-v1/collections",
+      "module_loading": {
+        "kind": "embedded_source",
+        "source_path": "stage1/crates/axiomc/src/stdlib.rs",
+        "source_digest": "15cb158b1ad4ad12679204f04fc7f3ad312790d8e7fbc249722b642f8ab73b9e"
+      },
       "capabilities": [],
-      "source_identity": "embedded+source:stage1/crates/axiomc/src/stdlib.rs",
       "symbols": [
         {
           "name": "contains",
+          "signature": "fn contains<K, V>(values: {K: V}, key: K): bool",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/collections/contains",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/collections/contains",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "count",
+          "signature": "fn count<T>(values: &[T]): int",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/collections/count",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/collections/count",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "count_mut",
+          "signature": "fn count_mut<T>(values: &mut [T]): int",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/collections/count_mut",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/collections/count_mut",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "get",
+          "signature": "fn get<K, V>(values: {K: V}, key: K): Option<V>",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/collections/get",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/collections/get",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "get_or_default",
+          "signature": "fn get_or_default<K, V>(values: {K: V}, key: K, default: V): V",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/collections/get_or_default",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/collections/get_or_default",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "has_items",
+          "signature": "fn has_items<T>(values: &[T]): bool",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/collections/has_items",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/collections/has_items",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "is_empty",
+          "signature": "fn is_empty<T>(values: &[T]): bool",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/collections/is_empty",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/collections/is_empty",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "keys",
+          "signature": "fn keys<K, V>(values: {K: V}): [K]",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/collections/keys",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/collections/keys",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "skip",
+          "signature": "fn skip<T>(values: &[T], count: int): &[T]",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/collections/skip",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/collections/skip",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "take",
+          "signature": "fn take<T>(values: &[T], count: int): &[T]",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/collections/take",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/collections/take",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "window",
+          "signature": "fn window<T>(values: &[T], start: int, end: int): &[T]",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/collections/window",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/collections/window",
+            "kind": "declared_provider"
+          }
         }
       ]
     },
     {
       "name": "std/crypto.ax",
+      "module_id": "axiom://stdlib/stage1-v1/crypto",
+      "module_loading": {
+        "kind": "embedded_source",
+        "source_path": "stage1/crates/axiomc/src/stdlib.rs",
+        "source_digest": "aa4e6e5385a1f46594b09ff77a8dca5d629057774a5aeeeabd40b961f44a0847"
+      },
       "capabilities": [
         "crypto"
       ],
-      "source_identity": "embedded+source:stage1/crates/axiomc/src/stdlib.rs",
       "symbols": [
         {
           "name": "aead_algorithm_name",
+          "signature": "fn aead_algorithm_name(alg: AeadAlgorithm): string",
           "effect": "capability:crypto",
           "binding": "axiom://provider/stage1-v1/crypto/aead_algorithm_name",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/crypto/aead_algorithm_name",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "aead_open",
+          "signature": "fn aead_open(alg: AeadAlgorithm, key: &[u8], nonce: &[u8], aad: &[u8], ciphertext: &[u8]): Option<[u8]>",
           "effect": "capability:crypto",
           "binding": "axiom://provider/stage1-v1/crypto/aead_open",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/crypto/aead_open",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "aead_seal",
+          "signature": "fn aead_seal(alg: AeadAlgorithm, key: &[u8], nonce: &[u8], aad: &[u8], plaintext: &[u8]): [u8]",
           "effect": "capability:crypto",
           "binding": "axiom://provider/stage1-v1/crypto/aead_seal",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/crypto/aead_seal",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "constant_time_eq",
+          "signature": "fn constant_time_eq(left: string, right: string): bool",
           "effect": "capability:crypto",
           "binding": "axiom://provider/stage1-v1/crypto/constant_time_eq",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/crypto/constant_time_eq",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "constant_time_eq_u8",
+          "signature": "fn constant_time_eq_u8(left: &[u8], right: &[u8]): bool",
           "effect": "capability:crypto",
           "binding": "axiom://provider/stage1-v1/crypto/constant_time_eq_u8",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/crypto/constant_time_eq_u8",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "ed25519_keygen",
+          "signature": "fn ed25519_keygen(): ([u8], [u8])",
           "effect": "capability:crypto",
           "binding": "axiom://provider/stage1-v1/crypto/ed25519_keygen",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/crypto/ed25519_keygen",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "ed25519_sign",
+          "signature": "fn ed25519_sign(secret_key: &[u8], message: &[u8]): [u8]",
           "effect": "capability:crypto",
           "binding": "axiom://provider/stage1-v1/crypto/ed25519_sign",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/crypto/ed25519_sign",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "ed25519_verify",
+          "signature": "fn ed25519_verify(public_key: &[u8], message: &[u8], signature: &[u8]): bool",
           "effect": "capability:crypto",
           "binding": "axiom://provider/stage1-v1/crypto/ed25519_verify",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/crypto/ed25519_verify",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "hmac_sha256",
+          "signature": "fn hmac_sha256(key: string, message: string): string",
           "effect": "capability:crypto",
           "binding": "axiom://provider/stage1-v1/crypto/hmac_sha256",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/crypto/hmac_sha256",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "hmac_sha512",
+          "signature": "fn hmac_sha512(key: string, message: string): string",
           "effect": "capability:crypto",
           "binding": "axiom://provider/stage1-v1/crypto/hmac_sha512",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/crypto/hmac_sha512",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "random_bytes",
+          "signature": "fn random_bytes(n: int): [u8]",
           "effect": "capability:crypto",
           "binding": "axiom://provider/stage1-v1/crypto/random_bytes",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/crypto/random_bytes",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "random_u64",
+          "signature": "fn random_u64(): u64",
           "effect": "capability:crypto",
           "binding": "axiom://provider/stage1-v1/crypto/random_u64",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/crypto/random_u64",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "sha256",
+          "signature": "fn sha256(input: string): string",
           "effect": "capability:crypto",
           "binding": "axiom://provider/stage1-v1/crypto/sha256",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/crypto/sha256",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "verify_sha256",
+          "signature": "fn verify_sha256(tag: string, key: string, message: string): bool",
           "effect": "capability:crypto",
           "binding": "axiom://provider/stage1-v1/crypto/verify_sha256",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/crypto/verify_sha256",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "verify_sha512",
+          "signature": "fn verify_sha512(tag: string, key: string, message: string): bool",
           "effect": "capability:crypto",
           "binding": "axiom://provider/stage1-v1/crypto/verify_sha512",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/crypto/verify_sha512",
+            "kind": "declared_provider"
+          }
         }
       ]
     },
     {
       "name": "std/crypto_aead.ax",
+      "module_id": "axiom://stdlib/stage1-v1/crypto_aead",
+      "module_loading": {
+        "kind": "embedded_source",
+        "source_path": "stage1/crates/axiomc/src/stdlib.rs",
+        "source_digest": "058c1bad8c5ddd12d42c207d03dc9b6c88e00686d9a3743e015c0a64f1bac98d"
+      },
       "capabilities": [
         "crypto"
       ],
-      "source_identity": "embedded+source:stage1/crates/axiomc/src/stdlib.rs",
       "symbols": [
         {
           "name": "aead_algorithm_name",
+          "signature": "fn aead_algorithm_name(alg: AeadAlgorithm): string",
           "effect": "capability:crypto",
           "binding": "axiom://provider/stage1-v1/crypto_aead/aead_algorithm_name",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/crypto_aead/aead_algorithm_name",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "aead_open",
+          "signature": "fn aead_open(alg: AeadAlgorithm, key: &[u8], nonce: &[u8], aad: &[u8], ciphertext: &[u8]): Option<[u8]>",
           "effect": "capability:crypto",
           "binding": "axiom://provider/stage1-v1/crypto_aead/aead_open",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/crypto_aead/aead_open",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "aead_seal",
+          "signature": "fn aead_seal(alg: AeadAlgorithm, key: &[u8], nonce: &[u8], aad: &[u8], plaintext: &[u8]): [u8]",
           "effect": "capability:crypto",
           "binding": "axiom://provider/stage1-v1/crypto_aead/aead_seal",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/crypto_aead/aead_seal",
+            "kind": "declared_provider"
+          }
         }
       ]
     },
     {
       "name": "std/crypto_hash.ax",
+      "module_id": "axiom://stdlib/stage1-v1/crypto_hash",
+      "module_loading": {
+        "kind": "embedded_source",
+        "source_path": "stage1/crates/axiomc/src/stdlib.rs",
+        "source_digest": "5a84b56b1f27a0f31a0ab66b57f44a45007c8fcb6b59bd832d447bd1cc673e3a"
+      },
       "capabilities": [
         "crypto"
       ],
-      "source_identity": "embedded+source:stage1/crates/axiomc/src/stdlib.rs",
       "symbols": [
         {
           "name": "sha256",
+          "signature": "fn sha256(input: string): string",
           "effect": "capability:crypto",
           "binding": "axiom://provider/stage1-v1/crypto_hash/sha256",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/crypto_hash/sha256",
+            "kind": "declared_provider"
+          }
         }
       ]
     },
     {
       "name": "std/crypto_mac.ax",
+      "module_id": "axiom://stdlib/stage1-v1/crypto_mac",
+      "module_loading": {
+        "kind": "embedded_source",
+        "source_path": "stage1/crates/axiomc/src/stdlib.rs",
+        "source_digest": "749e9acfeda66023000bcf0ae2ffdc704b8b4f4c6114e61a209927e1ad78725b"
+      },
       "capabilities": [
         "crypto"
       ],
-      "source_identity": "embedded+source:stage1/crates/axiomc/src/stdlib.rs",
       "symbols": [
         {
           "name": "constant_time_eq",
+          "signature": "fn constant_time_eq(left: string, right: string): bool",
           "effect": "capability:crypto",
           "binding": "axiom://provider/stage1-v1/crypto_mac/constant_time_eq",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/crypto_mac/constant_time_eq",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "constant_time_eq_u8",
+          "signature": "fn constant_time_eq_u8(left: &[u8], right: &[u8]): bool",
           "effect": "capability:crypto",
           "binding": "axiom://provider/stage1-v1/crypto_mac/constant_time_eq_u8",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/crypto_mac/constant_time_eq_u8",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "hmac_sha256",
+          "signature": "fn hmac_sha256(key: string, message: string): string",
           "effect": "capability:crypto",
           "binding": "axiom://provider/stage1-v1/crypto_mac/hmac_sha256",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/crypto_mac/hmac_sha256",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "hmac_sha512",
+          "signature": "fn hmac_sha512(key: string, message: string): string",
           "effect": "capability:crypto",
           "binding": "axiom://provider/stage1-v1/crypto_mac/hmac_sha512",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/crypto_mac/hmac_sha512",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "verify_sha256",
+          "signature": "fn verify_sha256(tag: string, key: string, message: string): bool",
           "effect": "capability:crypto",
           "binding": "axiom://provider/stage1-v1/crypto_mac/verify_sha256",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/crypto_mac/verify_sha256",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "verify_sha512",
+          "signature": "fn verify_sha512(tag: string, key: string, message: string): bool",
           "effect": "capability:crypto",
           "binding": "axiom://provider/stage1-v1/crypto_mac/verify_sha512",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/crypto_mac/verify_sha512",
+            "kind": "declared_provider"
+          }
         }
       ]
     },
     {
       "name": "std/crypto_rand.ax",
+      "module_id": "axiom://stdlib/stage1-v1/crypto_rand",
+      "module_loading": {
+        "kind": "embedded_source",
+        "source_path": "stage1/crates/axiomc/src/stdlib.rs",
+        "source_digest": "37380bda7e7a5f1efbe1b855a00bba7f4342974421db731eaa1516ff7cc9f246"
+      },
       "capabilities": [
         "crypto"
       ],
-      "source_identity": "embedded+source:stage1/crates/axiomc/src/stdlib.rs",
       "symbols": [
         {
           "name": "random_bytes",
+          "signature": "fn random_bytes(n: int): [u8]",
           "effect": "capability:crypto",
           "binding": "axiom://provider/stage1-v1/crypto_rand/random_bytes",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/crypto_rand/random_bytes",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "random_u64",
+          "signature": "fn random_u64(): u64",
           "effect": "capability:crypto",
           "binding": "axiom://provider/stage1-v1/crypto_rand/random_u64",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/crypto_rand/random_u64",
+            "kind": "declared_provider"
+          }
         }
       ]
     },
     {
       "name": "std/crypto_sign.ax",
+      "module_id": "axiom://stdlib/stage1-v1/crypto_sign",
+      "module_loading": {
+        "kind": "embedded_source",
+        "source_path": "stage1/crates/axiomc/src/stdlib.rs",
+        "source_digest": "c6dcc427ec7574cbfb29d95ae7ab825c7578a974c72c18b1d21ef81f240443d9"
+      },
       "capabilities": [
         "crypto"
       ],
-      "source_identity": "embedded+source:stage1/crates/axiomc/src/stdlib.rs",
       "symbols": [
         {
           "name": "ed25519_keygen",
+          "signature": "fn ed25519_keygen(): ([u8], [u8])",
           "effect": "capability:crypto",
           "binding": "axiom://provider/stage1-v1/crypto_sign/ed25519_keygen",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/crypto_sign/ed25519_keygen",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "ed25519_sign",
+          "signature": "fn ed25519_sign(secret_key: &[u8], message: &[u8]): [u8]",
           "effect": "capability:crypto",
           "binding": "axiom://provider/stage1-v1/crypto_sign/ed25519_sign",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/crypto_sign/ed25519_sign",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "ed25519_verify",
+          "signature": "fn ed25519_verify(public_key: &[u8], message: &[u8], signature: &[u8]): bool",
           "effect": "capability:crypto",
           "binding": "axiom://provider/stage1-v1/crypto_sign/ed25519_verify",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/crypto_sign/ed25519_verify",
+            "kind": "declared_provider"
+          }
         }
       ]
     },
     {
       "name": "std/doc.ax",
+      "module_id": "axiom://stdlib/stage1-v1/doc",
+      "module_loading": {
+        "kind": "embedded_source",
+        "source_path": "stage1/crates/axiomc/src/stdlib.rs",
+        "source_digest": "67050344e02c792baf2978d1d8eeb5808a0f0702ff4f05a16d9766103f1ced36"
+      },
       "capabilities": [],
-      "source_identity": "embedded+source:stage1/crates/axiomc/src/stdlib.rs",
       "symbols": [
         {
           "name": "doc_examples",
+          "signature": "fn doc_examples(item: DocItem): &str",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/doc/doc_examples",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/doc/doc_examples",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "doc_file",
+          "signature": "fn doc_file(item: DocItem): &str",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/doc/doc_file",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/doc/doc_file",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "doc_kind",
+          "signature": "fn doc_kind(item: DocItem): &str",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/doc/doc_kind",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/doc/doc_kind",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "doc_public",
+          "signature": "fn doc_public(item: DocItem): bool",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/doc/doc_public",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/doc/doc_public",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "doc_signature",
+          "signature": "fn doc_signature(item: DocItem): &str",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/doc/doc_signature",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/doc/doc_signature",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "doc_text",
+          "signature": "fn doc_text(item: DocItem): &str",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/doc/doc_text",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/doc/doc_text",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "render_html",
+          "signature": "fn render_html(items: [DocItem]): string",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/doc/render_html",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/doc/render_html",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "render_html_view",
+          "signature": "fn render_html_view(items: &[DocItem]): string",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/doc/render_html_view",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/doc/render_html_view",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "render_markdown",
+          "signature": "fn render_markdown(items: [DocItem]): string",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/doc/render_markdown",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/doc/render_markdown",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "render_markdown_view",
+          "signature": "fn render_markdown_view(items: &[DocItem]): string",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/doc/render_markdown_view",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/doc/render_markdown_view",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "render_source_html",
+          "signature": "fn render_source_html(file: &str, source: &str): string",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/doc/render_source_html",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/doc/render_source_html",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "render_source_markdown",
+          "signature": "fn render_source_markdown(file: &str, source: &str): string",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/doc/render_source_markdown",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/doc/render_source_markdown",
+            "kind": "declared_provider"
+          }
         }
       ]
     },
     {
       "name": "std/encoding.ax",
+      "module_id": "axiom://stdlib/stage1-v1/encoding",
+      "module_loading": {
+        "kind": "embedded_source",
+        "source_path": "stage1/crates/axiomc/src/stdlib.rs",
+        "source_digest": "0d36b6a1771fca335c039a30b2be81fa3c4be9ef3a5dfbafe7d5558db597afb8"
+      },
       "capabilities": [],
-      "source_identity": "embedded+source:stage1/crates/axiomc/src/stdlib.rs",
       "symbols": [
         {
           "name": "path_join_segment",
+          "signature": "fn path_join_segment(base: string, segment: string): string",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/encoding/path_join_segment",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/encoding/path_join_segment",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "path_segment_encode",
+          "signature": "fn path_segment_encode(value: string): string",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/encoding/path_segment_encode",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/encoding/path_segment_encode",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "query_pair_encode",
+          "signature": "fn query_pair_encode(name: string, value: string): string",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/encoding/query_pair_encode",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/encoding/query_pair_encode",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "url_component_decode",
+          "signature": "fn url_component_decode(value: string): Option<string>",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/encoding/url_component_decode",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/encoding/url_component_decode",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "url_component_encode",
+          "signature": "fn url_component_encode(value: string): string",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/encoding/url_component_encode",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/encoding/url_component_encode",
+            "kind": "declared_provider"
+          }
         }
       ]
     },
     {
       "name": "std/env.ax",
+      "module_id": "axiom://stdlib/stage1-v1/env",
+      "module_loading": {
+        "kind": "embedded_source",
+        "source_path": "stage1/crates/axiomc/src/stdlib.rs",
+        "source_digest": "d1e5afc328dea72918a418669870437ec4552f71495f55d65244d27cab5237ce"
+      },
       "capabilities": [
         "env"
       ],
-      "source_identity": "embedded+source:stage1/crates/axiomc/src/stdlib.rs",
       "symbols": [
         {
           "name": "get_env",
+          "signature": "fn get_env(key: string): Option<string>",
           "effect": "capability:env",
           "binding": "axiom://provider/stage1-v1/env/get_env",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/env/get_env",
+            "kind": "declared_provider"
+          }
         }
       ]
     },
     {
       "name": "std/fs.ax",
+      "module_id": "axiom://stdlib/stage1-v1/fs",
+      "module_loading": {
+        "kind": "embedded_source",
+        "source_path": "stage1/crates/axiomc/src/stdlib.rs",
+        "source_digest": "768bc023c1641fc58a5c3b23141417e8703abd32b513592fd86754317847b22a"
+      },
       "capabilities": [
         "fs",
         "fs:write"
       ],
-      "source_identity": "embedded+source:stage1/crates/axiomc/src/stdlib.rs",
       "symbols": [
         {
           "name": "append_file",
+          "signature": "fn append_file(path: string, content: string): int",
           "effect": "capability:fs,fs:write",
           "binding": "axiom://provider/stage1-v1/fs/append_file",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/fs/append_file",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "create_file",
+          "signature": "fn create_file(path: string): int",
           "effect": "capability:fs,fs:write",
           "binding": "axiom://provider/stage1-v1/fs/create_file",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/fs/create_file",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "mkdir",
+          "signature": "fn mkdir(path: string): int",
           "effect": "capability:fs,fs:write",
           "binding": "axiom://provider/stage1-v1/fs/mkdir",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/fs/mkdir",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "mkdir_all",
+          "signature": "fn mkdir_all(path: string): int",
           "effect": "capability:fs,fs:write",
           "binding": "axiom://provider/stage1-v1/fs/mkdir_all",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/fs/mkdir_all",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "read_file",
+          "signature": "fn read_file(path: string): Option<string>",
           "effect": "capability:fs,fs:write",
           "binding": "axiom://provider/stage1-v1/fs/read_file",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/fs/read_file",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "remove_dir",
+          "signature": "fn remove_dir(path: string): int",
           "effect": "capability:fs,fs:write",
           "binding": "axiom://provider/stage1-v1/fs/remove_dir",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/fs/remove_dir",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "remove_file",
+          "signature": "fn remove_file(path: string): int",
           "effect": "capability:fs,fs:write",
           "binding": "axiom://provider/stage1-v1/fs/remove_file",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/fs/remove_file",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "replace_file",
+          "signature": "fn replace_file(path: string, content: string): int",
           "effect": "capability:fs,fs:write",
           "binding": "axiom://provider/stage1-v1/fs/replace_file",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/fs/replace_file",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "write_file",
+          "signature": "fn write_file(path: string, content: string): int",
           "effect": "capability:fs,fs:write",
           "binding": "axiom://provider/stage1-v1/fs/write_file",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/fs/write_file",
+            "kind": "declared_provider"
+          }
         }
       ]
     },
     {
       "name": "std/http.ax",
+      "module_id": "axiom://stdlib/stage1-v1/http",
+      "module_loading": {
+        "kind": "embedded_source",
+        "source_path": "stage1/crates/axiomc/src/stdlib.rs",
+        "source_digest": "7f3a0d09c4484e5beb2af95656d57c6896bf0b91236649ff819fb62f491d9bc8"
+      },
       "capabilities": [
         "net"
       ],
-      "source_identity": "embedded+source:stage1/crates/axiomc/src/stdlib.rs",
       "symbols": [
         {
           "name": "accept",
+          "signature": "fn accept(server: Server): HttpRequest",
           "effect": "capability:net",
           "binding": "axiom://provider/stage1-v1/http/accept",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/http/accept",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "close",
+          "signature": "fn close(server: Server): bool",
           "effect": "capability:net",
           "binding": "axiom://provider/stage1-v1/http/close",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/http/close",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "fixed_route",
+          "signature": "fn fixed_route(path: string, body: string): HttpRoute",
           "effect": "capability:net",
           "binding": "axiom://provider/stage1-v1/http/fixed_route",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/http/fixed_route",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "get",
+          "signature": "fn get(url: string): Option<string>",
           "effect": "capability:net",
           "binding": "axiom://provider/stage1-v1/http/get",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/http/get",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "header",
+          "signature": "fn header(name: string, value: string): HttpHeader",
           "effect": "capability:net",
           "binding": "axiom://provider/stage1-v1/http/header",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/http/header",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "listen",
+          "signature": "fn listen(bind: string): Server",
           "effect": "capability:net",
           "binding": "axiom://provider/stage1-v1/http/listen",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/http/listen",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "local_port",
+          "signature": "fn local_port(server: Server): int",
           "effect": "capability:net",
           "binding": "axiom://provider/stage1-v1/http/local_port",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/http/local_port",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "request",
+          "signature": "fn request(method: string, path: string, body: string): HttpRequest",
           "effect": "capability:net",
           "binding": "axiom://provider/stage1-v1/http/request",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/http/request",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "respond",
+          "signature": "fn respond(request: HttpRequest, status: int, body: string): bool",
           "effect": "capability:net",
           "binding": "axiom://provider/stage1-v1/http/respond",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/http/respond",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "response",
+          "signature": "fn response(status: int, body: string, headers: [HttpHeader]): HttpResponse",
           "effect": "capability:net",
           "binding": "axiom://provider/stage1-v1/http/response",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/http/response",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "route",
+          "signature": "fn route(request: HttpRequest): string",
           "effect": "capability:net",
           "binding": "axiom://provider/stage1-v1/http/route",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/http/route",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "route_response",
+          "signature": "fn route_response(path: string, selected_response: HttpResponse): HttpRoute",
           "effect": "capability:net",
           "binding": "axiom://provider/stage1-v1/http/route_response",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/http/route_response",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "serve",
+          "signature": "fn serve(bind: string, selected_route: HttpRoute, max_requests: int): bool",
           "effect": "capability:net",
           "binding": "axiom://provider/stage1-v1/http/serve",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/http/serve",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "serve_once",
+          "signature": "fn serve_once(bind: string, body: string): bool",
           "effect": "capability:net",
           "binding": "axiom://provider/stage1-v1/http/serve_once",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/http/serve_once",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "text_response",
+          "signature": "fn text_response(status: int, body: string): HttpResponse",
           "effect": "capability:net",
           "binding": "axiom://provider/stage1-v1/http/text_response",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/http/text_response",
+            "kind": "declared_provider"
+          }
         }
       ]
     },
     {
       "name": "std/http_async.ax",
+      "module_id": "axiom://stdlib/stage1-v1/http_async",
+      "module_loading": {
+        "kind": "embedded_source",
+        "source_path": "stage1/crates/axiomc/src/stdlib.rs",
+        "source_digest": "9a24c620ae9e9bfc7f78d91507ac690b18137b21d04e74e1c95cbe6b2a41adc5"
+      },
       "capabilities": [
         "async",
         "net"
       ],
-      "source_identity": "embedded+source:stage1/crates/axiomc/src/stdlib.rs",
       "symbols": [
         {
           "name": "async_serve_route",
+          "signature": "fn async_serve_route(server: int, path: string, body: string, max_requests: int): Task<bool>",
           "effect": "capability:async,net",
           "binding": "axiom://provider/stage1-v1/http_async/async_serve_route",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/http_async/async_serve_route",
+            "kind": "declared_provider"
+          }
         }
       ]
     },
     {
       "name": "std/io.ax",
+      "module_id": "axiom://stdlib/stage1-v1/io",
+      "module_loading": {
+        "kind": "embedded_source",
+        "source_path": "stage1/crates/axiomc/src/stdlib.rs",
+        "source_digest": "60a831734ea3df3069733921b377777215187dab48e58afe03fb0e9884a3f8e9"
+      },
       "capabilities": [],
-      "source_identity": "embedded+source:stage1/crates/axiomc/src/stdlib.rs",
       "symbols": [
         {
           "name": "eprintln",
+          "signature": "fn eprintln(text: string): int",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/io/eprintln",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/io/eprintln",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "read_to_string",
+          "signature": "fn read_to_string(): string",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/io/read_to_string",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/io/read_to_string",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "readline",
+          "signature": "fn readline(): Option<string>",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/io/readline",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/io/readline",
+            "kind": "declared_provider"
+          }
         }
       ]
     },
     {
       "name": "std/json.ax",
+      "module_id": "axiom://stdlib/stage1-v1/json",
+      "module_loading": {
+        "kind": "embedded_source",
+        "source_path": "stage1/crates/axiomc/src/stdlib.rs",
+        "source_digest": "468a1bdfa8d6c7e1f721992715cee42d6be515bf9c584858d0f81049ff71d0e2"
+      },
       "capabilities": [],
-      "source_identity": "embedded+source:stage1/crates/axiomc/src/stdlib.rs",
       "symbols": [
         {
           "name": "array1",
+          "signature": "fn array1(first: JsonValue): JsonValue",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/json/array1",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/json/array1",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "array2",
+          "signature": "fn array2(first: JsonValue, second: JsonValue): JsonValue",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/json/array2",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/json/array2",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "array3",
+          "signature": "fn array3(first: JsonValue, second: JsonValue, third: JsonValue): JsonValue",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/json/array3",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/json/array3",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "field_bool",
+          "signature": "fn field_bool(key: string, value: bool): string",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/json/field_bool",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/json/field_bool",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "field_int",
+          "signature": "fn field_int(key: string, value: int): string",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/json/field_int",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/json/field_int",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "field_string",
+          "signature": "fn field_string(key: string, value: string): string",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/json/field_string",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/json/field_string",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "field_value",
+          "signature": "fn field_value(key: string, value: JsonValue): string",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/json/field_value",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/json/field_value",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "object1",
+          "signature": "fn object1(field: string): string",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/json/object1",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/json/object1",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "object2",
+          "signature": "fn object2(first_field: string, second_field: string): string",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/json/object2",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/json/object2",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "object3",
+          "signature": "fn object3(first_field: string, second_field: string, third_field: string): string",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/json/object3",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/json/object3",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "parse_bool",
+          "signature": "fn parse_bool(text: string): Option<bool>",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/json/parse_bool",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/json/parse_bool",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "parse_field_bool",
+          "signature": "fn parse_field_bool(text: string, key: string): Option<bool>",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/json/parse_field_bool",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/json/parse_field_bool",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "parse_field_int",
+          "signature": "fn parse_field_int(text: string, key: string): Option<int>",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/json/parse_field_int",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/json/parse_field_int",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "parse_field_string",
+          "signature": "fn parse_field_string(text: string, key: string): Option<string>",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/json/parse_field_string",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/json/parse_field_string",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "parse_field_value",
+          "signature": "fn parse_field_value(value: JsonValue, key: string): Option<JsonValue>",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/json/parse_field_value",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/json/parse_field_value",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "parse_int",
+          "signature": "fn parse_int(text: string): Option<int>",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/json/parse_int",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/json/parse_int",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "parse_string",
+          "signature": "fn parse_string(text: string): Option<string>",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/json/parse_string",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/json/parse_string",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "parse_value",
+          "signature": "fn parse_value(text: string): Option<JsonValue>",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/json/parse_value",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/json/parse_value",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "schema_field_bool",
+          "signature": "fn schema_field_bool(key: string): string",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/json/schema_field_bool",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/json/schema_field_bool",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "schema_field_int",
+          "signature": "fn schema_field_int(key: string): string",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/json/schema_field_int",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/json/schema_field_int",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "schema_field_string",
+          "signature": "fn schema_field_string(key: string): string",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/json/schema_field_string",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/json/schema_field_string",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "schema_object1",
+          "signature": "fn schema_object1(field: string): string",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/json/schema_object1",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/json/schema_object1",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "schema_object2",
+          "signature": "fn schema_object2(first_field: string, second_field: string): string",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/json/schema_object2",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/json/schema_object2",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "schema_object3",
+          "signature": "fn schema_object3(first_field: string, second_field: string, third_field: string): string",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/json/schema_object3",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/json/schema_object3",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "stringify_bool",
+          "signature": "fn stringify_bool(value: bool): string",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/json/stringify_bool",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/json/stringify_bool",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "stringify_int",
+          "signature": "fn stringify_int(value: int): string",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/json/stringify_int",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/json/stringify_int",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "stringify_string",
+          "signature": "fn stringify_string(value: string): string",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/json/stringify_string",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/json/stringify_string",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "stringify_value",
+          "signature": "fn stringify_value(value: JsonValue): string",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/json/stringify_value",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/json/stringify_value",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "value_bool",
+          "signature": "fn value_bool(value: bool): JsonValue",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/json/value_bool",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/json/value_bool",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "value_int",
+          "signature": "fn value_int(value: int): JsonValue",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/json/value_int",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/json/value_int",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "value_object1",
+          "signature": "fn value_object1(field: string): JsonValue",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/json/value_object1",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/json/value_object1",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "value_object2",
+          "signature": "fn value_object2(first_field: string, second_field: string): JsonValue",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/json/value_object2",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/json/value_object2",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "value_object3",
+          "signature": "fn value_object3(first_field: string, second_field: string, third_field: string): JsonValue",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/json/value_object3",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/json/value_object3",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "value_string",
+          "signature": "fn value_string(value: string): JsonValue",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/json/value_string",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/json/value_string",
+            "kind": "declared_provider"
+          }
         }
       ]
     },
     {
       "name": "std/log.ax",
+      "module_id": "axiom://stdlib/stage1-v1/log",
+      "module_loading": {
+        "kind": "embedded_source",
+        "source_path": "stage1/crates/axiomc/src/stdlib.rs",
+        "source_digest": "550451160fad08050cc31980c05159b3d8b484e82d3afb77b11a937b56dc7778"
+      },
       "capabilities": [],
-      "source_identity": "embedded+source:stage1/crates/axiomc/src/stdlib.rs",
       "symbols": [
         {
           "name": "debug",
+          "signature": "fn debug(message: string): int",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/log/debug",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/log/debug",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "error",
+          "signature": "fn error(message: string): int",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/log/error",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/log/error",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "event",
+          "signature": "fn event(level: string, message: string, attributes: string): string",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/log/event",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/log/event",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "field_bool",
+          "signature": "fn field_bool(key: string, value: bool): string",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/log/field_bool",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/log/field_bool",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "field_int",
+          "signature": "fn field_int(key: string, value: int): string",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/log/field_int",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/log/field_int",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "field_string",
+          "signature": "fn field_string(key: string, value: string): string",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/log/field_string",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/log/field_string",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "fields2",
+          "signature": "fn fields2(first_field: string, second_field: string): string",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/log/fields2",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/log/fields2",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "fields3",
+          "signature": "fn fields3(first_field: string, second_field: string, third_field: string): string",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/log/fields3",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/log/fields3",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "info",
+          "signature": "fn info(message: string): int",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/log/info",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/log/info",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "info_attrs",
+          "signature": "fn info_attrs(message: string, attributes: string): int",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/log/info_attrs",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/log/info_attrs",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "warn",
+          "signature": "fn warn(message: string): int",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/log/warn",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/log/warn",
+            "kind": "declared_provider"
+          }
         }
       ]
     },
     {
       "name": "std/lsp.ax",
+      "module_id": "axiom://stdlib/stage1-v1/lsp",
+      "module_loading": {
+        "kind": "embedded_source",
+        "source_path": "stage1/crates/axiomc/src/stdlib.rs",
+        "source_digest": "fe73611f2391c2c8cb262c5b8bc26b83cad8b960797d5b7255614fc84fdd96c0"
+      },
       "capabilities": [],
-      "source_identity": "embedded+source:stage1/crates/axiomc/src/stdlib.rs",
       "symbols": [
         {
           "name": "completion_response",
+          "signature": "fn completion_response(id: int): string",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/lsp/completion_response",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/lsp/completion_response",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "completion_response_id",
+          "signature": "fn completion_response_id(id: RequestId): string",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/lsp/completion_response_id",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/lsp/completion_response_id",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "content_length_header",
+          "signature": "fn content_length_header(payload: &str): string",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/lsp/content_length_header",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/lsp/content_length_header",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "diagnostic",
+          "signature": "fn diagnostic(range: Range, severity: int, source: string, code: string, message: string): Diagnostic",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/lsp/diagnostic",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/lsp/diagnostic",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "did_change",
+          "signature": "fn did_change(uri: string, version: int, text: string): string",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/lsp/did_change",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/lsp/did_change",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "did_change_text",
+          "signature": "fn did_change_text(payload: &str): Option<string>",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/lsp/did_change_text",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/lsp/did_change_text",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "did_change_uri",
+          "signature": "fn did_change_uri(payload: &str): Option<string>",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/lsp/did_change_uri",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/lsp/did_change_uri",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "did_change_version",
+          "signature": "fn did_change_version(payload: &str): Option<int>",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/lsp/did_change_version",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/lsp/did_change_version",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "did_open",
+          "signature": "fn did_open(uri: string, language_id: string, version: int, text: string): string",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/lsp/did_open",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/lsp/did_open",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "did_open_language_id",
+          "signature": "fn did_open_language_id(payload: &str): Option<string>",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/lsp/did_open_language_id",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/lsp/did_open_language_id",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "did_open_text",
+          "signature": "fn did_open_text(payload: &str): Option<string>",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/lsp/did_open_text",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/lsp/did_open_text",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "did_open_uri",
+          "signature": "fn did_open_uri(payload: &str): Option<string>",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/lsp/did_open_uri",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/lsp/did_open_uri",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "did_open_version",
+          "signature": "fn did_open_version(payload: &str): Option<int>",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/lsp/did_open_version",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/lsp/did_open_version",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "frame_message",
+          "signature": "fn frame_message(payload: string): string",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/lsp/frame_message",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/lsp/frame_message",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "initialize_response",
+          "signature": "fn initialize_response(id: int): string",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/lsp/initialize_response",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/lsp/initialize_response",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "initialize_response_id",
+          "signature": "fn initialize_response_id(id: RequestId): string",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/lsp/initialize_response_id",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/lsp/initialize_response_id",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "message_id",
+          "signature": "fn message_id(payload: &str): Option<RequestId>",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/lsp/message_id",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/lsp/message_id",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "message_method",
+          "signature": "fn message_method(payload: &str): Option<string>",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/lsp/message_method",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/lsp/message_method",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "message_number_id",
+          "signature": "fn message_number_id(payload: &str): Option<int>",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/lsp/message_number_id",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/lsp/message_number_id",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "message_supported",
+          "signature": "fn message_supported(payload: &str): bool",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/lsp/message_supported",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/lsp/message_supported",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "message_text_id",
+          "signature": "fn message_text_id(payload: &str): Option<string>",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/lsp/message_text_id",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/lsp/message_text_id",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "method_completion",
+          "signature": "fn method_completion(): string",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/lsp/method_completion",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/lsp/method_completion",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "method_did_change",
+          "signature": "fn method_did_change(): string",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/lsp/method_did_change",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/lsp/method_did_change",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "method_did_open",
+          "signature": "fn method_did_open(): string",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/lsp/method_did_open",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/lsp/method_did_open",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "method_exit",
+          "signature": "fn method_exit(): string",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/lsp/method_exit",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/lsp/method_exit",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "method_initialize",
+          "signature": "fn method_initialize(): string",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/lsp/method_initialize",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/lsp/method_initialize",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "method_initialized",
+          "signature": "fn method_initialized(): string",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/lsp/method_initialized",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/lsp/method_initialized",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "method_publish_diagnostics",
+          "signature": "fn method_publish_diagnostics(): string",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/lsp/method_publish_diagnostics",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/lsp/method_publish_diagnostics",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "method_shutdown",
+          "signature": "fn method_shutdown(): string",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/lsp/method_shutdown",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/lsp/method_shutdown",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "notification",
+          "signature": "fn notification(method: string, params: {string: Value}): string",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/lsp/notification",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/lsp/notification",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "parse_message",
+          "signature": "fn parse_message(payload: &str): Result<Value, ParseError>",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/lsp/parse_message",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/lsp/parse_message",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "position",
+          "signature": "fn position(line: int, character: int): Position",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/lsp/position",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/lsp/position",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "publish_diagnostic",
+          "signature": "fn publish_diagnostic(uri: string, diagnostic: Diagnostic): string",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/lsp/publish_diagnostic",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/lsp/publish_diagnostic",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "range",
+          "signature": "fn range(start: Position, end: Position): Range",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/lsp/range",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/lsp/range",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "request",
+          "signature": "fn request(id: int, method: string, params: {string: Value}): string",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/lsp/request",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/lsp/request",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "request_id_value",
+          "signature": "fn request_id_value(id: RequestId): Value",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/lsp/request_id_value",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/lsp/request_id_value",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "request_with_id",
+          "signature": "fn request_with_id(id: RequestId, method: string, params: {string: Value}): string",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/lsp/request_with_id",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/lsp/request_with_id",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "request_with_text_id",
+          "signature": "fn request_with_text_id(id: string, method: string, params: {string: Value}): string",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/lsp/request_with_text_id",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/lsp/request_with_text_id",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "response_for_request",
+          "signature": "fn response_for_request(payload: &str): Option<string>",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/lsp/response_for_request",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/lsp/response_for_request",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "response_frame_for_request",
+          "signature": "fn response_frame_for_request(payload: &str): Option<string>",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/lsp/response_frame_for_request",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/lsp/response_frame_for_request",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "shutdown_response",
+          "signature": "fn shutdown_response(id: int): string",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/lsp/shutdown_response",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/lsp/shutdown_response",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "shutdown_response_id",
+          "signature": "fn shutdown_response_id(id: RequestId): string",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/lsp/shutdown_response_id",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/lsp/shutdown_response_id",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "supports_method",
+          "signature": "fn supports_method(method: string): bool",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/lsp/supports_method",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/lsp/supports_method",
+            "kind": "declared_provider"
+          }
         }
       ]
     },
     {
       "name": "std/net.ax",
+      "module_id": "axiom://stdlib/stage1-v1/net",
+      "module_loading": {
+        "kind": "embedded_source",
+        "source_path": "stage1/crates/axiomc/src/stdlib.rs",
+        "source_digest": "2a9ebedb0bb92e457b06135073230463458aa3a5929073e113d1397f56637608"
+      },
       "capabilities": [
         "net"
       ],
-      "source_identity": "embedded+source:stage1/crates/axiomc/src/stdlib.rs",
       "symbols": [
         {
           "name": "resolve",
+          "signature": "fn resolve(host: string): Option<string>",
           "effect": "capability:net",
           "binding": "axiom://provider/stage1-v1/net/resolve",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/net/resolve",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "tcp_dial",
+          "signature": "fn tcp_dial(host: string, port: int, message: string, timeout_ms: int): Option<string>",
           "effect": "capability:net",
           "binding": "axiom://provider/stage1-v1/net/tcp_dial",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/net/tcp_dial",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "tcp_listen_loopback_once",
+          "signature": "fn tcp_listen_loopback_once(response: string, timeout_ms: int): Option<int>",
           "effect": "capability:net",
           "binding": "axiom://provider/stage1-v1/net/tcp_listen_loopback_once",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/net/tcp_listen_loopback_once",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "udp_bind_loopback_once",
+          "signature": "fn udp_bind_loopback_once(response: string, timeout_ms: int): Option<int>",
           "effect": "capability:net",
           "binding": "axiom://provider/stage1-v1/net/udp_bind_loopback_once",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/net/udp_bind_loopback_once",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "udp_send_recv",
+          "signature": "fn udp_send_recv(host: string, port: int, message: string, timeout_ms: int): Option<string>",
           "effect": "capability:net",
           "binding": "axiom://provider/stage1-v1/net/udp_send_recv",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/net/udp_send_recv",
+            "kind": "declared_provider"
+          }
         }
       ]
     },
     {
       "name": "std/net_tcp.ax",
+      "module_id": "axiom://stdlib/stage1-v1/net_tcp",
+      "module_loading": {
+        "kind": "embedded_source",
+        "source_path": "stage1/crates/axiomc/src/stdlib.rs",
+        "source_digest": "8499da9dc740a16fb657db38ed2a68b06102f8c0abdbb6ad81c1fda33fc18745"
+      },
       "capabilities": [
         "net"
       ],
-      "source_identity": "embedded+source:stage1/crates/axiomc/src/stdlib.rs",
       "symbols": [
         {
           "name": "accept",
+          "signature": "fn accept(listener: TcpListener): TcpStream",
           "effect": "capability:net",
           "binding": "axiom://provider/stage1-v1/net_tcp/accept",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/net_tcp/accept",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "close",
+          "signature": "fn close(stream: TcpStream): int",
           "effect": "capability:net",
           "binding": "axiom://provider/stage1-v1/net_tcp/close",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/net_tcp/close",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "close_listener",
+          "signature": "fn close_listener(listener: TcpListener): int",
           "effect": "capability:net",
           "binding": "axiom://provider/stage1-v1/net_tcp/close_listener",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/net_tcp/close_listener",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "dial",
+          "signature": "fn dial(host: string, port: int, message: string, timeout_ms: int): Option<string>",
           "effect": "capability:net",
           "binding": "axiom://provider/stage1-v1/net_tcp/dial",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/net_tcp/dial",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "listen",
+          "signature": "fn listen(bind: string): TcpListener",
           "effect": "capability:net",
           "binding": "axiom://provider/stage1-v1/net_tcp/listen",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/net_tcp/listen",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "listen_loopback_once",
+          "signature": "fn listen_loopback_once(response: string, timeout_ms: int): Option<int>",
           "effect": "capability:net",
           "binding": "axiom://provider/stage1-v1/net_tcp/listen_loopback_once",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/net_tcp/listen_loopback_once",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "local_port",
+          "signature": "fn local_port(listener: TcpListener): int",
           "effect": "capability:net",
           "binding": "axiom://provider/stage1-v1/net_tcp/local_port",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/net_tcp/local_port",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "read",
+          "signature": "fn read(stream: TcpStream, buf: &mut [u8]): int",
           "effect": "capability:net",
           "binding": "axiom://provider/stage1-v1/net_tcp/read",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/net_tcp/read",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "read_string",
+          "signature": "fn read_string(stream: TcpStream, max_bytes: int): string",
           "effect": "capability:net",
           "binding": "axiom://provider/stage1-v1/net_tcp/read_string",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/net_tcp/read_string",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "write",
+          "signature": "fn write(stream: TcpStream, buf: &[u8]): int",
           "effect": "capability:net",
           "binding": "axiom://provider/stage1-v1/net_tcp/write",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/net_tcp/write",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "write_string",
+          "signature": "fn write_string(stream: TcpStream, message: string): int",
           "effect": "capability:net",
           "binding": "axiom://provider/stage1-v1/net_tcp/write_string",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/net_tcp/write_string",
+            "kind": "declared_provider"
+          }
         }
       ]
     },
     {
       "name": "std/net_udp.ax",
+      "module_id": "axiom://stdlib/stage1-v1/net_udp",
+      "module_loading": {
+        "kind": "embedded_source",
+        "source_path": "stage1/crates/axiomc/src/stdlib.rs",
+        "source_digest": "5689076d21a5606ac9f91a3d92cd472695b7d6810b586888e3125e334bf38fe0"
+      },
       "capabilities": [
         "net"
       ],
-      "source_identity": "embedded+source:stage1/crates/axiomc/src/stdlib.rs",
       "symbols": [
         {
           "name": "bind",
+          "signature": "fn bind(bind: string): UdpSocket",
           "effect": "capability:net",
           "binding": "axiom://provider/stage1-v1/net_udp/bind",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/net_udp/bind",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "bind_loopback_once",
+          "signature": "fn bind_loopback_once(response: string, timeout_ms: int): Option<int>",
           "effect": "capability:net",
           "binding": "axiom://provider/stage1-v1/net_udp/bind_loopback_once",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/net_udp/bind_loopback_once",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "close",
+          "signature": "fn close(socket: UdpSocket): int",
           "effect": "capability:net",
           "binding": "axiom://provider/stage1-v1/net_udp/close",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/net_udp/close",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "local_addr",
+          "signature": "fn local_addr(socket: UdpSocket): string",
           "effect": "capability:net",
           "binding": "axiom://provider/stage1-v1/net_udp/local_addr",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/net_udp/local_addr",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "local_port",
+          "signature": "fn local_port(socket: UdpSocket): int",
           "effect": "capability:net",
           "binding": "axiom://provider/stage1-v1/net_udp/local_port",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/net_udp/local_port",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "recv_from",
+          "signature": "fn recv_from(socket: UdpSocket, buf: &mut [u8]): (int, string)",
           "effect": "capability:net",
           "binding": "axiom://provider/stage1-v1/net_udp/recv_from",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/net_udp/recv_from",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "send_recv",
+          "signature": "fn send_recv(host: string, port: int, message: string, timeout_ms: int): Option<string>",
           "effect": "capability:net",
           "binding": "axiom://provider/stage1-v1/net_udp/send_recv",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/net_udp/send_recv",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "send_to",
+          "signature": "fn send_to(socket: UdpSocket, buf: &[u8], peer: string): int",
           "effect": "capability:net",
           "binding": "axiom://provider/stage1-v1/net_udp/send_to",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/net_udp/send_to",
+            "kind": "declared_provider"
+          }
         }
       ]
     },
     {
       "name": "std/outcome.ax",
+      "module_id": "axiom://stdlib/stage1-v1/outcome",
+      "module_loading": {
+        "kind": "embedded_source",
+        "source_path": "stage1/crates/axiomc/src/stdlib.rs",
+        "source_digest": "53c39145a8a5b336d3d748c33c34831fbeb9acf1ab6dfac4bf536fdc02a019b6"
+      },
       "capabilities": [],
-      "source_identity": "embedded+source:stage1/crates/axiomc/src/stdlib.rs",
       "symbols": [
         {
           "name": "option_is_none",
+          "signature": "fn option_is_none<T>(value: Option<T>): bool",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/outcome/option_is_none",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/outcome/option_is_none",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "option_is_some",
+          "signature": "fn option_is_some<T>(value: Option<T>): bool",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/outcome/option_is_some",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/outcome/option_is_some",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "option_unwrap_or",
+          "signature": "fn option_unwrap_or<T>(value: Option<T>, fallback: T): T",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/outcome/option_unwrap_or",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/outcome/option_unwrap_or",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "result_is_err",
+          "signature": "fn result_is_err<T, E>(value: Result<T, E>): bool",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/outcome/result_is_err",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/outcome/result_is_err",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "result_is_ok",
+          "signature": "fn result_is_ok<T, E>(value: Result<T, E>): bool",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/outcome/result_is_ok",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/outcome/result_is_ok",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "result_unwrap_or",
+          "signature": "fn result_unwrap_or<T, E>(value: Result<T, E>, fallback: T): T",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/outcome/result_unwrap_or",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/outcome/result_unwrap_or",
+            "kind": "declared_provider"
+          }
         }
       ]
     },
     {
       "name": "std/process.ax",
+      "module_id": "axiom://stdlib/stage1-v1/process",
+      "module_loading": {
+        "kind": "embedded_source",
+        "source_path": "stage1/crates/axiomc/src/stdlib.rs",
+        "source_digest": "a82bf69c6e8361ed491651e8fce21122acf5d19badf2b7d2ca5a0e3187888a86"
+      },
       "capabilities": [
         "process"
       ],
-      "source_identity": "embedded+source:stage1/crates/axiomc/src/stdlib.rs",
       "symbols": [
         {
           "name": "run_status",
+          "signature": "fn run_status(command: string): int",
           "effect": "capability:process",
           "binding": "axiom://provider/stage1-v1/process/run_status",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/process/run_status",
+            "kind": "declared_provider"
+          }
         }
       ]
     },
     {
       "name": "std/regex.ax",
+      "module_id": "axiom://stdlib/stage1-v1/regex",
+      "module_loading": {
+        "kind": "embedded_source",
+        "source_path": "stage1/crates/axiomc/src/stdlib.rs",
+        "source_digest": "c5cffd352cf96ed689dd425c1c9794827a5a4af7461b96eb49120d7af24ed8a1"
+      },
       "capabilities": [],
-      "source_identity": "embedded+source:stage1/crates/axiomc/src/stdlib.rs",
       "symbols": [
         {
           "name": "find",
+          "signature": "fn find(pattern: string, text: string): Option<string>",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/regex/find",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/regex/find",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "is_match",
+          "signature": "fn is_match(pattern: string, text: string): bool",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/regex/is_match",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/regex/is_match",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "replace_all",
+          "signature": "fn replace_all(pattern: string, text: string, replacement: string): string",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/regex/replace_all",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/regex/replace_all",
+            "kind": "declared_provider"
+          }
         }
       ]
     },
     {
       "name": "std/serdes.ax",
+      "module_id": "axiom://stdlib/stage1-v1/serdes",
+      "module_loading": {
+        "kind": "embedded_source",
+        "source_path": "stage1/crates/axiomc/src/stdlib.rs",
+        "source_digest": "e8441e2f4c63b0a97e1526e155d09a26dc3c834b2de2f5f7634789158132265f"
+      },
       "capabilities": [],
-      "source_identity": "embedded+source:stage1/crates/axiomc/src/stdlib.rs",
       "symbols": [
         {
           "name": "array_field",
+          "signature": "fn array_field(value: Value, key: string): Option<[Value]>",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/serdes/array_field",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/serdes/array_field",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "as_array",
+          "signature": "fn as_array(value: Value): Option<[Value]>",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/serdes/as_array",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/serdes/as_array",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "as_bool",
+          "signature": "fn as_bool(value: Value): Option<bool>",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/serdes/as_bool",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/serdes/as_bool",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "as_float",
+          "signature": "fn as_float(value: Value): Option<f64>",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/serdes/as_float",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/serdes/as_float",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "as_int",
+          "signature": "fn as_int(value: Value): Option<int>",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/serdes/as_int",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/serdes/as_int",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "as_object",
+          "signature": "fn as_object(value: Value): Option<",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/serdes/as_object",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/serdes/as_object",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "as_text",
+          "signature": "fn as_text(value: Value): Option<string>",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/serdes/as_text",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/serdes/as_text",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "bool_field",
+          "signature": "fn bool_field(value: Value, key: string): Option<bool>",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/serdes/bool_field",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/serdes/bool_field",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "field",
+          "signature": "fn field(value: Value, key: string): Option<Value>",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/serdes/field",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/serdes/field",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "float_field",
+          "signature": "fn float_field(value: Value, key: string): Option<f64>",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/serdes/float_field",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/serdes/float_field",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "from_json",
+          "signature": "fn from_json(text: string): Result<Value, ParseError>",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/serdes/from_json",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/serdes/from_json",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "from_json_str",
+          "signature": "fn from_json_str(text: &str): Result<Value, ParseError>",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/serdes/from_json_str",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/serdes/from_json_str",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "int_field",
+          "signature": "fn int_field(value: Value, key: string): Option<int>",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/serdes/int_field",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/serdes/int_field",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "is_null",
+          "signature": "fn is_null(value: Value): bool",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/serdes/is_null",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/serdes/is_null",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "object_field",
+          "signature": "fn object_field(value: Value, key: string): Option<",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/serdes/object_field",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/serdes/object_field",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "parse_error_message",
+          "signature": "fn parse_error_message(error: ParseError): string",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/serdes/parse_error_message",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/serdes/parse_error_message",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "stringify",
+          "signature": "fn stringify(value: Value): string",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/serdes/stringify",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/serdes/stringify",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "text_field",
+          "signature": "fn text_field(value: Value, key: string): Option<string>",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/serdes/text_field",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/serdes/text_field",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "to_json",
+          "signature": "fn to_json(value: {string: Value}): string",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/serdes/to_json",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/serdes/to_json",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "value_item",
+          "signature": "fn value_item(value: Value, index: int): Option<Value>",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/serdes/value_item",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/serdes/value_item",
+            "kind": "declared_provider"
+          }
         }
       ]
     },
     {
       "name": "std/string.ax",
+      "module_id": "axiom://stdlib/stage1-v1/string",
+      "module_loading": {
+        "kind": "embedded_source",
+        "source_path": "stage1/crates/axiomc/src/stdlib.rs",
+        "source_digest": "73fc8404796dd1e1e9accd1ae1291ffa860e05221e192303b714c81d494118e1"
+      },
       "capabilities": [],
-      "source_identity": "embedded+source:stage1/crates/axiomc/src/stdlib.rs",
       "symbols": [
         {
           "name": "byte_at",
+          "signature": "fn byte_at(text: string, index: int): Option<int>",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/string/byte_at",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/string/byte_at",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "clone_text",
+          "signature": "fn clone_text(value: string): string",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/string/clone_text",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/string/clone_text",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "contains",
+          "signature": "fn contains(text: string, needle: string): bool",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/string/contains",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/string/contains",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "from_int",
+          "signature": "fn from_int(value: int): string",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/string/from_int",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/string/from_int",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "line_at",
+          "signature": "fn line_at(text: string, index: int): Option<string>",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/string/line_at",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/string/line_at",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "starts_with",
+          "signature": "fn starts_with(text: string, prefix: string): bool",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/string/starts_with",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/string/starts_with",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "strip_prefix",
+          "signature": "fn strip_prefix(text: string, prefix: string): Option<string>",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/string/strip_prefix",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/string/strip_prefix",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "strip_suffix",
+          "signature": "fn strip_suffix(text: string, suffix: string): Option<string>",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/string/strip_suffix",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/string/strip_suffix",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "trim",
+          "signature": "fn trim(text: string): string",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/string/trim",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/string/trim",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "trim_start",
+          "signature": "fn trim_start(text: string): string",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/string/trim_start",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/string/trim_start",
+            "kind": "declared_provider"
+          }
         }
       ]
     },
     {
       "name": "std/string_builder.ax",
+      "module_id": "axiom://stdlib/stage1-v1/string_builder",
+      "module_loading": {
+        "kind": "embedded_source",
+        "source_path": "stage1/crates/axiomc/src/stdlib.rs",
+        "source_digest": "0f27ee81a200b3e8455167c2e638894174785ae431446153ac69f9f0e517b902"
+      },
       "capabilities": [],
-      "source_identity": "embedded+source:stage1/crates/axiomc/src/stdlib.rs",
       "symbols": [
         {
           "name": "builder",
+          "signature": "fn builder(): StringBuilder",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/string_builder/builder",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/string_builder/builder",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "finish",
+          "signature": "fn finish(builder: StringBuilder): string",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/string_builder/finish",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/string_builder/finish",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "from_string",
+          "signature": "fn from_string(value: string): StringBuilder",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/string_builder/from_string",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/string_builder/from_string",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "push_line",
+          "signature": "fn push_line(builder: StringBuilder, text: string): StringBuilder",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/string_builder/push_line",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/string_builder/push_line",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "push_str",
+          "signature": "fn push_str(builder: StringBuilder, text: string): StringBuilder",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/string_builder/push_str",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/string_builder/push_str",
+            "kind": "declared_provider"
+          }
         }
       ]
     },
     {
       "name": "std/sync.ax",
+      "module_id": "axiom://stdlib/stage1-v1/sync",
+      "module_loading": {
+        "kind": "embedded_source",
+        "source_path": "stage1/crates/axiomc/src/stdlib.rs",
+        "source_digest": "f6aee3a4237e4508c02408a562b8668ae503e6823d838bd298791093ff0532fd"
+      },
       "capabilities": [],
-      "source_identity": "embedded+source:stage1/crates/axiomc/src/stdlib.rs",
       "symbols": [
         {
           "name": "channel",
+          "signature": "fn channel<T>(slot: Option<T>): Channel<T>",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/sync/channel",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/sync/channel",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "into_inner",
+          "signature": "fn into_inner<T>(guard: MutexGuard<T>): T",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/sync/into_inner",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/sync/into_inner",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "lock",
+          "signature": "fn lock<T>(mutex: Mutex<T>): MutexGuard<T>",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/sync/lock",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/sync/lock",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "mutex",
+          "signature": "fn mutex<T>(value: T): Mutex<T>",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/sync/mutex",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/sync/mutex",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "once",
+          "signature": "fn once<T>(value: Option<T>): Once<T>",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/sync/once",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/sync/once",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "once_is_set",
+          "signature": "fn once_is_set<T>(cell: Once<T>): bool",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/sync/once_is_set",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/sync/once_is_set",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "once_take",
+          "signature": "fn once_take<T>(cell: Once<T>): Option<T>",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/sync/once_take",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/sync/once_take",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "once_with",
+          "signature": "fn once_with<T>(value: T): Once<T>",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/sync/once_with",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/sync/once_with",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "replace",
+          "signature": "fn replace<T>(_guard: MutexGuard<T>, value: T): Mutex<T>",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/sync/replace",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/sync/replace",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "send",
+          "signature": "fn send<T>(_channel: Channel<T>, value: T): Channel<T>",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/sync/send",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/sync/send",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "try_recv",
+          "signature": "fn try_recv<T>(channel: Channel<T>): Option<T>",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/sync/try_recv",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/sync/try_recv",
+            "kind": "declared_provider"
+          }
         }
       ]
     },
     {
       "name": "std/testing.ax",
+      "module_id": "axiom://stdlib/stage1-v1/testing",
+      "module_loading": {
+        "kind": "embedded_source",
+        "source_path": "stage1/crates/axiomc/src/stdlib.rs",
+        "source_digest": "1b96dc950242722bee92d5ed37310d6769930503af54d44ce7ddf4e611d15b3c"
+      },
       "capabilities": [],
-      "source_identity": "embedded+source:stage1/crates/axiomc/src/stdlib.rs",
       "symbols": [
         {
           "name": "assert_eq",
+          "signature": "fn assert_eq<T>(left: T, right: T): int",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/testing/assert_eq",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/testing/assert_eq",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "assert_eq_bool",
+          "signature": "fn assert_eq_bool(left: bool, right: bool): int",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/testing/assert_eq_bool",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/testing/assert_eq_bool",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "assert_eq_int",
+          "signature": "fn assert_eq_int(left: int, right: int): int",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/testing/assert_eq_int",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/testing/assert_eq_int",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "assert_eq_string",
+          "signature": "fn assert_eq_string(left: string, right: string): int",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/testing/assert_eq_string",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/testing/assert_eq_string",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "assert_true",
+          "signature": "fn assert_true(value: bool): int",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/testing/assert_true",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/testing/assert_true",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "assert_true_case",
+          "signature": "fn assert_true_case(value: bool): int",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/testing/assert_true_case",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/testing/assert_true_case",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "property",
+          "signature": "fn property(name: string, holds: bool): int",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/testing/property",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/testing/property",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "snapshot",
+          "signature": "fn snapshot(name: string, actual: string, expected: string): int",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/testing/snapshot",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/testing/snapshot",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "table_bool",
+          "signature": "fn table_bool(name: string, actual: bool, expected: bool): int",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/testing/table_bool",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/testing/table_bool",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "table_int",
+          "signature": "fn table_int(name: string, actual: int, expected: int): int",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/testing/table_int",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/testing/table_int",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "table_string",
+          "signature": "fn table_string(name: string, actual: string, expected: string): int",
           "effect": "pure",
           "binding": "axiom://provider/stage1-v1/testing/table_string",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/testing/table_string",
+            "kind": "declared_provider"
+          }
         }
       ]
     },
     {
       "name": "std/time.ax",
+      "module_id": "axiom://stdlib/stage1-v1/time",
+      "module_loading": {
+        "kind": "embedded_source",
+        "source_path": "stage1/crates/axiomc/src/stdlib.rs",
+        "source_digest": "637d569b1deda234625cd946038bdd451719b8034c0c21e0edbdece553e81053"
+      },
       "capabilities": [
         "clock"
       ],
-      "source_identity": "embedded+source:stage1/crates/axiomc/src/stdlib.rs",
       "symbols": [
         {
           "name": "duration_ms",
+          "signature": "fn duration_ms(ms: int): Duration",
           "effect": "capability:clock",
           "binding": "axiom://provider/stage1-v1/time/duration_ms",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/time/duration_ms",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "elapsed_ms",
+          "signature": "fn elapsed_ms(start: Instant): int",
           "effect": "capability:clock",
           "binding": "axiom://provider/stage1-v1/time/elapsed_ms",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/time/elapsed_ms",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "now",
+          "signature": "fn now(): Instant",
           "effect": "capability:clock",
           "binding": "axiom://provider/stage1-v1/time/now",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/time/now",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "now_ms",
+          "signature": "fn now_ms(): int",
           "effect": "capability:clock",
           "binding": "axiom://provider/stage1-v1/time/now_ms",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/time/now_ms",
+            "kind": "declared_provider"
+          }
         },
         {
           "name": "sleep",
+          "signature": "fn sleep(duration: Duration): int",
           "effect": "capability:clock",
           "binding": "axiom://provider/stage1-v1/time/sleep",
-          "binding_kind": "provider_contract"
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/time/sleep",
+            "kind": "declared_provider"
+          }
         }
       ]
     },
     {
       "name": "std/traits.ax",
+      "module_id": "axiom://stdlib/stage1-v1/traits",
+      "module_loading": {
+        "kind": "embedded_source",
+        "source_path": "stage1/crates/axiomc/src/stdlib.rs",
+        "source_digest": "3edd9fc99050ebefc9172a81ebfec46c681a640643cde3c46b9396cf90cd1b47"
+      },
       "capabilities": [],
-      "source_identity": "embedded+source:stage1/crates/axiomc/src/stdlib.rs",
       "symbols": []
     }
   ],
-  "release_digest": "87ba64c1872d0ef5e18304501d8705714585265f343d1536e310e6efdb8c6c83",
-  "rollback_boundary": "stage1/crates/axiomc/src/stdlib.rs remains the bootstrap loader until the qualified compiler path consumes this catalog."
+  "release_digest": "69a356f4ed5c88450259644f99273ccf5961dedf54b10194c2b7c3d6b9dc3b3b",
+  "rollback_boundary": "stage1/crates/axiomc/src/stdlib.rs remains the bootstrap loader until #1436 qualifies a catalog consumer.",
+  "acceptance_boundary": {
+    "status": "pending",
+    "governing_issue": 1436,
+    "qualified_consumer": "compiler.mir_backend"
+  }
 }

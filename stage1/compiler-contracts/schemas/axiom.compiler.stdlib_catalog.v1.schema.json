@@ -1,1 +1,26 @@
-{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://omt-global.github.io/axiom/schemas/axiom.compiler.stdlib_catalog.v1.schema.json","title":"AxiOM compiler standard-library catalog","type":"object","additionalProperties":false,"required":["schema_version","contract","catalog_version","source","modules","release_digest","rollback_boundary"],"properties":{"schema_version":{"const":"axiom.compiler.stdlib_catalog.v1"},"contract":{"const":"compiler.stdlib"},"catalog_version":{"const":"1.0.0"},"source":{"const":"stage1/compiler-contracts/snapshots/capability-ledger.json"},"modules":{"type":"array","minItems":1},"release_digest":{"type":"string","pattern":"^[0-9a-f]{64}$"},"rollback_boundary":{"const":"stage1/crates/axiomc/src/stdlib.rs remains the bootstrap loader until the qualified compiler path consumes this catalog."}}}
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://omt-global.github.io/axiom/schemas/axiom.compiler.stdlib_catalog.v1.schema.json",
+  "title": "AxiOM compiler standard-library catalog",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "contract", "catalog_version", "source", "modules", "release_digest", "rollback_boundary", "acceptance_boundary"],
+  "properties": {
+    "schema_version": {"const": "axiom.compiler.stdlib_catalog.v1"},
+    "contract": {"const": "compiler.stdlib"},
+    "catalog_version": {"const": "1.0.0"},
+    "source": {"const": "stage1/compiler-contracts/snapshots/capability-ledger.json"},
+    "modules": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/module"}},
+    "release_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "rollback_boundary": {"const": "stage1/crates/axiomc/src/stdlib.rs remains the bootstrap loader until #1436 qualifies a catalog consumer."},
+    "acceptance_boundary": {"$ref": "#/$defs/acceptance_boundary"}
+  },
+  "$defs": {
+    "provider_id": {"type": "string", "pattern": "^axiom://provider/[A-Za-z0-9._~:/-]+$"},
+    "module": {"type": "object", "additionalProperties": false, "required": ["name", "module_id", "module_loading", "capabilities", "symbols"], "properties": {"name": {"type": "string", "pattern": "^std/[a-z0-9_]+\\.ax$"}, "module_id": {"type": "string", "pattern": "^axiom://stdlib/[A-Za-z0-9._~:/-]+$"}, "module_loading": {"$ref": "#/$defs/module_loading"}, "capabilities": {"type": "array", "items": {"type": "string", "minLength": 1}}, "symbols": {"type": "array", "items": {"$ref": "#/$defs/symbol"}}}},
+    "module_loading": {"type": "object", "additionalProperties": false, "required": ["kind", "source_path", "source_digest"], "properties": {"kind": {"const": "embedded_source"}, "source_path": {"const": "stage1/crates/axiomc/src/stdlib.rs"}, "source_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}},
+    "symbol": {"type": "object", "additionalProperties": false, "required": ["name", "signature", "effect", "binding", "binding_kind", "provider"], "properties": {"name": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"}, "signature": {"type": "string", "pattern": "^(async )?fn [a-z][a-z0-9_]*(<[^>]+>)?\\(.*\\): .+$"}, "effect": {"type": "string", "minLength": 1}, "binding": {"$ref": "#/$defs/provider_id"}, "binding_kind": {"const": "provider_contract"}, "provider": {"$ref": "#/$defs/provider"}}},
+    "provider": {"type": "object", "additionalProperties": false, "required": ["id", "kind"], "properties": {"id": {"$ref": "#/$defs/provider_id"}, "kind": {"const": "declared_provider"}}},
+    "acceptance_boundary": {"type": "object", "additionalProperties": false, "required": ["status", "governing_issue", "qualified_consumer"], "properties": {"status": {"const": "pending"}, "governing_issue": {"const": 1436}, "qualified_consumer": {"const": "compiler.mir_backend"}}}
+  }
+}
