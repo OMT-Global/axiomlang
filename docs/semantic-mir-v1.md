@@ -8,17 +8,27 @@ from host-language data structures.
 
 ## Package model
 
-A document has `schema_version`, a deterministic `package_id`, source-span
-table, semantic-node table, feature requirements, and modules. Identifiers are
-stable `axiom://` ids derived from package identity, source identity, and an
-ordinal in source order. A consumer must preserve ids and may add target-local
-metadata only outside the semantic document.
+A document has `schema_version`, a deterministic `package_id`, feature
+requirements, and ordered functions. Every semantic declaration carries its
+own source span and semantic-node provenance rather than relying on a separate
+host-language table. Identifiers are stable `axiom://` ids derived from package
+identity, source identity, and an ordinal in source order. A consumer must
+preserve ids and may add target-local metadata only outside the semantic
+document.
 
-Each module declares functions, aggregates, and entrypoints. A function owns
+Each function owns
 ordered blocks. A block has parameters, instructions, exactly one terminator,
 and a source span. Values are introduced only by parameters or instructions;
 uses refer to value ids. Control-flow edges pass block arguments explicitly,
 so joins and loop headers do not depend on an implicit host-language phi node.
+
+The v1 document makes these relationships machine-checkable: block parameters
+and instruction results are typed value declarations; instructions list value
+operands and, where applicable, a place, callee, effects, capability, or
+cleanup scope; and terminators are objects with operands and explicit successor
+edges. Each successor names its target block and supplies ordered arguments.
+The checker rejects undeclared values, places, cleanup scopes, and target
+blocks, as well as successor arguments that do not match the target parameters.
 
 ## Values, places, and operations
 
@@ -67,9 +77,12 @@ claiming executable lowering coverage. #1436 owns that consumption change.
 
 The v1 schema freezes the complete feature, terminator, and instruction
 vocabularies for this version. The checker derives the expected sets from those
-schema enums, and the snapshot covers every declared terminator and instruction
-operation. The schema and snapshots must represent scalar calls, branches, loops,
-match, `?`, mutation, early return, panic/defer, capability calls, aggregates,
-and async boundaries. Fixtures must include valid and rejected documents,
+schema enums, validates the fixture against the versioned schema, and then
+checks the executable invariants: typed value definitions and uses, places and
+projections, call/capability/effect metadata, cleanup scopes, and CFG successor
+arity. The snapshot covers every declared terminator and instruction operation
+and must provide executable evidence for scalar calls, branches, loops, match,
+`?`, mutation, early return, panic/defer, capability calls, aggregates, and
+async boundaries. Fixtures must include valid and rejected documents,
 deterministic id ordering, explicit unsupported-feature diagnostics, and no
 Rust enum, layout, crate, Cargo, or backend implementation names.

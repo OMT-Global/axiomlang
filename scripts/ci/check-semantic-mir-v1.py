@@ -14,10 +14,22 @@ def fail(message):
     raise SystemExit(1)
 
 
+def resolve_schema(schema, defs):
+    while "$ref" in schema:
+        ref = schema["$ref"]
+        prefix = "#/$defs/"
+        require(ref.startswith(prefix), f"unsupported schema ref {ref}")
+        name = ref[len(prefix):]
+        require(name in defs, f"unknown schema def {name}")
+        schema = defs[name]
+    return schema
+
+
 def enum_values(schema, *path):
     value = schema
     for key in path:
         value = value[key]
+    value = resolve_schema(value, schema.get("$defs", {}))
     return set(value["enum"])
 
 def require(condition, message):
@@ -29,12 +41,7 @@ def validate_against_schema(value, schema):
 
 def validate_schema_node(value, schema, path, defs):
     if "$ref" in schema:
-        ref = schema["$ref"]
-        prefix = "#/$defs/"
-        require(ref.startswith(prefix), f"{path} uses unsupported schema ref {ref}")
-        name = ref[len(prefix):]
-        require(name in defs, f"{path} references unknown schema def {name}")
-        validate_schema_node(value, defs[name], path, defs)
+        validate_schema_node(value, resolve_schema(schema, defs), path, defs)
         return
     if "const" in schema:
         require(value == schema["const"], f"{path} must equal {schema['const']!r}")
@@ -74,6 +81,98 @@ def validate_schema_node(value, schema, path, defs):
     elif expected_type is not None:
         fail(f"{path} uses unsupported schema type {expected_type}")
 
+
+RESULT_OPERATIONS = {"const", "copy", "move", "borrow", "load", "aggregate", "binary", "cast", "await"}
+PLACE_OPERATIONS = {"load", "store"}
+TERMINATOR_MIN_SUCCESSORS = {
+    "goto": 1,
+    "branch": 2,
+    "match": 2,
+    "return": 0,
+    "panic": 1,
+    "unwind": 1,
+    "unreachable": 0,
+}
+
+
+def validate_executable_function(function, features):
+    blocks = function["blocks"]
+    block_by_id = {block["id"]: block for block in blocks}
+    require(len(block_by_id) == len(blocks), "Semantic MIR blocks must have unique ids")
+    values = {}
+    ids = [function["id"]]
+    for block in blocks:
+        ids.append(block["id"])
+        for parameter in block["parameters"]:
+            values[parameter["id"]] = parameter
+            ids.append(parameter["id"])
+        for instruction in block["instructions"]:
+            ids.append(instruction["id"])
+            if "result" in instruction:
+                values[instruction["result"]["id"]] = instruction["result"]
+                ids.append(instruction["result"]["id"])
+    places = {place["id"]: place for place in function["places"]}
+    cleanup_scopes = {scope["id"]: scope for scope in function["cleanup_scopes"]}
+    ids.extend(places)
+    ids.extend(cleanup_scopes)
+    require(len(ids) == len(set(ids)), "Semantic MIR declaration ids must be unique")
+    for place in places.values():
+        require(place["base"] in values, "Semantic MIR place base must reference a declared value")
+    instruction_ids = {
+        instruction["id"]
+        for block in blocks
+        for instruction in block["instructions"]
+    }
+    for scope in cleanup_scopes.values():
+        require(set(scope["actions"]).issubset(instruction_ids), "Semantic MIR cleanup action must reference an instruction")
+
+    observed_features = set()
+    has_back_edge = False
+    block_order = {block["id"]: index for index, block in enumerate(blocks)}
+    for block in blocks:
+        for instruction in block["instructions"]:
+            operation = instruction["op"]
+            require(set(instruction["operands"]).issubset(values), "Semantic MIR instruction operand must reference a declared value")
+            if operation in RESULT_OPERATIONS:
+                require("result" in instruction, f"Semantic MIR {operation} instruction must declare a result value")
+            if operation in PLACE_OPERATIONS:
+                require(instruction.get("place") in places, f"Semantic MIR {operation} instruction must reference a declared place")
+            if operation == "store":
+                require(bool(instruction["operands"]), "Semantic MIR store instruction must consume a value")
+            if operation in {"call", "capability_call"}:
+                require(bool(instruction.get("callee")), "Semantic MIR call instruction must identify its callee")
+                require(bool(instruction.get("effects")), "Semantic MIR call instruction must declare effects")
+            if operation == "capability_call":
+                require(bool(instruction.get("capability")), "Semantic MIR capability call must declare its capability")
+            if operation == "defer_scope":
+                require(instruction.get("cleanup_scope") in cleanup_scopes, "Semantic MIR defer instruction must reference a cleanup scope")
+            observed_features.update(instruction["features"])
+        terminator = block["terminator"]
+        successors = terminator["successors"]
+        operation = terminator["op"]
+        require(set(terminator["operands"]).issubset(values), "Semantic MIR terminator operand must reference a declared value")
+        minimum = TERMINATOR_MIN_SUCCESSORS[operation]
+        if minimum == 0:
+            require(not successors, f"Semantic MIR {operation} terminator must not have successors")
+        else:
+            require(len(successors) >= minimum, f"Semantic MIR {operation} terminator lacks required successors")
+        for successor in successors:
+            target = successor["target"]
+            require(target in block_by_id, "Semantic MIR successor must reference a declared block")
+            require(
+                len(successor["arguments"]) == len(block_by_id[target]["parameters"]),
+                "Semantic MIR successor arguments must match target block parameters",
+            )
+            require(set(successor["arguments"]).issubset(values), "Semantic MIR successor argument must reference a declared value")
+            if block_order[target] <= block_order[block["id"]]:
+                has_back_edge = True
+        observed_features.update(terminator["features"])
+        for scope in terminator.get("cleanup_scopes", []):
+            require(scope in cleanup_scopes, "Semantic MIR terminator cleanup scope must be declared")
+    require(observed_features == features, "Semantic MIR fixture must provide executable evidence for every declared feature")
+    if "loop" in features:
+        require(has_back_edge, "Semantic MIR loop feature requires an explicit CFG back-edge")
+
 def main():
     schema = json.loads(SCHEMA.read_text())
     snapshot = json.loads(SNAPSHOT.read_text())
@@ -82,23 +181,24 @@ def main():
     validate_against_schema(snapshot, schema)
     if snapshot.get("schema_version") != "axiom.semantic_mir.v1" or snapshot.get("contract") != "compiler.semantic_mir" or snapshot.get("issue") != 1437:
         fail("Semantic MIR snapshot identity mismatch")
-    feature_values = enum_values(schema, "properties", "features", "items")
-    if set(snapshot["features"]) != feature_values or snapshot["features"] != sorted(snapshot["features"]):
+    feature_values = enum_values(schema, "$defs", "feature")
+    if set(snapshot["features"]) != feature_values or len(snapshot["features"]) != len(feature_values) or snapshot["features"] != sorted(snapshot["features"]):
         fail("Semantic MIR features must be complete and deterministically ordered")
-    terminator_values = enum_values(schema, "$defs", "block", "properties", "terminator")
+    terminator_values = enum_values(schema, "$defs", "terminator", "properties", "op")
     instruction_values = enum_values(schema, "$defs", "instruction", "properties", "op")
     ids = []
     terminators = set()
     instructions = set()
     for function in snapshot["functions"]:
         ids.append(function["id"])
+        validate_executable_function(function, feature_values)
         for block in function["blocks"]:
             ids.append(block["id"])
-            if block["terminator"] not in terminator_values:
+            if block["terminator"]["op"] not in terminator_values:
                 fail("Semantic MIR block has an unsupported terminator")
             if not block["semantic_nodes"]:
                 fail("Semantic MIR block lacks semantic provenance")
-            terminators.add(block["terminator"])
+            terminators.add(block["terminator"]["op"])
             for instruction in block["instructions"]:
                 ids.append(instruction["id"])
                 if instruction["op"] not in instruction_values:

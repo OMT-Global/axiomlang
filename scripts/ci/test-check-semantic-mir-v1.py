@@ -38,6 +38,11 @@ def main():
         if run(root).returncode == 0:
             raise SystemExit("Semantic MIR block without provenance was accepted")
         value = json.loads(SNAPSHOT.read_text())
+        del value["functions"][0]["semantic_nodes"]
+        path.write_text(json.dumps(value))
+        if run(root).returncode == 0:
+            raise SystemExit("Semantic MIR function without provenance was accepted")
+        value = json.loads(SNAPSHOT.read_text())
         del value["migration"]
         path.write_text(json.dumps(value))
         if run(root).returncode == 0:
@@ -57,6 +62,26 @@ def main():
         path.write_text(json.dumps(value))
         if run(root).returncode == 0:
             raise SystemExit("Semantic MIR fixture with unexpected schema field was accepted")
+        value = json.loads(SNAPSHOT.read_text())
+        del value["functions"][0]["blocks"][0]["instructions"][0]["operands"]
+        path.write_text(json.dumps(value))
+        if run(root).returncode == 0:
+            raise SystemExit("Semantic MIR instruction without operands was accepted")
+        value = json.loads(SNAPSHOT.read_text())
+        value["functions"][0]["blocks"][0]["instructions"][1]["operands"] = ["axiom://missing/value"]
+        path.write_text(json.dumps(value))
+        if run(root).returncode == 0:
+            raise SystemExit("Semantic MIR instruction with an undeclared operand was accepted")
+        value = json.loads(SNAPSHOT.read_text())
+        value["functions"][0]["blocks"][0]["terminator"]["successors"][0]["target"] = "axiom://missing/block"
+        path.write_text(json.dumps(value))
+        if run(root).returncode == 0:
+            raise SystemExit("Semantic MIR successor with an unknown block was accepted")
+        value = json.loads(SNAPSHOT.read_text())
+        value["functions"][0]["blocks"][3]["terminator"]["successors"] = [{"target": value["functions"][0]["blocks"][0]["id"], "arguments": ["axiom://package/semantic-mir-v1-fixture/value/input"]}]
+        path.write_text(json.dumps(value))
+        if run(root).returncode == 0:
+            raise SystemExit("Semantic MIR return terminator with a successor was accepted")
     print("Semantic MIR v1 checker tests passed")
 
 if __name__ == "__main__":
