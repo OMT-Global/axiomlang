@@ -15,10 +15,10 @@ use axiomc::manifest::{
 use axiomc::new_project::create_project;
 use axiomc::new_project::{WorkloadTemplate, create_project_with_template};
 use axiomc::project::{
-    BuildOptions, BuildOutput, CheckOptions, RunOptions, TestOptions, TestOutput,
+    BuildOptions, BuildOutput, CheckOptions, RunLimits, RunOptions, TestOptions, TestOutput,
     build_project_with_options, capability_sbom, check_project_with_options,
     documentation_packages, list_project_tests_with_options, package_graph_metadata, project_capabilities,
-    run_project_report_with_options, run_project_tests_with_options, run_project_with_options,
+    run_project_report_with_limits, run_project_report_with_options, run_project_tests_with_options, run_project_with_options,
     trace_provenance,
 };
 use axiomc::registry::{
@@ -206,7 +206,13 @@ enum Command {
         json: bool,
     },
     /// Diff two Intent IR snapshots for product-facing semantic drift.
-    SemanticDiff { old: PathBuf, new: PathBuf, #[arg(long)] json: bool },
+    SemanticDiff {
+        old: PathBuf,
+        new: PathBuf,
+        /// Emit an axiom.stage1.v1 JSON envelope for agent/tool consumption.
+        #[arg(long)]
+        json: bool,
+    },
     /// Map semantic impact to exact-head evidence, or evaluate a result set.
     VerificationPlan { before: PathBuf, after: PathBuf, #[arg(long)] diff: PathBuf, #[arg(long, default_value = ".")] project: PathBuf, #[arg(long)] source_head: String, #[arg(long)] delivered_head: String, #[arg(long)] results: Option<PathBuf>, #[arg(long)] json: bool },
     /// Inspect project metadata for agent tooling.
@@ -6817,6 +6823,13 @@ fn collect_doc_tests(items: &[DocItem]) -> Result<Vec<PendingDocTest>, Diagnosti
 }
 
 fn run_doc_tests(tests: &[PendingDocTest]) -> Result<Vec<DocTestResult>, Diagnostic> {
+    run_doc_tests_with_limits(tests, RunLimits::doctest())
+}
+
+fn run_doc_tests_with_limits(
+    tests: &[PendingDocTest],
+    limits: RunLimits,
+) -> Result<Vec<DocTestResult>, Diagnostic> {
     let mut results = Vec::new();
     for test in tests {
         let temp = DocTestSandbox::create()?;
@@ -6835,11 +6848,16 @@ fn run_doc_tests(tests: &[PendingDocTest]) -> Result<Vec<DocTestResult>, Diagnos
             .map_err(|err| Diagnostic::new("doctest", format!("failed to write lockfile: {err}")))?;
         fs::write(temp.path().join("src/main.ax"), &test.code)
             .map_err(|err| Diagnostic::new("doctest", format!("failed to write source: {err}")))?;
-        let output = run_project_report_with_options(temp.path(), &RunOptions::default()).map_err(
+        let output = run_project_report_with_limits(
+            temp.path(),
+            &RunOptions::default(),
+            limits,
+        )
+        .map_err(
             |err| {
                 Diagnostic::new(
                     "doctest",
-                    format!("doctest `{}` failed to build: {}", test.id, err.message),
+                    format!("doctest `{}` failed: {}", test.id, err.message),
                 )
                 .with_code("doctest_failed")
                 .with_path(test.source.clone())
@@ -8139,6 +8157,23 @@ mod tests {
     use super::*;
     use clap::{CommandFactory, Parser};
 
+    fn write_doc_test_manifest(project: &Path, name: &str) {
+        fs::write(
+            project.join("axiom.toml"),
+            format!(
+                "[package]\nname = \"{name}\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n"
+            ),
+        )
+        .expect("write doc test manifest");
+        fs::write(
+            project.join("axiom.lock"),
+            format!(
+                "version = 1\n\n[[package]]\nname = \"{name}\"\nversion = \"0.1.0\"\nsource = \"path\"\n"
+            ),
+        )
+        .expect("write doc test lockfile");
+    }
+
     #[test]
     fn json_output_formatter_uses_pretty_json() {
         let output = format_json_output(&serde_json::json!({
@@ -8309,6 +8344,7 @@ return "ok"
 "#,
         )
         .expect("write source");
+        write_doc_test_manifest(&project, "doc-md-only");
 
         fs::create_dir_all(project.join("dist/docs")).expect("mkdir docs dir");
         fs::write(project.join("dist/docs/index.html"), "stale html").expect("write stale html");
@@ -8330,7 +8366,35 @@ return "ok"
             })
             .collect();
 
-        assert_eq!(generated_files, vec![String::from("index.md")]);
+        assert_eq!(generated_files.len(), 2);
+        assert!(generated_files.contains(&String::from("index.md")));
+        assert!(generated_files.contains(&String::from("search-index.json")));
+    }
+
+    #[test]
+    fn doctest_timeout_returns_a_structured_failure() {
+        let test = PendingDocTest {
+            id: String::from("example#doctest-1"),
+            symbol_id: String::from("example"),
+            source: String::from("src/main.ax"),
+            line: 3,
+            code: String::from("while true {\n}\n"),
+        };
+        let limits = RunLimits {
+            timeout: std::time::Duration::from_millis(250),
+            max_output_bytes: 1024,
+            max_file_bytes: 1024 * 1024,
+            max_cpu_seconds: 1,
+        };
+        let started = std::time::Instant::now();
+
+        let error = run_doc_tests_with_limits(&[test], limits)
+            .expect_err("non-terminating doctest must be bounded");
+
+        assert_eq!(error.kind, "doctest");
+        assert_eq!(error.code.as_deref(), Some("doctest_failed"));
+        assert!(error.message.contains("timeout"), "{}", error.message);
+        assert!(started.elapsed() < std::time::Duration::from_secs(3));
     }
 
     #[test]
@@ -10387,18 +10451,30 @@ print serve("127.0.0.1:0", selected_route, 1)
     #[test]
     fn doc_extractor_pairs_doc_comments_with_signatures() {
         let dir = tempfile::tempdir().expect("tempdir");
-        let source = dir.path().join("src/main.ax");
+        let project = dir.path().join("doc-extractor");
+        let source = project.join("src/main.ax");
         fs::create_dir_all(source.parent().expect("source parent")).expect("mkdir");
+        fs::write(
+            project.join("axiom.toml"),
+            "[package]\nname = \"doc-extractor\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n",
+        )
+        .expect("write manifest");
+        fs::write(
+            project.join("axiom.lock"),
+            "version = 1\n\n[[package]]\nname = \"doc-extractor\"\nversion = \"0.1.0\"\nsource = \"path\"\n",
+        )
+        .expect("write lock");
         fs::write(
             &source,
             "/// Adds one.\npub fn inc(value: int): int {\nreturn value + 1\n}\n",
         )
         .expect("write source");
 
-        let items = extract_doc_items(&[source]).expect("extract docs");
+        let packages = documentation_packages(&project).expect("collect documentation packages");
+        let items = extract_doc_items(&packages).expect("extract docs");
 
         assert_eq!(items.len(), 1);
-        assert_eq!(items[0].signature, "pub fn inc(value: int): int {");
+        assert_eq!(items[0].signature, "fn inc(value: int): int");
         assert_eq!(items[0].kind, "function");
         assert!(items[0].public);
         assert_eq!(items[0].docs, vec![String::from("Adds one.")]);
@@ -10409,7 +10485,7 @@ print serve("127.0.0.1:0", selected_route, 1)
         let dir = tempfile::tempdir().expect("tempdir");
         let project = dir.path().join("doc-contained");
         fs::create_dir_all(project.join("src")).expect("mkdir");
-        fs::write(project.join("src/main.ax"), "/// Main.\npub fn main() {}\n")
+        fs::write(project.join("src/main.ax"), "/// Main.\npub fn main(): int {\nreturn 0\n}\n")
             .expect("write source");
 
         let outside = dir.path().join("outside-docs");
@@ -10423,7 +10499,7 @@ print serve("127.0.0.1:0", selected_route, 1)
         let dir = tempfile::tempdir().expect("tempdir");
         let project = dir.path().join("doc-relative-escape");
         fs::create_dir_all(project.join("src")).expect("mkdir");
-        fs::write(project.join("src/main.ax"), "/// Main.\npub fn main() {}\n")
+        fs::write(project.join("src/main.ax"), "/// Main.\npub fn main(): int {\nreturn 0\n}\n")
             .expect("write source");
 
         let outside = project.join("../outside-docs");
@@ -10446,7 +10522,7 @@ print serve("127.0.0.1:0", selected_route, 1)
         let outside = dir.path().join("outside-docs");
         fs::create_dir_all(project.join("src")).expect("mkdir project src");
         fs::create_dir_all(&outside).expect("mkdir outside");
-        fs::write(project.join("src/main.ax"), "/// Main.\npub fn main() {}\n")
+        fs::write(project.join("src/main.ax"), "/// Main.\npub fn main(): int {\nreturn 0\n}\n")
             .expect("write source");
         std::os::unix::fs::symlink(&outside, project.join("docs")).expect("symlink docs");
         let canonical_project = project.canonicalize().expect("canonical project");
@@ -10476,8 +10552,9 @@ print serve("127.0.0.1:0", selected_route, 1)
         let outside = dir.path().join("outside.md");
         fs::create_dir_all(project.join("src")).expect("mkdir project src");
         fs::create_dir_all(project.join("docs/axiom")).expect("mkdir docs");
-        fs::write(project.join("src/main.ax"), "/// Main.\npub fn main() {}\n")
+        fs::write(project.join("src/main.ax"), "/// Main.\npub fn main(): int {\nreturn 0\n}\n")
             .expect("write source");
+        write_doc_test_manifest(&project, "doc-file-symlink");
         fs::write(&outside, "do not overwrite").expect("write outside");
         std::os::unix::fs::symlink(&outside, project.join("docs/axiom/index.md"))
             .expect("symlink index");
@@ -10511,8 +10588,9 @@ print serve("127.0.0.1:0", selected_route, 1)
         let outside = dir.path().join("outside.html");
         fs::create_dir_all(project.join("src")).expect("mkdir project src");
         fs::create_dir_all(project.join("dist/docs")).expect("mkdir docs");
-        fs::write(project.join("src/main.ax"), "/// Main.\npub fn main() {}\n")
+        fs::write(project.join("src/main.ax"), "/// Main.\npub fn main(): int {\nreturn 0\n}\n")
             .expect("write source");
+        write_doc_test_manifest(&project, "doc-md-stale-html-symlink");
         fs::write(&outside, "do not overwrite").expect("write outside");
         std::os::unix::fs::symlink(&outside, project.join("dist/docs/index.html"))
             .expect("symlink index html");
@@ -10537,8 +10615,9 @@ print serve("127.0.0.1:0", selected_route, 1)
         let outside = dir.path().join("missing.html");
         fs::create_dir_all(project.join("src")).expect("mkdir project src");
         fs::create_dir_all(project.join("dist/docs")).expect("mkdir docs");
-        fs::write(project.join("src/main.ax"), "/// Main.\npub fn main() {}\n")
+        fs::write(project.join("src/main.ax"), "/// Main.\npub fn main(): int {\nreturn 0\n}\n")
             .expect("write source");
+        write_doc_test_manifest(&project, "doc-md-broken-html-symlink");
         std::os::unix::fs::symlink(&outside, project.join("dist/docs/index.html"))
             .expect("symlink index html");
         let canonical_project = fs::canonicalize(&project).expect("canonical project");
@@ -10656,6 +10735,7 @@ print serve("127.0.0.1:0", selected_route, 1)
             "/// Response text alias.\npub type ResponseText = string\n\n/// Handles a request.\n/// Example: route(\"/health\")\npub fn route(path: string): string {\nreturn \"ok\"\n}\n",
         )
         .expect("write source");
+        write_doc_test_manifest(&project, "doc-json");
 
         let output =
             generate_docs(&project, &project.join("docs/api"), true).expect("generate docs");

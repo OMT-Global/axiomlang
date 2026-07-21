@@ -33,6 +33,9 @@ use std::os::unix::fs::MetadataExt;
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
+use std::thread;
 use std::time::{Duration, Instant};
 
 mod expected_build_failure;
@@ -41,6 +44,25 @@ use expected_build_failure::{expected_build_error_path, run_build_fail_case};
 const BUILD_CACHE_VERSION: u32 = 2;
 const BUILD_CACHE_COMPILER: &str = concat!("axiomc-stage1-", env!("CARGO_PKG_VERSION"));
 const MAX_TEST_EXPECTED_STREAM_BYTES: u64 = 1024 * 1024;
+
+#[derive(Debug, Clone, Copy)]
+pub struct RunLimits {
+    pub timeout: Duration,
+    pub max_output_bytes: usize,
+    pub max_file_bytes: u64,
+    pub max_cpu_seconds: u64,
+}
+
+impl RunLimits {
+    pub const fn doctest() -> Self {
+        Self {
+            timeout: Duration::from_secs(5),
+            max_output_bytes: 1024 * 1024,
+            max_file_bytes: 8 * 1024 * 1024,
+            max_cpu_seconds: 5,
+        }
+    }
+}
 
 #[derive(Debug, Clone, Serialize)]
 pub struct CheckedPackage {
@@ -738,6 +760,178 @@ pub fn run_project_report_with_options(
         stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
         duration_ms: started.elapsed().as_millis() as u64,
     })
+}
+
+/// Runs a built project with an execution, output, and resource budget.
+///
+/// This is intentionally separate from the public `run` command so callers
+/// that execute untrusted project-owned snippets (such as documentation
+/// doctests) can opt into containment without changing normal CLI behavior.
+pub fn run_project_report_with_limits(
+    project_root: &Path,
+    options: &RunOptions,
+    limits: RunLimits,
+) -> Result<RunOutput, Diagnostic> {
+    let started = Instant::now();
+    let (project_root, built, build_output_dir) = prepare_run_project(project_root, options)?;
+    let mut command = command_for_build_output(&built.binary, build_output_dir).map_err(|err| {
+        Diagnostic::new("run", format!("failed to execute {}: {err}", built.binary))
+    })?;
+    command.current_dir(project_root).args(&options.args);
+    let output = run_bounded_command(&mut command, limits).map_err(|err| {
+        Diagnostic::new("run", format!("bounded execution of {} failed: {err}", built.binary))
+    })?;
+    let exit_code = output.status.code().unwrap_or(1);
+    Ok(RunOutput {
+        backend: built.backend,
+        manifest: built.manifest,
+        entry: built.entry,
+        binary: built.binary,
+        generated_rust: built.generated_rust,
+        package: options.package.clone(),
+        args: options.args.clone(),
+        exit_code,
+        result: if exit_code == 0 {
+            RunResult::Success
+        } else {
+            RunResult::Failure
+        },
+        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
+        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+        duration_ms: started.elapsed().as_millis() as u64,
+    })
+}
+
+struct BoundedCommandOutput {
+    status: std::process::ExitStatus,
+    stdout: Vec<u8>,
+    stderr: Vec<u8>,
+}
+
+fn run_bounded_command(command: &mut Command, limits: RunLimits) -> io::Result<BoundedCommandOutput> {
+    command.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    configure_bounded_command(command, limits);
+    let mut child = command.spawn()?;
+    let stdout = child.stdout.take().ok_or_else(|| io::Error::other("bounded command stdout pipe unavailable"))?;
+    let stderr = child.stderr.take().ok_or_else(|| io::Error::other("bounded command stderr pipe unavailable"))?;
+    let output_bytes = Arc::new(AtomicUsize::new(0));
+    let stdout_reader = capture_bounded_stream(stdout, limits.max_output_bytes, Arc::clone(&output_bytes));
+    let stderr_reader = capture_bounded_stream(stderr, limits.max_output_bytes, Arc::clone(&output_bytes));
+    let deadline = Instant::now() + limits.timeout;
+    let status = loop {
+        if output_bytes.load(Ordering::Relaxed) > limits.max_output_bytes {
+            terminate_bounded_child(&mut child);
+            let _ = stdout_reader.join();
+            let _ = stderr_reader.join();
+            return Err(io::Error::other(format!(
+                "output exceeded the {} byte limit",
+                limits.max_output_bytes
+            )));
+        }
+        if let Some(status) = child.try_wait()? {
+            break status;
+        }
+        if Instant::now() >= deadline {
+            terminate_bounded_child(&mut child);
+            let _ = stdout_reader.join();
+            let _ = stderr_reader.join();
+            return Err(io::Error::new(
+                ErrorKind::TimedOut,
+                format!("execution exceeded the {:?} timeout", limits.timeout),
+            ));
+        }
+        thread::sleep(Duration::from_millis(10));
+    };
+    let stdout = join_bounded_stream(stdout_reader)?;
+    let stderr = join_bounded_stream(stderr_reader)?;
+    if output_bytes.load(Ordering::Relaxed) > limits.max_output_bytes {
+        return Err(io::Error::other(format!(
+            "output exceeded the {} byte limit",
+            limits.max_output_bytes
+        )));
+    }
+    Ok(BoundedCommandOutput { status, stdout, stderr })
+}
+
+fn capture_bounded_stream<R>(mut stream: R, limit: usize, output_bytes: Arc<AtomicUsize>) -> thread::JoinHandle<io::Result<Vec<u8>>>
+where
+    R: Read + Send + 'static,
+{
+    thread::spawn(move || {
+        let mut captured = Vec::new();
+        let mut buffer = [0u8; 8192];
+        loop {
+            let read = stream.read(&mut buffer)?;
+            if read == 0 {
+                return Ok(captured);
+            }
+            let previous = output_bytes.fetch_add(read, Ordering::Relaxed);
+            if previous < limit {
+                let remaining = limit - previous;
+                captured.extend_from_slice(&buffer[..read.min(remaining)]);
+            }
+        }
+    })
+}
+
+fn join_bounded_stream(reader: thread::JoinHandle<io::Result<Vec<u8>>>) -> io::Result<Vec<u8>> {
+    reader
+        .join()
+        .map_err(|_| io::Error::other("bounded command output reader panicked"))?
+}
+
+#[cfg(unix)]
+fn configure_bounded_command(command: &mut Command, limits: RunLimits) {
+    use std::os::unix::process::CommandExt;
+
+    unsafe {
+        command.pre_exec(move || {
+            if libc::setsid() < 0 {
+                return Err(io::Error::last_os_error());
+            }
+            set_bounded_rlimit(libc::RLIMIT_CPU, limits.max_cpu_seconds)?;
+            set_bounded_rlimit(libc::RLIMIT_FSIZE, limits.max_file_bytes)?;
+            Ok(())
+        });
+    }
+}
+
+#[cfg(not(unix))]
+fn configure_bounded_command(_command: &mut Command, _limits: RunLimits) {}
+
+#[cfg(unix)]
+fn set_bounded_rlimit(resource: libc::c_int, limit: u64) -> io::Result<()> {
+    let limits = libc::rlimit {
+        rlim_cur: limit as libc::rlim_t,
+        rlim_max: limit as libc::rlim_t,
+    };
+    if unsafe { libc::setrlimit(resource, &limits) } != 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(())
+}
+
+fn terminate_bounded_child(child: &mut std::process::Child) {
+    #[cfg(unix)]
+    {
+        let process_group = -(child.id() as i32);
+        unsafe {
+            libc::kill(process_group, libc::SIGTERM);
+        }
+        let grace_deadline = Instant::now() + Duration::from_millis(100);
+        while Instant::now() < grace_deadline {
+            if child.try_wait().ok().flatten().is_some() {
+                return;
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+        unsafe {
+            libc::kill(process_group, libc::SIGKILL);
+        }
+    }
+    #[cfg(not(unix))]
+    let _ = child.kill();
+    let _ = child.wait();
 }
 
 fn prepare_run_project(
