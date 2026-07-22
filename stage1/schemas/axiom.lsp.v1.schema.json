@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://axiom.omt.global/schemas/axiom.lsp.v1.schema.json",
+  "title": "Axiom LSP v1 server status",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "workspaceGeneration",
+    "documents",
+    "symbols",
+    "memoryBytes",
+    "memoryLimitBytes",
+    "lastAnalysisMs",
+    "p95AnalysisMs",
+    "latencySamples",
+    "packages",
+    "capabilities",
+    "cancellation",
+    "documentSync"
+  ],
+  "properties": {
+    "schema": { "const": "axiom.lsp.v1" },
+    "workspaceGeneration": { "type": "integer", "minimum": 1 },
+    "documents": { "type": "integer", "minimum": 0, "maximum": 2048 },
+    "symbols": { "type": "integer", "minimum": 0 },
+    "memoryBytes": { "type": "integer", "minimum": 0, "maximum": 16777216 },
+    "memoryLimitBytes": { "const": 16777216 },
+    "lastAnalysisMs": { "type": "integer", "minimum": 0 },
+    "p95AnalysisMs": { "type": "integer", "minimum": 0 },
+    "latencySamples": { "type": "integer", "minimum": 1, "maximum": 128 },
+    "packages": { "type": "array" },
+    "capabilities": { "type": "array", "items": { "type": "string" } },
+    "cancellation": { "const": "json-rpc-cancel-request" },
+    "documentSync": { "const": "incremental" }
+  }
+}

@@ -1,0 +1,34 @@
+{
+  "schema": "axiom.lsp.transcript.v1",
+  "description": "Multi-document navigation transcript for the persistent package-aware LSP slice.",
+  "documents": [
+    {
+      "uri": "file:///workspace/provider.ax",
+      "version": 1,
+      "text": "pub fn health(): int {\nreturn 1\n}\n"
+    },
+    {
+      "uri": "file:///workspace/consumer.ax",
+      "version": 1,
+      "text": "print health()\n"
+    }
+  ],
+  "requests": [
+    "textDocument/definition",
+    "textDocument/hover",
+    "textDocument/references",
+    "textDocument/documentSymbol",
+    "workspace/symbol",
+    "textDocument/completion",
+    "textDocument/signatureHelp",
+    "axiom/serverStatus"
+  ],
+  "bounds": {
+    "documentBytes": 1048576,
+    "workspaceBytes": 16777216,
+    "workspaceDocuments": 2048,
+    "latencySamples": 128,
+    "compilerScaleWorkspaceDocuments": 256,
+    "p95IndexingMilliseconds": 250
+  }
+}
