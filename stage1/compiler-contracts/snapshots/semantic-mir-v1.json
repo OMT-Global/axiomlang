@@ -1,0 +1,102 @@
+{
+  "schema_version": "axiom.semantic_mir.v1",
+  "contract": "compiler.semantic_mir",
+  "issue": 1437,
+  "package_id": "axiom://package/semantic-mir-v1-fixture",
+  "features": ["aggregate", "async_boundary", "branch", "capability_call", "defer", "early_return", "loop", "match", "mutation", "panic", "scalar_call", "try"],
+  "functions": [
+    {
+      "id": "axiom://package/semantic-mir-v1-fixture/function/main",
+      "span": {"path": "src/main.ax", "line": 1, "column": 1},
+      "semantic_nodes": ["axiom://semantic/function/main"],
+      "places": [
+        {"id": "axiom://package/semantic-mir-v1-fixture/place/input-field", "base": "axiom://package/semantic-mir-v1-fixture/value/branch-input", "projections": [{"kind": "field", "field": "count"}], "span": {"path": "src/main.ax", "line": 6, "column": 8}, "semantic_nodes": ["axiom://semantic/function/main"]}
+      ],
+      "cleanup_scopes": [
+        {"id": "axiom://package/semantic-mir-v1-fixture/cleanup/defer", "mode": "always", "actions": ["axiom://package/semantic-mir-v1-fixture/function/main/instruction/drop"], "span": {"path": "src/main.ax", "line": 15, "column": 3}, "semantic_nodes": ["axiom://semantic/function/main"]}
+      ],
+      "blocks": [
+        {
+          "id": "axiom://package/semantic-mir-v1-fixture/function/main/block/goto",
+          "parameters": [{"id": "axiom://package/semantic-mir-v1-fixture/value/input", "type": "Record", "span": {"path": "src/main.ax", "line": 1, "column": 9}, "semantic_nodes": ["axiom://semantic/function/main"]}],
+          "instructions": [
+            {"id": "axiom://package/semantic-mir-v1-fixture/function/main/instruction/const", "op": "const", "operands": [], "result": {"id": "axiom://package/semantic-mir-v1-fixture/value/const", "type": "int", "span": {"path": "src/main.ax", "line": 2, "column": 3}, "semantic_nodes": ["axiom://semantic/function/main"]}, "features": [], "span": {"path": "src/main.ax", "line": 2, "column": 3}, "semantic_nodes": ["axiom://semantic/function/main"]},
+            {"id": "axiom://package/semantic-mir-v1-fixture/function/main/instruction/copy", "op": "copy", "operands": ["axiom://package/semantic-mir-v1-fixture/value/const"], "result": {"id": "axiom://package/semantic-mir-v1-fixture/value/copy", "type": "int", "span": {"path": "src/main.ax", "line": 3, "column": 3}, "semantic_nodes": ["axiom://semantic/function/main"]}, "features": [], "span": {"path": "src/main.ax", "line": 3, "column": 3}, "semantic_nodes": ["axiom://semantic/function/main"]},
+            {"id": "axiom://package/semantic-mir-v1-fixture/function/main/instruction/move", "op": "move", "operands": ["axiom://package/semantic-mir-v1-fixture/value/copy"], "result": {"id": "axiom://package/semantic-mir-v1-fixture/value/move", "type": "int", "span": {"path": "src/main.ax", "line": 4, "column": 3}, "semantic_nodes": ["axiom://semantic/function/main"]}, "features": [], "span": {"path": "src/main.ax", "line": 4, "column": 3}, "semantic_nodes": ["axiom://semantic/function/main"]}
+          ],
+          "terminator": {"op": "goto", "operands": [], "successors": [{"target": "axiom://package/semantic-mir-v1-fixture/function/main/block/branch", "arguments": ["axiom://package/semantic-mir-v1-fixture/value/input", "axiom://package/semantic-mir-v1-fixture/value/move"]}], "features": ["loop"], "span": {"path": "src/main.ax", "line": 4, "column": 1}, "semantic_nodes": ["axiom://semantic/function/main"]},
+          "span": {"path": "src/main.ax", "line": 1, "column": 1},
+          "semantic_nodes": ["axiom://semantic/function/main"]
+        },
+        {
+          "id": "axiom://package/semantic-mir-v1-fixture/function/main/block/branch",
+          "parameters": [{"id": "axiom://package/semantic-mir-v1-fixture/value/branch-input", "type": "Record", "span": {"path": "src/main.ax", "line": 1, "column": 9}, "semantic_nodes": ["axiom://semantic/function/main"]}, {"id": "axiom://package/semantic-mir-v1-fixture/value/branch-move", "type": "int", "span": {"path": "src/main.ax", "line": 4, "column": 3}, "semantic_nodes": ["axiom://semantic/function/main"]}],
+          "instructions": [
+            {"id": "axiom://package/semantic-mir-v1-fixture/function/main/instruction/borrow", "op": "borrow", "operands": ["axiom://package/semantic-mir-v1-fixture/value/branch-input"], "result": {"id": "axiom://package/semantic-mir-v1-fixture/value/borrow", "type": "&Record", "span": {"path": "src/main.ax", "line": 5, "column": 3}, "semantic_nodes": ["axiom://semantic/function/main"]}, "place": "axiom://package/semantic-mir-v1-fixture/place/input-field", "mutability": "shared", "region": "axiom://package/semantic-mir-v1-fixture/cleanup/defer", "features": [], "span": {"path": "src/main.ax", "line": 5, "column": 3}, "semantic_nodes": ["axiom://semantic/function/main"]},
+            {"id": "axiom://package/semantic-mir-v1-fixture/function/main/instruction/load", "op": "load", "operands": [], "place": "axiom://package/semantic-mir-v1-fixture/place/input-field", "result": {"id": "axiom://package/semantic-mir-v1-fixture/value/load", "type": "int", "span": {"path": "src/main.ax", "line": 6, "column": 3}, "semantic_nodes": ["axiom://semantic/function/main"]}, "features": [], "span": {"path": "src/main.ax", "line": 6, "column": 3}, "semantic_nodes": ["axiom://semantic/function/main"]},
+            {"id": "axiom://package/semantic-mir-v1-fixture/function/main/instruction/store", "op": "store", "operands": ["axiom://package/semantic-mir-v1-fixture/value/load"], "place": "axiom://package/semantic-mir-v1-fixture/place/input-field", "features": ["mutation"], "span": {"path": "src/main.ax", "line": 7, "column": 3}, "semantic_nodes": ["axiom://semantic/function/main"]}
+          ],
+          "terminator": {"op": "branch", "operands": ["axiom://package/semantic-mir-v1-fixture/value/load"], "successors": [{"target": "axiom://package/semantic-mir-v1-fixture/function/main/block/match", "arguments": ["axiom://package/semantic-mir-v1-fixture/value/load", "axiom://package/semantic-mir-v1-fixture/value/branch-move"]}, {"target": "axiom://package/semantic-mir-v1-fixture/function/main/block/goto", "arguments": ["axiom://package/semantic-mir-v1-fixture/value/branch-input"]}], "features": ["branch"], "span": {"path": "src/main.ax", "line": 7, "column": 1}, "semantic_nodes": ["axiom://semantic/function/main"]},
+          "span": {"path": "src/main.ax", "line": 5, "column": 1},
+          "semantic_nodes": ["axiom://semantic/function/main"]
+        },
+        {
+          "id": "axiom://package/semantic-mir-v1-fixture/function/main/block/match",
+          "parameters": [{"id": "axiom://package/semantic-mir-v1-fixture/value/match-load", "type": "int", "span": {"path": "src/main.ax", "line": 6, "column": 3}, "semantic_nodes": ["axiom://semantic/function/main"]}, {"id": "axiom://package/semantic-mir-v1-fixture/value/match-move", "type": "int", "span": {"path": "src/main.ax", "line": 4, "column": 3}, "semantic_nodes": ["axiom://semantic/function/main"]}],
+          "instructions": [
+            {"id": "axiom://package/semantic-mir-v1-fixture/function/main/instruction/aggregate", "op": "aggregate", "operands": ["axiom://package/semantic-mir-v1-fixture/value/match-load", "axiom://package/semantic-mir-v1-fixture/value/match-move"], "result": {"id": "axiom://package/semantic-mir-v1-fixture/value/aggregate", "type": "Pair<int,int>", "span": {"path": "src/main.ax", "line": 8, "column": 3}, "semantic_nodes": ["axiom://semantic/function/main"]}, "features": ["aggregate"], "span": {"path": "src/main.ax", "line": 8, "column": 3}, "semantic_nodes": ["axiom://semantic/function/main"]},
+            {"id": "axiom://package/semantic-mir-v1-fixture/function/main/instruction/call", "op": "call", "operands": ["axiom://package/semantic-mir-v1-fixture/value/aggregate"], "result": {"id": "axiom://package/semantic-mir-v1-fixture/value/call", "type": "Result<int,Error>", "span": {"path": "src/main.ax", "line": 9, "column": 3}, "semantic_nodes": ["axiom://semantic/function/main"]}, "callee": "axiom://package/semantic-mir-v1-fixture/function/compute", "effects": ["env"], "features": ["scalar_call", "try"], "span": {"path": "src/main.ax", "line": 9, "column": 3}, "semantic_nodes": ["axiom://semantic/function/main"]},
+            {"id": "axiom://package/semantic-mir-v1-fixture/function/main/instruction/capability", "op": "capability_call", "operands": ["axiom://package/semantic-mir-v1-fixture/value/call"], "result": {"id": "axiom://package/semantic-mir-v1-fixture/value/capability", "type": "int", "span": {"path": "src/main.ax", "line": 10, "column": 3}, "semantic_nodes": ["axiom://semantic/function/main"]}, "callee": "axiom://capability/net/request", "effects": ["net"], "capability": "net", "features": ["capability_call"], "span": {"path": "src/main.ax", "line": 10, "column": 3}, "semantic_nodes": ["axiom://semantic/function/main"]}
+          ],
+          "terminator": {"op": "match", "operands": ["axiom://package/semantic-mir-v1-fixture/value/call"], "successors": [{"target": "axiom://package/semantic-mir-v1-fixture/function/main/block/return", "arguments": ["axiom://package/semantic-mir-v1-fixture/value/capability", "axiom://package/semantic-mir-v1-fixture/value/match-load"]}, {"target": "axiom://package/semantic-mir-v1-fixture/function/main/block/panic", "arguments": ["axiom://package/semantic-mir-v1-fixture/value/capability"]}], "features": ["match"], "span": {"path": "src/main.ax", "line": 10, "column": 1}, "semantic_nodes": ["axiom://semantic/function/main"]},
+          "span": {"path": "src/main.ax", "line": 8, "column": 1},
+          "semantic_nodes": ["axiom://semantic/function/main"]
+        },
+        {
+          "id": "axiom://package/semantic-mir-v1-fixture/function/main/block/return",
+          "parameters": [{"id": "axiom://package/semantic-mir-v1-fixture/value/return-capability", "type": "int", "span": {"path": "src/main.ax", "line": 10, "column": 3}, "semantic_nodes": ["axiom://semantic/function/main"]}, {"id": "axiom://package/semantic-mir-v1-fixture/value/return-load", "type": "int", "span": {"path": "src/main.ax", "line": 6, "column": 3}, "semantic_nodes": ["axiom://semantic/function/main"]}],
+          "instructions": [
+            {"id": "axiom://package/semantic-mir-v1-fixture/function/main/instruction/binary", "op": "binary", "operands": ["axiom://package/semantic-mir-v1-fixture/value/return-capability", "axiom://package/semantic-mir-v1-fixture/value/return-load"], "result": {"id": "axiom://package/semantic-mir-v1-fixture/value/binary", "type": "int", "span": {"path": "src/main.ax", "line": 11, "column": 3}, "semantic_nodes": ["axiom://semantic/function/main"]}, "features": [], "span": {"path": "src/main.ax", "line": 11, "column": 3}, "semantic_nodes": ["axiom://semantic/function/main"]},
+            {"id": "axiom://package/semantic-mir-v1-fixture/function/main/instruction/cast", "op": "cast", "operands": ["axiom://package/semantic-mir-v1-fixture/value/binary"], "result": {"id": "axiom://package/semantic-mir-v1-fixture/value/cast", "type": "string", "span": {"path": "src/main.ax", "line": 12, "column": 3}, "semantic_nodes": ["axiom://semantic/function/main"]}, "features": [], "span": {"path": "src/main.ax", "line": 12, "column": 3}, "semantic_nodes": ["axiom://semantic/function/main"]},
+            {"id": "axiom://package/semantic-mir-v1-fixture/function/main/instruction/await", "op": "await", "operands": ["axiom://package/semantic-mir-v1-fixture/value/cast"], "result": {"id": "axiom://package/semantic-mir-v1-fixture/value/await", "type": "string", "span": {"path": "src/main.ax", "line": 13, "column": 3}, "semantic_nodes": ["axiom://semantic/function/main"]}, "features": ["async_boundary"], "span": {"path": "src/main.ax", "line": 13, "column": 3}, "semantic_nodes": ["axiom://semantic/function/main"]}
+          ],
+          "terminator": {"op": "return", "operands": ["axiom://package/semantic-mir-v1-fixture/value/await"], "successors": [], "features": ["early_return"], "span": {"path": "src/main.ax", "line": 13, "column": 1}, "semantic_nodes": ["axiom://semantic/function/main"]},
+          "span": {"path": "src/main.ax", "line": 11, "column": 1},
+          "semantic_nodes": ["axiom://semantic/function/main"]
+        },
+        {
+          "id": "axiom://package/semantic-mir-v1-fixture/function/main/block/panic",
+          "parameters": [{"id": "axiom://package/semantic-mir-v1-fixture/value/panic-capability", "type": "int", "span": {"path": "src/main.ax", "line": 10, "column": 3}, "semantic_nodes": ["axiom://semantic/function/main"]}],
+          "instructions": [
+            {"id": "axiom://package/semantic-mir-v1-fixture/function/main/instruction/drop", "op": "drop", "operands": ["axiom://package/semantic-mir-v1-fixture/value/panic-capability"], "features": [], "span": {"path": "src/main.ax", "line": 14, "column": 3}, "semantic_nodes": ["axiom://semantic/function/main"]},
+            {"id": "axiom://package/semantic-mir-v1-fixture/function/main/instruction/defer", "op": "defer_scope", "operands": [], "cleanup_scope": "axiom://package/semantic-mir-v1-fixture/cleanup/defer", "features": ["defer"], "span": {"path": "src/main.ax", "line": 15, "column": 3}, "semantic_nodes": ["axiom://semantic/function/main"]}
+          ],
+          "terminator": {"op": "panic", "operands": [], "successors": [{"target": "axiom://package/semantic-mir-v1-fixture/function/main/block/unwind", "arguments": []}], "cleanup_scopes": ["axiom://package/semantic-mir-v1-fixture/cleanup/defer"], "features": ["panic"], "span": {"path": "src/main.ax", "line": 15, "column": 1}, "semantic_nodes": ["axiom://semantic/function/main"]},
+          "span": {"path": "src/main.ax", "line": 14, "column": 1},
+          "semantic_nodes": ["axiom://semantic/function/main"]
+        },
+        {
+          "id": "axiom://package/semantic-mir-v1-fixture/function/main/block/unwind",
+          "parameters": [],
+          "instructions": [],
+          "terminator": {"op": "unwind", "operands": [], "successors": [{"target": "axiom://package/semantic-mir-v1-fixture/function/main/block/unreachable", "arguments": []}], "features": [], "span": {"path": "src/main.ax", "line": 16, "column": 1}, "semantic_nodes": ["axiom://semantic/function/main"]},
+          "span": {"path": "src/main.ax", "line": 16, "column": 1},
+          "semantic_nodes": ["axiom://semantic/function/main"]
+        },
+        {
+          "id": "axiom://package/semantic-mir-v1-fixture/function/main/block/unreachable",
+          "parameters": [],
+          "instructions": [],
+          "terminator": {"op": "unreachable", "operands": [], "successors": [], "features": [], "span": {"path": "src/main.ax", "line": 17, "column": 1}, "semantic_nodes": ["axiom://semantic/function/main"]},
+          "span": {"path": "src/main.ax", "line": 17, "column": 1},
+          "semantic_nodes": ["axiom://semantic/function/main"]
+        }
+      ]
+    }
+  ],
+  "migration": {
+    "legacy_projection": "The existing HIR-shaped inspection JSON may coexist during migration but is not Semantic MIR v1.",
+    "backend_consumption": "A backend claims executable coverage only after consuming declared Semantic MIR v1 features.",
+    "forbidden_terms": ["Cargo", "Rust enum", "Rust layout", "Cranelift instruction stream"]
+  }
+}
