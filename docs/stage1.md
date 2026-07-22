@@ -66,17 +66,31 @@ cargo run --manifest-path stage1/Cargo.toml -p axiomc -- mutation-report .axiom-
 cargo run --manifest-path stage1/Cargo.toml -p axiomc -- lsp
 ```
 
-`axiomc doc --json` emits the same API extraction pass as a versioned machine
-contract, including generated Markdown/HTML paths, `functions` and `types`
-views, documented symbols, comments, signatures, simple example notes,
-declaration kind/visibility, and package capability descriptors when the input
-path is a package root. The output validates against
-`stage1/schemas/axiom-doc-v0.schema.json` as well as the shared
-`axiom.stage1.v1` envelope. `axiomc doc --md <project>` writes Markdown into
-`<project>/dist/docs/index.md` unless `--out-dir` is provided.
-`std/doc.ax` now defines the AxiOM-side doc item contract and Markdown renderer;
-source extraction and `axiomc doc` driver integration remain bootstrap-hosted
-until Phase-K.1 can follow Phase-J.3.
+`axiomc doc --json` emits the typed `axiom.docs.v1` contract. It derives the
+public documentation surface from compiler semantic data, including modules,
+types, fields, variants, traits, trait methods, impl methods, functions,
+capability declarations and declared effects. Every item has a stable
+`axiom://package/...` symbol ID, package-relative source link, visibility, and
+search entry. The generated Markdown, HTML, JSON payload, and
+`search-index.json` are deterministic. The output validates against
+`stage1/schemas/axiom.docs.v1.schema.json` as well as the shared
+`axiom.stage1.v1` envelope. `axiomc doc --md <project>` writes Markdown and its
+search index into `<project>/dist/docs/` unless `--out-dir` is provided.
+
+Use `{@link SymbolName}` in a doc comment to link an unambiguous public symbol,
+or use its full stable symbol ID when a name is ambiguous. Broken or ambiguous
+links fail `axiomc doc`. A fenced ` ```axiom ` doc block is an executable
+doctest; it runs as a standalone, isolated package with no capabilities
+granted. A failing or malformed doctest fails `axiomc doc` with a structured
+diagnostic, so qualification cannot proceed on unverified examples. Examples
+that need capabilities must remain ordinary documentation until a deliberately
+scoped capability-policy extension is approved.
+
+Private declarations are excluded by default. Imports are not re-exports: a
+symbol is documented only when its declaration is semantically public in the
+package that owns it. `std/doc.ax` defines the AxiOM-side doc item contract and
+Markdown renderer; source extraction and `axiomc doc` driver integration remain
+bootstrap-hosted until Phase-K.1 can follow Phase-J.3.
 `std/lsp.ax` defines the AxiOM-side JSON-RPC/LSP message contract for
 initialize, document-change, diagnostic, completion, shutdown, and exit flows;
 the Stage1 Rust stdio loop still owns process I/O until the Phase-L self-hosting
