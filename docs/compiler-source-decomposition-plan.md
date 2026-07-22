@@ -191,7 +191,7 @@ Snapshot updated 2026-07-12 after the #1254 completion audit:
 | Rank | Current Rust file | Lines | Target package boundary | First extraction slice |
 | ---: | --- | ---: | --- | --- |
 | 1 | `stage1/crates/axiomc/src/cranelift_backend.rs` | 20,076 | `compiler.backend.native` | Runtime-intrinsic implementations live in `.../cranelift_backend/intrinsics.rs`, the compile-time evaluator in `.../cranelift_backend/evaluator.rs`, host-capability lowering in the `host_*` siblings, and static-output eligibility in `.../cranelift_backend/static_output_purity.rs`; the remaining work is sub-partitioning the mutually-recursive value/control core by value shape. |
-| 2 | `stage1/crates/axiomc/src/project.rs` | 11,899 | `compiler.package_graph`, `compiler.commands`, `compiler.evidence` | Build lowering evidence now lives in `stage1/crates/axiomc/src/project/build_contract.rs`; Documentation v1 now derives public symbols here; continue splitting manifest/workspace loading, command orchestration, provenance/debug records, artifact planning, and the future `compiler.docs` semantic projection along package ownership. |
+| 2 | `stage1/crates/axiomc/src/project.rs` | 12,096 | `compiler.package_graph`, `compiler.commands`, `compiler.evidence` | Build lowering evidence now lives in `stage1/crates/axiomc/src/project/build_contract.rs`; Documentation v1 now derives public symbols here; continue splitting manifest/workspace loading, command orchestration, provenance/debug records, artifact planning, and the future `compiler.docs` semantic projection along package ownership. |
 | 3 | `stage1/crates/axiomc/src/main.rs` | 11,006 | `compiler.commands` | Formatter reporting and edit planning now live in `stage1/crates/axiomc/src/formatter.rs`; Documentation v1 now owns deterministic rendering, HTML/Markdown link validation, search, and doctest orchestration here; continue moving command parsing, JSON envelope construction, check/build/run/test/doc/trace orchestration, and exit handling behind `docs/compiler-command-lsp-packages.md` APIs. |
 | 4 | `stage1/crates/axiomc/src/codegen.rs` | 7,919 | `compiler.backend.generated_rust`, `compiler.backend.contracts` | Isolate generated-Rust compatibility emission from backend target selection and unsupported-feature contracts. |
 | 5 | `stage1/crates/axiomc/src/syntax.rs` | 6,370 | `compiler.syntax`, `compiler.diagnostics` | Split lexer/parser, parse recovery, source spans, macros, and syntax diagnostics behind the syntax boundary. |
@@ -220,7 +220,7 @@ matching ceiling in this table in the same PR.
 | `stage1/crates/axiomc/src/cranelift_backend/host_crypto.rs` | 783 |
 | `stage1/crates/axiomc/src/cranelift_backend/host_net_http.rs` | 1043 |
 | `stage1/crates/axiomc/src/hir.rs` | 5849 |
-| `stage1/crates/axiomc/src/project.rs` | 11899 |
+| `stage1/crates/axiomc/src/project.rs` | 12096 |
 | `stage1/crates/axiomc/src/project/build_contract.rs` | 118 |
 | `stage1/crates/axiomc/src/main.rs` | 11006 |
 | `stage1/crates/axiomc/src/formatter.rs` | 219 |
