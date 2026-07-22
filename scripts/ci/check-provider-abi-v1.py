@@ -80,11 +80,31 @@ def validate(v, s):
 
 def compile_fixture(target):
     cc = shutil.which("cc")
+    nm = shutil.which("nm")
     need(cc, "C compiler unavailable for reference fixture")
+    need(nm, "nm unavailable for reference fixture export verification")
     with tempfile.TemporaryDirectory() as directory:
-        output = Path(directory) / "provider.o"
+        directory = Path(directory)
+        output = directory / "provider.o"
         result = subprocess.run([cc, "-std=c11", "-Wall", "-Wextra", "-Werror", "-c", str(C), "-o", str(output)], capture_output=True, text=True)
         need(result.returncode == 0, f"C reference fixture failed for {target}: {result.stderr}")
+        exports = subprocess.run([nm, "-g", "--defined-only", str(output)], capture_output=True, text=True)
+        need(exports.returncode == 0, f"unable to inspect C reference fixture exports for {target}: {exports.stderr}")
+        expected = {"axiom_provider_v1", "axiom_provider_call", "axiom_provider_close_handle", "axiom_provider_release_owned_buffer"}
+        actual = {line.split()[-1] for line in exports.stdout.splitlines() if line.split()}
+        need(expected <= actual, f"C reference fixture missing required exports for {target}: {sorted(expected - actual)}")
+        probe = directory / "provider-abi-probe.c"
+        probe.write_text(f'''#include "{C}"
+int axiom_provider_abi_v1_probe(void) {{
+  int (*v1)(axiom_provider_descriptor *) = axiom_provider_v1;
+  int (*call)(axiom_handle, axiom_borrowed_bytes, axiom_owned_bytes *) = axiom_provider_call;
+  int (*close_handle)(axiom_handle) = axiom_provider_close_handle;
+  void (*release)(axiom_owned_bytes) = axiom_provider_release_owned_buffer;
+  return !(v1 && call && close_handle && release);
+}}
+''')
+        result = subprocess.run([cc, "-std=c11", "-Wall", "-Wextra", "-Werror", "-c", str(probe), "-o", str(directory / "provider-abi-probe.o")], capture_output=True, text=True)
+        need(result.returncode == 0, f"C reference fixture ABI mismatch for {target}: {result.stderr}")
 
 def main():
     parser = argparse.ArgumentParser()
