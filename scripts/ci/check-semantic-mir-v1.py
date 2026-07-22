@@ -173,6 +173,11 @@ def validate_executable_function(function, features):
                 "Semantic MIR successor arguments must match target block parameters",
             )
             require(set(successor["arguments"]).issubset(available_values), "Semantic MIR successor argument must reference a value available in its block")
+            for argument, parameter in zip(successor["arguments"], block_by_id[target]["parameters"]):
+                require(
+                    values[argument]["type"] == parameter["type"],
+                    "Semantic MIR successor argument type must match target block parameter",
+                )
             if block_order[target] <= block_order[block["id"]]:
                 has_back_edge = True
         observed_features.update(terminator["features"])

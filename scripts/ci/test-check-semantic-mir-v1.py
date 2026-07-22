@@ -106,6 +106,11 @@ def main():
         path.write_text(json.dumps(value))
         if run(root).returncode == 0:
             raise SystemExit("Semantic MIR return terminator with a successor was accepted")
+        value = json.loads(SNAPSHOT.read_text())
+        value["functions"][0]["blocks"][2]["parameters"][0]["type"] = "text"
+        path.write_text(json.dumps(value))
+        if run(root).returncode == 0:
+            raise SystemExit("Semantic MIR successor argument with mismatched target parameter type was accepted")
     print("Semantic MIR v1 checker tests passed")
 
 if __name__ == "__main__":
