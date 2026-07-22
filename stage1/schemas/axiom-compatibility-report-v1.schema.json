@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://axiom.omt.global/schemas/axiom-compatibility-report-v1.schema.json",
+  "title": "Axiom Compatibility Report v1",
+  "type": "object",
+  "required": ["schema_version", "ok", "command", "old", "new", "edition", "summary", "changes"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {"const": "axiom.compatibility_report.v1"},
+    "ok": {"type": "boolean"},
+    "command": {"const": "compatibility-report"},
+    "old": {"type": "string", "minLength": 1},
+    "new": {"type": "string", "minLength": 1},
+    "edition": {"$ref": "#/$defs/editionChange"},
+    "summary": {"$ref": "#/$defs/summary"},
+    "changes": {"type": "array", "items": {"$ref": "#/$defs/change"}}
+  },
+  "$defs": {
+    "editionChange": {
+      "type": "object",
+      "required": ["old", "new", "severity", "migration"],
+      "additionalProperties": false,
+      "properties": {
+        "old": {"type": "string", "pattern": "^[0-9]{4}$"},
+        "new": {"type": "string", "pattern": "^[0-9]{4}$"},
+        "severity": {"enum": ["compatible", "breaking", "deprecated"]},
+        "migration": {"type": ["string", "null"]}
+      }
+    },
+    "summary": {
+      "type": "object",
+      "required": ["breaking", "additive", "deprecated", "compatible"],
+      "additionalProperties": false,
+      "properties": {
+        "breaking": {"type": "integer", "minimum": 0},
+        "additive": {"type": "integer", "minimum": 0},
+        "deprecated": {"type": "integer", "minimum": 0},
+        "compatible": {"type": "integer", "minimum": 0}
+      }
+    },
+    "change": {
+      "type": "object",
+      "required": ["change", "severity", "surface_kind", "surface_id", "description", "migration"],
+      "additionalProperties": false,
+      "properties": {
+        "change": {"enum": ["added", "removed", "modified", "deprecated"]},
+        "severity": {"enum": ["breaking", "additive", "deprecated", "compatible"]},
+        "surface_kind": {"enum": ["compiler", "language", "stdlib", "cli", "package", "abi", "schema", "artifact"]},
+        "surface_id": {"type": "string", "pattern": "^axiom://[A-Za-z0-9._~:/#@!$&'()*+,;=%-]+$"},
+        "old_version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"},
+        "new_version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"},
+        "description": {"type": "string", "minLength": 1},
+        "migration": {"type": ["string", "null"]}
+      }
+    }
+  }
+}
