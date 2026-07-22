@@ -10,6 +10,7 @@ use std::fs;
 use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
+use url::Url;
 
 const TEXT_DOCUMENT_SYNC_KIND_INCREMENTAL: u8 = 2;
 const MAX_DOCUMENT_BYTES: usize = 1024 * 1024;
@@ -493,7 +494,9 @@ fn document_memory_bytes(uri: &str, source: &str) -> usize {
 }
 
 fn uri_for_path(path: &Path) -> String {
-    format!("file://{}", path.display().to_string().replace(' ', "%20"))
+    Url::from_file_path(path)
+        .expect("workspace file paths must be absolute")
+        .into()
 }
 
 fn symbols_for_program(uri: &str, source: &str, program: &syntax::Program) -> Vec<LspSymbol> {
@@ -1247,6 +1250,31 @@ mod tests {
         let output = String::from_utf8(output).expect("utf8 output");
         assert!(output.contains(r#""id":9"#));
         assert!(output.contains("file:///tmp/lsp-stdio/provider.ax"));
+    }
+
+    #[test]
+    fn percent_encoded_workspace_paths_match_open_documents() {
+        let directory = tempfile::tempdir().expect("temporary workspace");
+        let path = directory.path().join("a#b?%.ax");
+        fs::write(&path, "pub fn disk(): int {\nreturn 1\n}\n").expect("write workspace file");
+        let root_uri = uri_for_path(directory.path());
+        let uri = uri_for_path(&path);
+        assert!(uri.ends_with("a%23b%3F%25.ax"));
+
+        let mut server = LspServer::default();
+        server
+            .handle_message(&request(1, "initialize", json!({ "rootUri": root_uri })))
+            .expect("initialize workspace");
+        server
+            .handle_message(&notification(
+                "textDocument/didOpen",
+                json!({ "textDocument": { "uri": uri, "languageId": "axiom", "version": 1, "text": "pub fn editor(): int {\nreturn 2\n}\n" } }),
+            ))
+            .expect("open editor document");
+
+        let index = server.workspace_index();
+        assert_eq!(index.documents.len(), 1);
+        assert_eq!(index.documents.get(&uri).map(String::as_str), Some("pub fn editor(): int {\nreturn 2\n}\n"));
     }
 
     #[test]
