@@ -1,0 +1,104 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://axiom.omt.global/schemas/axiom.docs.v1.schema.json",
+  "title": "Axiom typed documentation output v1",
+  "description": "Deterministic public API documentation emitted by axiomc doc --json.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "schema", "command", "ok", "markdown", "html", "search_index", "functions", "types", "items", "search", "doctests", "packages", "capabilities"],
+  "properties": {
+    "schema_version": { "const": "axiom.stage1.v1" },
+    "schema": { "const": "axiom.docs.v1" },
+    "command": { "const": "doc" },
+    "ok": { "const": true },
+    "markdown": { "$ref": "#/$defs/path" },
+    "html": { "$ref": "#/$defs/path" },
+    "search_index": { "$ref": "#/$defs/path" },
+    "functions": { "type": "array", "items": { "$ref": "#/$defs/item" } },
+    "types": { "type": "array", "items": { "$ref": "#/$defs/item" } },
+    "items": { "type": "array", "items": { "$ref": "#/$defs/item" } },
+    "search": { "type": "array", "items": { "$ref": "#/$defs/search" } },
+    "doctests": { "type": "array", "items": { "$ref": "#/$defs/doctest" } },
+    "packages": { "type": "array", "items": { "$ref": "#/$defs/package" } },
+    "capabilities": { "type": "array", "items": { "$ref": "#/$defs/capability" } }
+  },
+  "$defs": {
+    "path": { "type": "string", "minLength": 1 },
+    "item": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "package", "module", "file", "kind", "public", "visibility", "source_line", "source_column", "signature", "docs", "examples", "links"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^axiom://package/" },
+        "name": { "type": "string", "minLength": 1 },
+        "package": { "type": "string", "minLength": 1 },
+        "module": { "$ref": "#/$defs/path" },
+        "file": { "$ref": "#/$defs/path" },
+        "kind": { "type": "string", "enum": ["type", "struct", "field", "enum", "variant", "trait", "trait_method", "impl", "function", "const", "capability", "effect"] },
+        "public": { "const": true },
+        "visibility": { "const": "public" },
+        "parent_id": { "type": "string", "pattern": "^axiom://package/" },
+        "source_line": { "type": "integer", "minimum": 1 },
+        "source_column": { "type": "integer", "minimum": 1 },
+        "effects": { "type": "array", "items": { "type": "string" } },
+        "signature": { "type": "string", "minLength": 1 },
+        "docs": { "type": "array", "items": { "type": "string" } },
+        "examples": { "type": "array", "items": { "type": "string" } },
+        "links": { "type": "array", "items": { "$ref": "#/$defs/link" } }
+      }
+    },
+    "link": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["target", "resolved_id"],
+      "properties": {
+        "target": { "type": "string", "minLength": 1 },
+        "resolved_id": { "type": "string", "pattern": "^axiom://package/" }
+      }
+    },
+    "search": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "kind", "module", "signature"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^axiom://package/" },
+        "name": { "type": "string", "minLength": 1 },
+        "kind": { "type": "string" },
+        "module": { "$ref": "#/$defs/path" },
+        "signature": { "type": "string", "minLength": 1 }
+      }
+    },
+    "doctest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "symbol_id", "source", "line", "capability_policy", "exit_code"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "symbol_id": { "type": "string", "pattern": "^axiom://package/" },
+        "source": { "$ref": "#/$defs/path" },
+        "line": { "type": "integer", "minimum": 1 },
+        "capability_policy": { "const": "isolated-no-capabilities" },
+        "exit_code": { "const": 0 }
+      }
+    },
+    "package": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^axiom://package/" },
+        "name": { "type": "string", "minLength": 1 }
+      }
+    },
+    "capability": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["name", "description", "enabled"],
+      "properties": {
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "enabled": { "type": "boolean" }
+      }
+    }
+  }
+}

@@ -1,0 +1,90 @@
+{
+  "items": [
+    {
+      "docs": [],
+      "examples": [],
+      "file": "src/main.ax",
+      "id": "axiom://package/docs-alpha/module/src/main.ax/function/alpha_api",
+      "kind": "function",
+      "links": [],
+      "module": "src/main.ax",
+      "name": "alpha_api",
+      "package": "docs-alpha",
+      "public": true,
+      "signature": "fn alpha_api(): int",
+      "source_column": 1,
+      "source_line": 1,
+      "visibility": "public"
+    },
+    {
+      "docs": [],
+      "examples": [],
+      "file": "src/main.ax",
+      "id": "axiom://package/docs-beta/module/src/main.ax/function/beta_api",
+      "kind": "function",
+      "links": [],
+      "module": "src/main.ax",
+      "name": "beta_api",
+      "package": "docs-beta",
+      "public": true,
+      "signature": "fn beta_api(): int",
+      "source_column": 1,
+      "source_line": 1,
+      "visibility": "public"
+    },
+    {
+      "docs": [],
+      "examples": [],
+      "file": "src/main.ax",
+      "id": "axiom://package/docs-workspace/module/src/main.ax/function/root_api",
+      "kind": "function",
+      "links": [],
+      "module": "src/main.ax",
+      "name": "root_api",
+      "package": "docs-workspace",
+      "public": true,
+      "signature": "fn root_api(): int",
+      "source_column": 1,
+      "source_line": 1,
+      "visibility": "public"
+    }
+  ],
+  "packages": [
+    {
+      "id": "axiom://package/docs-alpha",
+      "name": "docs-alpha"
+    },
+    {
+      "id": "axiom://package/docs-beta",
+      "name": "docs-beta"
+    },
+    {
+      "id": "axiom://package/docs-workspace",
+      "name": "docs-workspace"
+    }
+  ],
+  "schema": "axiom.docs.v1",
+  "search": [
+    {
+      "id": "axiom://package/docs-alpha/module/src/main.ax/function/alpha_api",
+      "kind": "function",
+      "module": "src/main.ax",
+      "name": "alpha_api",
+      "signature": "fn alpha_api(): int"
+    },
+    {
+      "id": "axiom://package/docs-beta/module/src/main.ax/function/beta_api",
+      "kind": "function",
+      "module": "src/main.ax",
+      "name": "beta_api",
+      "signature": "fn beta_api(): int"
+    },
+    {
+      "id": "axiom://package/docs-workspace/module/src/main.ax/function/root_api",
+      "kind": "function",
+      "module": "src/main.ax",
+      "name": "root_api",
+      "signature": "fn root_api(): int"
+    }
+  ]
+}
