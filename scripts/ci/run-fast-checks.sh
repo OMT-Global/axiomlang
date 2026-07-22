@@ -55,6 +55,8 @@ python3 "$script_repo_root/scripts/ci/test-issue-pr-traceability.py"
 # silently (#1364, #1369). test-pr-fast-ci-workflow.sh enforces that every
 # scripts/ci/test-check-*.sh stays wired here.
 bash "$script_repo_root/scripts/ci/test-check-python-exit-docs.sh"
+python3 "$script_repo_root/scripts/ci/check-provider-abi-v1.py" --target "${AXIOM_PROVIDER_ABI_TARGET:-linux-host}"
+python3 "$script_repo_root/scripts/ci/test-check-provider-abi-v1.py"
 bash "$script_repo_root/scripts/ci/test-check-python-exit-readiness.sh"
 bash "$script_repo_root/scripts/ci/test-check-rust-exit-readiness.sh"
 bash "$script_repo_root/scripts/ci/test-check-self-hosting-language-readiness.sh"

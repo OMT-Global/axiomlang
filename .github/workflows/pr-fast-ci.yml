@@ -192,6 +192,28 @@ jobs:
         # runners do not produce false reds.
         run: RUST_MIN_STACK=8388608 cargo test --manifest-path stage1/Cargo.toml -p axiomc --lib --features run-native-tests -- --test-threads=1
 
+  provider-abi-target-matrix:
+    name: Provider ABI C Fixture (${{ matrix.target }})
+    runs-on: ['self-hosted', 'linux', 'shell-only', 'public']
+    timeout-minutes: 10
+    needs: changes
+    if: >-
+      github.event.pull_request.draft == false &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      (needs.changes.outputs.app == 'true' || needs.changes.outputs.ci == 'true')
+    strategy:
+      fail-fast: false
+      matrix:
+        # Linux x86_64 is the currently supported native CI target. Add a row
+        # only with a corresponding supported runner/compiler toolchain.
+        target: [linux-x86_64]
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4 pinned 2026-05-30
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: Compile Provider ABI v1 C fixture
+        run: python3 scripts/ci/check-provider-abi-v1.py --target '${{ matrix.target }}'
+
   validate-pr-description:
     name: Validate PR Description
     runs-on: ['self-hosted', 'linux', 'shell-only', 'public']
@@ -315,6 +337,7 @@ jobs:
       - changes
       - fast-checks
       - full-lib-suite
+      - provider-abi-target-matrix
       - validate-pr-description
       - validate-secrets
     steps:
@@ -339,6 +362,7 @@ jobs:
             changes=${{ needs.changes.result }}
             fast-checks=${{ needs.fast-checks.result }}
             full-lib-suite=${{ needs.full-lib-suite.result }}
+            provider-abi-target-matrix=${{ needs.provider-abi-target-matrix.result }}
             validate-pr-description=${{ needs.validate-pr-description.result }}
             validate-secrets=${{ needs.validate-secrets.result }}
           IS_FORK_PR: ${{ github.event.pull_request.head.repo.full_name != github.repository }}
