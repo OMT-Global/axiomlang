@@ -1,8 +1,14 @@
-.PHONY: test smoke supply-chain capability-ledger capability-ledger-test docs-python-exit docs-python-exit-test python-exit-readiness python-exit-readiness-github rust-exit-readiness rust-exit-readiness-github rust-exit-readiness-test rust-exit-command-surface-coverage rust-exit-command-surface-coverage-test self-hosting-language-readiness self-hosting-language-readiness-github self-hosting-language-readiness-test production-language-readiness production-language-readiness-github production-language-readiness-validate production-language-readiness-test snapshot-bootstrap-readiness snapshot-bootstrap-readiness-test self-hosting-spike-parity stage1-compiler-source-monoliths stage1-compiler-source-monoliths-test stage1-full-lib-triage stage1-full-lib-triage-test stage1-direct-native-runtime-abi stage1-direct-native-runtime-abi-coverage stage1-direct-native-runtime-abi-evidence stage1-direct-native-runtime-abi-test stage1-direct-native-example-smoke stage1-direct-native-example-smoke-test stage1-axiom-dwarf-readiness-test stage1-package-graph-boundary stage1-package-graph-boundary-test stage1-diagnostics-syntax-boundary stage1-diagnostics-syntax-boundary-test stage1-command-lsp-boundary stage1-command-lsp-boundary-test stage1-hir-boundary stage1-hir-boundary-test stage1-mir-backend-boundary stage1-mir-backend-boundary-test stage1-runtime-lifecycle-v1 stage1-test stage1-proof-test stage1-stdlib-test stage1-basic-smoke stage1-stdlib-smoke stage1-compiler-property-test stage1-conformance stage1-smoke stage1-bench stage1-bench-update-baseline stage1-bench-gate stage1-crap-proposal stage1-crap-thresholds stage1-crap-thresholds-test mutation-rust-smoke mutation-survivor-report stage1-run
+.PHONY: test smoke supply-chain capability-ledger capability-ledger-test compatibility-v1 compatibility-v1-test docs-python-exit docs-python-exit-test python-exit-readiness python-exit-readiness-github rust-exit-readiness rust-exit-readiness-github rust-exit-readiness-test rust-exit-command-surface-coverage rust-exit-command-surface-coverage-test self-hosting-language-readiness self-hosting-language-readiness-github self-hosting-language-readiness-test production-language-readiness production-language-readiness-github production-language-readiness-validate production-language-readiness-test snapshot-bootstrap-readiness snapshot-bootstrap-readiness-test self-hosting-spike-parity stage1-compiler-source-monoliths stage1-compiler-source-monoliths-test stage1-full-lib-triage stage1-full-lib-triage-test stage1-direct-native-runtime-abi stage1-direct-native-runtime-abi-coverage stage1-direct-native-runtime-abi-evidence stage1-direct-native-runtime-abi-test stage1-direct-native-example-smoke stage1-direct-native-example-smoke-test stage1-axiom-dwarf-readiness-test stage1-package-graph-boundary stage1-package-graph-boundary-test stage1-diagnostics-syntax-boundary stage1-diagnostics-syntax-boundary-test stage1-command-lsp-boundary stage1-command-lsp-boundary-test stage1-hir-boundary stage1-hir-boundary-test stage1-mir-backend-boundary stage1-mir-backend-boundary-test stage1-test stage1-proof-test stage1-stdlib-test stage1-basic-smoke stage1-stdlib-smoke stage1-compiler-property-test stage1-conformance stage1-smoke stage1-bench stage1-bench-update-baseline stage1-bench-gate stage1-crap-proposal stage1-crap-thresholds stage1-crap-thresholds-test mutation-rust-smoke mutation-survivor-report stage1-run
 
 capability-ledger:
 	python3 scripts/ci/check-capability-ledger.py --check-docs --json
 	cargo test --manifest-path stage1/Cargo.toml -p axiomc --test capability_ledger
+
+compatibility-v1:
+	python3 scripts/ci/check-compatibility-v1.py --old stage1/examples/compatibility_v1/old.json --new stage1/examples/compatibility_v1/current.json --json
+
+compatibility-v1-test:
+	bash scripts/ci/test-check-compatibility-v1.sh
 
 capability-ledger-test:
 	bash scripts/ci/test-check-capability-ledger.sh
@@ -140,12 +146,6 @@ stage1-mir-backend-boundary:
 
 stage1-mir-backend-boundary-test:
 	bash scripts/ci/test-check-mir-backend-boundary.sh
-
-stage1-semantic-mir-v1:
-	python3 scripts/ci/check-semantic-mir-v1.py
-
-stage1-runtime-lifecycle-v1:
-	python3 scripts/ci/check-runtime-lifecycle-v1.py
 
 stage1-test:
 	RUST_MIN_STACK=8388608 cargo test --manifest-path stage1/Cargo.toml --features run-native-tests

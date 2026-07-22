@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://axiom.omt.global/schemas/axiom-public-contract-v1.schema.json",
+  "title": "Axiom Public Contract v1",
+  "type": "object",
+  "required": ["schema_version", "edition", "compiler", "surfaces"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {"const": "axiom.public_contract.v1"},
+    "edition": {"$ref": "#/$defs/edition"},
+    "compiler": {"$ref": "#/$defs/compilerRange"},
+    "surfaces": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/surface"}},
+    "migrations": {"$ref": "#/$defs/migrations"}
+  },
+  "$defs": {
+    "edition": {
+      "type": "object",
+      "required": ["id", "status"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {"type": "string", "pattern": "^[0-9]{4}$"},
+        "status": {"enum": ["experimental", "supported", "deprecated"]},
+        "migration": {"type": "string", "minLength": 1}
+      }
+    },
+    "compilerRange": {
+      "type": "object",
+      "required": ["minimum", "maximum"],
+      "additionalProperties": false,
+      "properties": {
+        "minimum": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"},
+        "maximum": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"},
+        "migration": {"type": "string", "minLength": 1}
+      }
+    },
+    "surface": {
+      "type": "object",
+      "required": ["id", "kind", "version", "stability", "signature"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {"type": "string", "pattern": "^axiom://[A-Za-z0-9._~:/#@!$&'()*+,;=%-]+$"},
+        "kind": {"enum": ["compiler", "language", "stdlib", "cli", "package", "abi", "schema", "artifact"]},
+        "version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"},
+        "stability": {"enum": ["experimental", "stable", "deprecated"]},
+        "signature": {"type": "string", "minLength": 1},
+        "migration": {"type": "string", "minLength": 1},
+        "replacement": {"type": "string", "pattern": "^axiom://[A-Za-z0-9._~:/#@!$&'()*+,;=%-]+$"}
+      }
+    },
+    "migrations": {
+      "type": "object",
+      "propertyNames": {"pattern": "^axiom://[A-Za-z0-9._~:/#@!$&'()*+,;=%-]+$"},
+      "additionalProperties": {"type": "string", "minLength": 1}
+    }
+  }
+}

@@ -58,6 +58,7 @@ bash "$script_repo_root/scripts/ci/test-check-python-exit-docs.sh"
 bash "$script_repo_root/scripts/ci/test-check-python-exit-readiness.sh"
 bash "$script_repo_root/scripts/ci/test-check-rust-exit-readiness.sh"
 bash "$script_repo_root/scripts/ci/test-check-self-hosting-language-readiness.sh"
+bash "$script_repo_root/scripts/ci/test-check-compatibility-v1.sh"
 python3 "$script_repo_root/scripts/ci/check-capability-ledger.py" \
   --checkout-root "$repo_root" --check-docs --json >/dev/null
 bash "$script_repo_root/scripts/ci/test-check-capability-ledger.sh"
