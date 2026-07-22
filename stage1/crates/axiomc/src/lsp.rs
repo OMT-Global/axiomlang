@@ -10,7 +10,6 @@ use std::fs;
 use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
-use url::Url;
 
 const TEXT_DOCUMENT_SYNC_KIND_INCREMENTAL: u8 = 2;
 const MAX_DOCUMENT_BYTES: usize = 1024 * 1024;
@@ -494,9 +493,24 @@ fn document_memory_bytes(uri: &str, source: &str) -> usize {
 }
 
 fn uri_for_path(path: &Path) -> String {
-    Url::from_file_path(path)
-        .expect("workspace file paths must be absolute")
-        .into()
+    let path = path.to_str().expect("workspace file paths must be UTF-8");
+    assert!(path.starts_with('/'), "workspace file paths must be absolute");
+    format!("file://{}", percent_encode_path(path))
+}
+
+fn percent_encode_path(path: &str) -> String {
+    const HEX: &[u8; 16] = b"0123456789ABCDEF";
+    let mut encoded = String::with_capacity(path.len());
+    for byte in path.bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'/' | b'-' | b'.' | b'_' | b'~') {
+            encoded.push(byte as char);
+        } else {
+            encoded.push('%');
+            encoded.push(HEX[(byte >> 4) as usize] as char);
+            encoded.push(HEX[(byte & 0x0f) as usize] as char);
+        }
+    }
+    encoded
 }
 
 fn symbols_for_program(uri: &str, source: &str, program: &syntax::Program) -> Vec<LspSymbol> {
@@ -1275,6 +1289,14 @@ mod tests {
         let index = server.workspace_index();
         assert_eq!(index.documents.len(), 1);
         assert_eq!(index.documents.get(&uri).map(String::as_str), Some("pub fn editor(): int {\nreturn 2\n}\n"));
+    }
+
+    #[test]
+    fn workspace_paths_percent_encode_utf8_bytes() {
+        let uri = uri_for_path(Path::new("/tmp/\u{6587} \u{4ef6}.ax"));
+
+        assert_eq!(uri, "file:///tmp/%E6%96%87%20%E4%BB%B6.ax");
+        assert_eq!(path_for_uri(&uri), PathBuf::from("/tmp/\u{6587} \u{4ef6}.ax"));
     }
 
     #[test]
