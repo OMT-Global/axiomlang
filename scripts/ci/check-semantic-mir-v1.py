@@ -139,6 +139,11 @@ def validate_executable_function(function, features):
             if operation in PLACE_OPERATIONS:
                 require(instruction.get("place") in places, f"Semantic MIR {operation} instruction must reference a declared place")
                 require(places[instruction["place"]]["base"] in available_values, f"Semantic MIR {operation} place base must reference a value available in its block")
+            if operation == "borrow":
+                require(instruction.get("place") in places, "Semantic MIR borrow instruction must reference a declared place")
+                require(places[instruction["place"]]["base"] in available_values, "Semantic MIR borrow place base must reference a value available in its block")
+                require(bool(instruction.get("mutability")), "Semantic MIR borrow instruction must declare mutability")
+                require(instruction.get("region") in cleanup_scopes, "Semantic MIR borrow instruction must reference a declared region scope")
             if operation == "store":
                 require(bool(instruction["operands"]), "Semantic MIR store instruction must consume a value")
             if operation in {"call", "capability_call"}:

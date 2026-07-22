@@ -72,6 +72,20 @@ def main():
         path.write_text(json.dumps(value))
         if run(root).returncode == 0:
             raise SystemExit("Semantic MIR instruction with an undeclared operand was accepted")
+        for field in ("place", "mutability", "region"):
+            value = json.loads(SNAPSHOT.read_text())
+            borrow = next(instruction for block in value["functions"][0]["blocks"] for instruction in block["instructions"] if instruction["op"] == "borrow")
+            del borrow[field]
+            path.write_text(json.dumps(value))
+            if run(root).returncode == 0:
+                raise SystemExit(f"Semantic MIR borrow without {field} was accepted")
+        for field, invalid in (("place", "axiom://missing/place"), ("mutability", "sometimes"), ("region", "axiom://missing/region")):
+            value = json.loads(SNAPSHOT.read_text())
+            borrow = next(instruction for block in value["functions"][0]["blocks"] for instruction in block["instructions"] if instruction["op"] == "borrow")
+            borrow[field] = invalid
+            path.write_text(json.dumps(value))
+            if run(root).returncode == 0:
+                raise SystemExit(f"Semantic MIR borrow with invalid {field} was accepted")
         value = json.loads(SNAPSHOT.read_text())
         value["functions"][0]["places"][0]["base"] = "axiom://package/semantic-mir-v1-fixture/value/input"
         path.write_text(json.dumps(value))
