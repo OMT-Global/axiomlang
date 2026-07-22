@@ -980,22 +980,13 @@
             "$ref": "#/$defs/path"
           },
           "functions": {
-            "type": "array",
-            "items": {
-              "$ref": "#/$defs/docItem"
-            }
+            "type": "array"
           },
           "types": {
-            "type": "array",
-            "items": {
-              "$ref": "#/$defs/docItem"
-            }
+            "type": "array"
           },
           "items": {
-            "type": "array",
-            "items": {
-              "$ref": "#/$defs/docItem"
-            }
+            "type": "array"
           },
           "capabilities": {
             "type": "array",
