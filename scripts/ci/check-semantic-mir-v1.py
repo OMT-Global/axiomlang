@@ -138,6 +138,7 @@ def validate_executable_function(function, features):
                 require("result" in instruction, f"Semantic MIR {operation} instruction must declare a result value")
             if operation in PLACE_OPERATIONS:
                 require(instruction.get("place") in places, f"Semantic MIR {operation} instruction must reference a declared place")
+                require(places[instruction["place"]]["base"] in available_values, f"Semantic MIR {operation} place base must reference a value available in its block")
             if operation == "store":
                 require(bool(instruction["operands"]), "Semantic MIR store instruction must consume a value")
             if operation in {"call", "capability_call"}:

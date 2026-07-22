@@ -10,7 +10,7 @@
       "span": {"path": "src/main.ax", "line": 1, "column": 1},
       "semantic_nodes": ["axiom://semantic/function/main"],
       "places": [
-        {"id": "axiom://package/semantic-mir-v1-fixture/place/input-field", "base": "axiom://package/semantic-mir-v1-fixture/value/input", "projections": [{"kind": "field", "field": "count"}], "span": {"path": "src/main.ax", "line": 6, "column": 8}, "semantic_nodes": ["axiom://semantic/function/main"]}
+        {"id": "axiom://package/semantic-mir-v1-fixture/place/input-field", "base": "axiom://package/semantic-mir-v1-fixture/value/branch-input", "projections": [{"kind": "field", "field": "count"}], "span": {"path": "src/main.ax", "line": 6, "column": 8}, "semantic_nodes": ["axiom://semantic/function/main"]}
       ],
       "cleanup_scopes": [
         {"id": "axiom://package/semantic-mir-v1-fixture/cleanup/defer", "mode": "always", "actions": ["axiom://package/semantic-mir-v1-fixture/function/main/instruction/drop"], "span": {"path": "src/main.ax", "line": 15, "column": 3}, "semantic_nodes": ["axiom://semantic/function/main"]}

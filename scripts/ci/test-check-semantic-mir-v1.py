@@ -73,6 +73,11 @@ def main():
         if run(root).returncode == 0:
             raise SystemExit("Semantic MIR instruction with an undeclared operand was accepted")
         value = json.loads(SNAPSHOT.read_text())
+        value["functions"][0]["places"][0]["base"] = "axiom://package/semantic-mir-v1-fixture/value/input"
+        path.write_text(json.dumps(value))
+        if run(root).returncode == 0:
+            raise SystemExit("Semantic MIR place with a cross-block base was accepted")
+        value = json.loads(SNAPSHOT.read_text())
         value["functions"][0]["blocks"][0]["terminator"]["successors"][0]["target"] = "axiom://missing/block"
         path.write_text(json.dumps(value))
         if run(root).returncode == 0:
