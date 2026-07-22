@@ -137,6 +137,8 @@ def classify_modified(old: dict[str, Any], new: dict[str, Any]) -> tuple[str, st
         return "modified", "breaking", new.get("migration")
     if old["stability"] != "deprecated" and new["stability"] == "deprecated":
         return "deprecated", "deprecated", new.get("migration")
+    if old["stability"] == "stable" and new["stability"] == "experimental":
+        return "modified", "breaking", new.get("migration")
     if new_version[0] > old_version[0]:
         return "modified", "breaking", new.get("migration")
     if new_version > old_version or old["stability"] != new["stability"]:

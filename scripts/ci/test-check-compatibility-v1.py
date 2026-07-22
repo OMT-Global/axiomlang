@@ -38,6 +38,23 @@ def main() -> int:
         result = run("--old", str(OLD), "--new", str(bad))
         assert result.returncode != 0
         assert "breaking public surface axiom://cli/check requires a migration note" in result.stdout
+        stability_downgrade = Path(directory) / "stability-downgrade.json"
+        payload = json.loads(OLD.read_text(encoding="utf-8"))
+        loop = next(surface for surface in payload["surfaces"] if surface["id"] == "axiom://language/loop")
+        loop["stability"] = "experimental"
+        stability_downgrade.write_text(json.dumps(payload), encoding="utf-8")
+        result = run("--old", str(OLD), "--new", str(stability_downgrade))
+        assert result.returncode != 0
+        assert "breaking public surface axiom://language/loop requires a migration note" in result.stdout
+        stability_promotion_old = Path(directory) / "stability-promotion-old.json"
+        payload = json.loads(OLD.read_text(encoding="utf-8"))
+        loop = next(surface for surface in payload["surfaces"] if surface["id"] == "axiom://language/loop")
+        loop["stability"] = "experimental"
+        stability_promotion_old.write_text(json.dumps(payload), encoding="utf-8")
+        result = run("--old", str(stability_promotion_old), "--new", str(OLD))
+        assert result.returncode == 0, result.stdout + result.stderr
+        promotion = next(change for change in json.loads(result.stdout)["changes"] if change["surface_id"] == "axiom://language/loop")
+        assert promotion["severity"] == "additive"
         removed = Path(directory) / "removed.json"
         payload = json.loads(CURRENT.read_text(encoding="utf-8"))
         payload["surfaces"] = [surface for surface in payload["surfaces"] if surface["id"] != "axiom://artifact/axc"]
