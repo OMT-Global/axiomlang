@@ -18,6 +18,10 @@ STABILITIES = {"experimental", "stable", "deprecated"}
 EDITION_STATUSES = {"experimental", "supported", "deprecated"}
 SEMVER = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$")
 AXIOM_ID = re.compile(r"^axiom://[A-Za-z0-9._~:/#@!$&'()*+,;=%-]+$")
+CONTRACT_KEYS = {"schema_version", "edition", "compiler", "surfaces", "migrations"}
+EDITION_KEYS = {"id", "status", "migration"}
+COMPILER_KEYS = {"minimum", "maximum", "migration"}
+SURFACE_KEYS = {"id", "kind", "version", "stability", "signature", "migration", "replacement"}
 
 
 def parse_args() -> argparse.Namespace:
@@ -51,12 +55,20 @@ def semver(value: Any, label: str) -> tuple[int, int, int]:
     return tuple(map(int, require_string(value, label, SEMVER).split(".")))  # type: ignore[return-value]
 
 
+def reject_unknown_properties(value: dict[str, Any], allowed: set[str], label: str) -> None:
+    unknown = sorted(set(value) - allowed)
+    if unknown:
+        raise ValueError("{} contains unknown properties: {}".format(label, ", ".join(unknown)))
+
+
 def validate_contract(payload: dict[str, Any], label: str) -> dict[str, dict[str, Any]]:
+    reject_unknown_properties(payload, CONTRACT_KEYS, label)
     if payload.get("schema_version") != PUBLIC_CONTRACT_SCHEMA:
         raise ValueError(f"{label} must use {PUBLIC_CONTRACT_SCHEMA}")
     edition = payload.get("edition")
     if not isinstance(edition, dict):
         raise ValueError(f"{label}.edition must be an object")
+    reject_unknown_properties(edition, EDITION_KEYS, f"{label}.edition")
     require_string(edition.get("id"), f"{label}.edition.id", re.compile(r"^[0-9]{4}$"))
     if edition.get("status") not in EDITION_STATUSES:
         raise ValueError(f"{label}.edition.status must be one of {sorted(EDITION_STATUSES)}")
@@ -65,6 +77,7 @@ def validate_contract(payload: dict[str, Any], label: str) -> dict[str, dict[str
     compiler = payload.get("compiler")
     if not isinstance(compiler, dict):
         raise ValueError(f"{label}.compiler must be an object")
+    reject_unknown_properties(compiler, COMPILER_KEYS, f"{label}.compiler")
     if semver(compiler.get("minimum"), f"{label}.compiler.minimum") > semver(compiler.get("maximum"), f"{label}.compiler.maximum"):
         raise ValueError(f"{label}.compiler minimum must not exceed maximum")
     if "migration" in compiler:
@@ -83,6 +96,7 @@ def validate_contract(payload: dict[str, Any], label: str) -> dict[str, dict[str
         prefix = f"{label}.surfaces[{index}]"
         if not isinstance(surface, dict):
             raise ValueError(f"{prefix} must be an object")
+        reject_unknown_properties(surface, SURFACE_KEYS, prefix)
         identifier = require_string(surface.get("id"), f"{prefix}.id", AXIOM_ID)
         if identifier in indexed:
             raise ValueError(f"{label} duplicates public surface {identifier}")

@@ -53,6 +53,20 @@ def main() -> int:
         result = run("--old", str(duplicate), "--new", str(CURRENT))
         assert result.returncode != 0
         assert "duplicates public surface axiom://language/loop" in result.stdout
+        top_level_unknown = Path(directory) / "top-level-unknown.json"
+        payload = json.loads(CURRENT.read_text(encoding="utf-8"))
+        payload["unexpected"] = True
+        top_level_unknown.write_text(json.dumps(payload), encoding="utf-8")
+        result = run("--old", str(OLD), "--new", str(top_level_unknown))
+        assert result.returncode != 0
+        assert "new contains unknown properties: unexpected" in result.stdout
+        edition_unknown = Path(directory) / "edition-unknown.json"
+        payload = json.loads(CURRENT.read_text(encoding="utf-8"))
+        payload["edition"]["unexpected"] = True
+        edition_unknown.write_text(json.dumps(payload), encoding="utf-8")
+        result = run("--old", str(OLD), "--new", str(edition_unknown))
+        assert result.returncode != 0
+        assert "new.edition contains unknown properties: unexpected" in result.stdout
     print("compatibility v1 regression cases passed")
     return 0
 
