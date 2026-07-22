@@ -130,9 +130,10 @@ def validate_executable_function(function, features):
     has_back_edge = False
     block_order = {block["id"]: index for index, block in enumerate(blocks)}
     for block in blocks:
+        available_values = {parameter["id"] for parameter in block["parameters"]}
         for instruction in block["instructions"]:
             operation = instruction["op"]
-            require(set(instruction["operands"]).issubset(values), "Semantic MIR instruction operand must reference a declared value")
+            require(set(instruction["operands"]).issubset(available_values), "Semantic MIR instruction operand must reference a value available in its block")
             if operation in RESULT_OPERATIONS:
                 require("result" in instruction, f"Semantic MIR {operation} instruction must declare a result value")
             if operation in PLACE_OPERATIONS:
@@ -146,11 +147,13 @@ def validate_executable_function(function, features):
                 require(bool(instruction.get("capability")), "Semantic MIR capability call must declare its capability")
             if operation == "defer_scope":
                 require(instruction.get("cleanup_scope") in cleanup_scopes, "Semantic MIR defer instruction must reference a cleanup scope")
+            if "result" in instruction:
+                available_values.add(instruction["result"]["id"])
             observed_features.update(instruction["features"])
         terminator = block["terminator"]
         successors = terminator["successors"]
         operation = terminator["op"]
-        require(set(terminator["operands"]).issubset(values), "Semantic MIR terminator operand must reference a declared value")
+        require(set(terminator["operands"]).issubset(available_values), "Semantic MIR terminator operand must reference a value available in its block")
         minimum = TERMINATOR_MIN_SUCCESSORS[operation]
         if minimum == 0:
             require(not successors, f"Semantic MIR {operation} terminator must not have successors")
@@ -163,7 +166,7 @@ def validate_executable_function(function, features):
                 len(successor["arguments"]) == len(block_by_id[target]["parameters"]),
                 "Semantic MIR successor arguments must match target block parameters",
             )
-            require(set(successor["arguments"]).issubset(values), "Semantic MIR successor argument must reference a declared value")
+            require(set(successor["arguments"]).issubset(available_values), "Semantic MIR successor argument must reference a value available in its block")
             if block_order[target] <= block_order[block["id"]]:
                 has_back_edge = True
         observed_features.update(terminator["features"])

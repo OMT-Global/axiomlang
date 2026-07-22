@@ -78,6 +78,11 @@ def main():
         if run(root).returncode == 0:
             raise SystemExit("Semantic MIR successor with an unknown block was accepted")
         value = json.loads(SNAPSHOT.read_text())
+        value["functions"][0]["blocks"][4]["instructions"][0]["operands"] = ["axiom://package/semantic-mir-v1-fixture/value/await"]
+        path.write_text(json.dumps(value))
+        if run(root).returncode == 0:
+            raise SystemExit("Semantic MIR instruction using a sibling block value was accepted")
+        value = json.loads(SNAPSHOT.read_text())
         value["functions"][0]["blocks"][3]["terminator"]["successors"] = [{"target": value["functions"][0]["blocks"][0]["id"], "arguments": ["axiom://package/semantic-mir-v1-fixture/value/input"]}]
         path.write_text(json.dumps(value))
         if run(root).returncode == 0:
