@@ -889,8 +889,8 @@ fn configure_bounded_command(command: &mut Command, limits: RunLimits) {
             if libc::setsid() < 0 {
                 return Err(io::Error::last_os_error());
             }
-            set_bounded_rlimit(libc::RLIMIT_CPU, limits.max_cpu_seconds)?;
-            set_bounded_rlimit(libc::RLIMIT_FSIZE, limits.max_file_bytes)?;
+            set_bounded_rlimit(limits.max_cpu_seconds, |rlimit| unsafe { libc::setrlimit(libc::RLIMIT_CPU, rlimit) })?;
+            set_bounded_rlimit(limits.max_file_bytes, |rlimit| unsafe { libc::setrlimit(libc::RLIMIT_FSIZE, rlimit) })?;
             Ok(())
         });
     }
@@ -900,12 +900,15 @@ fn configure_bounded_command(command: &mut Command, limits: RunLimits) {
 fn configure_bounded_command(_command: &mut Command, _limits: RunLimits) {}
 
 #[cfg(unix)]
-fn set_bounded_rlimit(resource: libc::c_int, limit: u64) -> io::Result<()> {
+fn set_bounded_rlimit(
+    limit: u64,
+    set_limit: impl FnOnce(*const libc::rlimit) -> libc::c_int,
+) -> io::Result<()> {
     let limits = libc::rlimit {
         rlim_cur: limit as libc::rlim_t,
         rlim_max: limit as libc::rlim_t,
     };
-    if unsafe { libc::setrlimit(resource, &limits) } != 0 {
+    if set_limit(&limits) != 0 {
         return Err(io::Error::last_os_error());
     }
     Ok(())
