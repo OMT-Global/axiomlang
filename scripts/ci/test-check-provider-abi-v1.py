@@ -45,6 +45,17 @@ CASES = {
     "fixture-id": mutate(("fixtures", 1, "id"), "unverified-version-fixture"),
 }
 
+FIXTURE_CASES = {
+    "fixture-export-provider-v1": ("axiom_provider_v1", "axiom_provider_v1_missing"),
+    "fixture-export-call": ("axiom_provider_call", "axiom_provider_call_missing"),
+    "fixture-export-close-handle": ("axiom_provider_close_handle", "axiom_provider_close_handle_missing"),
+    "fixture-export-release-owned-buffer": ("axiom_provider_release_owned_buffer", "axiom_provider_release_owned_buffer_missing"),
+    "fixture-signature-provider-v1": ("axiom_provider_descriptor *out", "const axiom_provider_descriptor *out"),
+    "fixture-signature-call": ("axiom_handle h, axiom_borrowed_bytes in, axiom_owned_bytes *out", "uint32_t h, axiom_borrowed_bytes in, axiom_owned_bytes *out"),
+    "fixture-signature-close-handle": ("int axiom_provider_close_handle(axiom_handle h)", "int axiom_provider_close_handle(uint32_t h)"),
+    "fixture-signature-release-owned-buffer": ("axiom_owned_bytes v", "axiom_borrowed_bytes v"),
+}
+
 with tempfile.TemporaryDirectory() as directory:
     repo = Path(directory) / "repo"
     shutil.copytree(R / "stage1", repo / "stage1")
@@ -53,10 +64,17 @@ with tempfile.TemporaryDirectory() as directory:
     if run(repo): raise SystemExit("valid contract rejected")
     original_contract = json.loads((repo / "stage1/compiler-contracts/snapshots/provider-abi-v1.json").read_text())
     original_schema = json.loads((repo / "stage1/compiler-contracts/schemas/axiom.provider-abi.v1.schema.json").read_text())
+    fixture = repo / "stage1/compiler-contracts/fixtures/provider-abi-v1/reference-provider.c"
+    original_fixture = fixture.read_text()
     for name, change in CASES.items():
         contract, schema = copy.deepcopy(original_contract), copy.deepcopy(original_schema)
         change(contract, schema)
         (repo / "stage1/compiler-contracts/snapshots/provider-abi-v1.json").write_text(json.dumps(contract))
         (repo / "stage1/compiler-contracts/schemas/axiom.provider-abi.v1.schema.json").write_text(json.dumps(schema))
         if not run(repo): raise SystemExit(f"{name} accepted")
-print(f"Provider ABI v1 checker tests passed ({len(CASES)} negative cases)")
+    for name, (before, after) in FIXTURE_CASES.items():
+        (repo / "stage1/compiler-contracts/snapshots/provider-abi-v1.json").write_text(json.dumps(original_contract))
+        (repo / "stage1/compiler-contracts/schemas/axiom.provider-abi.v1.schema.json").write_text(json.dumps(original_schema))
+        fixture.write_text(original_fixture.replace(before, after, 1))
+        if not run(repo): raise SystemExit(f"{name} accepted")
+print(f"Provider ABI v1 checker tests passed ({len(CASES) + len(FIXTURE_CASES)} negative cases)")
