@@ -88,6 +88,7 @@ impl LspServer {
             Some("shutdown") => id.map(empty_response).into_iter().collect(),
             Some("textDocument/didOpen") => self.did_open(value),
             Some("textDocument/didChange") => self.did_change(value),
+            Some("textDocument/didClose") => self.did_close(value),
             Some("textDocument/hover") => id
                 .map(|request_id| self.hover_response(request_id, value))
                 .into_iter()
@@ -195,6 +196,12 @@ impl LspServer {
         }
         self.documents.insert(uri.to_owned(), LspDocument { version, text });
         self.publish_workspace_diagnostics()
+    }
+
+    fn did_close(&mut self, message: &Value) -> Vec<Value> {
+        let Some(uri) = message.get("params").and_then(|params| params.get("textDocument")).and_then(|document| document.get("uri")).and_then(Value::as_str) else { return Vec::new() };
+        if self.documents.remove(uri).is_none() { return Vec::new() }
+        vec![json!({ "jsonrpc": "2.0", "method": "textDocument/publishDiagnostics", "params": { "uri": uri, "diagnostics": [] } })]
     }
 
     fn note_document_root(&mut self, uri: &str) {
@@ -1384,6 +1391,22 @@ mod tests {
             .expect("unopened change");
         assert_eq!(change.messages[0]["method"], json!("window/logMessage"));
         assert_eq!(server.documents.len(), MAX_WORKSPACE_DOCUMENTS);
+    }
+
+    #[test]
+    fn closed_documents_release_workspace_capacity_and_clear_diagnostics() {
+        let mut server = LspServer::default();
+        for index in 0..MAX_WORKSPACE_DOCUMENTS {
+            server.documents.insert(format!("file:///tmp/lsp-document-limit/{index}.ax"), LspDocument { version: 1, text: String::new() });
+        }
+        let closed_uri = "file:///tmp/lsp-document-limit/0.ax";
+        let close = server.handle_message(&notification("textDocument/didClose", json!({ "textDocument": { "uri": closed_uri } }))).expect("close document");
+        assert_eq!(close.messages, vec![json!({ "jsonrpc": "2.0", "method": "textDocument/publishDiagnostics", "params": { "uri": closed_uri, "diagnostics": [] } })]);
+
+        let replacement_uri = "file:///tmp/lsp-document-limit/replacement.ax";
+        server.handle_message(&notification("textDocument/didOpen", json!({ "textDocument": { "uri": replacement_uri, "languageId": "axiom", "version": 1, "text": "" } }))).expect("open replacement document");
+        assert_eq!(server.documents.len(), MAX_WORKSPACE_DOCUMENTS);
+        assert!(server.documents.contains_key(replacement_uri));
     }
 
     #[test]
