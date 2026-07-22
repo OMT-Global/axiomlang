@@ -1,14 +1,23 @@
 # Axiom API
 
-## `pub fn route(path: string): string {`
+<a id="axiom://package/doc-md/module/src/main.ax/function/route"></a>
+## `fn route(path: string): string`
 
-Source: `<project>/src/main.ax`
+Source: [`src/main.ax:3`](src/main.ax#L3)
 
 Handles a request.
 Example: route("/health")
 
-## `pub struct Response {`
+<a id="axiom://package/doc-md/module/src/main.ax/struct/Response"></a>
+## `struct Response`
 
-Source: `<project>/src/main.ax`
+Source: [`src/main.ax:8`](src/main.ax#L8)
 
 Response envelope.
+
+<a id="axiom://package/doc-md/module/src/main.ax/Response/field/status"></a>
+## `status: int`
+
+Source: [`src/main.ax:9`](src/main.ax#L9)
+
+_No doc comment provided._

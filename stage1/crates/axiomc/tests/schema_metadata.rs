@@ -145,10 +145,7 @@ fn bounded_executor_v0_schemas_are_strict_and_fail_closed() {
         compile_validator(schema);
     }
 
-    assert_eq!(
-        schemas[1]["properties"]["seal_mac"]["$ref"],
-        "#/$defs/mac"
-    );
+    assert_eq!(schemas[1]["properties"]["seal_mac"]["$ref"], "#/$defs/mac");
     assert!(schemas[1]["properties"].get("seal_key").is_none());
     assert!(schemas[2]["properties"].get("seal_key").is_none());
     assert!(
@@ -486,7 +483,7 @@ fn editor_metadata_schemas_are_parseable_and_current() {
     )
     .expect("inspect schema is valid JSON");
     let doc_schema: Value = serde_json::from_str(
-        &fs::read_to_string(schema_dir().join("axiom-doc-v0.schema.json"))
+        &fs::read_to_string(schema_dir().join("axiom.docs.v1.schema.json"))
             .expect("read doc JSON schema"),
     )
     .expect("doc schema is valid JSON");
@@ -517,9 +514,10 @@ fn editor_metadata_schemas_are_parseable_and_current() {
     );
     assert_eq!(
         doc_schema["$id"],
-        "https://axiom.omt.global/schemas/axiom-doc-v0.schema.json"
+        "https://axiom.omt.global/schemas/axiom.docs.v1.schema.json"
     );
     assert_eq!(doc_schema["properties"]["command"]["const"], "doc");
+    assert_eq!(doc_schema["properties"]["schema"]["const"], "axiom.docs.v1");
     assert_eq!(
         doc_schema["properties"]["schema_version"]["const"],
         json_contract::JSON_SCHEMA_VERSION

@@ -255,7 +255,11 @@ fn doc_json_output_validates_against_doc_schema() {
         "[package]\nname = \"doc-json\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nenv = [\"AXIOM_ENV\"]\n",
     )
     .expect("write manifest");
-    fs::write(project.join("axiom.lock"), "version = 1\n").expect("write lock");
+    fs::write(
+        project.join("axiom.lock"),
+        "version = 1\n\n[[package]]\nname = \"doc-json\"\nversion = \"0.1.0\"\nsource = \"path\"\n",
+    )
+    .expect("write lock");
     fs::write(
         project.join("src/main.ax"),
         "/// Handles a request.\n/// Example: route(\"/health\")\npub fn route(path: string): string {\nreturn \"ok\"\n}\n\n/// Response envelope.\npub struct Response {\nstatus: int\n}\n",
@@ -299,7 +303,11 @@ fn doc_md_output_matches_checked_in_golden() {
         "[package]\nname = \"doc-md\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n",
     )
     .expect("write manifest");
-    fs::write(project.join("axiom.lock"), "version = 1\n").expect("write lock");
+    fs::write(
+        project.join("axiom.lock"),
+        "version = 1\n\n[[package]]\nname = \"doc-md\"\nversion = \"0.1.0\"\nsource = \"path\"\n",
+    )
+    .expect("write lock");
     fs::write(
         project.join("src/main.ax"),
         "/// Handles a request.\n/// Example: route(\"/health\")\npub fn route(path: string): string {\nreturn \"ok\"\n}\n\n/// Response envelope.\npub struct Response {\nstatus: int\n}\n",
@@ -395,7 +403,7 @@ fn public_v1_schema_path() -> PathBuf {
 
 fn doc_schema_path() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../schemas/axiom-doc-v0.schema.json")
+        .join("../../schemas/axiom.docs.v1.schema.json")
         .canonicalize()
         .expect("doc schema path")
 }
@@ -438,6 +446,61 @@ fn doc_json_failure_uses_error_contract() {
     assert!(payload.get("error").is_some(), "missing JSON error object");
 }
 
+#[test]
+fn typed_docs_multi_package_surface_matches_snapshot() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("docs-workspace");
+    for member in ["members/alpha", "members/beta"] {
+        fs::create_dir_all(project.join(member).join("src")).expect("mkdir member source");
+    }
+    fs::create_dir_all(project.join("src")).expect("mkdir root source");
+    fs::write(
+        project.join("axiom.toml"),
+        "[package]\nname = \"docs-workspace\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[workspace]\nmembers = [\"members/alpha\", \"members/beta\"]\n",
+    )
+    .expect("write root manifest");
+    for (member, name) in [("alpha", "docs-alpha"), ("beta", "docs-beta")] {
+        fs::write(
+            project.join("members").join(member).join("axiom.toml"),
+            format!("[package]\nname = \"{name}\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n"),
+        )
+        .expect("write member manifest");
+        fs::write(
+            project.join("members").join(member).join("axiom.lock"),
+            format!("version = 1\n\n[[package]]\nname = \"{name}\"\nversion = \"0.1.0\"\nsource = \"path\"\n"),
+        )
+        .expect("write member lock");
+    }
+    fs::write(
+        project.join("axiom.lock"),
+        "version = 1\n\n[[package]]\nname = \"docs-workspace\"\nversion = \"0.1.0\"\nsource = \"path\"\n\n[[package]]\nname = \"docs-alpha\"\nversion = \"0.1.0\"\nsource = \"path:members/alpha\"\n\n[[package]]\nname = \"docs-beta\"\nversion = \"0.1.0\"\nsource = \"path:members/beta\"\n",
+    )
+    .expect("write lock");
+    for (relative, source) in [
+        ("src/main.ax", "pub fn root_api(): int {\nreturn 1\n}\n"),
+        ("members/alpha/src/main.ax", "pub fn alpha_api(): int {\nreturn 2\n}\n"),
+        ("members/beta/src/main.ax", "pub fn beta_api(): int {\nreturn 3\n}\n"),
+    ] {
+        fs::write(project.join(relative), source).expect("write source");
+    }
+
+    let output = run_axiomc_json(&[
+        "doc",
+        project.to_str().expect("project path"),
+        "--out-dir",
+        "dist/docs",
+        "--json",
+    ]);
+    let snapshot_surface = serde_json::json!({
+        "schema": output["schema"],
+        "packages": output["packages"],
+        "items": output["items"],
+        "search": output["search"],
+    });
+    let snapshot = read_json(&contract_root().join("snapshots/docs-v1-multi-package.json"));
+    assert_eq!(snapshot_surface, snapshot, "typed documentation surface drifted");
+}
+
 fn contract_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../compiler-contracts")
@@ -460,7 +523,8 @@ fn run_axiomc_json(args: &[&str]) -> Value {
         .expect("run axiomc json command");
     assert!(
         output.status.success(),
-        "axiomc {args:?} failed: stderr={}",
+        "axiomc {args:?} failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
     serde_json::from_slice(&output.stdout).expect("parse axiomc json")
@@ -472,7 +536,10 @@ fn read_json(path: &Path) -> Value {
 
 fn assert_payload_matches_schema(validator: &Validator, command: &str, payload: &Value) {
     if let Err(error) = validator.validate(payload) {
-        panic!("{command} JSON payload failed schema validation: {error}");
+        panic!(
+            "{command} JSON payload failed schema validation at {}: {error}",
+            error.instance_path
+        );
     }
 }
 
