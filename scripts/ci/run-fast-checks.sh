@@ -62,6 +62,8 @@ bash "$script_repo_root/scripts/ci/test-check-compatibility-v1.sh"
 python3 "$script_repo_root/scripts/ci/check-capability-ledger.py" \
   --checkout-root "$repo_root" --check-docs --json >/dev/null
 bash "$script_repo_root/scripts/ci/test-check-capability-ledger.sh"
+python3 "$script_repo_root/scripts/ci/check-stdlib-catalog.py" --json >/dev/null
+python3 "$script_repo_root/scripts/ci/test-check-stdlib-catalog.py"
 cargo test --manifest-path "$repo_root/stage1/Cargo.toml" -p axiomc --test capability_ledger
 python3 "$script_repo_root/scripts/ci/check-production-language-readiness.py" \
   --manifest "$repo_root/docs/production-language-readiness.json" \
