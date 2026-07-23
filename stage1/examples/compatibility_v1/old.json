@@ -1,0 +1,14 @@
+{
+  "schema_version": "axiom.public_contract.v1",
+  "edition": {"id": "2026", "status": "supported"},
+  "compiler": {"minimum": "0.1.0", "maximum": "0.1.9"},
+  "surfaces": [
+    {"id": "axiom://language/loop", "kind": "language", "version": "1.0.0", "stability": "stable", "signature": "loop(condition, body)"},
+    {"id": "axiom://stdlib/text/lines", "kind": "stdlib", "version": "1.0.0", "stability": "stable", "signature": "text.lines(text) -> Sequence<Text>", "migration": "Use axiom://stdlib/text/split-lines before removal."},
+    {"id": "axiom://cli/check", "kind": "cli", "version": "1.0.0", "stability": "stable", "signature": "axiomc check <package> --json"},
+    {"id": "axiom://package/manifest", "kind": "package", "version": "1.0.0", "stability": "stable", "signature": "axiom.toml package manifest v1"},
+    {"id": "axiom://abi/direct-native", "kind": "abi", "version": "1.0.0", "stability": "experimental", "signature": "main() -> process-status"},
+    {"id": "axiom://schema/intent-ir", "kind": "schema", "version": "1.0.0", "stability": "stable", "signature": "axiom.intent_ir.v0"},
+    {"id": "axiom://artifact/axc", "kind": "artifact", "version": "1.0.0", "stability": "experimental", "signature": "AxiOM compiler artifact envelope"}
+  ]
+}

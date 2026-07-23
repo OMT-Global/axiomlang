@@ -172,6 +172,20 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable pinned 2026-04-19
 
+      - name: Ensure Rust linker availability
+        run: |
+          if command -v cc >/dev/null 2>&1; then
+            exit 0
+          fi
+          if command -v apt-get >/dev/null 2>&1; then
+            if [[ "$(id -u)" = "0" ]]; then
+              apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends gcc libc6-dev
+            else
+              sudo apt-get update && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends gcc libc6-dev
+            fi
+          fi
+          command -v cc >/dev/null 2>&1 || { echo "::error::no usable Rust linker found for the full lib suite"; exit 1; }
+
       - name: Run full axiomc lib suite
         # The #1255 blocking lane: the full lib suite must be green. Tests
         # that require unavailable local capabilities self-skip so shell-only

@@ -882,6 +882,12 @@
     },
     {
       "evidenceTier": "static_spike",
+      "name": "https://axiom.omt.global/schemas/axiom-compatibility-report-v1.schema.json",
+      "source": "stage1/schemas/axiom-compatibility-report-v1.schema.json",
+      "status": "checked"
+    },
+    {
+      "evidenceTier": "static_spike",
       "name": "https://axiom.omt.global/schemas/axiom-decision-record-v0.schema.json",
       "source": "stage1/schemas/axiom-decision-record-v0.schema.json",
       "status": "checked"
@@ -966,6 +972,12 @@
     },
     {
       "evidenceTier": "static_spike",
+      "name": "https://axiom.omt.global/schemas/axiom-public-contract-v1.schema.json",
+      "source": "stage1/schemas/axiom-public-contract-v1.schema.json",
+      "status": "checked"
+    },
+    {
+      "evidenceTier": "static_spike",
       "name": "https://axiomlang.dev/schemas/axiom-repair-v0.schema.json",
       "source": "stage1/schemas/axiom-repair-v0.schema.json",
       "status": "checked"
@@ -1028,6 +1040,12 @@
       "evidenceTier": "static_spike",
       "name": "https://axiom.omt.global/schemas/axiom-verify-v0.schema.json",
       "source": "stage1/schemas/axiom-verify-v0.schema.json",
+      "status": "checked"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "https://axiom.omt.global/schemas/axiom.docs.v1.schema.json",
+      "source": "stage1/schemas/axiom.docs.v1.schema.json",
       "status": "checked"
     },
     {
@@ -1732,11 +1750,11 @@
       "direct_runtime": 2,
       "production_qualified": 0,
       "scaffold": 5,
-      "static_spike": 197,
+      "static_spike": 200,
       "unsupported": 5
     },
     "runtimeAbiRows": 34,
-    "schemas": 39,
+    "schemas": 42,
     "stdlibFunctions": 299,
     "stdlibModules": 34,
     "supportedNativeBackend": "cranelift"
