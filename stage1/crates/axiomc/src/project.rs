@@ -33,6 +33,9 @@ use std::os::unix::fs::MetadataExt;
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
+use std::thread;
 use std::time::{Duration, Instant};
 
 mod expected_build_failure;
@@ -41,6 +44,25 @@ use expected_build_failure::{expected_build_error_path, run_build_fail_case};
 const BUILD_CACHE_VERSION: u32 = 2;
 const BUILD_CACHE_COMPILER: &str = concat!("axiomc-stage1-", env!("CARGO_PKG_VERSION"));
 const MAX_TEST_EXPECTED_STREAM_BYTES: u64 = 1024 * 1024;
+
+#[derive(Debug, Clone, Copy)]
+pub struct RunLimits {
+    pub timeout: Duration,
+    pub max_output_bytes: usize,
+    pub max_file_bytes: u64,
+    pub max_cpu_seconds: u64,
+}
+
+impl RunLimits {
+    pub const fn doctest() -> Self {
+        Self {
+            timeout: Duration::from_secs(5),
+            max_output_bytes: 1024 * 1024,
+            max_file_bytes: 8 * 1024 * 1024,
+            max_cpu_seconds: 5,
+        }
+    }
+}
 
 #[derive(Debug, Clone, Serialize)]
 pub struct CheckedPackage {
@@ -104,6 +126,42 @@ pub struct DebugSymbol {
     pub signature: String,
     pub line: usize,
     pub column: usize,
+}
+
+/// Compiler-owned documentation data for one package.  This deliberately keeps
+/// the source path used for extraction out of the serialised contract: callers
+/// publish the package-relative span, never a machine-local checkout path.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct DocumentationPackage {
+    pub id: String,
+    pub name: String,
+    pub modules: Vec<DocumentationModule>,
+    pub capabilities: Vec<CapabilityDescriptor>,
+    #[serde(skip)]
+    pub root: PathBuf,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct DocumentationModule {
+    pub id: String,
+    pub path: String,
+    pub symbols: Vec<DocumentationSymbol>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct DocumentationSymbol {
+    pub id: String,
+    pub kind: String,
+    pub name: String,
+    pub signature: String,
+    pub visibility: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parent_id: Option<String>,
+    pub source: SourceSpan,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub effects: Vec<String>,
+    #[serde(skip)]
+    pub source_path: PathBuf,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -510,6 +568,29 @@ pub fn check_project_with_options(
     })
 }
 
+/// Return the public documentation surface after the package has passed the
+/// same semantic analysis as `axiomc check`.  Documentation renderers must use
+/// this instead of rediscovering declarations from text so private declarations
+/// and source spelling cannot drift from the compiler's view of the package.
+pub fn documentation_packages(
+    project_root: &Path,
+) -> Result<Vec<DocumentationPackage>, Diagnostic> {
+    let project_root = canonicalize_existing_path(&normalize_path(project_root), "project root")?;
+    let graph = load_package_graph(&project_root)?;
+    validate_workspace_root_lockfile(&graph, &project_root)?;
+    let mut packages = Vec::new();
+    for package_root in workspace_package_roots(&graph, &project_root, None)? {
+        let analyzed = analyze_package_with_macro_limit(
+            &graph,
+            &package_root,
+            syntax::DEFAULT_MACRO_RECURSION_LIMIT,
+        )?;
+        packages.push(documentation_package(&package_root, &analyzed)?);
+    }
+    packages.sort_by(|left, right| left.id.cmp(&right.id));
+    Ok(packages)
+}
+
 pub fn build_project(project_root: &Path) -> Result<BuildOutput, Diagnostic> {
     build_project_with_options(project_root, &BuildOptions::default())
 }
@@ -679,6 +760,181 @@ pub fn run_project_report_with_options(
         stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
         duration_ms: started.elapsed().as_millis() as u64,
     })
+}
+
+/// Runs a built project with an execution, output, and resource budget.
+///
+/// This is intentionally separate from the public `run` command so callers
+/// that execute untrusted project-owned snippets (such as documentation
+/// doctests) can opt into containment without changing normal CLI behavior.
+pub fn run_project_report_with_limits(
+    project_root: &Path,
+    options: &RunOptions,
+    limits: RunLimits,
+) -> Result<RunOutput, Diagnostic> {
+    let started = Instant::now();
+    let (project_root, built, build_output_dir) = prepare_run_project(project_root, options)?;
+    let mut command = command_for_build_output(&built.binary, build_output_dir).map_err(|err| {
+        Diagnostic::new("run", format!("failed to execute {}: {err}", built.binary))
+    })?;
+    command.current_dir(project_root).args(&options.args);
+    let output = run_bounded_command(&mut command, limits).map_err(|err| {
+        Diagnostic::new("run", format!("bounded execution of {} failed: {err}", built.binary))
+    })?;
+    let exit_code = output.status.code().unwrap_or(1);
+    Ok(RunOutput {
+        backend: built.backend,
+        manifest: built.manifest,
+        entry: built.entry,
+        binary: built.binary,
+        generated_rust: built.generated_rust,
+        package: options.package.clone(),
+        args: options.args.clone(),
+        exit_code,
+        result: if exit_code == 0 {
+            RunResult::Success
+        } else {
+            RunResult::Failure
+        },
+        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
+        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+        duration_ms: started.elapsed().as_millis() as u64,
+    })
+}
+
+struct BoundedCommandOutput {
+    status: std::process::ExitStatus,
+    stdout: Vec<u8>,
+    stderr: Vec<u8>,
+}
+
+fn run_bounded_command(command: &mut Command, limits: RunLimits) -> io::Result<BoundedCommandOutput> {
+    command.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    configure_bounded_command(command, limits);
+    let mut child = command.spawn()?;
+    let stdout = child.stdout.take().ok_or_else(|| io::Error::other("bounded command stdout pipe unavailable"))?;
+    let stderr = child.stderr.take().ok_or_else(|| io::Error::other("bounded command stderr pipe unavailable"))?;
+    let output_bytes = Arc::new(AtomicUsize::new(0));
+    let stdout_reader = capture_bounded_stream(stdout, limits.max_output_bytes, Arc::clone(&output_bytes));
+    let stderr_reader = capture_bounded_stream(stderr, limits.max_output_bytes, Arc::clone(&output_bytes));
+    let deadline = Instant::now() + limits.timeout;
+    let status = loop {
+        if output_bytes.load(Ordering::Relaxed) > limits.max_output_bytes {
+            terminate_bounded_child(&mut child);
+            let _ = stdout_reader.join();
+            let _ = stderr_reader.join();
+            return Err(io::Error::other(format!(
+                "output exceeded the {} byte limit",
+                limits.max_output_bytes
+            )));
+        }
+        if let Some(status) = child.try_wait()? {
+            break status;
+        }
+        if Instant::now() >= deadline {
+            terminate_bounded_child(&mut child);
+            let _ = stdout_reader.join();
+            let _ = stderr_reader.join();
+            return Err(io::Error::new(
+                ErrorKind::TimedOut,
+                format!("execution exceeded the {:?} timeout", limits.timeout),
+            ));
+        }
+        thread::sleep(Duration::from_millis(10));
+    };
+    let stdout = join_bounded_stream(stdout_reader)?;
+    let stderr = join_bounded_stream(stderr_reader)?;
+    if output_bytes.load(Ordering::Relaxed) > limits.max_output_bytes {
+        return Err(io::Error::other(format!(
+            "output exceeded the {} byte limit",
+            limits.max_output_bytes
+        )));
+    }
+    Ok(BoundedCommandOutput { status, stdout, stderr })
+}
+
+fn capture_bounded_stream<R>(mut stream: R, limit: usize, output_bytes: Arc<AtomicUsize>) -> thread::JoinHandle<io::Result<Vec<u8>>>
+where
+    R: Read + Send + 'static,
+{
+    thread::spawn(move || {
+        let mut captured = Vec::new();
+        let mut buffer = [0u8; 8192];
+        loop {
+            let read = stream.read(&mut buffer)?;
+            if read == 0 {
+                return Ok(captured);
+            }
+            let previous = output_bytes.fetch_add(read, Ordering::Relaxed);
+            if previous < limit {
+                let remaining = limit - previous;
+                captured.extend_from_slice(&buffer[..read.min(remaining)]);
+            }
+        }
+    })
+}
+
+fn join_bounded_stream(reader: thread::JoinHandle<io::Result<Vec<u8>>>) -> io::Result<Vec<u8>> {
+    reader
+        .join()
+        .map_err(|_| io::Error::other("bounded command output reader panicked"))?
+}
+
+#[cfg(unix)]
+fn configure_bounded_command(command: &mut Command, limits: RunLimits) {
+    use std::os::unix::process::CommandExt;
+
+    unsafe {
+        command.pre_exec(move || {
+            if libc::setsid() < 0 {
+                return Err(io::Error::last_os_error());
+            }
+            set_bounded_rlimit(limits.max_cpu_seconds, |rlimit| unsafe { libc::setrlimit(libc::RLIMIT_CPU, rlimit) })?;
+            set_bounded_rlimit(limits.max_file_bytes, |rlimit| unsafe { libc::setrlimit(libc::RLIMIT_FSIZE, rlimit) })?;
+            Ok(())
+        });
+    }
+}
+
+#[cfg(not(unix))]
+fn configure_bounded_command(_command: &mut Command, _limits: RunLimits) {}
+
+#[cfg(unix)]
+fn set_bounded_rlimit(
+    limit: u64,
+    set_limit: impl FnOnce(*const libc::rlimit) -> libc::c_int,
+) -> io::Result<()> {
+    let limits = libc::rlimit {
+        rlim_cur: limit as libc::rlim_t,
+        rlim_max: limit as libc::rlim_t,
+    };
+    if set_limit(&limits) != 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(())
+}
+
+fn terminate_bounded_child(child: &mut std::process::Child) {
+    #[cfg(unix)]
+    {
+        let process_group = -(child.id() as i32);
+        unsafe {
+            libc::kill(process_group, libc::SIGTERM);
+        }
+        let grace_deadline = Instant::now() + Duration::from_millis(100);
+        while Instant::now() < grace_deadline {
+            if child.try_wait().ok().flatten().is_some() {
+                return;
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+        unsafe {
+            libc::kill(process_group, libc::SIGKILL);
+        }
+    }
+    #[cfg(not(unix))]
+    let _ = child.kill();
+    let _ = child.wait();
 }
 
 fn prepare_run_project(
@@ -6625,6 +6881,403 @@ fn public_api_exports(modules: &[LoadedModule], package_root: &Path) -> Vec<ApiE
             .then_with(|| left.name.cmp(&right.name))
     });
     exports
+}
+
+fn documentation_package(
+    package_root: &Path,
+    analyzed: &AnalyzedProject,
+) -> Result<DocumentationPackage, Diagnostic> {
+    let package_name = package_name_for_manifest(package_root, &analyzed.manifest)?;
+    let package_id = format!("axiom://package/{}", slug_node_segment(&package_name));
+    let capabilities = capability_descriptors(&analyzed.manifest.capabilities);
+    let mut modules = analyzed
+        .modules
+        .iter()
+        .filter(|module| module.package_root == package_root)
+        .map(|module| documentation_module(package_root, &package_id, module))
+        .collect::<Vec<_>>();
+    modules.sort_by(|left, right| left.path.cmp(&right.path));
+    Ok(DocumentationPackage {
+        id: package_id,
+        name: package_name,
+        modules,
+        capabilities,
+        root: package_root.to_path_buf(),
+    })
+}
+
+fn documentation_module(
+    package_root: &Path,
+    package_id: &str,
+    module: &LoadedModule,
+) -> DocumentationModule {
+    let path = provenance_path_display(package_root, &module.path);
+    let id = format!("{package_id}/module/{}", slug_path_segment(&path));
+    let mut symbols = Vec::new();
+
+    for alias in module
+        .program
+        .type_aliases
+        .iter()
+        .filter(|alias| alias.visibility.is_public())
+    {
+        symbols.push(documentation_symbol(
+            &id,
+            "type",
+            &alias.name,
+            format!("type {} = {}", alias.name, format_type_name(&alias.ty)),
+            "public",
+            None,
+            &module.path,
+            &path,
+            alias.line,
+            alias.column,
+            Vec::new(),
+        ));
+    }
+    for declaration in module
+        .program
+        .structs
+        .iter()
+        .filter(|declaration| declaration.visibility.is_public())
+    {
+        let parent = documentation_symbol(
+            &id,
+            "struct",
+            &declaration.name,
+            format!("struct {}", declaration.name),
+            "public",
+            None,
+            &module.path,
+            &path,
+            declaration.line,
+            declaration.column,
+            Vec::new(),
+        );
+        let parent_id = parent.id.clone();
+        symbols.push(parent);
+        for field in &declaration.fields {
+            symbols.push(documentation_symbol(
+                &id,
+                "field",
+                &field.name,
+                format!("{}: {}", field.name, format_type_name(&field.ty)),
+                "public",
+                Some(parent_id.clone()),
+                &module.path,
+                &path,
+                field.line,
+                field.column,
+                Vec::new(),
+            ));
+        }
+    }
+    for declaration in module
+        .program
+        .enums
+        .iter()
+        .filter(|declaration| declaration.visibility.is_public())
+    {
+        let parent = documentation_symbol(
+            &id,
+            "enum",
+            &declaration.name,
+            format!("enum {}", declaration.name),
+            "public",
+            None,
+            &module.path,
+            &path,
+            declaration.line,
+            declaration.column,
+            Vec::new(),
+        );
+        let parent_id = parent.id.clone();
+        symbols.push(parent);
+        for variant in &declaration.variants {
+            let payload = variant
+                .payload_tys
+                .iter()
+                .map(format_type_name)
+                .collect::<Vec<_>>()
+                .join(", ");
+            let signature = if payload.is_empty() {
+                variant.name.clone()
+            } else {
+                format!("{}({payload})", variant.name)
+            };
+            symbols.push(documentation_symbol(
+                &id,
+                "variant",
+                &variant.name,
+                signature,
+                "public",
+                Some(parent_id.clone()),
+                &module.path,
+                &path,
+                variant.line,
+                variant.column,
+                Vec::new(),
+            ));
+        }
+    }
+    for declaration in module
+        .program
+        .traits
+        .iter()
+        .filter(|declaration| declaration.visibility.is_public())
+    {
+        let parent = documentation_symbol(
+            &id,
+            "trait",
+            &declaration.name,
+            format!("trait {}", declaration.name),
+            "public",
+            None,
+            &module.path,
+            &path,
+            declaration.line,
+            declaration.column,
+            Vec::new(),
+        );
+        let parent_id = parent.id.clone();
+        symbols.push(parent);
+        for method in &declaration.methods {
+            let mut params = Vec::new();
+            if method.has_self {
+                params.push(String::from("self"));
+            }
+            params.extend(
+                method
+                    .params
+                    .iter()
+                    .map(|param| format!("{}: {}", param.name, format_type_name(&param.ty))),
+            );
+            symbols.push(documentation_symbol(
+                &id,
+                "trait_method",
+                &method.name,
+                format!(
+                    "fn {}({}): {}",
+                    method.name,
+                    params.join(", "),
+                    format_type_name(&method.return_ty)
+                ),
+                "public",
+                Some(parent_id.clone()),
+                &module.path,
+                &path,
+                method.line,
+                method.column,
+                Vec::new(),
+            ));
+        }
+    }
+    for function in module
+        .program
+        .functions
+        .iter()
+        .filter(|function| function.visibility.is_public() && function.impl_target.is_none())
+    {
+        symbols.push(documentation_function_symbol(
+            &id,
+            &module.path,
+            &path,
+            function,
+            None,
+        ));
+    }
+    let mut implementations = BTreeMap::<(Option<String>, String), Vec<&syntax::Function>>::new();
+    for function in module
+        .program
+        .functions
+        .iter()
+        .filter(|function| function.visibility.is_public())
+        .filter_map(|function| {
+            function
+                .impl_target
+                .as_ref()
+                .map(|target| ((function.impl_trait.clone(), target.clone()), function))
+        })
+    {
+        implementations
+            .entry(function.0)
+            .or_default()
+            .push(function.1);
+    }
+    for ((trait_name, target), functions) in implementations {
+        let name = trait_name
+            .as_ref()
+            .map(|trait_name| format!("{trait_name} for {target}"))
+            .unwrap_or_else(|| target.clone());
+        let first = functions[0];
+        let parent = documentation_symbol(
+            &id,
+            "impl",
+            &name,
+            format!("impl {name}"),
+            "public",
+            None,
+            &module.path,
+            &path,
+            first.line,
+            first.column,
+            Vec::new(),
+        );
+        let parent_id = parent.id.clone();
+        symbols.push(parent);
+        for function in functions {
+            symbols.push(documentation_function_symbol(
+                &id,
+                &module.path,
+                &path,
+                function,
+                Some(parent_id.clone()),
+            ));
+        }
+    }
+    for constant in module
+        .program
+        .consts
+        .iter()
+        .filter(|constant| constant.visibility.is_public())
+    {
+        symbols.push(documentation_symbol(
+            &id,
+            "const",
+            &constant.name,
+            format!(
+                "const {}: {}",
+                constant.name,
+                format_type_name(&constant.ty)
+            ),
+            "public",
+            None,
+            &module.path,
+            &path,
+            constant.line,
+            constant.column,
+            Vec::new(),
+        ));
+    }
+    for capability in &module.program.semantic_capabilities {
+        let parent = documentation_symbol(
+            &id,
+            "capability",
+            &capability.name,
+            format!("capability {}", capability.name),
+            "public",
+            None,
+            &module.path,
+            &path,
+            capability.line,
+            capability.column,
+            capability
+                .effects
+                .iter()
+                .map(|effect| format!("{} {}", effect.kind, effect.target))
+                .collect(),
+        );
+        let parent_id = parent.id.clone();
+        symbols.push(parent);
+        for effect in &capability.effects {
+            symbols.push(documentation_symbol(
+                &id,
+                "effect",
+                &format!("{} {}", effect.kind, effect.target),
+                format!("{} {}", effect.kind, effect.target),
+                "public",
+                Some(parent_id.clone()),
+                &module.path,
+                &path,
+                effect.line,
+                effect.column,
+                Vec::new(),
+            ));
+        }
+    }
+    symbols.sort_by(|left, right| {
+        left.source
+            .line
+            .cmp(&right.source.line)
+            .then_with(|| left.source.column.cmp(&right.source.column))
+            .then_with(|| left.kind.cmp(&right.kind))
+            .then_with(|| left.name.cmp(&right.name))
+    });
+    DocumentationModule { id, path, symbols }
+}
+
+fn documentation_function_symbol(
+    module_id: &str,
+    source_path: &Path,
+    source_display: &str,
+    function: &syntax::Function,
+    parent_id: Option<String>,
+) -> DocumentationSymbol {
+    documentation_symbol(
+        module_id,
+        "function",
+        &function.source_name,
+        format!(
+            "fn {}({}): {}",
+            function
+                .impl_target
+                .as_ref()
+                .map(|target| format!("{target}.{}", function.source_name))
+                .unwrap_or_else(|| function.source_name.clone()),
+            format_function_params(function),
+            format_type_name(&function.return_ty)
+        ),
+        "public",
+        parent_id,
+        source_path,
+        source_display,
+        function.line,
+        function.column,
+        Vec::new(),
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn documentation_symbol(
+    module_id: &str,
+    kind: &str,
+    name: &str,
+    signature: String,
+    visibility: &str,
+    parent_id: Option<String>,
+    source_path: &Path,
+    source_display: &str,
+    line: usize,
+    column: usize,
+    effects: Vec<String>,
+) -> DocumentationSymbol {
+    let parent_segment = parent_id
+        .as_deref()
+        .map(|parent| {
+            format!(
+                "{}/",
+                slug_node_segment(parent.rsplit('/').next().unwrap_or(parent))
+            )
+        })
+        .unwrap_or_default();
+    DocumentationSymbol {
+        id: format!(
+            "{module_id}/{parent_segment}{kind}/{}",
+            slug_node_segment(name)
+        ),
+        kind: kind.to_string(),
+        name: name.to_string(),
+        signature,
+        visibility: visibility.to_string(),
+        parent_id,
+        source: SourceSpan {
+            path: source_display.to_string(),
+            line,
+            column,
+        },
+        effects,
+        source_path: source_path.to_path_buf(),
+    }
 }
 
 fn format_function_params(function: &syntax::Function) -> String {

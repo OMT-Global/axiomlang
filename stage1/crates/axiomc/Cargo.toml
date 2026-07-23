@@ -18,6 +18,6 @@ serde_json.workspace = true
 toml.workspace = true
 
 [dev-dependencies]
-tempfile.workspace = true
 jsonschema.workspace = true
+tempfile.workspace = true
 which.workspace = true

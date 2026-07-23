@@ -1,0 +1,15 @@
+{
+  "schema_version": "axiom.public_contract.v1",
+  "edition": {"id": "2027", "status": "supported", "migration": "Run axiomc migrate --from 2026 --to 2027 and apply the emitted diagnostics."},
+  "compiler": {"minimum": "0.2.0", "maximum": "0.2.9", "migration": "Install a supported 0.2 compiler before adopting edition 2027."},
+  "surfaces": [
+    {"id": "axiom://language/loop", "kind": "language", "version": "1.1.0", "stability": "stable", "signature": "loop(condition, body)"},
+    {"id": "axiom://stdlib/text/lines", "kind": "stdlib", "version": "1.1.0", "stability": "deprecated", "signature": "text.lines(text) -> Sequence<Text>", "replacement": "axiom://stdlib/text/split-lines", "migration": "Replace text.lines with text.split_lines before the 2028 edition."},
+    {"id": "axiom://stdlib/text/split-lines", "kind": "stdlib", "version": "1.0.0", "stability": "stable", "signature": "text.split_lines(text) -> Sequence<Text>"},
+    {"id": "axiom://cli/check", "kind": "cli", "version": "2.0.0", "stability": "stable", "signature": "axiomc check <package> --format json", "migration": "Replace --json with --format json."},
+    {"id": "axiom://package/manifest", "kind": "package", "version": "1.0.0", "stability": "stable", "signature": "axiom.toml package manifest v1"},
+    {"id": "axiom://abi/direct-native", "kind": "abi", "version": "1.0.0", "stability": "experimental", "signature": "main() -> process-status"},
+    {"id": "axiom://schema/intent-ir", "kind": "schema", "version": "1.1.0", "stability": "stable", "signature": "axiom.intent_ir.v0"},
+    {"id": "axiom://artifact/axc", "kind": "artifact", "version": "1.0.0", "stability": "experimental", "signature": "AxiOM compiler artifact envelope"}
+  ]
+}
