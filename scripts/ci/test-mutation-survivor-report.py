@@ -19,6 +19,10 @@ class MutationSurvivorReportTests(unittest.TestCase):
     def test_render_report_groups_survivors_by_file(self) -> None:
         payload = {
             "schema_version": "axiom.stage1.mutation-smoke.v1",
+            "governing_issue": {
+                "number": 1463,
+                "url": "https://github.com/OMT-Global/axiomlang/issues/1463",
+            },
             "summary": {"total": 3, "killed": 1, "survived": 2},
             "survivors": [
                 {
@@ -50,6 +54,17 @@ class MutationSurvivorReportTests(unittest.TestCase):
         report = mutation_survivor_report.render_report(payload)
         self.assertIn("Survived: `0`", report)
         self.assertIn("No survivors were reported", report)
+
+
+    def test_render_governing_issue_links_valid_reference(self) -> None:
+        rendered = mutation_survivor_report.render_governing_issue(
+            {"governing_issue": {"number": 1463, "url": "https://github.com/OMT-Global/axiomlang/issues/1463"}}
+        )
+        self.assertEqual(rendered, "[#1463](https://github.com/OMT-Global/axiomlang/issues/1463)")
+
+    def test_render_report_marks_missing_governing_issue_unknown(self) -> None:
+        report = mutation_survivor_report.render_report({"summary": {}, "survivors": []})
+        self.assertIn("Governing issue: unknown", report)
 
 
 if __name__ == "__main__":
