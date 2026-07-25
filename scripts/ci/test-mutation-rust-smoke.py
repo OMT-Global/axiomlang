@@ -30,5 +30,10 @@ class MutationRustSmokeTests(unittest.TestCase):
         self.assertEqual(areas, {"parser", "hir", "mir", "codegen"})
 
 
+    def test_profile_reports_its_governing_issue(self) -> None:
+        self.assertEqual(mutation_rust_smoke.GOVERNING_ISSUE["number"], 1463)
+        self.assertEqual(mutation_rust_smoke.GOVERNING_ISSUE["url"], "https://github.com/OMT-Global/axiomlang/issues/1463")
+
+
 if __name__ == "__main__":
     unittest.main()
