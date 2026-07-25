@@ -12,8 +12,10 @@ The spike itself lives at `stage1/selfhost/compiler-diagnostics-spike` and is
 validated by `scripts/ci/run-self-hosting-spike-parity.sh`. It proves the
 classification/rendering half of `compiler.diagnostics` can be authored in
 AxiOM and run through the direct-native backend with `generated_rust: null`.
-The suggestion-distance half (`edit_distance`, `closest_name`,
-`message_with_suggestion`) is blocked by the gaps marked **blocking** below.
+The separate suggestion-distance spike proves only `edit_distance` can run
+through the direct-native backend with Rust parity. `closest_name` and
+`message_with_suggestion` remain blocked by the runtime-sized collections and
+cross-function string/slice ABI described below.
 
 Umbrella tracking issue: [#1366](https://github.com/OMT-Global/axiomlang/issues/1366).
 The remaining runtime-sized collection work is
