@@ -39,7 +39,11 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 mod expected_build_failure;
+mod lsp_analysis;
+mod module_parse_cache;
 use expected_build_failure::{expected_build_error_path, run_build_fail_case};
+pub use lsp_analysis::{LspResolvedModule, analyze_package_for_lsp};
+use module_parse_cache::{ModuleParseCache, module_parse_cache_key, parse_module_with_cache};
 
 const BUILD_CACHE_VERSION: u32 = 2;
 const BUILD_CACHE_COMPILER: &str = concat!("axiomc-stage1-", env!("CARGO_PKG_VERSION"));
@@ -1852,63 +1856,6 @@ struct LoadedModule {
     package_root: PathBuf,
     source_root: PathBuf,
     package_name: String,
-}
-
-#[derive(Default)]
-struct ModuleParseCache {
-    programs: HashMap<(PathBuf, usize), syntax::Program>,
-    overlays: BTreeMap<PathBuf, String>,
-}
-
-#[derive(Debug, Clone)]
-pub struct LspResolvedModule {
-    pub path: PathBuf,
-    pub program: syntax::Program,
-    pub imports: Vec<PathBuf>,
-}
-
-/// Analyze a package through normal import resolution and HIR while using editor overlays.
-pub fn analyze_package_for_lsp(
-    package_root: &Path,
-    overlays: &BTreeMap<PathBuf, String>,
-) -> Result<Vec<LspResolvedModule>, Diagnostic> {
-    let package_root = canonicalize_existing_path(&normalize_path(package_root), "package root")?;
-    let graph = load_package_graph(&package_root)?;
-    let manifest = buildable_package_manifest(&graph, &package_root)?;
-    let entry = canonicalize_package_path(
-        &entry_path(&package_root, &manifest),
-        &package_root,
-        "manifest",
-        "build.entry resolves outside the package",
-    )?;
-    let mut parse_cache = ModuleParseCache {
-        programs: HashMap::new(),
-        overlays: overlays
-            .iter()
-            .map(|(path, source)| (normalize_path(path), source.clone()))
-            .collect(),
-    };
-    let analyzed = analyze_entry_with_parse_cache(
-        &graph,
-        &package_root,
-        manifest,
-        entry,
-        syntax::DEFAULT_MACRO_RECURSION_LIMIT,
-        &mut parse_cache,
-    )?;
-    Ok(analyzed
-        .modules
-        .into_iter()
-        .map(|module| LspResolvedModule {
-            path: module.path,
-            program: module.program,
-            imports: module
-                .resolved_imports
-                .into_iter()
-                .map(|import| import.path)
-                .collect(),
-        })
-        .collect())
 }
 
 #[derive(Debug, Clone)]
@@ -4917,75 +4864,6 @@ fn load_module_recursive(
         package_name,
     });
     Ok(())
-}
-
-fn parse_module_with_cache(
-    module_path: &Path,
-    macro_recursion_limit: usize,
-    parse_cache: &mut ModuleParseCache,
-) -> Result<syntax::Program, Diagnostic> {
-    let normalized = normalize_path(module_path);
-    if let Some(source) = parse_cache.overlays.get(&normalized) {
-        return syntax::parse_program_with_options(
-            source,
-            module_path,
-            &syntax::ParseOptions {
-                macro_recursion_limit,
-                ..syntax::ParseOptions::default()
-            },
-        );
-    }
-    let cache_key = module_parse_cache_key(module_path, macro_recursion_limit)?;
-    if let Some(program) = parse_cache.programs.get(&cache_key) {
-        return Ok(program.clone());
-    }
-    let source = if stdlib::is_stdlib_path(module_path) {
-        stdlib::stdlib_source_for(module_path)
-            .map(str::to_string)
-            .ok_or_else(|| {
-                Diagnostic::new(
-                    "source",
-                    format!(
-                        "internal error: missing stdlib source for {}",
-                        module_path.display()
-                    ),
-                )
-                .with_path(module_path.display().to_string())
-            })?
-    } else {
-        fs::read_to_string(module_path).map_err(|err| {
-            Diagnostic::new(
-                "source",
-                format!("failed to read {}: {err}", module_path.display()),
-            )
-            .with_path(module_path.display().to_string())
-        })?
-    };
-    let program = syntax::parse_program_with_options(
-        &source,
-        module_path,
-        &syntax::ParseOptions {
-            macro_recursion_limit,
-            ..syntax::ParseOptions::default()
-        },
-    )?;
-    parse_cache.programs.insert(cache_key, program.clone());
-    Ok(program)
-}
-
-// The parse result depends on the macro recursion limit, so the limit is part
-// of the key: a cache hit must never return a program parsed under a
-// different limit than the caller requested.
-fn module_parse_cache_key(
-    module_path: &Path,
-    macro_recursion_limit: usize,
-) -> Result<(PathBuf, usize), Diagnostic> {
-    let path = if stdlib::is_stdlib_path(module_path) {
-        normalize_path(module_path)
-    } else {
-        canonicalize_existing_path(module_path, "module path")?
-    };
-    Ok((path, macro_recursion_limit))
 }
 
 fn package_section<'a>(
