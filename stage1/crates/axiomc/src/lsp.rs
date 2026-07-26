@@ -2,7 +2,7 @@ use crate::diagnostics::Diagnostic;
 use crate::hir;
 use crate::manifest::load_manifest;
 use crate::mir;
-use crate::project::{package_graph_metadata, project_capabilities};
+use crate::project::{analyze_package_for_lsp, package_graph_metadata, project_capabilities};
 use crate::syntax;
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
@@ -44,6 +44,39 @@ struct LspSymbol {
 struct WorkspaceIndex {
     documents: BTreeMap<String, String>,
     symbols: Vec<LspSymbol>,
+    imports: BTreeMap<String, BTreeSet<String>>,
+    diagnostics: BTreeMap<String, Vec<Diagnostic>>,
+}
+
+impl WorkspaceIndex {
+    fn visible_uris(&self, origin: &str) -> BTreeSet<String> {
+        if !self.imports.contains_key(origin) {
+            return self.documents.keys().cloned().collect();
+        }
+        let mut visible = BTreeSet::from([origin.to_owned()]);
+        let mut pending = vec![origin.to_owned()];
+        while let Some(uri) = pending.pop() {
+            if let Some(imports) = self.imports.get(&uri) {
+                for imported in imports {
+                    if visible.insert(imported.clone()) {
+                        pending.push(imported.clone());
+                    }
+                }
+            }
+        }
+        visible
+    }
+
+    fn symbols_visible_from<'a>(
+        &'a self,
+        origin: &str,
+        name: &str,
+    ) -> impl Iterator<Item = &'a LspSymbol> {
+        let visible = self.visible_uris(origin);
+        self.symbols
+            .iter()
+            .filter(move |symbol| symbol.name == name && visible.contains(&symbol.uri))
+    }
 }
 
 /// Stateful, bounded LSP service. The public protocol only exposes compiler
@@ -72,11 +105,17 @@ impl LspServer {
             if let Some(request_id) = value.get("params").and_then(|params| params.get("id")) {
                 self.cancelled_requests.insert(request_key(request_id));
             }
-            return Ok(LspResponse { messages: Vec::new(), exit: false });
+            return Ok(LspResponse {
+                messages: Vec::new(),
+                exit: false,
+            });
         }
         if let Some(request_id) = id.as_ref() {
             if self.cancelled_requests.remove(&request_key(request_id)) {
-                return Ok(LspResponse { messages: Vec::new(), exit: false });
+                return Ok(LspResponse {
+                    messages: Vec::new(),
+                    exit: false,
+                });
             }
         }
 
@@ -128,7 +167,10 @@ impl LspServer {
                 .collect(),
             None => Vec::new(),
         };
-        Ok(LspResponse { messages, exit: matches!(method, Some("exit")) })
+        Ok(LspResponse {
+            messages,
+            exit: matches!(method, Some("exit")),
+        })
     }
 
     fn configure_workspace(&mut self, message: &Value) {
@@ -146,7 +188,10 @@ impl LspServer {
     }
 
     fn did_open(&mut self, message: &Value) -> Vec<Value> {
-        let Some(document) = message.get("params").and_then(|params| params.get("textDocument")) else {
+        let Some(document) = message
+            .get("params")
+            .and_then(|params| params.get("textDocument"))
+        else {
             return Vec::new();
         };
         let (Some(uri), Some(text)) = (
@@ -158,30 +203,53 @@ impl LspServer {
         let version = document.get("version").and_then(Value::as_i64).unwrap_or(0);
         self.note_document_root(uri);
         if !self.documents.contains_key(uri) && self.documents.len() >= MAX_WORKSPACE_DOCUMENTS {
-            return vec![log_message("workspace exceeds the 2,048-document LSP limit")];
+            return vec![log_message(
+                "workspace exceeds the 2,048-document LSP limit",
+            )];
         }
         if text.len() > MAX_DOCUMENT_BYTES || !self.fits_workspace_limit(uri, text) {
             return vec![log_message("document exceeds the bounded LSP memory limit")];
         }
-        self.documents.insert(uri.to_owned(), LspDocument { version, text: text.to_owned() });
+        self.documents.insert(
+            uri.to_owned(),
+            LspDocument {
+                version,
+                text: text.to_owned(),
+            },
+        );
         self.publish_workspace_diagnostics()
     }
 
     fn did_change(&mut self, message: &Value) -> Vec<Value> {
-        let Some(params) = message.get("params") else { return Vec::new() };
-        let Some(document) = params.get("textDocument") else { return Vec::new() };
-        let Some(uri) = document.get("uri").and_then(Value::as_str) else { return Vec::new() };
-        let version = document.get("version").and_then(Value::as_i64).unwrap_or(-1);
+        let Some(params) = message.get("params") else {
+            return Vec::new();
+        };
+        let Some(document) = params.get("textDocument") else {
+            return Vec::new();
+        };
+        let Some(uri) = document.get("uri").and_then(Value::as_str) else {
+            return Vec::new();
+        };
+        let version = document
+            .get("version")
+            .and_then(Value::as_i64)
+            .unwrap_or(-1);
         let Some(existing) = self.documents.get(uri).cloned() else {
-            return vec![log_message("didChange received for a document that was not opened")];
+            return vec![log_message(
+                "didChange received for a document that was not opened",
+            )];
         };
         if version <= existing.version {
             return vec![log_message("stale document version ignored")];
         }
-        let Some(changes) = params.get("contentChanges").and_then(Value::as_array) else { return Vec::new() };
+        let Some(changes) = params.get("contentChanges").and_then(Value::as_array) else {
+            return Vec::new();
+        };
         let mut text = existing.text;
         for change in changes {
-            let Some(replacement) = change.get("text").and_then(Value::as_str) else { continue };
+            let Some(replacement) = change.get("text").and_then(Value::as_str) else {
+                continue;
+            };
             if let Some(range) = change.get("range") {
                 let Some((start, end)) = range_offsets(&text, range) else {
                     return vec![log_message("invalid incremental change range ignored")];
@@ -194,14 +262,26 @@ impl LspServer {
                 return vec![log_message("document exceeds the bounded LSP memory limit")];
             }
         }
-        self.documents.insert(uri.to_owned(), LspDocument { version, text });
+        self.documents
+            .insert(uri.to_owned(), LspDocument { version, text });
         self.publish_workspace_diagnostics()
     }
 
     fn did_close(&mut self, message: &Value) -> Vec<Value> {
-        let Some(uri) = message.get("params").and_then(|params| params.get("textDocument")).and_then(|document| document.get("uri")).and_then(Value::as_str) else { return Vec::new() };
-        if self.documents.remove(uri).is_none() { return Vec::new() }
-        vec![json!({ "jsonrpc": "2.0", "method": "textDocument/publishDiagnostics", "params": { "uri": uri, "diagnostics": [] } })]
+        let Some(uri) = message
+            .get("params")
+            .and_then(|params| params.get("textDocument"))
+            .and_then(|document| document.get("uri"))
+            .and_then(Value::as_str)
+        else {
+            return Vec::new();
+        };
+        if self.documents.remove(uri).is_none() {
+            return Vec::new();
+        }
+        vec![
+            json!({ "jsonrpc": "2.0", "method": "textDocument/publishDiagnostics", "params": { "uri": uri, "diagnostics": [] } }),
+        ]
     }
 
     fn note_document_root(&mut self, uri: &str) {
@@ -235,26 +315,83 @@ impl LspServer {
                 .sum::<usize>(),
         );
         let remaining_documents = MAX_WORKSPACE_DOCUMENTS.saturating_sub(documents.len());
-        for (uri, text) in workspace_files(&self.workspace_roots, remaining_bytes, remaining_documents) {
+        for (uri, text) in
+            workspace_files(&self.workspace_roots, remaining_bytes, remaining_documents)
+        {
             documents.entry(uri).or_insert(text);
         }
+        let overlays = documents
+            .iter()
+            .map(|(uri, source)| (path_for_uri(uri), source.clone()))
+            .collect::<BTreeMap<_, _>>();
         let mut symbols = Vec::new();
+        let mut imports = BTreeMap::<String, BTreeSet<String>>::new();
+        let mut diagnostics = BTreeMap::<String, Vec<Diagnostic>>::new();
+        let mut resolved = BTreeSet::new();
+        for root in &self.workspace_roots {
+            match analyze_package_for_lsp(root, &overlays) {
+                Ok(modules) => {
+                    for module in modules {
+                        let uri = uri_for_path(&module.path);
+                        let source = documents.get(&uri).cloned().unwrap_or_else(|| {
+                            fs::read_to_string(&module.path).unwrap_or_default()
+                        });
+                        documents
+                            .entry(uri.clone())
+                            .or_insert_with(|| source.clone());
+                        symbols.extend(symbols_for_program(&uri, &source, &module.program));
+                        imports.insert(
+                            uri.clone(),
+                            module
+                                .imports
+                                .iter()
+                                .map(|path| uri_for_path(path))
+                                .collect(),
+                        );
+                        resolved.insert(uri);
+                    }
+                }
+                Err(diagnostic) => {
+                    let uri = diagnostic
+                        .path
+                        .as_deref()
+                        .map(Path::new)
+                        .map(uri_for_path)
+                        .unwrap_or_else(|| uri_for_path(root));
+                    diagnostics.entry(uri).or_default().push(diagnostic);
+                }
+            }
+        }
         for (uri, text) in &documents {
+            if resolved.contains(uri) {
+                continue;
+            }
             match syntax::parse_program_with_recovery(text, &path_for_uri(uri)) {
                 Ok(program) => symbols.extend(symbols_for_program(uri, text, &program)),
                 Err(_) => symbols.extend(symbols_for_incomplete_source(uri, text)),
             }
         }
         symbols.sort_by(|left, right| {
-            (&left.name, &left.uri, left.line, left.column).cmp(&(&right.name, &right.uri, right.line, right.column))
+            (&left.name, &left.uri, left.line, left.column).cmp(&(
+                &right.name,
+                &right.uri,
+                right.line,
+                right.column,
+            ))
         });
         self.workspace_generation = self.workspace_generation.saturating_add(1);
         self.last_analysis_ms = started.elapsed().as_millis();
-        self.analysis_latency_samples_ms.push_back(self.last_analysis_ms);
+        self.analysis_latency_samples_ms
+            .push_back(self.last_analysis_ms);
         if self.analysis_latency_samples_ms.len() > MAX_LATENCY_SAMPLES {
             self.analysis_latency_samples_ms.pop_front();
         }
-        WorkspaceIndex { documents, symbols }
+        WorkspaceIndex {
+            documents,
+            symbols,
+            imports,
+            diagnostics,
+        }
     }
 
     fn publish_workspace_diagnostics(&mut self) -> Vec<Value> {
@@ -262,36 +399,94 @@ impl LspServer {
         index
             .documents
             .iter()
-            .map(|(uri, source)| publish_diagnostics(uri, source))
+            .map(|(uri, source)| {
+                if let Some(diagnostics) = index.diagnostics.get(uri) {
+                    publish_diagnostic_values(uri, source, diagnostics.clone())
+                } else {
+                    publish_diagnostics(uri, source)
+                }
+            })
             .collect()
     }
 
     fn hover_response(&mut self, id: Value, message: &Value) -> Value {
         let index = self.workspace_index();
-        let Some((uri, position)) = request_position(message) else { return empty_response(id) };
-        let Some(name) = word_at(index.documents.get(&uri).map(String::as_str).unwrap_or_default(), &position) else { return empty_response(id) };
-        let Some(symbol) = index.symbols.iter().find(|symbol| symbol.name == name) else { return empty_response(id) };
+        let Some((uri, position)) = request_position(message) else {
+            return empty_response(id);
+        };
+        let Some(name) = word_at(
+            index
+                .documents
+                .get(&uri)
+                .map(String::as_str)
+                .unwrap_or_default(),
+            &position,
+        ) else {
+            return empty_response(id);
+        };
+        let Some(symbol) = index.symbols_visible_from(&uri, &name).next() else {
+            return empty_response(id);
+        };
         json!({ "jsonrpc": "2.0", "id": id, "result": { "contents": { "kind": "markdown", "value": format!("```axiom\\n{} {}\\n```", symbol.kind, symbol.detail) } } })
     }
 
     fn definition_response(&mut self, id: Value, message: &Value) -> Value {
         let index = self.workspace_index();
-        let Some((uri, position)) = request_position(message) else { return empty_response(id) };
-        let Some(name) = word_at(index.documents.get(&uri).map(String::as_str).unwrap_or_default(), &position) else { return empty_response(id) };
-        let locations = index.symbols.iter().filter(|symbol| symbol.name == name).map(symbol_location).collect::<Vec<_>>();
+        let Some((uri, position)) = request_position(message) else {
+            return empty_response(id);
+        };
+        let Some(name) = word_at(
+            index
+                .documents
+                .get(&uri)
+                .map(String::as_str)
+                .unwrap_or_default(),
+            &position,
+        ) else {
+            return empty_response(id);
+        };
+        let locations = index
+            .symbols_visible_from(&uri, &name)
+            .map(symbol_location)
+            .collect::<Vec<_>>();
         json!({ "jsonrpc": "2.0", "id": id, "result": locations })
     }
 
     fn references_response(&mut self, id: Value, message: &Value) -> Value {
         let index = self.workspace_index();
-        let Some((uri, position)) = request_position(message) else { return empty_response(id) };
-        let Some(name) = word_at(index.documents.get(&uri).map(String::as_str).unwrap_or_default(), &position) else { return empty_response(id) };
-        let include_declaration = message.get("params").and_then(|params| params.get("context")).and_then(|context| context.get("includeDeclaration")).and_then(Value::as_bool).unwrap_or(false);
-        let definitions = index.symbols.iter().filter(|symbol| symbol.name == name).map(|symbol| (symbol.uri.clone(), symbol.line, symbol.column)).collect::<BTreeSet<_>>();
+        let Some((uri, position)) = request_position(message) else {
+            return empty_response(id);
+        };
+        let Some(name) = word_at(
+            index
+                .documents
+                .get(&uri)
+                .map(String::as_str)
+                .unwrap_or_default(),
+            &position,
+        ) else {
+            return empty_response(id);
+        };
+        let include_declaration = message
+            .get("params")
+            .and_then(|params| params.get("context"))
+            .and_then(|context| context.get("includeDeclaration"))
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let Some(target) = index.symbols_visible_from(&uri, &name).next() else {
+            return json!({ "jsonrpc": "2.0", "id": id, "result": [] });
+        };
+        let definition = (target.uri.clone(), target.line, target.column);
         let mut locations = Vec::new();
         for (document_uri, source) in &index.documents {
+            if !index.imports.is_empty() && !index.imports.contains_key(document_uri) {
+                continue;
+            }
+            if !index.visible_uris(document_uri).contains(&target.uri) {
+                continue;
+            }
             for (line, column) in word_occurrences(source, &name) {
-                if include_declaration || !definitions.contains(&(document_uri.clone(), line, column)) {
+                if include_declaration || definition != (document_uri.clone(), line, column) {
                     locations.push(location(document_uri, line, column, name.len()));
                 }
             }
@@ -301,21 +496,48 @@ impl LspServer {
 
     fn document_symbols_response(&mut self, id: Value, message: &Value) -> Value {
         let index = self.workspace_index();
-        let uri = message.get("params").and_then(|params| params.get("textDocument")).and_then(|document| document.get("uri")).and_then(Value::as_str).unwrap_or_default();
-        let symbols = index.symbols.iter().filter(|symbol| symbol.uri == uri).map(document_symbol).collect::<Vec<_>>();
+        let uri = message
+            .get("params")
+            .and_then(|params| params.get("textDocument"))
+            .and_then(|document| document.get("uri"))
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        let symbols = index
+            .symbols
+            .iter()
+            .filter(|symbol| symbol.uri == uri)
+            .map(document_symbol)
+            .collect::<Vec<_>>();
         json!({ "jsonrpc": "2.0", "id": id, "result": symbols })
     }
 
     fn workspace_symbols_response(&mut self, id: Value, message: &Value) -> Value {
         let index = self.workspace_index();
-        let query = message.get("params").and_then(|params| params.get("query")).and_then(Value::as_str).unwrap_or_default().to_ascii_lowercase();
-        let symbols = index.symbols.iter().filter(|symbol| query.is_empty() || symbol.name.to_ascii_lowercase().contains(&query)).map(workspace_symbol).collect::<Vec<_>>();
+        let query = message
+            .get("params")
+            .and_then(|params| params.get("query"))
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_ascii_lowercase();
+        let symbols = index
+            .symbols
+            .iter()
+            .filter(|symbol| query.is_empty() || symbol.name.to_ascii_lowercase().contains(&query))
+            .map(workspace_symbol)
+            .collect::<Vec<_>>();
         json!({ "jsonrpc": "2.0", "id": id, "result": symbols })
     }
 
     fn completion_response(&mut self, id: Value, message: &Value) -> Value {
         let index = self.workspace_index();
-        let prefix = request_position(message).and_then(|(uri, position)| index.documents.get(&uri).and_then(|source| word_prefix_at(source, &position))).unwrap_or_default();
+        let prefix = request_position(message)
+            .and_then(|(uri, position)| {
+                index
+                    .documents
+                    .get(&uri)
+                    .and_then(|source| word_prefix_at(source, &position))
+            })
+            .unwrap_or_default();
         let mut items = index.symbols.iter().filter(|symbol| prefix.is_empty() || symbol.name.starts_with(&prefix)).map(|symbol| json!({ "label": symbol.name, "kind": lsp_symbol_kind(symbol.kind), "detail": format!("{} {}", symbol.kind, symbol.detail) })).collect::<Vec<_>>();
         items.dedup_by(|left, right| left["label"] == right["label"]);
         json!({ "jsonrpc": "2.0", "id": id, "result": { "isIncomplete": false, "items": items } })
@@ -323,15 +545,38 @@ impl LspServer {
 
     fn signature_help_response(&mut self, id: Value, message: &Value) -> Value {
         let index = self.workspace_index();
-        let name = request_position(message).and_then(|(uri, position)| index.documents.get(&uri).and_then(|source| word_at(source, &position))).unwrap_or_default();
-        let signatures = index.symbols.iter().filter(|symbol| symbol.name == name && matches!(symbol.kind, "function" | "method")).map(|symbol| json!({ "label": symbol.detail, "parameters": [] })).collect::<Vec<_>>();
+        let name = request_position(message)
+            .and_then(|(uri, position)| {
+                index
+                    .documents
+                    .get(&uri)
+                    .and_then(|source| word_at(source, &position))
+            })
+            .unwrap_or_default();
+        let signatures = index
+            .symbols
+            .iter()
+            .filter(|symbol| symbol.name == name && matches!(symbol.kind, "function" | "method"))
+            .map(|symbol| json!({ "label": symbol.detail, "parameters": [] }))
+            .collect::<Vec<_>>();
         json!({ "jsonrpc": "2.0", "id": id, "result": { "signatures": signatures, "activeSignature": 0, "activeParameter": 0 } })
     }
 
     fn server_status_response(&mut self, id: Value) -> Value {
         let index = self.workspace_index();
-        let packages = self.workspace_roots.iter().filter_map(|root| package_graph_metadata(root).ok()).map(|graph| json!({ "manifest": graph.manifest, "packages": graph.packages.len() })).collect::<Vec<_>>();
-        let capabilities = self.workspace_roots.iter().filter_map(|root| project_capabilities(root).ok()).flatten().map(|capability| capability.name).collect::<BTreeSet<_>>();
+        let packages = self
+            .workspace_roots
+            .iter()
+            .filter_map(|root| package_graph_metadata(root).ok())
+            .map(|graph| json!({ "manifest": graph.manifest, "packages": graph.packages.len() }))
+            .collect::<Vec<_>>();
+        let capabilities = self
+            .workspace_roots
+            .iter()
+            .filter_map(|root| project_capabilities(root).ok())
+            .flatten()
+            .map(|capability| capability.name)
+            .collect::<BTreeSet<_>>();
         let memory_bytes = index
             .documents
             .iter()
@@ -341,10 +586,17 @@ impl LspServer {
     }
 
     fn p95_analysis_ms(&self) -> u128 {
-        let mut samples = self.analysis_latency_samples_ms.iter().copied().collect::<Vec<_>>();
+        let mut samples = self
+            .analysis_latency_samples_ms
+            .iter()
+            .copied()
+            .collect::<Vec<_>>();
         samples.sort_unstable();
         let percentile_rank = samples.len().saturating_mul(95).saturating_add(99) / 100;
-        samples.get(percentile_rank.saturating_sub(1)).copied().unwrap_or(0)
+        samples
+            .get(percentile_rank.saturating_sub(1))
+            .copied()
+            .unwrap_or(0)
     }
 }
 
@@ -371,6 +623,14 @@ where
 
 pub fn handle_message(payload: &str) -> Result<LspResponse, Diagnostic> {
     LspServer::default().handle_message(payload)
+}
+
+fn publish_diagnostic_values(uri: &str, source: &str, values: Vec<Diagnostic>) -> Value {
+    let diagnostics = values
+        .into_iter()
+        .map(|diagnostic| lsp_diagnostic(source, diagnostic))
+        .collect::<Vec<_>>();
+    json!({ "jsonrpc": "2.0", "method": "textDocument/publishDiagnostics", "params": { "uri": uri, "diagnostics": diagnostics } })
 }
 
 pub fn publish_diagnostics(uri: &str, source: &str) -> Value {
@@ -454,13 +714,17 @@ fn workspace_files(
         if documents.len() >= document_limit || bytes >= byte_limit {
             break;
         }
-        let Ok(entries) = fs::read_dir(&path) else { continue };
+        let Ok(entries) = fs::read_dir(&path) else {
+            continue;
+        };
         for entry in entries.flatten() {
             if documents.len() >= document_limit || bytes >= byte_limit {
                 break;
             }
             let entry_path = entry.path();
-            let Ok(file_type) = entry.file_type() else { continue };
+            let Ok(file_type) = entry.file_type() else {
+                continue;
+            };
             if file_type.is_symlink() {
                 continue;
             }
@@ -470,10 +734,16 @@ fn workspace_files(
                 }
                 continue;
             }
-            if entry_path.extension().and_then(|extension| extension.to_str()) != Some("ax") {
+            if entry_path
+                .extension()
+                .and_then(|extension| extension.to_str())
+                != Some("ax")
+            {
                 continue;
             }
-            let Ok(text) = fs::read_to_string(&entry_path) else { continue };
+            let Ok(text) = fs::read_to_string(&entry_path) else {
+                continue;
+            };
             let uri = uri_for_path(&entry_path);
             let storage_bytes = document_memory_bytes(&uri, &text);
             if text.len() > MAX_DOCUMENT_BYTES || bytes.saturating_add(storage_bytes) > byte_limit {
@@ -494,7 +764,10 @@ fn document_memory_bytes(uri: &str, source: &str) -> usize {
 
 fn uri_for_path(path: &Path) -> String {
     let path = path.to_str().expect("workspace file paths must be UTF-8");
-    assert!(path.starts_with('/'), "workspace file paths must be absolute");
+    assert!(
+        path.starts_with('/'),
+        "workspace file paths must be absolute"
+    );
     format!("file://{}", percent_encode_path(path))
 }
 
@@ -525,25 +798,99 @@ fn symbols_for_program(uri: &str, source: &str, program: &syntax::Program) -> Ve
             detail: source_line(source, line).to_owned(),
         });
     };
-    for declaration in &program.macros { push(&declaration.name, "macro", declaration.line, declaration.column); }
-    for declaration in &program.axioms { push(&declaration.name, "axiom", declaration.line, declaration.column); }
-    for declaration in &program.semantic_capabilities { push(&declaration.name, "capability", declaration.line, declaration.column); }
-    for declaration in &program.evidence { push(&declaration.name, "evidence", declaration.line, declaration.column); }
-    for declaration in &program.consts { push(&declaration.name, "constant", declaration.line, declaration.column); }
-    for declaration in &program.type_aliases { push(&declaration.name, "type", declaration.line, declaration.column); }
+    for declaration in &program.macros {
+        push(
+            &declaration.name,
+            "macro",
+            declaration.line,
+            declaration.column,
+        );
+    }
+    for declaration in &program.axioms {
+        push(
+            &declaration.name,
+            "axiom",
+            declaration.line,
+            declaration.column,
+        );
+    }
+    for declaration in &program.semantic_capabilities {
+        push(
+            &declaration.name,
+            "capability",
+            declaration.line,
+            declaration.column,
+        );
+    }
+    for declaration in &program.evidence {
+        push(
+            &declaration.name,
+            "evidence",
+            declaration.line,
+            declaration.column,
+        );
+    }
+    for declaration in &program.consts {
+        push(
+            &declaration.name,
+            "constant",
+            declaration.line,
+            declaration.column,
+        );
+    }
+    for declaration in &program.type_aliases {
+        push(
+            &declaration.name,
+            "type",
+            declaration.line,
+            declaration.column,
+        );
+    }
     for declaration in &program.structs {
-        push(&declaration.name, "struct", declaration.line, declaration.column);
-        for field in &declaration.fields { push(&field.name, "field", field.line, field.column); }
+        push(
+            &declaration.name,
+            "struct",
+            declaration.line,
+            declaration.column,
+        );
+        for field in &declaration.fields {
+            push(&field.name, "field", field.line, field.column);
+        }
     }
     for declaration in &program.enums {
-        push(&declaration.name, "enum", declaration.line, declaration.column);
-        for variant in &declaration.variants { push(&variant.name, "variant", variant.line, variant.column); }
+        push(
+            &declaration.name,
+            "enum",
+            declaration.line,
+            declaration.column,
+        );
+        for variant in &declaration.variants {
+            push(&variant.name, "variant", variant.line, variant.column);
+        }
     }
     for declaration in &program.traits {
-        push(&declaration.name, "trait", declaration.line, declaration.column);
-        for method in &declaration.methods { push(&method.name, "method", method.line, method.column); }
+        push(
+            &declaration.name,
+            "trait",
+            declaration.line,
+            declaration.column,
+        );
+        for method in &declaration.methods {
+            push(&method.name, "method", method.line, method.column);
+        }
     }
-    for declaration in &program.functions { push(&declaration.name, if declaration.impl_target.is_some() { "method" } else { "function" }, declaration.line, declaration.column); }
+    for declaration in &program.functions {
+        push(
+            &declaration.name,
+            if declaration.impl_target.is_some() {
+                "method"
+            } else {
+                "function"
+            },
+            declaration.line,
+            declaration.column,
+        );
+    }
     symbols
 }
 
@@ -567,17 +914,33 @@ fn symbols_for_incomplete_source(uri: &str, source: &str) -> Vec<LspSymbol> {
         .into_iter()
         .find_map(|(prefix, kind)| declaration.strip_prefix(prefix).map(|rest| (rest, kind)));
         let Some((rest, kind)) = kind else { continue };
-        let name = rest.chars().take_while(|character| character.is_ascii_alphanumeric() || *character == '_').collect::<String>();
-        if name.is_empty() { continue }
+        let name = rest
+            .chars()
+            .take_while(|character| character.is_ascii_alphanumeric() || *character == '_')
+            .collect::<String>();
+        if name.is_empty() {
+            continue;
+        }
         let scalar_column = line[..line.find(&name).unwrap_or_default()].chars().count() + 1;
         let column = utf16_column_for_line(line, scalar_column);
-        symbols.push(LspSymbol { name, kind, uri: uri.to_owned(), line: line_index + 1, column, detail: line.trim().to_owned() });
+        symbols.push(LspSymbol {
+            name,
+            kind,
+            uri: uri.to_owned(),
+            line: line_index + 1,
+            column,
+            detail: line.trim().to_owned(),
+        });
     }
     symbols
 }
 
 fn source_line(source: &str, line: usize) -> &str {
-    source.lines().nth(line.saturating_sub(1)).unwrap_or_default().trim()
+    source
+        .lines()
+        .nth(line.saturating_sub(1))
+        .unwrap_or_default()
+        .trim()
 }
 
 fn symbol_location(symbol: &LspSymbol) -> Value {
@@ -618,7 +981,11 @@ fn position_offset(source: &str, position: &Value) -> Option<usize> {
         }
         offset += text.len();
     }
-    if line == source.lines().count() && character == 0 { Some(source.len()) } else { None }
+    if line == source.lines().count() && character == 0 {
+        Some(source.len())
+    } else {
+        None
+    }
 }
 
 fn byte_offset_for_utf16_position(line: &str, character: usize) -> Option<usize> {
@@ -665,9 +1032,13 @@ fn word_at(source: &str, position: &Value) -> Option<String> {
     let offset = position_offset(source, position)?;
     let bytes = source.as_bytes();
     let mut start = offset.min(bytes.len());
-    while start > 0 && is_identifier_byte(bytes[start - 1]) { start -= 1; }
+    while start > 0 && is_identifier_byte(bytes[start - 1]) {
+        start -= 1;
+    }
     let mut end = offset.min(bytes.len());
-    while end < bytes.len() && is_identifier_byte(bytes[end]) { end += 1; }
+    while end < bytes.len() && is_identifier_byte(bytes[end]) {
+        end += 1;
+    }
     (start < end).then(|| source[start..end].to_owned())
 }
 
@@ -675,7 +1046,9 @@ fn word_prefix_at(source: &str, position: &Value) -> Option<String> {
     let offset = position_offset(source, position)?;
     let bytes = source.as_bytes();
     let mut start = offset.min(bytes.len());
-    while start > 0 && is_identifier_byte(bytes[start - 1]) { start -= 1; }
+    while start > 0 && is_identifier_byte(bytes[start - 1]) {
+        start -= 1;
+    }
     Some(source[start..offset.min(bytes.len())].to_owned())
 }
 
@@ -686,7 +1059,9 @@ fn word_occurrences(source: &str, word: &str) -> Vec<(usize, usize)> {
         while let Some(relative) = line[cursor..].find(word) {
             let start = cursor + relative;
             let end = start + word.len();
-            if (start == 0 || !is_identifier_byte(line.as_bytes()[start - 1])) && (end == line.len() || !is_identifier_byte(line.as_bytes()[end])) {
+            if (start == 0 || !is_identifier_byte(line.as_bytes()[start - 1]))
+                && (end == line.len() || !is_identifier_byte(line.as_bytes()[end]))
+            {
                 let scalar_column = line[..start].chars().count() + 1;
                 occurrences.push((line_index + 1, utf16_column_for_line(line, scalar_column)));
             }
@@ -699,7 +1074,6 @@ fn word_occurrences(source: &str, word: &str) -> Vec<(usize, usize)> {
 fn is_identifier_byte(byte: u8) -> bool {
     byte.is_ascii_alphanumeric() || byte == b'_'
 }
-
 
 fn read_message<R>(input: &mut R) -> Result<Option<String>, Diagnostic>
 where
@@ -756,15 +1130,13 @@ pub fn analyze_source(uri: &str, source: &str) -> Vec<Diagnostic> {
         .map(|manifest| manifest.capabilities)
         .unwrap_or_default();
     match syntax::parse_program_with_recovery(source, &path) {
-        Ok(program) => {
-            match hir::lower_with_capabilities_recovery(&program, &capabilities) {
-                Ok(hir) => {
-                    let _ = mir::lower(&hir);
-                    Vec::new()
-                }
-                Err(diagnostics) => diagnostics_with_default_path(diagnostics, &path),
+        Ok(program) => match hir::lower_with_capabilities_recovery(&program, &capabilities) {
+            Ok(hir) => {
+                let _ = mir::lower(&hir);
+                Vec::new()
             }
-        }
+            Err(diagnostics) => diagnostics_with_default_path(diagnostics, &path),
+        },
         Err(diagnostics) => diagnostics_with_default_path(diagnostics, &path),
     }
 }
@@ -790,10 +1162,10 @@ fn lsp_diagnostic(source: &str, diagnostic: Diagnostic) -> Value {
     let end_column = diagnostic
         .end_column
         .unwrap_or_else(|| start_column.saturating_add(1));
-    let start_character = utf16_column_for_source_position(source, start_line, start_column)
-        .saturating_sub(1);
-    let end_character = utf16_column_for_source_position(source, end_line, end_column)
-        .saturating_sub(1);
+    let start_character =
+        utf16_column_for_source_position(source, start_line, start_column).saturating_sub(1);
+    let end_character =
+        utf16_column_for_source_position(source, end_line, end_column).saturating_sub(1);
     json!({
         "range": {
             "start": {
@@ -1017,8 +1389,7 @@ mod tests {
 
     #[test]
     fn lsp_diagnostic_uses_utf16_characters_after_astral_unicode() {
-        let diagnostic = Diagnostic::new("type", "undefined variable")
-            .with_span_range(1, 2, 1, 7);
+        let diagnostic = Diagnostic::new("type", "undefined variable").with_span_range(1, 2, 1, 7);
 
         let payload = lsp_diagnostic("😀value\n", diagnostic);
 
@@ -1133,7 +1504,9 @@ mod tests {
 
         let mut server = LspServer::default();
         server.handle_message(&open).expect("open document");
-        server.handle_message(&change).expect("apply incremental change");
+        server
+            .handle_message(&change)
+            .expect("apply incremental change");
 
         assert_eq!(server.documents[uri].text, "😀gamma\n");
     }
@@ -1167,7 +1540,9 @@ mod tests {
                 }),
             ))
             .expect("find references");
-        let locations = response.messages[0]["result"].as_array().expect("locations");
+        let locations = response.messages[0]["result"]
+            .as_array()
+            .expect("locations");
 
         assert!(locations.iter().any(|location| {
             location["uri"] == json!(uri)
@@ -1259,7 +1634,8 @@ mod tests {
             .collect::<String>();
         let mut output = Vec::new();
 
-        serve_stdio(std::io::Cursor::new(input.into_bytes()), &mut output).expect("run stateful stdio");
+        serve_stdio(std::io::Cursor::new(input.into_bytes()), &mut output)
+            .expect("run stateful stdio");
 
         let output = String::from_utf8(output).expect("utf8 output");
         assert!(output.contains(r#""id":9"#));
@@ -1288,7 +1664,10 @@ mod tests {
 
         let index = server.workspace_index();
         assert_eq!(index.documents.len(), 1);
-        assert_eq!(index.documents.get(&uri).map(String::as_str), Some("pub fn editor(): int {\nreturn 2\n}\n"));
+        assert_eq!(
+            index.documents.get(&uri).map(String::as_str),
+            Some("pub fn editor(): int {\nreturn 2\n}\n")
+        );
     }
 
     #[test]
@@ -1296,7 +1675,10 @@ mod tests {
         let uri = uri_for_path(Path::new("/tmp/\u{6587} \u{4ef6}.ax"));
 
         assert_eq!(uri, "file:///tmp/%E6%96%87%20%E4%BB%B6.ax");
-        assert_eq!(path_for_uri(&uri), PathBuf::from("/tmp/\u{6587} \u{4ef6}.ax"));
+        assert_eq!(
+            path_for_uri(&uri),
+            PathBuf::from("/tmp/\u{6587} \u{4ef6}.ax")
+        );
     }
 
     #[test]
@@ -1339,34 +1721,81 @@ mod tests {
 
         let position = json!({ "line": 0, "character": 8 });
         let definition = server
-            .handle_message(&request(1, "textDocument/definition", json!({ "textDocument": { "uri": consumer }, "position": position })))
+            .handle_message(&request(
+                1,
+                "textDocument/definition",
+                json!({ "textDocument": { "uri": consumer }, "position": position }),
+            ))
             .expect("definition");
-        assert_eq!(definition.messages[0]["result"][0]["uri"], json!(provider), "{:?}", definition.messages);
+        assert_eq!(
+            definition.messages[0]["result"][0]["uri"],
+            json!(provider),
+            "{:?}",
+            definition.messages
+        );
 
         let hover = server
             .handle_message(&request(2, "textDocument/hover", json!({ "textDocument": { "uri": consumer }, "position": { "line": 0, "character": 8 } })))
             .expect("hover");
-        assert!(hover.messages[0]["result"]["contents"]["value"].as_str().unwrap().contains("health"));
+        assert!(
+            hover.messages[0]["result"]["contents"]["value"]
+                .as_str()
+                .unwrap()
+                .contains("health")
+        );
 
         let completion = server
             .handle_message(&request(3, "textDocument/completion", json!({ "textDocument": { "uri": consumer }, "position": { "line": 0, "character": 10 } })))
             .expect("completion");
-        assert!(completion.messages[0]["result"]["items"].as_array().unwrap().iter().any(|item| item["label"] == "health"));
+        assert!(
+            completion.messages[0]["result"]["items"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|item| item["label"] == "health")
+        );
 
-        let status = server.handle_message(&request(4, "axiom/serverStatus", json!({}))).expect("status");
-        assert_eq!(status.messages[0]["result"]["schema"], json!("axiom.lsp.v1"));
+        let status = server
+            .handle_message(&request(4, "axiom/serverStatus", json!({})))
+            .expect("status");
+        assert_eq!(
+            status.messages[0]["result"]["schema"],
+            json!("axiom.lsp.v1")
+        );
         assert_eq!(status.messages[0]["result"]["documents"], json!(2));
-        assert_eq!(status.messages[0]["result"]["documentSync"], json!("incremental"));
-        assert!(status.messages[0]["result"]["latencySamples"].as_u64().unwrap() >= 1);
-        let schema: Value = serde_json::from_str(include_str!("../../../schemas/axiom.lsp.v1.schema.json")).expect("status schema");
+        assert_eq!(
+            status.messages[0]["result"]["documentSync"],
+            json!("incremental")
+        );
+        assert!(
+            status.messages[0]["result"]["latencySamples"]
+                .as_u64()
+                .unwrap()
+                >= 1
+        );
+        let schema: Value =
+            serde_json::from_str(include_str!("../../../schemas/axiom.lsp.v1.schema.json"))
+                .expect("status schema");
         jsonschema::validator_for(&schema)
             .expect("compile status schema")
             .validate(&status.messages[0]["result"])
             .expect("status matches public schema");
 
-        let transcript: Value = serde_json::from_str(include_str!("../../../compiler-contracts/snapshots/lsp-v1-transcript.json")).expect("LSP transcript fixture");
-        assert_eq!(transcript["documents"].as_array().expect("documents").len(), 2);
-        assert!(transcript["requests"].as_array().expect("requests").iter().any(|method| method == "axiom/serverStatus"));
+        let transcript: Value = serde_json::from_str(include_str!(
+            "../../../compiler-contracts/snapshots/lsp-v1-transcript.json"
+        ))
+        .expect("LSP transcript fixture");
+        assert_eq!(
+            transcript["documents"].as_array().expect("documents").len(),
+            2
+        );
+        assert!(
+            transcript["requests"]
+                .as_array()
+                .expect("requests")
+                .iter()
+                .any(|method| method == "axiom/serverStatus")
+        );
     }
 
     #[test]
@@ -1402,7 +1831,10 @@ mod tests {
         let mut server = LspServer::default();
         server.documents.insert(
             String::from("file:///tmp/lsp-limit/existing.ax"),
-            LspDocument { version: 1, text: "x".repeat(MAX_WORKSPACE_BYTES) },
+            LspDocument {
+                version: 1,
+                text: "x".repeat(MAX_WORKSPACE_BYTES),
+            },
         );
         let response = server
             .handle_message(&notification(
@@ -1420,7 +1852,10 @@ mod tests {
         for index in 0..MAX_WORKSPACE_DOCUMENTS {
             server.documents.insert(
                 format!("file:///tmp/lsp-document-limit/{index}.ax"),
-                LspDocument { version: 1, text: String::new() },
+                LspDocument {
+                    version: 1,
+                    text: String::new(),
+                },
             );
         }
         let uri = "file:///tmp/lsp-document-limit/overflow.ax";
@@ -1447,11 +1882,27 @@ mod tests {
     fn closed_documents_release_workspace_capacity_and_clear_diagnostics() {
         let mut server = LspServer::default();
         for index in 0..MAX_WORKSPACE_DOCUMENTS {
-            server.documents.insert(format!("file:///tmp/lsp-document-limit/{index}.ax"), LspDocument { version: 1, text: String::new() });
+            server.documents.insert(
+                format!("file:///tmp/lsp-document-limit/{index}.ax"),
+                LspDocument {
+                    version: 1,
+                    text: String::new(),
+                },
+            );
         }
         let closed_uri = "file:///tmp/lsp-document-limit/0.ax";
-        let close = server.handle_message(&notification("textDocument/didClose", json!({ "textDocument": { "uri": closed_uri } }))).expect("close document");
-        assert_eq!(close.messages, vec![json!({ "jsonrpc": "2.0", "method": "textDocument/publishDiagnostics", "params": { "uri": closed_uri, "diagnostics": [] } })]);
+        let close = server
+            .handle_message(&notification(
+                "textDocument/didClose",
+                json!({ "textDocument": { "uri": closed_uri } }),
+            ))
+            .expect("close document");
+        assert_eq!(
+            close.messages,
+            vec![
+                json!({ "jsonrpc": "2.0", "method": "textDocument/publishDiagnostics", "params": { "uri": closed_uri, "diagnostics": [] } })
+            ]
+        );
 
         let replacement_uri = "file:///tmp/lsp-document-limit/replacement.ax";
         server.handle_message(&notification("textDocument/didOpen", json!({ "textDocument": { "uri": replacement_uri, "languageId": "axiom", "version": 1, "text": "" } }))).expect("open replacement document");
@@ -1461,20 +1912,110 @@ mod tests {
 
     #[test]
     fn compiler_scale_workspace_reports_bounded_p95_latency_and_memory_evidence() {
-        let transcript: Value = serde_json::from_str(include_str!("../../../compiler-contracts/snapshots/lsp-v1-transcript.json")).expect("LSP transcript fixture");
+        let transcript: Value = serde_json::from_str(include_str!(
+            "../../../compiler-contracts/snapshots/lsp-v1-transcript.json"
+        ))
+        .expect("LSP transcript fixture");
         let bounds = &transcript["bounds"];
-        let document_count = bounds["compilerScaleWorkspaceDocuments"].as_u64().expect("document count") as usize;
-        let maximum_p95 = bounds["p95IndexingMilliseconds"].as_u64().expect("p95 limit");
+        let document_count = bounds["compilerScaleWorkspaceDocuments"]
+            .as_u64()
+            .expect("document count") as usize;
+        let maximum_p95 = bounds["p95IndexingMilliseconds"]
+            .as_u64()
+            .expect("p95 limit");
         let mut server = LspServer::default();
         for index in 0..document_count {
             server.documents.insert(
                 format!("file:///tmp/lsp-scale/module-{index}.ax"),
-                LspDocument { version: 1, text: format!("pub fn operation_{index}(): int {{\nreturn {index}\n}}\n") },
+                LspDocument {
+                    version: 1,
+                    text: format!("pub fn operation_{index}(): int {{\nreturn {index}\n}}\n"),
+                },
             );
         }
-        let status = server.handle_message(&request(1, "axiom/serverStatus", json!({}))).expect("status");
-        assert_eq!(status.messages[0]["result"]["documents"], json!(document_count));
-        assert!(status.messages[0]["result"]["memoryBytes"].as_u64().unwrap() <= MAX_WORKSPACE_BYTES as u64);
-        assert!(status.messages[0]["result"]["p95AnalysisMs"].as_u64().unwrap() <= maximum_p95);
+        let status = server
+            .handle_message(&request(1, "axiom/serverStatus", json!({})))
+            .expect("status");
+        assert_eq!(
+            status.messages[0]["result"]["documents"],
+            json!(document_count)
+        );
+        assert!(
+            status.messages[0]["result"]["memoryBytes"]
+                .as_u64()
+                .unwrap()
+                <= MAX_WORKSPACE_BYTES as u64
+        );
+        assert!(
+            status.messages[0]["result"]["p95AnalysisMs"]
+                .as_u64()
+                .unwrap()
+                <= maximum_p95
+        );
+    }
+
+    #[test]
+    fn package_semantics_resolve_imports_overlays_names_and_diagnostics() {
+        let directory = tempfile::tempdir().expect("workspace");
+        let src = directory.path().join("src");
+        fs::create_dir_all(&src).expect("src");
+        fs::write(directory.path().join("axiom.toml"), "[package]\nname = \"lsp-semantic\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n").expect("manifest");
+        let main_path = src.join("main.ax");
+        let provider_path = src.join("provider.ax");
+        fs::write(&main_path, "import \"provider.ax\"\nprint chosen()\n").expect("main");
+        fs::write(&provider_path, "pub fn disk_only(): int {\nreturn 1\n}\n").expect("provider");
+        fs::write(
+            src.join("unrelated.ax"),
+            "pub fn chosen(): int {\nreturn 9\n}\n",
+        )
+        .expect("unrelated");
+        let main_uri = uri_for_path(&main_path);
+        let provider_uri = uri_for_path(&provider_path);
+        let mut server = LspServer::default();
+        server
+            .handle_message(&request(
+                1,
+                "initialize",
+                json!({ "rootUri": uri_for_path(directory.path()) }),
+            ))
+            .expect("initialize");
+        server.handle_message(&notification("textDocument/didOpen", json!({ "textDocument": { "uri": provider_uri, "version": 1, "text": "pub fn chosen(): int {\nreturn 2\n}\n" } }))).expect("provider overlay");
+        server.handle_message(&notification("textDocument/didOpen", json!({ "textDocument": { "uri": main_uri, "version": 1, "text": "import \"provider.ax\"\nprint chosen()\n" } }))).expect("main overlay");
+        let definition = server.handle_message(&request(2, "textDocument/definition", json!({ "textDocument": { "uri": main_uri }, "position": { "line": 1, "character": 7 } }))).expect("definition");
+        assert_eq!(
+            definition.messages[0]["result"].as_array().unwrap().len(),
+            1
+        );
+        assert_eq!(
+            definition.messages[0]["result"][0]["uri"],
+            json!(provider_uri)
+        );
+        let references = server.handle_message(&request(3, "textDocument/references", json!({ "textDocument": { "uri": main_uri }, "position": { "line": 1, "character": 7 }, "context": { "includeDeclaration": true } }))).expect("references");
+        let uris = references.messages[0]["result"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|item| item["uri"].as_str().unwrap())
+            .collect::<BTreeSet<_>>();
+        assert_eq!(
+            uris,
+            BTreeSet::from([main_uri.as_str(), provider_uri.as_str()])
+        );
+        let unresolved = server.handle_message(&notification("textDocument/didChange", json!({ "textDocument": { "uri": main_uri, "version": 2 }, "contentChanges": [{ "text": "import \"missing.ax\"\nprint 1\n" }] }))).expect("unresolved");
+        assert!(unresolved.messages.iter().any(|message| {
+            message["params"]["diagnostics"]
+                .as_array()
+                .is_some_and(|items| !items.is_empty())
+        }));
+        let capability = server.handle_message(&notification("textDocument/didChange", json!({ "textDocument": { "uri": main_uri, "version": 3 }, "contentChanges": [{ "text": "import \"std/env.ax\"\nprint get_env(\"X\")\n" }] }))).expect("capability");
+        assert!(
+            capability
+                .messages
+                .iter()
+                .any(|message| message["params"]["diagnostics"]
+                    .as_array()
+                    .is_some_and(|items| !items.is_empty())),
+            "{capability:?}"
+        );
     }
 }
