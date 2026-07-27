@@ -66,6 +66,8 @@ full_lib_suite_section="$(
 )"
 full_lib_suite_linker=$(printf '%s\n' "$full_lib_suite_section" | grep -F 'Ensure Rust linker availability' || true)
 proof_workload_test=$(grep -nF 'bash scripts/ci/run-stage1-proof-test.sh' "$fast_checks_script" || true)
+stdlib_catalog_check=$(grep -nF 'scripts/ci/check-stdlib-catalog.py' "$fast_checks_script" || true)
+stdlib_catalog_regression=$(grep -nF 'scripts/ci/test-check-stdlib-catalog.py' "$fast_checks_script" || true)
 
 if [[ -n "$checkout_line" ]]; then
   echo "validate-pr-description job must not checkout untrusted pull request code" >&2
@@ -185,6 +187,11 @@ fi
 
 if [[ -z "$proof_workload_test" ]]; then
   echo "run-fast-checks must run the stage1 proof workload smoke" >&2
+  exit 1
+fi
+
+if [[ -z "$stdlib_catalog_check" || -z "$stdlib_catalog_regression" ]]; then
+  echo "run-fast-checks must validate and regression-test the typed stdlib catalog" >&2
   exit 1
 fi
 
