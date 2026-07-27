@@ -28,6 +28,15 @@ DEFAULT_CHECKS = [
     {"id": "runtime_sensitivity", "command": "cargo test --manifest-path stage1/Cargo.toml -p axiomc --test cranelift_backend --locked -- --test-threads=1"},
     {"id": "benchmark_comparison", "command": "python3 scripts/ci/check-stage1-benchmarks.py && python3 scripts/ci/report-stage1-reference-comparison.py"},
     {
+        "id": "stage1_quality_gate",
+        "command": "python3 scripts/ci/run-stage1-quality-gate.py --expected-head \"$AXIOM_QUALIFICATION_HEAD_SHA\" --lcov-output .axiom-build/reports/stage1-coverage.lcov --output .axiom-build/reports/stage1-quality-report.json",
+        "requiredTools": ["cargo-llvm-cov"],
+        "artifactPaths": [
+            ".axiom-build/reports/stage1-coverage.lcov",
+            ".axiom-build/reports/stage1-quality-report.json",
+        ],
+    },
+    {
         "id": "mutation_quality_smoke",
         "command": "python3 scripts/ci/run-mutation-rust-smoke.py --fail-on-survivors --per-mutant-budget-seconds 90 --total-budget-seconds 300 --expected-head \"$AXIOM_QUALIFICATION_HEAD_SHA\" --output .axiom-build/reports/mutation-rust-smoke.json",
         "artifactPaths": [".axiom-build/reports/mutation-rust-smoke.json"],
@@ -44,6 +53,14 @@ def args() -> argparse.Namespace:
     parser.add_argument("--plan", type=Path, default=None,
                         help="JSON check plan for hermetic orchestrator tests")
     parser.add_argument("--head-sha", default=None)
+    parser.add_argument(
+        "--base-sha",
+        default=os.environ.get("AXIOM_QUALIFICATION_BASE_SHA") or None,
+        help=(
+            "optional exact lowercase comparison commit; defaults to "
+            "AXIOM_QUALIFICATION_BASE_SHA"
+        ),
+    )
     parser.add_argument("--target", default=None)
     parser.add_argument("--trigger", default=None)
     parser.add_argument("--fixture-duration-ms", type=int, default=None,
@@ -100,6 +117,163 @@ def load_plan(path: Path | None) -> list[dict[str, Any]]:
     return result
 
 
+def _exact_keys(value: Any, expected: set[str], location: str) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise ValueError(f"{location} must be an object")
+    actual = set(value)
+    if actual != expected:
+        missing = sorted(expected - actual)
+        unknown = sorted(actual - expected)
+        raise ValueError(
+            f"{location} keys differ; missing={missing}, unknown={unknown}"
+        )
+    return value
+
+
+def _nonempty_string(value: Any, location: str) -> str:
+    if not isinstance(value, str) or not value:
+        raise ValueError(f"{location} must be a non-empty string")
+    return value
+
+
+def _nonnegative_int(value: Any, location: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise ValueError(f"{location} must be a nonnegative integer")
+    return value
+
+
+def validate_qualification_evidence(
+    evidence: Any, schema_path: Path
+) -> dict[str, Any]:
+    try:
+        schema = json.loads(schema_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise ValueError(f"cannot read qualification schema: {error}") from error
+    if (
+        schema.get("properties", {}).get("schema", {}).get("const") != SCHEMA
+        or schema.get("additionalProperties") is not False
+        or schema.get("properties", {})
+        .get("checks", {})
+        .get("items", {})
+        .get("additionalProperties")
+        is not False
+    ):
+        raise ValueError(
+            "qualification schema must pin its version and reject unknown fields"
+        )
+
+    root = _exact_keys(
+        evidence,
+        {
+            "schema",
+            "trigger",
+            "headSha",
+            "target",
+            "status",
+            "durationMs",
+            "failureClass",
+            "artifactPaths",
+            "checks",
+        },
+        "evidence",
+    )
+    if root["schema"] != SCHEMA:
+        raise ValueError(f"evidence.schema must be {SCHEMA}")
+    _nonempty_string(root["trigger"], "evidence.trigger")
+    head = _nonempty_string(root["headSha"], "evidence.headSha")
+    if re.fullmatch(r"[0-9a-f]{40}", head) is None:
+        raise ValueError("evidence.headSha must be an exact lowercase commit")
+    _nonempty_string(root["target"], "evidence.target")
+    if root["status"] not in {"passed", "failed", "skipped"}:
+        raise ValueError("evidence.status is invalid")
+    _nonnegative_int(root["durationMs"], "evidence.durationMs")
+    if root["failureClass"] not in {
+        "none",
+        "product_failure",
+        "infrastructure_failure",
+        "infrastructure_skip",
+    }:
+        raise ValueError("evidence.failureClass is invalid")
+    artifact_paths = root["artifactPaths"]
+    if (
+        not isinstance(artifact_paths, list)
+        or not artifact_paths
+        or not all(isinstance(item, str) and item for item in artifact_paths)
+    ):
+        raise ValueError(
+            "evidence.artifactPaths must be a non-empty string array"
+        )
+    checks = root["checks"]
+    if not isinstance(checks, list) or not checks:
+        raise ValueError("evidence.checks must be a non-empty array")
+    check_statuses: list[str] = []
+    for index, raw_check in enumerate(checks):
+        location = f"evidence.checks[{index}]"
+        check = _exact_keys(
+            raw_check,
+            {
+                "id",
+                "command",
+                "target",
+                "required",
+                "status",
+                "durationMs",
+                "failureClass",
+                "exitCode",
+                "artifacts",
+            },
+            location,
+        )
+        check_id = _nonempty_string(check["id"], f"{location}.id")
+        if re.fullmatch(r"[a-z][a-z0-9_]*", check_id) is None:
+            raise ValueError(f"{location}.id is invalid")
+        _nonempty_string(check["command"], f"{location}.command")
+        _nonempty_string(check["target"], f"{location}.target")
+        if check["required"] is not True:
+            raise ValueError(f"{location}.required must be true")
+        if check["status"] not in {"passed", "failed", "skipped"}:
+            raise ValueError(f"{location}.status is invalid")
+        check_statuses.append(check["status"])
+        _nonnegative_int(check["durationMs"], f"{location}.durationMs")
+        if check["failureClass"] not in {
+            "none",
+            "product_failure",
+            "infrastructure_failure",
+            "infrastructure_skip",
+        }:
+            raise ValueError(f"{location}.failureClass is invalid")
+        if isinstance(check["exitCode"], bool) or not isinstance(
+            check["exitCode"], int
+        ):
+            raise ValueError(f"{location}.exitCode must be an integer")
+        artifacts = check["artifacts"]
+        if (
+            not isinstance(artifacts, list)
+            or not artifacts
+            or not all(isinstance(item, str) and item for item in artifacts)
+        ):
+            raise ValueError(f"{location}.artifacts must be a non-empty string array")
+
+    if root["status"] == "passed":
+        if root["failureClass"] != "none" or any(
+            status != "passed" for status in check_statuses
+        ):
+            raise ValueError("passing evidence cannot contain blockers")
+    elif root["status"] == "failed":
+        if root["failureClass"] not in {
+            "product_failure",
+            "infrastructure_failure",
+        } or "failed" not in check_statuses:
+            raise ValueError("failed evidence must identify a failed check")
+    elif (
+        root["failureClass"] != "infrastructure_skip"
+        or "skipped" not in check_statuses
+        or "failed" in check_statuses
+    ):
+        raise ValueError("skipped evidence must identify an infrastructure skip")
+    return root
+
+
 def classify(returncode: int, command: str) -> tuple[str, str]:
     if returncode == 0:
         return "passed", "none"
@@ -154,10 +328,13 @@ def main() -> int:
                     f"{destination_name}"
                 )
     head = options.head_sha or os.environ.get("GITHUB_SHA") or git_head(root)
+    base = options.base_sha
     target = options.target or os.environ.get("AXIOM_QUALIFICATION_TARGET") or host_target()
     trigger = options.trigger or os.environ.get("AXIOM_QUALIFICATION_TRIGGER") or os.environ.get("GITHUB_EVENT_NAME", "local")
     if re.fullmatch(r"[0-9a-f]{40}", head) is None:
         raise SystemExit("--head-sha must be the exact 40-character lowercase Git SHA")
+    if base is not None and re.fullmatch(r"[0-9a-f]{40}", base) is None:
+        raise SystemExit("--base-sha must be the exact 40-character lowercase Git SHA")
     if not target or not trigger:
         raise SystemExit("qualification target and trigger must be non-empty")
     if options.plan is None:
@@ -182,6 +359,7 @@ def main() -> int:
             raise SystemExit("qualification checkout has tracked changes")
     check_environment = os.environ.copy()
     check_environment["AXIOM_QUALIFICATION_HEAD_SHA"] = head
+    check_environment["AXIOM_QUALIFICATION_BASE_SHA"] = base or ""
     started = time.monotonic_ns()
     records: list[dict[str, Any]] = []
 
@@ -330,22 +508,16 @@ def main() -> int:
         "artifactPaths": artifact_paths,
         "checks": records,
     }
+    schema_path = root / "stage1/schemas/axiom-toolchain-qualification-v0.schema.json"
+    try:
+        validate_qualification_evidence(evidence, schema_path)
+    except ValueError as error:
+        print(f"toolchain qualification evidence schema validation failed: {error}", file=sys.stderr)
+        return 1
     encoded = json.dumps(evidence, indent=2, sort_keys=True) + "\n"
     temporary_evidence_path = evidence_path.with_suffix(".json.tmp")
     temporary_evidence_path.write_text(encoded, encoding="utf-8")
     temporary_evidence_path.replace(evidence_path)
-    schema_path = root / "stage1/schemas/axiom-toolchain-qualification-v0.schema.json"
-    try:
-        import jsonschema
-    except ImportError as error:
-        print(f"toolchain qualification evidence schema validation unavailable: {error}", file=sys.stderr)
-        return 1
-    try:
-        schema = json.loads(schema_path.read_text(encoding="utf-8"))
-        jsonschema.Draft202012Validator(schema).validate(evidence)
-    except (json.JSONDecodeError, jsonschema.ValidationError) as error:
-        print(f"toolchain qualification evidence schema validation failed: {error}", file=sys.stderr)
-        return 1
     print(evidence_path)
     return 1 if failures or overall_failure == "infrastructure_skip" else 0
 

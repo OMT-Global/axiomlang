@@ -1,0 +1,11 @@
+{
+  "changedLineCoverageFloor": {
+    "denominator": 5,
+    "numerator": 3
+  },
+  "globalLineCoverageFloor": {
+    "denominator": 5,
+    "numerator": 3
+  },
+  "schemaVersion": "axiom.quality_policy.v1"
+}

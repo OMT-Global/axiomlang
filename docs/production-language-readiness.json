@@ -556,8 +556,17 @@
       "governingIssue": 1463,
       "blockerIssues": [1463],
       "dependencies": [1454],
-      "evidence": ["docs/mutation-testing.md", "scripts/ci/propose-stage1-crap-thresholds.py"],
-      "validatingCommand": "make mutation-rust-smoke && make stage1-crap-thresholds",
+      "evidence": [
+        "docs/mutation-testing.md",
+        "docs/stage1-quality-thresholds.md",
+        "docs/stage1-crap-thresholds.md",
+        "stage1/schemas/axiom-quality-report-v1.schema.json",
+        "stage1/schemas/axiom-quality-policy-v1.schema.json",
+        "stage1/quality/quality-policy-v1.json",
+        "scripts/ci/run-stage1-quality-gate.py",
+        "scripts/ci/propose-stage1-crap-thresholds.py"
+      ],
+      "validatingCommand": "make stage1-quality-gate && make mutation-rust-gate",
       "rustCaptureRisk": "medium",
       "agentInspectionImpact": "Map failures to semantic area, seed, reproducer, span, and governing issue."
     },

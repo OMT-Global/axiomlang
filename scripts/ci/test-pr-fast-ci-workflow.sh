@@ -60,6 +60,7 @@ full_lib_suite_gate=$(grep -nF 'full-lib-suite=${{ needs.full-lib-suite.result }
 proof_workload_test=$(grep -nF 'bash scripts/ci/run-stage1-proof-test.sh' "$fast_checks_script" || true)
 stdlib_catalog_check=$(grep -nF 'scripts/ci/check-stdlib-catalog.py' "$fast_checks_script" || true)
 stdlib_catalog_regression=$(grep -nF 'scripts/ci/test-check-stdlib-catalog.py' "$fast_checks_script" || true)
+makefile_route_count=$(grep -cF "              - 'Makefile'" "$workflow" || true)
 
 if [[ -n "$checkout_line" ]]; then
   echo "validate-pr-description job must not checkout untrusted pull request code" >&2
@@ -179,6 +180,11 @@ fi
 
 if [[ -z "$stdlib_catalog_check" || -z "$stdlib_catalog_regression" ]]; then
   echo "run-fast-checks must validate and regression-test the typed stdlib catalog" >&2
+  exit 1
+fi
+
+if (( makefile_route_count < 2 )); then
+  echo "pr-fast-ci must route Makefile changes through both app and CI filters" >&2
   exit 1
 fi
 

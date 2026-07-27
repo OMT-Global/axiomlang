@@ -59,6 +59,11 @@ bash "$script_repo_root/scripts/ci/test-check-python-exit-readiness.sh"
 bash "$script_repo_root/scripts/ci/test-check-rust-exit-readiness.sh"
 bash "$script_repo_root/scripts/ci/test-check-self-hosting-language-readiness.sh"
 bash "$script_repo_root/scripts/ci/test-check-compatibility-v1.sh"
+python3 "$script_repo_root/scripts/ci/test-run-stage1-quality-gate.py"
+bash "$script_repo_root/scripts/ci/test-propose-stage1-crap-thresholds.sh"
+python3 "$script_repo_root/scripts/ci/test-run-toolchain-qualification.py"
+cargo test --manifest-path "$repo_root/stage1/Cargo.toml" -p axiomc \
+  --test schema_metadata --locked
 python3 "$script_repo_root/scripts/ci/check-capability-ledger.py" \
   --checkout-root "$repo_root" --check-docs --json >/dev/null
 bash "$script_repo_root/scripts/ci/test-check-capability-ledger.sh"

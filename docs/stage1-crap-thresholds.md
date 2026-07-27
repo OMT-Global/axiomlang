@@ -1,61 +1,31 @@
-# Stage1 CRAP threshold proposal
+# Stage1 CRAP metrics
 
-This is a report-only quality proposal for Rust stage1 hotspots. It does **not**
-participate in PR or extended CI gates until maintainers explicitly opt in.
-
-## Metric
-
-CRAP combines complexity and coverage:
+CRAP combines cyclomatic complexity and executable-line coverage:
 
 ```text
 CRAP = complexity^2 * (1 - coverage)^3 + complexity
 ```
 
-The proposal script is dependency-free so it can run in the existing shell-only
-CI shape. It estimates function complexity from Rust control-flow tokens and
-uses line coverage from an optional LCOV report. Without an LCOV report,
-functions are explicitly reported as **unmeasured**: they do not receive a
-fabricated zero-coverage CRAP score and cannot trip an enforcement gate.
+`scripts/ci/propose-stage1-crap-thresholds.py` is an advisory inspection tool.
+It uses a dependency-free lexical scan to approximate Rust function boundaries
+and control-flow complexity, reads optional LCOV data, and reports measured
+hotspots. It is not a Rust parser, so raw strings, generated source text,
+conditional compilation, and target-specific code can affect its estimates.
 
-## Proposed thresholds
-
-Use these bands for the future stage1 hotspot gate:
-
-| Band | CRAP score | Meaning |
-| --- | ---: | --- |
-| watch | `>= 30` | Needs review before growing or touching the function. |
-| warn | `>= 60` | Should be split, simplified, or covered before expansion. |
-| critical | `>= 100` | Should block new/changed hotspots once CI enforcement is enabled. |
-
-Initial enforcement should be a ratchet: report every hotspot, but fail only new
-or changed functions over the accepted threshold. A full-baseline cleanup gate
-should be a separate explicit decision because current stage1 has large compiler
-hotspots that predate this proposal.
-
-## Current generated proposal
-
-Run:
-
-```bash
-make stage1-crap-proposal
-```
-
-This writes `stage1/quality/crap-threshold-proposal.json` with:
-
-- report-only status and `ciBlocking: false`
-- the proposed threshold bands above
-- measured and unmeasured function counts, plus observed scores when coverage
-  evidence was supplied
-- the top stage1 Rust hotspots for review
-
-Optional LCOV input can be supplied directly:
+Missing executable records remain explicitly unmeasured; they are never
+converted into fabricated zero coverage.
 
 ```bash
 python3 scripts/ci/propose-stage1-crap-thresholds.py \
-  --lcov path/to/lcov.info \
-  --output stage1/quality/crap-threshold-proposal.json
+  --lcov .axiom-build/reports/stage1-coverage.lcov
 ```
 
-`--enforce` requires `--lcov`; this prevents default-zero estimates from
-blocking work. Do not wire enforcement into CI until the baseline policy is
-explicitly accepted.
+The historical `stage1-crap-proposal` target is useful for exploration, but its
+threshold is not qualification policy. CRAP estimates do not affect the
+exact-head quality verdict. The only blocking thresholds in this slice are the
+fixed 60% global and changed executable-line coverage floors described in
+`docs/stage1-quality-thresholds.md`.
+
+Before CRAP can become blocking, #1463 still requires a Rust-syntax-aware
+metric, target-specific calibration, stable function identities, and reviewed
+non-increasing ratchets. This advisory slice Refs #1463; it does not close it.

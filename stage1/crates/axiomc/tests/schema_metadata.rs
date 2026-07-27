@@ -16,6 +16,233 @@ fn compile_validator(schema: &Value) -> Validator {
 }
 
 #[test]
+fn quality_v1_schemas_reject_contradictory_reports() {
+    let policy_schema: Value = serde_json::from_str(
+        &fs::read_to_string(schema_dir().join("axiom-quality-policy-v1.schema.json"))
+            .expect("read quality policy schema"),
+    )
+    .expect("quality policy schema is valid JSON");
+    let report_schema: Value = serde_json::from_str(
+        &fs::read_to_string(schema_dir().join("axiom-quality-report-v1.schema.json"))
+            .expect("read quality report schema"),
+    )
+    .expect("quality report schema is valid JSON");
+    let policy_validator = compile_validator(&policy_schema);
+    let report_validator = compile_validator(&report_schema);
+
+    let policy_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join("quality")
+        .join("quality-policy-v1.json");
+    let policy: Value = serde_json::from_str(
+        &fs::read_to_string(policy_path).expect("read checked-in quality policy"),
+    )
+    .expect("quality policy is valid JSON");
+    policy_validator
+        .validate(&policy)
+        .expect("checked-in quality policy matches its schema");
+
+    let report = serde_json::json!({
+        "schemaVersion": "axiom.quality_report.v1",
+        "headSha": "1111111111111111111111111111111111111111",
+        "baseSha": null,
+        "target": "aarch64-apple-darwin",
+        "tool": {
+            "name": "cargo-llvm-cov",
+            "requiredVersion": "0.8.5",
+            "observedVersion": "0.8.5"
+        },
+        "profile": {
+            "manifest": "stage1/Cargo.toml",
+            "package": "axiomc",
+            "targets": ["lib", "bin:axiomc"],
+            "locked": true,
+            "testThreads": 1,
+            "skippedTests": ["tests::check_properties_runs_property_only_tests"],
+            "budgetSeconds": 600
+        },
+        "status": "passed",
+        "failureClass": null,
+        "coverage": {
+            "global": {
+                "status": "passed",
+                "coveredLines": 3,
+                "totalLines": 5,
+                "floor": { "numerator": 3, "denominator": 5 }
+            },
+            "changed": {
+                "status": "not_applicable",
+                "coveredLines": 0,
+                "totalLines": 0,
+                "floor": { "numerator": 3, "denominator": 5 }
+            }
+        },
+        "findings": [],
+        "artifacts": {
+            "lcov": ".axiom-build/reports/stage1-coverage.lcov",
+            "report": ".axiom-build/reports/stage1-quality-report.json"
+        },
+        "reproducer": "make stage1-quality-gate",
+        "governingIssue": {
+            "number": 1463,
+            "url": "https://github.com/OMT-Global/axiomlang/issues/1463"
+        }
+    });
+    report_validator
+        .validate(&report)
+        .expect("minimal passing quality report matches its schema");
+
+    let finding = serde_json::json!({
+        "code": "global_coverage_regression",
+        "message": "global executable lines are below the configured floor",
+        "semanticArea": "compiler.stage1",
+        "path": "stage1/crates/axiomc/src/lib.rs",
+        "startLine": 10,
+        "endLine": 12,
+        "reproducer": "make stage1-quality-gate",
+        "governingIssue": 1463
+    });
+    let mut valid_failure = report.clone();
+    valid_failure["status"] = serde_json::json!("failed");
+    valid_failure["failureClass"] = serde_json::json!("quality");
+    valid_failure["coverage"]["global"]["status"] = serde_json::json!("failed");
+    valid_failure["coverage"]["global"]["coveredLines"] = serde_json::json!(2);
+    valid_failure["findings"] = serde_json::json!([finding]);
+    report_validator
+        .validate(&valid_failure)
+        .expect("quality report accepts a fully evidenced coverage failure");
+
+    let mut unknown_policy_field = policy.clone();
+    unknown_policy_field["unexpected"] = serde_json::json!(true);
+    assert!(
+        !policy_validator.is_valid(&unknown_policy_field),
+        "quality policies reject unknown fields"
+    );
+
+    let mut unknown_field = report.clone();
+    unknown_field["unexpected"] = serde_json::json!(true);
+    assert!(
+        !report_validator.is_valid(&unknown_field),
+        "quality reports reject unknown root fields"
+    );
+
+    let mut invalid_sha = report.clone();
+    invalid_sha["headSha"] = serde_json::json!("not-a-git-sha");
+    assert!(
+        !report_validator.is_valid(&invalid_sha),
+        "quality reports reject malformed head SHAs"
+    );
+
+    let mut pass_with_failure_class = report.clone();
+    pass_with_failure_class["failureClass"] = serde_json::json!("quality");
+    assert!(
+        !report_validator.is_valid(&pass_with_failure_class),
+        "passing reports reject non-null failure classes"
+    );
+
+    let mut pass_with_finding = report.clone();
+    pass_with_finding["findings"] = valid_failure["findings"].clone();
+    assert!(
+        !report_validator.is_valid(&pass_with_finding),
+        "passing reports reject findings"
+    );
+
+    let mut pass_with_failed_coverage = report.clone();
+    pass_with_failed_coverage["coverage"]["global"]["status"] = serde_json::json!("failed");
+    assert!(
+        !report_validator.is_valid(&pass_with_failed_coverage),
+        "passing reports reject failed coverage results"
+    );
+
+    let mut pass_without_lcov = report.clone();
+    pass_without_lcov["artifacts"]["lcov"] = Value::Null;
+    assert!(
+        !report_validator.is_valid(&pass_without_lcov),
+        "passing reports require their LCOV artifact"
+    );
+
+    let mut failure_without_finding = valid_failure.clone();
+    failure_without_finding["findings"] = serde_json::json!([]);
+    assert!(
+        !report_validator.is_valid(&failure_without_finding),
+        "failed reports require at least one finding"
+    );
+
+    let mut failure_without_class = valid_failure.clone();
+    failure_without_class["failureClass"] = Value::Null;
+    assert!(
+        !report_validator.is_valid(&failure_without_class),
+        "failed reports require a non-null failure class"
+    );
+
+    let mut comparison_without_base = report.clone();
+    comparison_without_base["coverage"]["changed"] = serde_json::json!({
+        "status": "passed",
+        "coveredLines": 3,
+        "totalLines": 5,
+        "floor": { "numerator": 3, "denominator": 5 }
+    });
+    assert!(
+        !report_validator.is_valid(&comparison_without_base),
+        "changed coverage cannot be evaluated without a comparison SHA"
+    );
+
+    for missing in ["semanticArea", "path", "startLine", "endLine", "reproducer"] {
+        let mut malformed = valid_failure.clone();
+        malformed["findings"][0]
+            .as_object_mut()
+            .expect("finding is an object")
+            .remove(missing);
+        assert!(
+            !report_validator.is_valid(&malformed),
+            "quality findings reject a missing {missing}"
+        );
+    }
+}
+
+#[test]
+fn toolchain_qualification_v0_schema_accepts_strict_passing_evidence() {
+    let schema: Value = serde_json::from_str(
+        &fs::read_to_string(schema_dir().join("axiom-toolchain-qualification-v0.schema.json"))
+            .expect("read toolchain qualification schema"),
+    )
+    .expect("toolchain qualification schema is valid JSON");
+    let validator = compile_validator(&schema);
+    let fixture = serde_json::json!({
+        "schema": "axiom.toolchain_qualification.v0",
+        "trigger": "workflow_dispatch",
+        "headSha": "1111111111111111111111111111111111111111",
+        "target": "aarch64-apple-darwin",
+        "status": "passed",
+        "durationMs": 1,
+        "failureClass": "none",
+        "artifactPaths": [".axiom-build/reports/stage1-quality-report.json"],
+        "checks": [{
+            "id": "stage1_quality_gate",
+            "command": "make stage1-quality-gate",
+            "target": "aarch64-apple-darwin",
+            "required": true,
+            "status": "passed",
+            "durationMs": 1,
+            "failureClass": "none",
+            "exitCode": 0,
+            "artifacts": [".axiom-build/reports/stage1-quality-report.json"]
+        }]
+    });
+    validator
+        .validate(&fixture)
+        .expect("minimal passing qualification evidence matches its schema");
+
+    let mut unknown_field = fixture;
+    unknown_field["unexpected"] = serde_json::json!(true);
+    assert!(
+        !validator.is_valid(&unknown_field),
+        "qualification evidence rejects unknown fields"
+    );
+}
+
+#[test]
 fn verification_planner_v0_schemas_are_strict_and_exact_head_bound() {
     let plan: Value = serde_json::from_str(
         &fs::read_to_string(schema_dir().join("axiom-verification-plan-v0.schema.json"))
