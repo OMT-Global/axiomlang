@@ -13,7 +13,7 @@ pub mod intent_ir;
 pub mod json_contract;
 pub mod lockfile;
 pub mod lsp;
-pub mod manifest;
+pub mod manifest; pub mod migration_plan;
 pub mod mir;
 pub mod new_project;
 pub mod project;

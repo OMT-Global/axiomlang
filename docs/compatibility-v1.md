@@ -15,9 +15,10 @@ not yet been fully qualified. The compiler support range is compared as the
 
 An edition has a four-digit ID and is experimental, supported, or deprecated.
 Changing editions is breaking and requires a migration action. Deprecated
-editions and surfaces require both a migration action and a replacement AxiOM
-ID. Compiler support is expressed as an inclusive SemVer range, independently
-of package or runtime-provider versions. The new snapshot's optional
+editions require both a migration action and a replacement four-digit edition;
+deprecated surfaces require both a migration action and a replacement
+`axiom://` ID. Compiler support is expressed as an inclusive SemVer range,
+independently of package or runtime-provider versions. The new snapshot's optional
 `migrations` object maps removed surface IDs to their required migration action;
 this makes a removal auditable even though the removed surface cannot appear in
 the new `surfaces` list.
@@ -36,14 +37,40 @@ It emits `axiom.compatibility_report.v1`. The report is deterministic and sorts
 breaking, deprecated, additive, then compatible entries by surface kind and
 ID. A changed signature, kind, downgraded version, or major-version increase is
 breaking. A newly deprecated surface is reported separately and must carry a
-migration action. Additions and compatible minor changes remain visible rather
-than being inferred from source-text diffs.
+migration action and structured replacement ID. Additions and compatible minor
+changes remain visible rather than being inferred from source-text diffs.
 
 The checker fails closed when contract snapshots are malformed, a public ID is
 duplicated, a removed surface lacks an old-contract migration action, or a new
 breaking/deprecated surface lacks one. It does not claim that downstream
-packages have migrated: a future package resolver and edition command must
-consume this report before #1457 can close.
+packages have migrated.
+
+## Plan-only edition migration
+
+Build a deterministic migration plan from a successful Compatibility v1
+report:
+
+```bash
+cargo run --manifest-path stage1/Cargo.toml -p axiomc -- \
+  migrate \
+  --report stage1/json-fixtures/migration-plan/success.report.json \
+  --json
+```
+
+`axiomc migrate` validates the successful report more strictly than JSON shape
+alone: the report must be `ok`, its summary must exactly match its uniquely
+identified and deterministically sorted changes, edition and version fields
+must be canonical, and every breaking or deprecated item must carry an action.
+Deprecated editions must also carry their replacement edition, while deprecated
+surface items carry their semantic `axiom://` replacement. The command then
+emits `axiom.migration_plan.v1`, ordering edition, breaking, deprecated, and
+replacement actions deterministically.
+
+This command is plan-only. It does not rewrite source, resolve packages,
+publish releases, or change compatibility policy. Those four effects are
+explicitly pinned to `false` in the output schema. Malformed reports, failed
+reports, missing actions, missing replacements, and reports with no actionable
+migration all fail closed.
 
 ## Migration policy
 
@@ -59,4 +86,6 @@ consume this report before #1457 can close.
 
 The schemas are
 `stage1/schemas/axiom-public-contract-v1.schema.json` and
-`stage1/schemas/axiom-compatibility-report-v1.schema.json`.
+`stage1/schemas/axiom-compatibility-report-v1.schema.json`. Migration plans use
+`stage1/schemas/axiom-migration-plan-v1.schema.json`; positive and negative CLI
+fixtures live under `stage1/json-fixtures/migration-plan/`.
