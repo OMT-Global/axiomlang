@@ -157,7 +157,12 @@ stage1-proof-test:
 	bash scripts/ci/run-stage1-proof-test.sh
 
 stage1-stdlib-test:
+	$(MAKE) stage1-stdlib-catalog-test
 	bash scripts/ci/run-stdlib-property-checks.sh
+
+stage1-stdlib-catalog-test:
+	python3 scripts/ci/check-stdlib-catalog.py --json
+	python3 scripts/ci/test-check-stdlib-catalog.py
 
 stage1-compiler-property-test:
 	bash scripts/ci/run-compiler-property-checks.sh
