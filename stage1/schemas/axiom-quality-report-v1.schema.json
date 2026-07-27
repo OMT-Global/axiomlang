@@ -1,0 +1,460 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://omt-global.github.io/axiom/schemas/axiom-quality-report-v1.schema.json",
+  "title": "Axiom stage1 quality report v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "headSha",
+    "baseSha",
+    "target",
+    "tool",
+    "profile",
+    "status",
+    "failureClass",
+    "coverage",
+    "findings",
+    "artifacts",
+    "reproducer",
+    "governingIssue"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "axiom.quality_report.v1"
+    },
+    "headSha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "baseSha": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "target": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "tool": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "requiredVersion", "observedVersion"],
+      "properties": {
+        "name": {
+          "const": "cargo-llvm-cov"
+        },
+        "requiredVersion": {
+          "const": "0.8.5"
+        },
+        "observedVersion": {
+          "anyOf": [
+            {
+              "const": "0.8.5"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "profile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "manifest",
+        "package",
+        "targets",
+        "locked",
+        "testThreads",
+        "skippedTests",
+        "budgetSeconds"
+      ],
+      "properties": {
+        "manifest": {
+          "const": "stage1/Cargo.toml"
+        },
+        "package": {
+          "const": "axiomc"
+        },
+        "targets": {
+          "const": ["lib", "bin:axiomc"]
+        },
+        "locked": {
+          "const": true
+        },
+        "testThreads": {
+          "const": 1
+        },
+        "skippedTests": {
+          "const": ["tests::check_properties_runs_property_only_tests"]
+        },
+        "budgetSeconds": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        }
+      }
+    },
+    "status": {
+      "enum": ["passed", "failed"]
+    },
+    "failureClass": {
+      "anyOf": [
+        {
+          "enum": ["quality", "infrastructure", "provenance", "input"]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "coverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["global", "changed"],
+      "properties": {
+        "global": {
+          "$ref": "#/$defs/coverageResult"
+        },
+        "changed": {
+          "$ref": "#/$defs/coverageResult"
+        }
+      }
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/finding"
+      }
+    },
+    "artifacts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["lcov", "report"],
+      "properties": {
+        "lcov": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "report": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "reproducer": {
+      "type": "string",
+      "minLength": 1
+    },
+    "governingIssue": {
+      "$ref": "#/$defs/governingIssue"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "passed"
+          }
+        },
+        "required": ["status"]
+      },
+      "then": {
+        "properties": {
+          "failureClass": {
+            "type": "null"
+          },
+          "findings": {
+            "maxItems": 0
+          },
+          "coverage": {
+            "properties": {
+              "global": {
+                "properties": {
+                  "status": {
+                    "const": "passed"
+                  }
+                }
+              },
+              "changed": {
+                "properties": {
+                  "status": {
+                    "enum": ["passed", "not_applicable"]
+                  }
+                }
+              }
+            }
+          },
+          "artifacts": {
+            "properties": {
+              "lcov": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "failed"
+          }
+        },
+        "required": ["status"]
+      },
+      "then": {
+        "properties": {
+          "failureClass": {
+            "enum": ["quality", "infrastructure", "provenance", "input"]
+          },
+          "findings": {
+            "minItems": 1
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "failureClass": {
+            "const": "quality"
+          }
+        },
+        "required": ["failureClass"]
+      },
+      "then": {
+        "properties": {
+          "coverage": {
+            "anyOf": [
+              {
+                "properties": {
+                  "global": {
+                    "properties": {
+                      "status": {
+                        "const": "failed"
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "properties": {
+                  "changed": {
+                    "properties": {
+                      "status": {
+                        "const": "failed"
+                      }
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          "artifacts": {
+            "properties": {
+              "lcov": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "baseSha": {
+            "type": "null"
+          }
+        },
+        "required": ["baseSha"]
+      },
+      "then": {
+        "properties": {
+          "coverage": {
+            "properties": {
+              "changed": {
+                "properties": {
+                  "status": {
+                    "enum": ["not_applicable", "not_evaluated"]
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "fraction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["numerator", "denominator"],
+      "properties": {
+        "numerator": {
+          "const": 3
+        },
+        "denominator": {
+          "const": 5
+        }
+      }
+    },
+    "coverageResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "coveredLines", "totalLines", "floor"],
+      "properties": {
+        "status": {
+          "enum": ["passed", "failed", "not_applicable", "not_evaluated"]
+        },
+        "coveredLines": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "totalLines": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "floor": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/fraction"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "enum": ["not_applicable", "not_evaluated"]
+              }
+            },
+            "required": ["status"]
+          },
+          "then": {
+            "properties": {
+              "coveredLines": {
+                "const": 0
+              },
+              "totalLines": {
+                "const": 0
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "passed"
+              }
+            },
+            "required": ["status"]
+          },
+          "then": {
+            "properties": {
+              "totalLines": {
+                "minimum": 1
+              },
+              "floor": {
+                "$ref": "#/$defs/fraction"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "governingIssue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["number", "url"],
+      "properties": {
+        "number": {
+          "const": 1463
+        },
+        "url": {
+          "const": "https://github.com/OMT-Global/axiomlang/issues/1463"
+        }
+      }
+    },
+    "finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "code",
+        "message",
+        "semanticArea",
+        "path",
+        "startLine",
+        "endLine",
+        "reproducer",
+        "governingIssue"
+      ],
+      "properties": {
+        "code": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*$"
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "semanticArea": {
+          "type": "string",
+          "minLength": 1
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "startLine": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "endLine": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "reproducer": {
+          "type": "string",
+          "minLength": 1
+        },
+        "governingIssue": {
+          "const": 1463
+        }
+      }
+    }
+  }
+}

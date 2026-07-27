@@ -10605,8 +10605,10 @@ fn checked_in_proof_workload_examples_build_run_and_test() {
         .name("proof-workload-examples".into())
         .stack_size(8 * 1024 * 1024)
         .spawn(|| {
+            let fixtures = tempdir().expect("tempdir");
             for example in ["proof_cli", "proof_worker", "proof_http_service"] {
-                let project = checked_in_example_fixture(example);
+                let project = fixtures.path().join(example);
+                copy_dir_recursive(&checked_in_example_fixture(example), &project);
                 check_project(&project).expect("check checked-in proof workload example");
 
                 let built =

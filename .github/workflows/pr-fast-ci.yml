@@ -34,6 +34,7 @@ jobs:
         with:
           filters: |
             app:
+              - 'Makefile'
               - 'project.bootstrap.yaml'
               - 'AGENTS.md'
               - 'CONTRIBUTING.md'
@@ -46,6 +47,7 @@ jobs:
               - 'README.md'
               - 'docs/**'
             ci:
+              - 'Makefile'
               - 'project.bootstrap.yaml'
               - 'AGENTS.md'
               - 'CONTRIBUTING.md'

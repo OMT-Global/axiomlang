@@ -1020,6 +1020,18 @@
     },
     {
       "evidenceTier": "static_spike",
+      "name": "https://omt-global.github.io/axiom/schemas/axiom-quality-policy-v1.schema.json",
+      "source": "stage1/schemas/axiom-quality-policy-v1.schema.json",
+      "status": "checked"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "https://omt-global.github.io/axiom/schemas/axiom-quality-report-v1.schema.json",
+      "source": "stage1/schemas/axiom-quality-report-v1.schema.json",
+      "status": "checked"
+    },
+    {
+      "evidenceTier": "static_spike",
       "name": "https://axiomlang.dev/schemas/axiom-repair-v0.schema.json",
       "source": "stage1/schemas/axiom-repair-v0.schema.json",
       "status": "checked"

@@ -8,11 +8,15 @@ import tempfile
 import unittest
 from pathlib import Path
 
-import jsonschema
+try:
+    import jsonschema
+except ModuleNotFoundError:
+    jsonschema = None
 
 ROOT = Path(__file__).resolve().parents[2]
 RUNNER = ROOT / "scripts/ci/run-toolchain-qualification.py"
 SHA = "0123456789abcdef0123456789abcdef01234567"
+BASE_SHA = "89abcdef0123456789abcdef0123456789abcdef"
 SPEC = importlib.util.spec_from_file_location("toolchain_qualification", RUNNER)
 assert SPEC is not None
 assert SPEC.loader is not None
@@ -22,18 +26,26 @@ SPEC.loader.exec_module(toolchain_qualification)
 
 
 class QualificationTests(unittest.TestCase):
-    def run_plan(self, checks, repo_root=ROOT):
+    def run_plan(self, checks, repo_root=ROOT, base_sha=None):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
         base = Path(temp.name)
         plan = base / "plan.json"
         output = base / "out"
         plan.write_text(json.dumps({"checks": checks}), encoding="utf-8")
-        result = subprocess.run([
+        command = [
             sys.executable, str(RUNNER), "--repo-root", str(repo_root), "--output-dir", str(output),
             "--plan", str(plan), "--head-sha", SHA, "--target", "fixture-target",
             "--trigger", "fixture", "--fixture-duration-ms", "7",
-        ], text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False,
+        ]
+        if base_sha is not None:
+            command.extend(["--base-sha", base_sha])
+        result = subprocess.run(
+            command,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
         )
         payload = json.loads((output / "toolchain-qualification.json").read_text())
         return result, payload, output
@@ -49,6 +61,25 @@ class QualificationTests(unittest.TestCase):
             schema_dir / "axiom-toolchain-qualification-v0.schema.json",
         )
         return root
+
+    def test_default_quality_gate_is_exact_head_bound_and_preserves_evidence(self):
+        quality = next(
+            check
+            for check in toolchain_qualification.DEFAULT_CHECKS
+            if check["id"] == "stage1_quality_gate"
+        )
+        self.assertIn(
+            '--expected-head "$AXIOM_QUALIFICATION_HEAD_SHA"',
+            quality["command"],
+        )
+        self.assertEqual(["cargo-llvm-cov"], quality["requiredTools"])
+        self.assertEqual(
+            [
+                ".axiom-build/reports/stage1-coverage.lcov",
+                ".axiom-build/reports/stage1-quality-report.json",
+            ],
+            quality["artifactPaths"],
+        )
 
     def test_default_plan_contains_bounded_blocking_mutation_smoke(self):
         check = next(
@@ -159,6 +190,8 @@ class QualificationTests(unittest.TestCase):
         self.assertEqual("none", payload["failureClass"])
 
     def test_emitted_evidence_validates_against_the_real_schema(self):
+        if jsonschema is None:
+            self.skipTest("optional Python jsonschema package is unavailable")
         checks = [{"id": "full_crate_integration", "command": "printf pass"}]
         result, payload, _ = self.run_plan(checks)
         self.assertEqual(0, result.returncode, result.stderr)
@@ -170,12 +203,64 @@ class QualificationTests(unittest.TestCase):
         )
         jsonschema.Draft202012Validator(schema).validate(payload)
 
+    def test_dependency_free_evidence_validator_rejects_unknown_and_wrong_types(self):
+        checks = [{"id": "full_crate_integration", "command": "printf pass"}]
+        result, payload, _ = self.run_plan(checks)
+        self.assertEqual(0, result.returncode, result.stderr)
+        schema = (
+            ROOT
+            / "stage1/schemas/axiom-toolchain-qualification-v0.schema.json"
+        )
+        toolchain_qualification.validate_qualification_evidence(payload, schema)
+
+        unknown = json.loads(json.dumps(payload))
+        unknown["unexpected"] = True
+        with self.assertRaisesRegex(ValueError, "unknown"):
+            toolchain_qualification.validate_qualification_evidence(
+                unknown, schema
+            )
+
+        wrong_duration = json.loads(json.dumps(payload))
+        wrong_duration["durationMs"] = True
+        with self.assertRaisesRegex(ValueError, "nonnegative integer"):
+            toolchain_qualification.validate_qualification_evidence(
+                wrong_duration, schema
+            )
+
+        impossible = json.loads(json.dumps(payload))
+        impossible["failureClass"] = "product_failure"
+        with self.assertRaisesRegex(ValueError, "cannot contain blockers"):
+            toolchain_qualification.validate_qualification_evidence(
+                impossible, schema
+            )
+
     def test_check_receives_the_bound_qualification_head(self):
         result, payload, _ = self.run_plan([{
             "id": "head_binding",
             "command": (
                 f'test "$AXIOM_QUALIFICATION_HEAD_SHA" = "{SHA}"'
             ),
+        }])
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual("passed", payload["checks"][0]["status"])
+
+    def test_check_receives_the_optional_comparison_base(self):
+        result, payload, _ = self.run_plan(
+            [{
+                "id": "base_binding",
+                "command": (
+                    f'test "$AXIOM_QUALIFICATION_BASE_SHA" = "{BASE_SHA}"'
+                ),
+            }],
+            base_sha=BASE_SHA,
+        )
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual("passed", payload["checks"][0]["status"])
+
+    def test_check_receives_empty_comparison_base_when_omitted(self):
+        result, payload, _ = self.run_plan([{
+            "id": "base_binding",
+            "command": 'test -z "$AXIOM_QUALIFICATION_BASE_SHA"',
         }])
         self.assertEqual(0, result.returncode, result.stderr)
         self.assertEqual("passed", payload["checks"][0]["status"])
@@ -217,6 +302,25 @@ class QualificationTests(unittest.TestCase):
             "--head-sha", "not-a-sha", "--target", "fixture-target",
         ], text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
         self.assertNotEqual(0, result.returncode)
+        self.assertFalse(marker.exists())
+
+    def test_rejects_non_exact_base_before_running_checks(self):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        base = Path(temp.name)
+        plan = base / "plan.json"
+        marker = base / "must-not-exist"
+        plan.write_text(json.dumps({"checks": [{
+            "id": "conformance", "command": f"touch {marker}"
+        }]}), encoding="utf-8")
+        result = subprocess.run([
+            sys.executable, str(RUNNER), "--repo-root", str(ROOT),
+            "--output-dir", str(base / "out"), "--plan", str(plan),
+            "--head-sha", SHA, "--base-sha", "not-a-sha",
+            "--target", "fixture-target",
+        ], text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("--base-sha must be the exact", result.stderr)
         self.assertFalse(marker.exists())
 
     def test_rejects_artifact_parent_traversal_before_running_checks(self):
