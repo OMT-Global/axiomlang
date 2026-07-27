@@ -39,7 +39,7 @@ jobs:
       # No id-token permission: this workflow uses ANTHROPIC_API_KEY and does not use OIDC.
     steps:
       - name: Checkout repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6 pinned 2026-04-19
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4 pinned 2026-04-19
         with:
           fetch-depth: 1
 

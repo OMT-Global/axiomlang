@@ -70,12 +70,12 @@ jobs:
     env:
       GITHUB_TOKEN: ${{ github.token }}
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4 pinned 2026-05-30
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4 pinned 2026-05-30
         with:
           ref: ${{ github.event.pull_request.head.sha }}
 
       - name: Checkout trusted CI scripts
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4 pinned 2026-05-30
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4 pinned 2026-05-30
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           path: .trusted-ci
@@ -166,7 +166,7 @@ jobs:
       github.event.pull_request.head.repo.full_name == github.repository &&
       (needs.changes.outputs.app == 'true' || needs.changes.outputs.ci == 'true')
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4 pinned 2026-05-30
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4 pinned 2026-05-30
         with:
           ref: ${{ github.event.pull_request.head.sha }}
 
@@ -327,11 +327,11 @@ jobs:
       github.event.pull_request.draft == false &&
       github.event.pull_request.head.repo.full_name == github.repository
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4 pinned 2026-05-30
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4 pinned 2026-05-30
         with:
           ref: ${{ github.event.pull_request.head.sha }}
       - name: Checkout trusted CI scripts
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4 pinned 2026-05-30
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4 pinned 2026-05-30
         with:
           ref: ${{ github.event.pull_request.base.sha }}
           path: .trusted-ci
@@ -354,7 +354,7 @@ jobs:
       # The gate only needs the result envs below plus the trusted gate helper,
       # so check out the base ref (target-repo, trusted) instead of the fork head
       # and drop persisted credentials. See scripts/ci/check-pr-fast-ci-gate.sh.
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4 pinned 2026-05-30
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4 pinned 2026-05-30
         with:
           ref: ${{ github.event.pull_request.base.sha }}
           persist-credentials: false
