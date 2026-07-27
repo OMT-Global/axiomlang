@@ -30,6 +30,7 @@ class MutationSurvivorReportTests(unittest.TestCase):
                     "area": "hir",
                     "file": "stage1/crates/axiomc/src/hir.rs",
                     "test_filter": "type_guard_test",
+                    "reproducer": "python3 run-mutation.py --mutant hir_missing_type_guard",
                 },
                 {
                     "name": "parser_bad_recovery",
@@ -44,17 +45,118 @@ class MutationSurvivorReportTests(unittest.TestCase):
         self.assertIn("### `stage1/crates/axiomc/src/syntax.rs`", report)
         self.assertIn("Recommended fixture: `hir_hir_missing_type_guard_survivor_test.ax`", report)
         self.assertIn("Function/test focus: `parser_recovery_test`", report)
+        self.assertIn(
+            "Reproducer: `python3 run-mutation.py --mutant hir_missing_type_guard`",
+            report,
+        )
 
     def test_render_report_handles_zero_survivors(self) -> None:
         payload = {
             "schema_version": "axiom.stage1.mutation-smoke.v1",
+            "status": "passed",
             "summary": {"total": 4, "killed": 4, "survived": 0},
             "survivors": [],
         }
         report = mutation_survivor_report.render_report(payload)
+        self.assertIn("Overall status: `passed`", report)
+        self.assertIn("Blocking count: `0`", report)
+        self.assertIn("Fatal error: `none`", report)
         self.assertIn("Survived: `0`", report)
-        self.assertIn("No survivors were reported", report)
+        self.assertIn(
+            "No survivors were reported. No follow-up fixtures are recommended.",
+            report,
+        )
 
+    def test_render_report_surfaces_each_blocking_outcome(self) -> None:
+        statuses = (
+            "baseline_failure",
+            "timeout",
+            "budget_exhausted",
+            "missing_anchor",
+            "duplicate_anchor",
+            "stale_anchor",
+            "execution_error",
+            "failed",
+            "future_blocker",
+        )
+        for status in statuses:
+            with self.subTest(status=status):
+                payload = {
+                    "schema_version": "axiom.stage1.mutation-smoke.v1",
+                    "status": "failed",
+                    "summary": {
+                        "total": 1,
+                        "killed": 0,
+                        "survived": 0,
+                        "blocking": 1,
+                        status: 1,
+                    },
+                    "survivors": [],
+                }
+                report = mutation_survivor_report.render_report(payload)
+                self.assertIn("Overall status: `failed`", report)
+                self.assertIn("Blocking count: `1`", report)
+                self.assertIn(f"- `{status}`: `1`", report)
+                self.assertIn("mutation qualification is blocked", report)
+                self.assertNotIn("No follow-up fixtures are recommended", report)
+
+    def test_render_report_surfaces_fatal_failure_without_mutant_outcomes(self) -> None:
+        payload = {
+            "schema_version": "axiom.stage1.mutation-smoke.v1",
+            "status": "failed",
+            "fatal_error": "expected exact head\nbut observed another",
+            "summary": {
+                "total": 0,
+                "killed": 0,
+                "survived": 0,
+                "blocking": 0,
+            },
+            "survivors": [],
+        }
+        report = mutation_survivor_report.render_report(payload)
+        self.assertIn("Overall status: `failed`", report)
+        self.assertIn(
+            "Fatal error: `expected exact head but observed another`",
+            report,
+        )
+        self.assertIn("mutation qualification is blocked", report)
+        self.assertNotIn("No follow-up fixtures are recommended", report)
+
+    def test_render_report_treats_failed_status_as_blocking(self) -> None:
+        report = mutation_survivor_report.render_report(
+            {
+                "status": "failed",
+                "summary": {"total": 0, "killed": 0, "survived": 0},
+                "survivors": [],
+            }
+        )
+        self.assertIn("Overall status: `failed`", report)
+        self.assertIn("mutation qualification is blocked", report)
+        self.assertNotIn("No follow-up fixtures are recommended", report)
+
+    def test_legacy_report_infers_blocking_counts_from_mutants(self) -> None:
+        payload = {
+            "schema_version": "axiom.stage1.mutation-smoke.v0",
+            "summary": {"total": 1, "killed": 0, "survived": 0},
+            "mutants": [
+                {
+                    "name": "legacy_timeout",
+                    "status": "timeout",
+                    "file": "sample.rs",
+                    "reproducer": "python3 run-mutation.py --mutant legacy_timeout",
+                }
+            ],
+        }
+        report = mutation_survivor_report.render_report(payload)
+        self.assertIn("Overall status: `failed`", report)
+        self.assertIn("Blocking count: `1`", report)
+        self.assertIn("- `timeout`: `1`", report)
+        self.assertIn("### Blocking details", report)
+        self.assertIn(
+            "Reproducer: `python3 run-mutation.py --mutant legacy_timeout`",
+            report,
+        )
+        self.assertIn("mutation qualification is blocked", report)
 
     def test_render_governing_issue_links_valid_reference(self) -> None:
         rendered = mutation_survivor_report.render_governing_issue(
@@ -65,6 +167,25 @@ class MutationSurvivorReportTests(unittest.TestCase):
     def test_render_report_marks_missing_governing_issue_unknown(self) -> None:
         report = mutation_survivor_report.render_report({"summary": {}, "survivors": []})
         self.assertIn("Governing issue: unknown", report)
+
+    def test_legacy_survivors_remain_grouped_without_new_status_fields(self) -> None:
+        report = mutation_survivor_report.render_report(
+            {
+                "summary": {"total": 1, "killed": 0, "survived": 1},
+                "mutants": [
+                    {
+                        "name": "legacy_survivor",
+                        "area": "parser",
+                        "file": "syntax.rs",
+                        "test_filter": "legacy_test",
+                        "status": "survived",
+                    }
+                ],
+            }
+        )
+        self.assertIn("Overall status: `unknown (legacy report)`", report)
+        self.assertIn("### `syntax.rs`", report)
+        self.assertIn("Recommended fixture: `parser_legacy_survivor_survivor_test.ax`", report)
 
 
 if __name__ == "__main__":
