@@ -27,6 +27,11 @@ DEFAULT_CHECKS = [
     {"id": "direct_native_abi", "command": "bash scripts/ci/run-direct-native-runtime-abi-evidence.sh"},
     {"id": "runtime_sensitivity", "command": "cargo test --manifest-path stage1/Cargo.toml -p axiomc --test cranelift_backend --locked -- --test-threads=1"},
     {"id": "benchmark_comparison", "command": "python3 scripts/ci/check-stage1-benchmarks.py && python3 scripts/ci/report-stage1-reference-comparison.py"},
+    {
+        "id": "mutation_quality_smoke",
+        "command": "python3 scripts/ci/run-mutation-rust-smoke.py --fail-on-survivors --per-mutant-budget-seconds 90 --total-budget-seconds 300 --expected-head \"$AXIOM_QUALIFICATION_HEAD_SHA\" --output .axiom-build/reports/mutation-rust-smoke.json",
+        "artifactPaths": [".axiom-build/reports/mutation-rust-smoke.json"],
+    },
     {"id": "supply_chain", "command": "bash scripts/ci/run-toolchain-supply-chain.sh", "requiredTools": ["cargo-vet"]},
     {"id": "readiness_self_tests", "command": "bash scripts/ci/test-check-production-language-readiness.sh && bash scripts/ci/test-check-self-hosting-language-readiness.sh && bash scripts/ci/test-check-snapshot-bootstrap-readiness.sh && bash scripts/ci/test-check-python-exit-readiness.sh && bash scripts/ci/test-check-rust-exit-readiness.sh && python3 scripts/ci/check-production-language-readiness.py --validate-only"},
 ]
@@ -76,12 +81,22 @@ def load_plan(path: Path | None) -> list[dict[str, Any]]:
             raise ValueError("each qualification check requires string id and command")
         required_tools = check.get("requiredTools", [])
         skip_reason = check.get("skipReason")
+        artifact_paths = check.get("artifactPaths", [])
         if not isinstance(required_tools, list) or not all(isinstance(tool, str) for tool in required_tools):
             raise ValueError("requiredTools must be an array of tool names")
         if skip_reason is not None and not isinstance(skip_reason, str):
             raise ValueError("skipReason must be a string")
+        if not isinstance(artifact_paths, list) or not all(
+            isinstance(path, str) and path for path in artifact_paths
+        ):
+            raise ValueError("artifactPaths must be an array of non-empty paths")
+        for path in artifact_paths:
+            candidate = Path(path)
+            if candidate.is_absolute() or ".." in candidate.parts:
+                raise ValueError("artifactPaths must be repo-relative without parent traversal")
         result.append({"id": check["id"], "command": check["command"],
-                       "requiredTools": required_tools, "skipReason": skip_reason})
+                       "requiredTools": required_tools, "skipReason": skip_reason,
+                       "artifactPaths": artifact_paths})
     return result
 
 
@@ -93,6 +108,18 @@ def classify(returncode: int, command: str) -> tuple[str, str]:
     return "failed", "product_failure"
 
 
+def file_fingerprint(path: Path) -> tuple[int, int, int, int] | None:
+    if not path.is_file():
+        return None
+    metadata = path.stat()
+    return (
+        metadata.st_ino,
+        metadata.st_size,
+        metadata.st_mtime_ns,
+        metadata.st_ctime_ns,
+    )
+
+
 def main() -> int:
     options = args()
     root = options.repo_root.resolve()
@@ -102,6 +129,30 @@ def main() -> int:
         raise SystemExit("--fixture-duration-ms requires --plan")
 
     checks = load_plan(options.plan)
+    reserved_artifact_names = {
+        "toolchain-qualification.json",
+        *(f"{check['id']}.log" for check in checks),
+    }
+    artifact_destinations: dict[str, str] = {}
+    for check in checks:
+        for relative_path in check.get("artifactPaths", []):
+            source = (root / relative_path).resolve()
+            if not source.is_relative_to(root):
+                raise SystemExit(
+                    "artifactPaths must resolve within the qualification repo root"
+                )
+            destination_name = source.name
+            if destination_name in reserved_artifact_names:
+                raise SystemExit(
+                    f"declared artifact {relative_path} collides with qualification output "
+                    f"{destination_name}"
+                )
+            previous = artifact_destinations.setdefault(destination_name, relative_path)
+            if previous != relative_path:
+                raise SystemExit(
+                    f"declared artifacts {previous} and {relative_path} share output name "
+                    f"{destination_name}"
+                )
     head = options.head_sha or os.environ.get("GITHUB_SHA") or git_head(root)
     target = options.target or os.environ.get("AXIOM_QUALIFICATION_TARGET") or host_target()
     trigger = options.trigger or os.environ.get("AXIOM_QUALIFICATION_TRIGGER") or os.environ.get("GITHUB_EVENT_NAME", "local")
@@ -109,6 +160,28 @@ def main() -> int:
         raise SystemExit("--head-sha must be the exact 40-character lowercase Git SHA")
     if not target or not trigger:
         raise SystemExit("qualification target and trigger must be non-empty")
+    if options.plan is None:
+        actual_head = git_head(root)
+        if actual_head != head:
+            raise SystemExit(
+                f"qualification head {head} does not match checkout HEAD {actual_head}"
+            )
+        dirty = subprocess.run(
+            ["git", "status", "--porcelain=v1", "--untracked-files=no"],
+            cwd=root,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+        if dirty.returncode != 0:
+            raise SystemExit(
+                f"cannot inspect qualification checkout state: {dirty.stderr.strip()}"
+            )
+        if dirty.stdout.strip():
+            raise SystemExit("qualification checkout has tracked changes")
+    check_environment = os.environ.copy()
+    check_environment["AXIOM_QUALIFICATION_HEAD_SHA"] = head
     started = time.monotonic_ns()
     records: list[dict[str, Any]] = []
 
@@ -116,6 +189,20 @@ def main() -> int:
         check_id = check["id"]
         command = check["command"]
         log_path = output / f"{check_id}.log"
+        check_artifacts = [log_path.name]
+        artifact_before: dict[str, tuple[int, int, int, int] | None] = {}
+        for relative_path in check.get("artifactPaths", []):
+            source = (root / relative_path).resolve()
+            artifact_before[relative_path] = file_fingerprint(source)
+            destination = output / source.name
+            if destination != source and (
+                destination.is_file() or destination.is_symlink()
+            ):
+                destination.unlink()
+            elif destination != source and destination.exists():
+                raise SystemExit(
+                    f"artifact destination {destination} is not a regular file"
+                )
         check_started = time.monotonic_ns()
         missing_tools = [tool for tool in check.get("requiredTools", []) if shutil.which(tool) is None]
         skip_reason = check.get("skipReason")
@@ -132,6 +219,7 @@ def main() -> int:
                     stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT,
                     check=False,
+                    env=check_environment,
                 )
                 log_path.write_text(result.stdout, encoding="utf-8")
                 status, failure_class = classify(result.returncode, command)
@@ -145,6 +233,62 @@ def main() -> int:
                     "infrastructure_failure",
                     127,
                 )
+        missing_artifacts: list[str] = []
+        stale_artifacts: list[str] = []
+        artifact_errors: list[str] = []
+        for relative_path in check.get("artifactPaths", []):
+            source = (root / relative_path).resolve()
+            destination = output / source.name
+            if not source.is_relative_to(root):
+                artifact_errors.append(
+                    f"{relative_path} resolved outside the qualification repo root"
+                )
+            elif not source.is_file():
+                missing_artifacts.append(relative_path)
+            elif (
+                artifact_before[relative_path] is not None
+                and file_fingerprint(source) == artifact_before[relative_path]
+            ):
+                stale_artifacts.append(relative_path)
+            elif destination.is_symlink():
+                artifact_errors.append(
+                    f"{destination.name} is a symbolic link in the output directory"
+                )
+            else:
+                try:
+                    if source != destination.resolve():
+                        shutil.copy2(source, destination)
+                    check_artifacts.append(destination.name)
+                except OSError as error:
+                    artifact_errors.append(f"{relative_path}: {error}")
+        if missing_artifacts or stale_artifacts or artifact_errors:
+            with log_path.open("a", encoding="utf-8") as log:
+                if missing_artifacts:
+                    log.write(
+                        "missing declared artifacts: "
+                        + ", ".join(missing_artifacts)
+                        + "\n"
+                    )
+                if stale_artifacts:
+                    log.write(
+                        "stale declared artifacts not regenerated: "
+                        + ", ".join(stale_artifacts)
+                        + "\n"
+                    )
+                if artifact_errors:
+                    log.write(
+                        "artifact collection failed: "
+                        + "; ".join(artifact_errors)
+                        + "\n"
+                    )
+            if artifact_errors:
+                status, failure_class, returncode = (
+                    "failed",
+                    "infrastructure_failure",
+                    127,
+                )
+            elif status == "passed":
+                status, failure_class, returncode = "failed", "product_failure", 1
         measured = (time.monotonic_ns() - check_started) // 1_000_000
         duration = options.fixture_duration_ms if options.fixture_duration_ms is not None else measured
         records.append({
@@ -156,7 +300,7 @@ def main() -> int:
             "durationMs": duration,
             "failureClass": failure_class,
             "exitCode": returncode,
-            "artifacts": [log_path.name],
+            "artifacts": check_artifacts,
         })
 
     failures = [record for record in records if record["status"] == "failed"]
@@ -171,7 +315,9 @@ def main() -> int:
     total_duration = (options.fixture_duration_ms * len(records)
                       if options.fixture_duration_ms is not None else measured_total)
     evidence_path = output / "toolchain-qualification.json"
-    artifact_paths = [record["artifacts"][0] for record in records]
+    artifact_paths = [
+        artifact for record in records for artifact in record["artifacts"]
+    ]
     artifact_paths.append(evidence_path.name)
     evidence = {
         "schema": SCHEMA,
