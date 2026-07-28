@@ -1,0 +1,73 @@
+{
+  "schema_version": "axiom.migration_plan.v1",
+  "ok": true,
+  "command": "migrate",
+  "mode": "plan-only",
+  "source": {
+    "schema_version": "axiom.compatibility_report.v1",
+    "old_contract": "stage1/examples/compatibility_v1/old.json",
+    "new_contract": "stage1/examples/compatibility_v1/current.json"
+  },
+  "editions": {
+    "from": "2026",
+    "to": "2027"
+  },
+  "actions": [
+    {
+      "sequence": 1,
+      "id": "edition:2026->2027",
+      "kind": "edition",
+      "severity": "breaking",
+      "surface_kind": null,
+      "surface_id": null,
+      "instruction": "Run axiomc migrate --report <report.json> --json and apply the emitted plan before adopting edition 2027.",
+      "replacement": null
+    },
+    {
+      "sequence": 2,
+      "id": "breaking:axiom://cli/check",
+      "kind": "breaking",
+      "severity": "breaking",
+      "surface_kind": "cli",
+      "surface_id": "axiom://cli/check",
+      "instruction": "Keep --json; add --properties --backend cranelift when executing property fixtures.",
+      "replacement": null
+    },
+    {
+      "sequence": 3,
+      "id": "breaking:axiom://compiler/support-range",
+      "kind": "breaking",
+      "severity": "breaking",
+      "surface_kind": "compiler",
+      "surface_id": "axiom://compiler/support-range",
+      "instruction": "Install a supported 0.2 compiler before adopting edition 2027.",
+      "replacement": null
+    },
+    {
+      "sequence": 4,
+      "id": "deprecated:axiom://stdlib/text/lines",
+      "kind": "deprecated",
+      "severity": "deprecated",
+      "surface_kind": "stdlib",
+      "surface_id": "axiom://stdlib/text/lines",
+      "instruction": "Replace text.lines with text.split_lines before the 2028 edition.",
+      "replacement": "axiom://stdlib/text/split-lines"
+    },
+    {
+      "sequence": 5,
+      "id": "replacement:axiom://stdlib/text/lines",
+      "kind": "replacement",
+      "severity": "deprecated",
+      "surface_kind": "stdlib",
+      "surface_id": "axiom://stdlib/text/lines",
+      "instruction": "Replace axiom://stdlib/text/lines with axiom://stdlib/text/split-lines.",
+      "replacement": "axiom://stdlib/text/split-lines"
+    }
+  ],
+  "effects": {
+    "source_rewriting": false,
+    "package_resolution": false,
+    "release_publication": false,
+    "policy_changes": false
+  }
+}
