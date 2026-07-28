@@ -460,10 +460,10 @@
       "governingIssue": 1457,
       "blockerIssues": [1457],
       "dependencies": [1418, 1433],
-      "evidence": ["docs/bootstrap/versioning.md", "docs/semantic-diff-v0.md", "docs/compatibility-v1.md", "stage1/examples/compatibility_v1/current.json"],
-      "validatingCommand": "make compatibility-v1 compatibility-v1-test && cargo test --manifest-path stage1/Cargo.toml -p axiomc --test compatibility_v1",
+      "evidence": ["docs/bootstrap/versioning.md", "docs/semantic-diff-v0.md", "docs/compatibility-v1.md", "stage1/examples/compatibility_v1/current.json", "stage1/schemas/axiom-migration-plan-v1.schema.json", "stage1/json-fixtures/migration-plan/success.plan.json"],
+      "validatingCommand": "make compatibility-v1 compatibility-v1-test && cargo test --manifest-path stage1/Cargo.toml -p axiomc --test compatibility_v1 --test migration_plan_cli",
       "rustCaptureRisk": "critical",
-      "agentInspectionImpact": "Classify changed public nodes, severity, deprecation, and migration evidence."
+      "agentInspectionImpact": "Classify changed public nodes, severity, deprecation, replacement, and deterministic plan-only migration actions."
     },
     {
       "id": "package_trust_v1",

@@ -1,0 +1,186 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://axiom.omt.global/schemas/axiom-migration-plan-v1.schema.json",
+  "title": "Axiom Migration Plan v1",
+  "type": "object",
+  "required": ["schema_version", "ok", "command", "mode", "source", "editions", "actions", "effects"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {"const": "axiom.migration_plan.v1"},
+    "ok": {"const": true},
+    "command": {"const": "migrate"},
+    "mode": {"const": "plan-only"},
+    "source": {"$ref": "#/$defs/source"},
+    "editions": {"$ref": "#/$defs/editions"},
+    "actions": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/action"}
+    },
+    "effects": {"$ref": "#/$defs/effects"}
+  },
+  "$defs": {
+    "axiomId": {
+      "type": "string",
+      "pattern": "^axiom://[A-Za-z0-9._~:/#@!$&'()*+,;=%-]+$"
+    },
+    "source": {
+      "type": "object",
+      "required": ["schema_version", "old_contract", "new_contract"],
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {"const": "axiom.compatibility_report.v1"},
+        "old_contract": {"type": "string", "minLength": 1},
+        "new_contract": {"type": "string", "minLength": 1}
+      }
+    },
+    "editions": {
+      "type": "object",
+      "required": ["from", "to"],
+      "additionalProperties": false,
+      "properties": {
+        "from": {"type": "string", "pattern": "^[0-9]{4}$"},
+        "to": {"type": "string", "pattern": "^[0-9]{4}$"}
+      }
+    },
+    "surfaceKind": {
+      "enum": ["compiler", "language", "stdlib", "cli", "package", "abi", "schema", "artifact"]
+    },
+    "action": {
+      "type": "object",
+      "required": ["sequence", "id", "kind", "severity", "surface_kind", "surface_id", "instruction", "replacement"],
+      "additionalProperties": false,
+      "properties": {
+        "sequence": {"type": "integer", "minimum": 1},
+        "id": {"type": "string", "minLength": 1},
+        "kind": {"enum": ["edition", "breaking", "deprecated", "replacement"]},
+        "severity": {"enum": ["breaking", "deprecated"]},
+        "surface_kind": {
+          "oneOf": [
+            {"$ref": "#/$defs/surfaceKind"},
+            {"type": "null"}
+          ]
+        },
+        "surface_id": {
+          "oneOf": [
+            {"$ref": "#/$defs/axiomId"},
+            {"type": "null"}
+          ]
+        },
+        "instruction": {"type": "string", "minLength": 1},
+        "replacement": {
+          "oneOf": [
+            {"$ref": "#/$defs/axiomId"},
+            {"type": "string", "pattern": "^[0-9]{4}$"},
+            {"type": "null"}
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {"kind": {"const": "edition"}},
+            "required": ["kind"]
+          },
+          "then": {
+            "properties": {
+              "surface_kind": {"type": "null"},
+              "surface_id": {"type": "null"}
+            }
+          },
+          "else": {
+            "properties": {
+              "surface_kind": {"$ref": "#/$defs/surfaceKind"},
+              "surface_id": {"$ref": "#/$defs/axiomId"}
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {"const": "edition"},
+              "severity": {"const": "deprecated"}
+            },
+            "required": ["kind", "severity"]
+          },
+          "then": {
+            "properties": {
+              "replacement": {"type": "string", "pattern": "^[0-9]{4}$"}
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {"const": "edition"},
+              "severity": {"const": "breaking"}
+            },
+            "required": ["kind", "severity"]
+          },
+          "then": {
+            "properties": {
+              "replacement": {"type": "null"}
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {"kind": {"const": "breaking"}},
+            "required": ["kind"]
+          },
+          "then": {
+            "properties": {
+              "severity": {"const": "breaking"}
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {"kind": {"const": "deprecated"}},
+            "required": ["kind"]
+          },
+          "then": {
+            "properties": {
+              "severity": {"const": "deprecated"},
+              "replacement": {"$ref": "#/$defs/axiomId"}
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {"kind": {"const": "replacement"}},
+            "required": ["kind"]
+          },
+          "then": {
+            "properties": {
+              "replacement": {"$ref": "#/$defs/axiomId"}
+            }
+          },
+          "else": {
+            "if": {
+              "properties": {"kind": {"const": "breaking"}},
+              "required": ["kind"]
+            },
+            "then": {
+              "properties": {
+                "replacement": {"type": "null"}
+              }
+            }
+          }
+        }
+      ]
+    },
+    "effects": {
+      "type": "object",
+      "required": ["source_rewriting", "package_resolution", "release_publication", "policy_changes"],
+      "additionalProperties": false,
+      "properties": {
+        "source_rewriting": {"const": false},
+        "package_resolution": {"const": false},
+        "release_publication": {"const": false},
+        "policy_changes": {"const": false}
+      }
+    }
+  }
+}

@@ -30,6 +30,8 @@ def main() -> int:
     assert [(change["surface_kind"], change["severity"]) for change in report["changes"]] == [
         ("cli", "breaking"), ("compiler", "breaking"), ("stdlib", "deprecated"), ("language", "additive"), ("schema", "additive"), ("stdlib", "additive")
     ]
+    deprecated = next(change for change in report["changes"] if change["severity"] == "deprecated")
+    assert deprecated["replacement"] == "axiom://stdlib/text/split-lines"
     with tempfile.TemporaryDirectory() as directory:
         bad = Path(directory) / "bad.json"
         payload = json.loads(CURRENT.read_text(encoding="utf-8"))
@@ -84,6 +86,43 @@ def main() -> int:
         result = run("--old", str(OLD), "--new", str(edition_unknown))
         assert result.returncode != 0
         assert "new.edition contains unknown properties: unexpected" in result.stdout
+        unexpected_edition_replacement = Path(directory) / "unexpected-edition-replacement.json"
+        payload = json.loads(CURRENT.read_text(encoding="utf-8"))
+        payload["edition"]["replacement"] = "2028"
+        unexpected_edition_replacement.write_text(json.dumps(payload), encoding="utf-8")
+        result = run("--old", str(OLD), "--new", str(unexpected_edition_replacement))
+        assert result.returncode != 0
+        assert "new.edition.replacement is only valid for deprecated editions" in result.stdout
+        unexpected_surface_replacement = Path(directory) / "unexpected-surface-replacement.json"
+        payload = json.loads(CURRENT.read_text(encoding="utf-8"))
+        payload["surfaces"][0]["replacement"] = "axiom://language/while"
+        unexpected_surface_replacement.write_text(json.dumps(payload), encoding="utf-8")
+        result = run("--old", str(OLD), "--new", str(unexpected_surface_replacement))
+        assert result.returncode != 0
+        assert "new.surfaces[0].replacement is only valid for deprecated surfaces" in result.stdout
+        deprecated_edition = Path(directory) / "deprecated-edition.json"
+        payload = json.loads(OLD.read_text(encoding="utf-8"))
+        payload["edition"] = {
+            "id": "2026",
+            "status": "deprecated",
+            "migration": "Adopt edition 2027.",
+            "replacement": "2027",
+        }
+        deprecated_edition.write_text(json.dumps(payload), encoding="utf-8")
+        result = run("--old", str(OLD), "--new", str(deprecated_edition))
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert json.loads(result.stdout)["edition"] == {
+            "old": "2026",
+            "new": "2026",
+            "severity": "deprecated",
+            "migration": "Adopt edition 2027.",
+            "replacement": "2027",
+        }
+        payload["edition"].pop("replacement")
+        deprecated_edition.write_text(json.dumps(payload), encoding="utf-8")
+        result = run("--old", str(OLD), "--new", str(deprecated_edition))
+        assert result.returncode != 0
+        assert "new.edition.replacement must be a non-empty string" in result.stdout
     print("compatibility v1 regression cases passed")
     return 0
 

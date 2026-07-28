@@ -42,13 +42,11 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 mod benchmark;
 mod formatter;
-mod intent_ir_cli;
+mod intent_ir_cli; mod migration_plan_cli;
 mod agent_task_cli;
 mod verification_planner_cli;
 mod formatter_cli;
-
 use formatter::FormatRange;
-
 #[derive(Debug, Parser)]
 #[command(name = "axiomc", about = "Axiom stage1 bootstrap compiler")]
 struct Cli {
@@ -298,6 +296,8 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// Build a deterministic, plan-only edition migration from a Compatibility v1 report.
+    Migrate { #[arg(long)] report: PathBuf, #[arg(long)] json: bool },
     /// Start a small stage1 scratch REPL backed by axiomc check/run.
     Repl {
         /// Emit an axiom.stage1.v1 JSON envelope for agent/tool consumption.
@@ -1208,6 +1208,7 @@ fn main() {
             }
             Err(error) => print_error("mutation-report", error, json),
         },
+        Command::Migrate { report, json } => migration_plan_cli::run(&report, json),
         Command::Repl { json } => match run_repl(io::stdin().lock(), io::stdout(), json) {
             Ok(()) => 0,
             Err(error) => print_error("repl", error, json),

@@ -1,6 +1,6 @@
 # Stage1 bootstrap
 
-<!-- capability-ledger:v1 commands=30 stdlib_modules=34 stdlib_functions=299 capabilities=9 backend=cranelift -->
+<!-- capability-ledger:v1 commands=31 stdlib_modules=34 stdlib_functions=299 capabilities=9 backend=cranelift -->
 
 The Rust bootstrap compiler in `stage1/` is the supported Axiom toolchain.
 The Python `stage0` interpreter, bytecode compiler, bytecode format, bytecode
@@ -16,7 +16,7 @@ standard-library, runtime-ABI, and schema inventories. It is generated from
 compiler-owned tables and validated by
 `python3 scripts/ci/check-capability-ledger.py --check-docs --json`.
 
-The current inventory contains 28 CLI commands, 34 synthetic standard-library
+The current inventory contains 31 CLI commands, 34 synthetic standard-library
 modules with 299 exported functions, and 9 manifest capability kinds. Cranelift
 is the only supported CLI backend. Those counts describe discovered surfaces,
 not production qualification: the ledger currently records zero
@@ -63,6 +63,7 @@ cargo run --manifest-path stage1/Cargo.toml -p axiomc -- doc --md stage1/example
 cargo run --manifest-path stage1/Cargo.toml -p axiomc -- doc stage1/examples/hello --json
 cargo run --manifest-path stage1/Cargo.toml -p axiomc -- bench stage1/examples/benchmarks --json
 cargo run --manifest-path stage1/Cargo.toml -p axiomc -- mutation-report .axiom-build/reports/mutation-rust-smoke.json --json
+cargo run --manifest-path stage1/Cargo.toml -p axiomc -- migrate --report stage1/json-fixtures/migration-plan/success.report.json --json
 cargo run --manifest-path stage1/Cargo.toml -p axiomc -- lsp
 ```
 
@@ -166,6 +167,10 @@ The checked-in compiler JSON schema is
 The first agent-facing Intent IR / semantic graph schema is
 `stage1/schemas/axiom-intent-ir-v0.schema.json`; see
 [intent-ir-v0.md](intent-ir-v0.md).
+`axiomc migrate --report <compatibility-report> --json` emits the dedicated
+plan-only `axiom.migration_plan.v1` contract in
+`stage1/schemas/axiom-migration-plan-v1.schema.json`; it never rewrites source
+or performs package, release, or policy operations.
 `axiomc inspect intent <path> --json` emits that canonical, deterministic
 package or workspace graph with package-relative provenance and explicit
 node-linked completeness diagnostics. Its output is the dedicated

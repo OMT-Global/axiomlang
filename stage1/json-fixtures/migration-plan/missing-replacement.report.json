@@ -1,0 +1,31 @@
+{
+  "schema_version": "axiom.compatibility_report.v1",
+  "ok": true,
+  "command": "compatibility-report",
+  "old": "old.json",
+  "new": "new.json",
+  "edition": {
+    "old": "2026",
+    "new": "2026",
+    "severity": "compatible",
+    "migration": null
+  },
+  "summary": {
+    "breaking": 0,
+    "additive": 0,
+    "deprecated": 1,
+    "compatible": 0
+  },
+  "changes": [
+    {
+      "change": "deprecated",
+      "severity": "deprecated",
+      "surface_kind": "stdlib",
+      "surface_id": "axiom://stdlib/text/lines",
+      "old_version": "1.0.0",
+      "new_version": "1.1.0",
+      "description": "deprecated stdlib surface axiom://stdlib/text/lines",
+      "migration": "Replace text.lines."
+    }
+  ]
+}

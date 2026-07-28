@@ -1,0 +1,81 @@
+{
+  "schema_version": "axiom.compatibility_report.v1",
+  "ok": true,
+  "command": "compatibility-report",
+  "old": "stage1/examples/compatibility_v1/old.json",
+  "new": "stage1/examples/compatibility_v1/current.json",
+  "edition": {
+    "old": "2026",
+    "new": "2027",
+    "severity": "breaking",
+    "migration": "Run axiomc migrate --report <report.json> --json and apply the emitted plan before adopting edition 2027."
+  },
+  "summary": {
+    "breaking": 2,
+    "additive": 3,
+    "deprecated": 1,
+    "compatible": 0
+  },
+  "changes": [
+    {
+      "change": "modified",
+      "severity": "breaking",
+      "surface_kind": "cli",
+      "surface_id": "axiom://cli/check",
+      "old_version": "1.0.0",
+      "new_version": "2.0.0",
+      "description": "modified cli surface axiom://cli/check",
+      "migration": "Keep --json; add --properties --backend cranelift when executing property fixtures."
+    },
+    {
+      "change": "modified",
+      "severity": "breaking",
+      "surface_kind": "compiler",
+      "surface_id": "axiom://compiler/support-range",
+      "old_version": "0.1.0",
+      "new_version": "0.2.0",
+      "description": "compiler support range changed from 0.1.0..0.1.9 to 0.2.0..0.2.9",
+      "migration": "Install a supported 0.2 compiler before adopting edition 2027."
+    },
+    {
+      "change": "deprecated",
+      "severity": "deprecated",
+      "surface_kind": "stdlib",
+      "surface_id": "axiom://stdlib/text/lines",
+      "old_version": "1.0.0",
+      "new_version": "1.1.0",
+      "description": "deprecated stdlib surface axiom://stdlib/text/lines",
+      "migration": "Replace text.lines with text.split_lines before the 2028 edition.",
+      "replacement": "axiom://stdlib/text/split-lines"
+    },
+    {
+      "change": "modified",
+      "severity": "additive",
+      "surface_kind": "language",
+      "surface_id": "axiom://language/loop",
+      "old_version": "1.0.0",
+      "new_version": "1.1.0",
+      "description": "modified language surface axiom://language/loop",
+      "migration": null
+    },
+    {
+      "change": "modified",
+      "severity": "additive",
+      "surface_kind": "schema",
+      "surface_id": "axiom://schema/intent-ir",
+      "old_version": "1.0.0",
+      "new_version": "1.1.0",
+      "description": "modified schema surface axiom://schema/intent-ir",
+      "migration": null
+    },
+    {
+      "change": "added",
+      "severity": "additive",
+      "surface_kind": "stdlib",
+      "surface_id": "axiom://stdlib/text/split-lines",
+      "new_version": "1.0.0",
+      "description": "added stdlib surface axiom://stdlib/text/split-lines",
+      "migration": null
+    }
+  ]
+}

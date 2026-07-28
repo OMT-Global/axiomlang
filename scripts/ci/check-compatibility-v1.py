@@ -19,7 +19,7 @@ EDITION_STATUSES = {"experimental", "supported", "deprecated"}
 SEMVER = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$")
 AXIOM_ID = re.compile(r"^axiom://[A-Za-z0-9._~:/#@!$&'()*+,;=%-]+$")
 CONTRACT_KEYS = {"schema_version", "edition", "compiler", "surfaces", "migrations"}
-EDITION_KEYS = {"id", "status", "migration"}
+EDITION_KEYS = {"id", "status", "migration", "replacement"}
 COMPILER_KEYS = {"minimum", "maximum", "migration"}
 SURFACE_KEYS = {"id", "kind", "version", "stability", "signature", "migration", "replacement"}
 
@@ -74,6 +74,15 @@ def validate_contract(payload: dict[str, Any], label: str) -> dict[str, dict[str
         raise ValueError(f"{label}.edition.status must be one of {sorted(EDITION_STATUSES)}")
     if edition.get("status") == "deprecated":
         require_string(edition.get("migration"), f"{label}.edition.migration")
+        replacement = require_string(
+            edition.get("replacement"),
+            f"{label}.edition.replacement",
+            re.compile(r"^[0-9]{4}$"),
+        )
+        if replacement == edition["id"]:
+            raise ValueError(f"{label}.edition.replacement must name a different edition")
+    elif "replacement" in edition:
+        raise ValueError(f"{label}.edition.replacement is only valid for deprecated editions")
     compiler = payload.get("compiler")
     if not isinstance(compiler, dict):
         raise ValueError(f"{label}.compiler must be an object")
@@ -109,11 +118,21 @@ def validate_contract(payload: dict[str, Any], label: str) -> dict[str, dict[str
         if surface.get("stability") == "deprecated":
             require_string(surface.get("migration"), f"{prefix}.migration")
             require_string(surface.get("replacement"), f"{prefix}.replacement", AXIOM_ID)
+        elif "replacement" in surface:
+            raise ValueError(f"{prefix}.replacement is only valid for deprecated surfaces")
         indexed[identifier] = surface
     return indexed
 
 
-def surface_change(change: str, severity: str, surface: dict[str, Any], *, old: dict[str, Any] | None = None, migration: str | None = None) -> dict[str, Any]:
+def surface_change(
+    change: str,
+    severity: str,
+    surface: dict[str, Any],
+    *,
+    old: dict[str, Any] | None = None,
+    migration: str | None = None,
+    replacement: str | None = None,
+) -> dict[str, Any]:
     result: dict[str, Any] = {
         "change": change,
         "severity": severity,
@@ -126,6 +145,8 @@ def surface_change(change: str, severity: str, surface: dict[str, Any], *, old: 
         result["old_version"] = old["version"]
     if change != "removed":
         result["new_version"] = surface["version"]
+    if replacement is not None and severity in {"breaking", "deprecated"}:
+        result["replacement"] = replacement
     return result
 
 
@@ -153,20 +174,40 @@ def compatibility_report(old_path: Path, new_path: Path) -> dict[str, Any]:
     changes: list[dict[str, Any]] = []
     for identifier in sorted(new_surfaces.keys() - old_surfaces.keys()):
         surface = new_surfaces[identifier]
-        changes.append(surface_change("added", "additive", surface, migration=surface.get("migration")))
+        changes.append(surface_change(
+            "added",
+            "additive",
+            surface,
+            migration=surface.get("migration"),
+            replacement=surface.get("replacement"),
+        ))
     for identifier in sorted(old_surfaces.keys() - new_surfaces.keys()):
         old_surface = old_surfaces[identifier]
         migration = new_payload.get("migrations", {}).get(identifier)
         if not migration:
             raise ValueError(f"removed public surface {identifier} requires a new-contract migration note")
-        changes.append(surface_change("removed", "breaking", old_surface, old=old_surface, migration=migration))
+        changes.append(surface_change(
+            "removed",
+            "breaking",
+            old_surface,
+            old=old_surface,
+            migration=migration,
+            replacement=old_surface.get("replacement"),
+        ))
     for identifier in sorted(old_surfaces.keys() & new_surfaces.keys()):
         old_surface, new_surface = old_surfaces[identifier], new_surfaces[identifier]
         if old_surface != new_surface:
             change, severity, migration = classify_modified(old_surface, new_surface)
             if severity in {"breaking", "deprecated"} and not migration:
                 raise ValueError(f"{severity} public surface {identifier} requires a migration note")
-            changes.append(surface_change(change, severity, new_surface, old=old_surface, migration=migration))
+            changes.append(surface_change(
+                change,
+                severity,
+                new_surface,
+                old=old_surface,
+                migration=migration,
+                replacement=new_surface.get("replacement"),
+            ))
     old_compiler, new_compiler = old_payload["compiler"], new_payload["compiler"]
     old_range = (semver(old_compiler["minimum"], "old compiler minimum"), semver(old_compiler["maximum"], "old compiler maximum"))
     new_range = (semver(new_compiler["minimum"], "new compiler minimum"), semver(new_compiler["maximum"], "new compiler maximum"))
@@ -193,7 +234,13 @@ def compatibility_report(old_path: Path, new_path: Path) -> dict[str, Any]:
             raise ValueError("an edition change requires new.edition.migration")
         edition = {"old": old_edition["id"], "new": new_edition["id"], "severity": "breaking", "migration": migration}
     elif old_edition["status"] != "deprecated" and new_edition["status"] == "deprecated":
-        edition = {"old": old_edition["id"], "new": new_edition["id"], "severity": "deprecated", "migration": new_edition.get("migration")}
+        edition = {
+            "old": old_edition["id"],
+            "new": new_edition["id"],
+            "severity": "deprecated",
+            "migration": new_edition.get("migration"),
+            "replacement": new_edition.get("replacement"),
+        }
     else:
         edition = {"old": old_edition["id"], "new": new_edition["id"], "severity": "compatible", "migration": new_edition.get("migration")}
     rank = {"breaking": 0, "deprecated": 1, "additive": 2, "compatible": 3}
