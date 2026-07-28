@@ -54,6 +54,7 @@ COMMAND_TIERS = {
     "doc": "static_spike",
     "bench": "static_spike",
     "mutation-report": "static_spike",
+    "migrate": "static_spike",
     "repl": "static_spike",
     "publish": "static_spike",
     "registry-index": "static_spike",

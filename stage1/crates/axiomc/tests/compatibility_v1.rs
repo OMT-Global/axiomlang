@@ -15,27 +15,37 @@ fn repo_path(relative: &str) -> PathBuf {
 fn read_json(path: &Path) -> Value {
     let source = std::fs::read_to_string(path)
         .unwrap_or_else(|error| panic!("read {}: {error}", path.display()));
-    serde_json::from_str(&source).unwrap_or_else(|error| panic!("parse {}: {error}", path.display()))
+    serde_json::from_str(&source)
+        .unwrap_or_else(|error| panic!("parse {}: {error}", path.display()))
 }
 
 #[test]
 fn compatibility_contract_fixtures_and_report_conform_to_published_schemas() {
     let contract_schema = read_json(&stage1_path("schemas/axiom-public-contract-v1.schema.json"));
-    let contract_validator = jsonschema::validator_for(&contract_schema)
-        .expect("compile public contract schema");
+    let contract_validator =
+        jsonschema::validator_for(&contract_schema).expect("compile public contract schema");
     let old = stage1_path("examples/compatibility_v1/old.json");
     let current = stage1_path("examples/compatibility_v1/current.json");
     for fixture in [&old, &current] {
         let payload = read_json(fixture);
         if let Err(error) = contract_validator.validate(&payload) {
-            panic!("{} must satisfy public contract schema: {error}", fixture.display());
+            panic!(
+                "{} must satisfy public contract schema: {error}",
+                fixture.display()
+            );
         }
     }
 
     let checker = repo_path("scripts/ci/check-compatibility-v1.py");
     let output = Command::new("python3")
         .arg(checker)
-        .args(["--old", old.to_str().unwrap(), "--new", current.to_str().unwrap(), "--json"])
+        .args([
+            "--old",
+            old.to_str().unwrap(),
+            "--new",
+            current.to_str().unwrap(),
+            "--json",
+        ])
         .current_dir(repo_path(""))
         .output()
         .expect("run compatibility checker");
@@ -45,12 +55,60 @@ fn compatibility_contract_fixtures_and_report_conform_to_published_schemas() {
         String::from_utf8_lossy(&output.stderr)
     );
     let report: Value = serde_json::from_slice(&output.stdout).expect("parse compatibility report");
-    let report_schema = read_json(&stage1_path("schemas/axiom-compatibility-report-v1.schema.json"));
-    let report_validator = jsonschema::validator_for(&report_schema)
-        .expect("compile compatibility report schema");
+    let report_schema = read_json(&stage1_path(
+        "schemas/axiom-compatibility-report-v1.schema.json",
+    ));
+    let report_validator =
+        jsonschema::validator_for(&report_schema).expect("compile compatibility report schema");
     if let Err(error) = report_validator.validate(&report) {
         panic!("compatibility report must satisfy its published schema: {error}");
     }
+    let deprecated = report["changes"]
+        .as_array()
+        .expect("compatibility changes")
+        .iter()
+        .find(|change| change["severity"] == "deprecated")
+        .expect("deprecated compatibility change");
+    assert_eq!(
+        deprecated["replacement"], "axiom://stdlib/text/split-lines",
+        "compatibility reports must preserve structured replacement IDs for migration consumers"
+    );
+
+    let mut missing_replacement = report.clone();
+    let deprecated = missing_replacement["changes"]
+        .as_array_mut()
+        .expect("compatibility changes")
+        .iter_mut()
+        .find(|change| change["severity"] == "deprecated")
+        .expect("deprecated compatibility change");
+    deprecated
+        .as_object_mut()
+        .expect("compatibility change object")
+        .remove("replacement");
+    assert!(
+        !report_validator.is_valid(&missing_replacement),
+        "deprecated report changes cannot omit their replacement"
+    );
+
+    let mut unexpected_edition_replacement = report.clone();
+    unexpected_edition_replacement["edition"]["replacement"] = serde_json::json!("2028");
+    assert!(
+        !report_validator.is_valid(&unexpected_edition_replacement),
+        "non-deprecated edition changes cannot declare a replacement"
+    );
+
+    let mut unexpected_additive_replacement = report.clone();
+    let additive = unexpected_additive_replacement["changes"]
+        .as_array_mut()
+        .expect("compatibility changes")
+        .iter_mut()
+        .find(|change| change["severity"] == "additive")
+        .expect("additive compatibility change");
+    additive["replacement"] = serde_json::json!("axiom://language/while");
+    assert!(
+        !report_validator.is_valid(&unexpected_additive_replacement),
+        "non-actionable report changes cannot declare a replacement"
+    );
 }
 
 #[test]
@@ -60,4 +118,28 @@ fn public_contract_schema_rejects_unknown_surface_kind() {
     let mut contract = read_json(&stage1_path("examples/compatibility_v1/old.json"));
     contract["surfaces"][0]["kind"] = serde_json::json!("rust_enum");
     assert!(validator.validate(&contract).is_err());
+
+    let mut deprecated_edition = read_json(&stage1_path("examples/compatibility_v1/current.json"));
+    deprecated_edition["edition"]["status"] = serde_json::json!("deprecated");
+    assert!(
+        !validator.is_valid(&deprecated_edition),
+        "deprecated editions require a structured replacement edition"
+    );
+
+    let mut unexpected_edition_replacement =
+        read_json(&stage1_path("examples/compatibility_v1/current.json"));
+    unexpected_edition_replacement["edition"]["replacement"] = serde_json::json!("2028");
+    assert!(
+        !validator.is_valid(&unexpected_edition_replacement),
+        "non-deprecated editions cannot declare a replacement"
+    );
+
+    let mut unexpected_surface_replacement =
+        read_json(&stage1_path("examples/compatibility_v1/current.json"));
+    unexpected_surface_replacement["surfaces"][0]["replacement"] =
+        serde_json::json!("axiom://language/while");
+    assert!(
+        !validator.is_valid(&unexpected_surface_replacement),
+        "non-deprecated surfaces cannot declare a replacement"
+    );
 }

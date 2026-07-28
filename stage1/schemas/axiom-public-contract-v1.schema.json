@@ -17,10 +17,21 @@
       "type": "object",
       "required": ["id", "status"],
       "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {"status": {"const": "deprecated"}},
+            "required": ["status"]
+          },
+          "then": {"required": ["migration", "replacement"]},
+          "else": {"not": {"required": ["replacement"]}}
+        }
+      ],
       "properties": {
         "id": {"type": "string", "pattern": "^[0-9]{4}$"},
         "status": {"enum": ["experimental", "supported", "deprecated"]},
-        "migration": {"type": "string", "minLength": 1}
+        "migration": {"type": "string", "minLength": 1},
+        "replacement": {"type": "string", "pattern": "^[0-9]{4}$"}
       }
     },
     "compilerRange": {
@@ -37,6 +48,16 @@
       "type": "object",
       "required": ["id", "kind", "version", "stability", "signature"],
       "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {"stability": {"const": "deprecated"}},
+            "required": ["stability"]
+          },
+          "then": {"required": ["migration", "replacement"]},
+          "else": {"not": {"required": ["replacement"]}}
+        }
+      ],
       "properties": {
         "id": {"type": "string", "pattern": "^axiom://[A-Za-z0-9._~:/#@!$&'()*+,;=%-]+$"},
         "kind": {"enum": ["compiler", "language", "stdlib", "cli", "package", "abi", "schema", "artifact"]},
