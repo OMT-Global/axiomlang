@@ -12,6 +12,9 @@ fi
 
 mkdir -p "$sbom_output_dir"
 
+python3 "$repo_root/scripts/ci/check-package-trust-contract.py" --json
+bash "$repo_root/scripts/ci/test-check-package-trust-contract.sh"
+
 if [[ -f "$repo_root/package-lock.json" ]]; then
   if ! command -v npm >/dev/null 2>&1; then
     echo "npm is required to verify signed packages in package-lock.json" >&2

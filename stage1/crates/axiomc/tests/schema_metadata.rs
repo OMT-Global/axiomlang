@@ -1153,3 +1153,69 @@ fn semantic_verification_schemas_and_fixtures_are_well_formed() {
         }))
         .expect("semantic diff sample validates");
 }
+
+#[test]
+fn package_trust_v1_schemas_compile_and_validate_contract_sections() {
+    let fixtures = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join("package-trust")
+        .join("contract")
+        .join("package-trust.json");
+    let contract: Value = serde_json::from_str(
+        &fs::read_to_string(fixtures).expect("read package trust contract fixture"),
+    )
+    .expect("package trust fixture is valid JSON");
+    let schemas = [
+        (
+            "package_signature",
+            "axiom-package-signature-v1.schema.json",
+            "https://axiom.omt.global/schemas/axiom-package-signature-v1.schema.json",
+            "axiom.package_signature.v1",
+        ),
+        (
+            "trust_roots",
+            "axiom-trust-roots-v1.schema.json",
+            "https://axiom.omt.global/schemas/axiom-trust-roots-v1.schema.json",
+            "axiom.package_trust_roots.v1",
+        ),
+        (
+            "registry_index",
+            "axiom-registry-index-v2.schema.json",
+            "https://axiom.omt.global/schemas/axiom-registry-index-v2.schema.json",
+            "axiom.registry_index.v2",
+        ),
+        (
+            "verification_expectation",
+            "axiom-package-verification-expectation-v1.schema.json",
+            "https://axiom.omt.global/schemas/axiom-package-verification-expectation-v1.schema.json",
+            "axiom.package_verification_expectation.v1",
+        ),
+        (
+            "verification",
+            "axiom-package-verification-v1.schema.json",
+            "https://axiom.omt.global/schemas/axiom-package-verification-v1.schema.json",
+            "axiom.package_verification.v1",
+        ),
+    ];
+    for (section, file, id, version) in schemas {
+        let schema: Value = serde_json::from_str(
+            &fs::read_to_string(schema_dir().join(file)).expect("read package trust schema"),
+        )
+        .expect("package trust schema is valid JSON");
+        assert_eq!(schema["$id"], id);
+        assert_eq!(schema["properties"]["schema_version"]["const"], version);
+        assert_eq!(schema["additionalProperties"], false);
+        let validator = compile_validator(&schema);
+        validator
+            .validate(&contract[section])
+            .unwrap_or_else(|error| panic!("{section} fixture must match {file}: {error}"));
+
+        let mut unknown = contract[section].clone();
+        unknown["legacy_hmac"] = serde_json::json!("forbidden");
+        assert!(
+            !validator.is_valid(&unknown),
+            "{section} root must reject unknown fields"
+        );
+    }
+}

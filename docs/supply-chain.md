@@ -40,6 +40,11 @@ The target runs `scripts/ci/run-toolchain-supply-chain.sh`.
 - `scripts/ci/emit-stage1-sbom.py` emits an SPDX JSON document at
   `stage1/target/sbom/stage1.spdx.json`, and CI uploads that file as the
   `stage1-sbom` artifact.
+- `make stage1-package-trust-contract` and its regression target validate the
+  contract-only RFC 8032 Ed25519 + SHA-256 transcript, threshold trust/root and
+  index metadata, offline pins, provenance bindings, and negative vectors. See
+  [Package Trust v1 Contract](package-trust-v1.md). This does not claim that the
+  current HMAC-backed stage1 registry commands implement the contract.
 - `make stage1-package-graph-boundary` proves the self-hosting package graph
   fixture is derived from `axiom.toml` and `axiom.lock` and rejects
   Cargo-derived graph outputs.

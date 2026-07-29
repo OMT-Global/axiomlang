@@ -186,8 +186,40 @@ def main() -> int:
     current_payload = load(CURRENT)
     baseline_ids = [item["id"] for item in baseline_payload["surfaces"]]
     current_ids = [item["id"] for item in current_payload["surfaces"]]
-    assert baseline_ids == current_ids
-    assert len(baseline_ids) == 52, "accepted baseline must cover all published surfaces"
+    new_package_trust_ids = {
+        "axiom://schema/axiom-package-signature-v1",
+        "axiom://schema/axiom-package-verification-expectation-v1",
+        "axiom://schema/axiom-package-verification-v1",
+        "axiom://schema/axiom-registry-index-v2",
+        "axiom://schema/axiom-trust-roots-v1",
+    }
+    assert len(baseline_ids) == 52, "accepted baseline must remain the frozen 52-surface ratchet"
+    assert len(current_ids) == 57, "current contract must include five package trust schemas"
+    assert set(baseline_ids) < set(current_ids)
+    assert set(current_ids) - set(baseline_ids) == new_package_trust_ids
+    canonical = run(
+        BASELINE,
+        CURRENT,
+        policy=CURRENT_POLICY,
+        old_policy=BASELINE_POLICY,
+    )
+    assert canonical.returncode == 0, canonical.stdout + canonical.stderr
+    canonical_report = json.loads(canonical.stdout)
+    assert canonical_report["summary"] == {
+        "additive": 5,
+        "breaking": 0,
+        "compatible": 0,
+        "deprecated": 0,
+    }
+    assert {
+        item["surface_id"] for item in canonical_report["changes"]
+    } == new_package_trust_ids
+    assert all(
+        item["change"] == "added"
+        and item["severity"] == "additive"
+        and item["surface_kind"] == "schema"
+        for item in canonical_report["changes"]
+    )
     compiler_schema_ids = {
         f"axiom://schema/{path.name.removesuffix('.schema.json')}"
         for path in (ROOT / "stage1/compiler-contracts/schemas").glob("*.schema.json")
@@ -197,7 +229,9 @@ def main() -> int:
         directory = Path(temporary)
         for identifier in baseline_ids:
             mutated = copy.deepcopy(current_payload)
-            surface(mutated, identifier)["signature"] += "; unversioned_mutation=true"
+            mutated_surface = surface(mutated, identifier)
+            mutated_surface["signature"] += "; unversioned_mutation=true"
+            mutated_surface["version"] = surface(baseline_payload, identifier)["version"]
             expect_failure(
                 directory,
                 baseline_payload,
@@ -207,7 +241,7 @@ def main() -> int:
             )
 
         compiler_old = copy.deepcopy(baseline_payload)
-        compiler_new = copy.deepcopy(current_payload)
+        compiler_new = copy.deepcopy(baseline_payload)
         compiler_new["contract_version"] = "0.2.0"
         compiler_new["policy_version"] = "1.1.0"
         compiler_new["compiler"].update(
