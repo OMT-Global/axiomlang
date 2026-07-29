@@ -2134,7 +2134,7 @@ fn write_package_verification_to(
         .and_then(|()| output_writer.write_all(b"\n"))
         .and_then(|()| output_writer.flush())
     {
-        eprintln!("axiomc pkg verify: failed to write verification result: {error}");
+        eprintln!("axiomc pkg verify: failed to write package verification result: {error}");
         return 2;
     }
     if verdict.decision == "trusted" { 0 } else { 1 }

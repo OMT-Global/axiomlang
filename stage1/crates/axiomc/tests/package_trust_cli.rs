@@ -15,6 +15,18 @@ use std::path::{Path, PathBuf};
 #[cfg(target_os = "linux")]
 use std::process::Stdio;
 use std::process::{Command, Output};
+use std::sync::Mutex;
+
+// Each case launches the full compiler with the Package Trust schema set. Keep
+// child processes serialized so constrained self-hosted runners do not
+// intermittently kill one while several validators initialize in parallel.
+static PACKAGE_TRUST_CLI_PROCESS: Mutex<()> = Mutex::new(());
+
+fn package_trust_cli_process_guard() -> std::sync::MutexGuard<'static, ()> {
+    PACKAGE_TRUST_CLI_PROCESS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
 
 struct PackageTrustFiles {
     archive: PathBuf,
@@ -566,6 +578,7 @@ fn render_test_archive() -> Vec<u8> {
 }
 
 fn run(files: &PackageTrustFiles) -> Output {
+    let _guard = package_trust_cli_process_guard();
     Command::new(env!("CARGO_BIN_EXE_axiomc"))
         .args(files.args())
         .output()
@@ -837,6 +850,7 @@ fn stdout_write_failure_exits_two() {
         .write(true)
         .open("/dev/full")
         .expect("open /dev/full");
+    let _guard = package_trust_cli_process_guard();
 
     let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
         .args(files.args())
