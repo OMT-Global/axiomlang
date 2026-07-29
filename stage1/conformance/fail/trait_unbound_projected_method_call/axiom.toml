@@ -13,10 +13,3 @@ process = false
 env = false
 clock = false
 crypto = false
-
-[expected_error]
-kind = "type"
-message = "method call \"eq\" on generic parameter \"T\" requires an explicit trait bound"
-path = "src/main.ax"
-line = 18
-column = 8
