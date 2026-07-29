@@ -184,19 +184,30 @@ making Rust module paths canonical; this PR keeps the compiler semantic source
 of truth at the project boundary and refuses to weaken the public/private or
 doctest gates to avoid the ratchet.
 
+The Package Trust v1 runtime adds the target-neutral Ed25519 trust engine in
+`package_trust.rs`, migrates local publication and signed-index operations in
+`registry.rs`, and exposes the operator CLI in `main.rs`. The ceilings below
+record that issue-backed security surface explicitly. Follow-up extraction
+should keep the public trust contract stable while moving strict document and
+schema parsing, root-transition evaluation, and package verification into
+`package_trust/` siblings; registry publication, signed-index construction,
+immutable serving, and archive transactions should move into `registry/`
+siblings. CLI parsing and dispatch should then move behind those package-owned
+APIs rather than adding more Package Trust orchestration to `main.rs`.
+
 ## Current Top Files
 
-Snapshot updated 2026-07-12 after the #1254 completion audit:
+Snapshot updated 2026-07-29 after the Package Trust v1 runtime:
 
 | Rank | Current Rust file | Lines | Target package boundary | First extraction slice |
 | ---: | --- | ---: | --- | --- |
 | 1 | `stage1/crates/axiomc/src/cranelift_backend.rs` | 20,076 | `compiler.backend.native` | Runtime-intrinsic implementations live in `.../cranelift_backend/intrinsics.rs`, the compile-time evaluator in `.../cranelift_backend/evaluator.rs`, host-capability lowering in the `host_*` siblings, and static-output eligibility in `.../cranelift_backend/static_output_purity.rs`; the remaining work is sub-partitioning the mutually-recursive value/control core by value shape. |
 | 2 | `stage1/crates/axiomc/src/project.rs` | 12,096 | `compiler.package_graph`, `compiler.commands`, `compiler.evidence` | Build lowering evidence now lives in `stage1/crates/axiomc/src/project/build_contract.rs`; Documentation v1 now derives public symbols here; continue splitting manifest/workspace loading, command orchestration, provenance/debug records, artifact planning, and the future `compiler.docs` semantic projection along package ownership. |
-| 3 | `stage1/crates/axiomc/src/main.rs` | 11,006 | `compiler.commands` | Formatter reporting and edit planning now live in `stage1/crates/axiomc/src/formatter.rs`; Documentation v1 now owns deterministic rendering, HTML/Markdown link validation, search, and doctest orchestration here; continue moving command parsing, JSON envelope construction, check/build/run/test/doc/trace orchestration, and exit handling behind `docs/compiler-command-lsp-packages.md` APIs. |
+| 3 | `stage1/crates/axiomc/src/main.rs` | 11,619 | `compiler.commands` | Formatter reporting and edit planning now live in `stage1/crates/axiomc/src/formatter.rs`; Documentation v1 owns deterministic rendering, HTML/Markdown link validation, search, and doctest orchestration here; Package Trust v1 adds package verification and signed-registry command dispatch. Continue moving command parsing, JSON envelope construction, check/build/run/test/doc/trace orchestration, and package-trust dispatch behind package-owned APIs. |
 | 4 | `stage1/crates/axiomc/src/codegen.rs` | 7,919 | `compiler.backend.generated_rust`, `compiler.backend.contracts` | Isolate generated-Rust compatibility emission from backend target selection and unsupported-feature contracts. |
 | 5 | `stage1/crates/axiomc/src/syntax.rs` | 6,370 | `compiler.syntax`, `compiler.diagnostics` | Split lexer/parser, parse recovery, source spans, macros, and syntax diagnostics behind the syntax boundary. |
 | 6 | `stage1/crates/axiomc/src/hir.rs` | 5,849 | `compiler.hir` | Generic inference and monomorphization now live in `stage1/crates/axiomc/src/hir/generics.rs`; public HIR model types now live in `stage1/crates/axiomc/src/hir/model.rs`; syntax-to-HIR type/literal lowering now lives in `stage1/crates/axiomc/src/hir/types.rs`; type-name, aggregate, and trait-use definition checks now live in `stage1/crates/axiomc/src/hir/definitions.rs`; function/method signatures and trait impl signature validation now live in `stage1/crates/axiomc/src/hir/signatures.rs`; capability analysis now lives in `stage1/crates/axiomc/src/hir/capabilities.rs`; expression typing helpers now live in `stage1/crates/axiomc/src/hir/expressions.rs`; ownership and borrow-state helpers now live in `stage1/crates/axiomc/src/hir/ownership.rs`; property clause checks now live in `stage1/crates/axiomc/src/hir/properties.rs`; reachability/call-graph discovery now lives in `stage1/crates/axiomc/src/hir/reachability.rs`; diagnostic recovery helpers now live in `stage1/crates/axiomc/src/hir/diagnostics.rs`; monomorphized symbol and intrinsic helpers now live in `stage1/crates/axiomc/src/hir/symbols.rs`; source-location helpers now live in `stage1/crates/axiomc/src/hir/source_locations.rs`; return-flow analysis now lives in `stage1/crates/axiomc/src/hir/control_flow.rs`; const-array length validation now lives in `stage1/crates/axiomc/src/hir/const_arrays.rs`; const-function validation now lives in `stage1/crates/axiomc/src/hir/const_functions.rs`; match lowering now lives in `stage1/crates/axiomc/src/hir/matches.rs`; enum variant constructor helpers now live in `stage1/crates/axiomc/src/hir/variants.rs`; async runtime intrinsic lowering now lives in `stage1/crates/axiomc/src/hir/async_runtime.rs`; map intrinsic lowering now lives in `stage1/crates/axiomc/src/hir/maps.rs`; HIR boundary regression tests now live in `stage1/crates/axiomc/tests/hir_unit.rs`; continue splitting remaining HIR helper clusters behind the package APIs in `docs/compiler-hir-ownership-capability.md`. |
-| 7 | `stage1/crates/axiomc/src/hir/generics.rs` | 4,208 | `compiler.hir` | Keep generic call inference, trait-bound validation, aggregate monomorphization, and generic call rewriting isolated from the main HIR lowering facade. |
+| 7 | `stage1/crates/axiomc/src/package_trust.rs` | 4,471 | `compiler.package_trust` | Preserve the Package Trust v1 wire contract while extracting strict document/schema parsing, trust-root transition evaluation, and package verification into `package_trust/` siblings. |
 
 ## Ratchet Ceilings
 
@@ -209,7 +220,7 @@ matching ceiling in this table in the same PR.
 | Tracked item | Ceiling |
 | --- | ---: |
 | `summary.top_file_line_share` | 0.7275 |
-| `summary.top_file_lines` | 67327 |
+| `summary.top_file_lines` | 68400 |
 | `stage1/crates/axiomc/src/cranelift_backend.rs` | 20076 |
 | `stage1/crates/axiomc/src/cranelift_backend/static_output_purity.rs` | 279 |
 | `stage1/crates/axiomc/src/cranelift_backend/host_env_proc_clock.rs` | 586 |
@@ -222,7 +233,7 @@ matching ceiling in this table in the same PR.
 | `stage1/crates/axiomc/src/hir.rs` | 5849 |
 | `stage1/crates/axiomc/src/project.rs` | 12096 |
 | `stage1/crates/axiomc/src/project/build_contract.rs` | 118 |
-| `stage1/crates/axiomc/src/main.rs` | 11006 |
+| `stage1/crates/axiomc/src/main.rs` | 11619 |
 | `stage1/crates/axiomc/src/formatter.rs` | 219 |
 | `stage1/crates/axiomc/src/formatter_tests.rs` | 137 |
 | `stage1/crates/axiomc/src/codegen.rs` | 7919 |
@@ -247,8 +258,9 @@ matching ceiling in this table in the same PR.
 | `stage1/crates/axiomc/src/hir/symbols.rs` | 134 |
 | `stage1/crates/axiomc/src/hir/types.rs` | 241 |
 | `stage1/crates/axiomc/src/hir/variants.rs` | 188 |
-| `stage1/crates/axiomc/src/registry.rs` | 2234 |
-| `stage1/crates/axiomc/src/lib.rs` | 23 |
+| `stage1/crates/axiomc/src/package_trust.rs` | 4471 |
+| `stage1/crates/axiomc/src/registry.rs` | 4234 |
+| `stage1/crates/axiomc/src/lib.rs` | 24 |
 
 ## Extraction Order
 

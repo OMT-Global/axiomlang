@@ -128,6 +128,37 @@ grep -Fq 'cargo metadata --manifest-path "$manifest_path" --format-version 1 --l
   exit 1
 }
 
+grep -Fq 'cargo test --manifest-path "$manifest_path" -p axiomc --locked --lib package_trust::tests' "$script" || {
+  echo "supply-chain script must run the locked Package Trust core test suite" >&2
+  exit 1
+}
+
+grep -Fq 'cargo test --manifest-path "$manifest_path" -p axiomc --locked --lib registry::tests' "$script" || {
+  echo "supply-chain script must run the locked registry publish/verify/serve test suite" >&2
+  exit 1
+}
+
+grep -Fq 'cargo test --manifest-path "$manifest_path" -p axiomc --locked --test package_trust_cli' "$script" || {
+  echo "supply-chain script must run the locked pkg verify CLI integration test suite" >&2
+  exit 1
+}
+
+if ! awk '
+  /test-check-package-trust-contract\.sh/ { contract = NR }
+  /--locked --lib package_trust::tests/ { core = NR }
+  /--locked --lib registry::tests/ { registry = NR }
+  /--locked --test package_trust_cli/ { cli = NR }
+  /cargo vet --manifest-path/ { vet = NR }
+  /cargo build --manifest-path/ { build = NR }
+  END {
+    exit !(contract < core && core < registry && registry < cli &&
+           cli < vet && cli < build)
+  }
+' "$script"; then
+  echo "Package Trust Rust suites must run after contract checks and before vet/build" >&2
+  exit 1
+fi
+
 grep -Fq 'cargo build --manifest-path "$manifest_path" -p axiomc --locked --release' "$script" || {
   echo "supply-chain script must perform a locked release build" >&2
   exit 1

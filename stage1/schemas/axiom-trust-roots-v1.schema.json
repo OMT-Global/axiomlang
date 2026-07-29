@@ -20,7 +20,10 @@
       "const": "package.trust_roots"
     },
     "contract_status": {
-      "const": "contract_only"
+      "enum": [
+        "contract_only",
+        "implemented"
+      ]
     },
     "trusted_root": {
       "type": "object",
@@ -73,6 +76,7 @@
             "keys": {
               "type": "array",
               "minItems": 3,
+              "maxItems": 128,
               "items": {
                 "type": "object",
                 "additionalProperties": false,
@@ -113,7 +117,8 @@
                   },
                   "publisher_identity": {
                     "type": "string",
-                    "minLength": 1
+                    "minLength": 1,
+                    "maxLength": 2048
                   },
                   "status": {
                     "enum": [
@@ -129,6 +134,7 @@
                   "supersedes_key_ids": {
                     "type": "array",
                     "minItems": 0,
+                    "maxItems": 128,
                     "items": {
                       "type": "string",
                       "pattern": "^sha256:[0-9a-f]{64}$"
@@ -159,7 +165,8 @@
                           },
                           "reason": {
                             "type": "string",
-                            "minLength": 1
+                            "minLength": 1,
+                            "maxLength": 4096
                           }
                         }
                       }
@@ -172,6 +179,7 @@
             "publisher_identities": {
               "type": "array",
               "minItems": 1,
+              "maxItems": 2048,
               "items": {
                 "type": "object",
                 "additionalProperties": false,
@@ -182,11 +190,13 @@
                 "properties": {
                   "publisher_identity": {
                     "type": "string",
-                    "minLength": 1
+                    "minLength": 1,
+                    "maxLength": 2048
                   },
                   "display_name": {
                     "type": "string",
-                    "minLength": 1
+                    "minLength": 1,
+                    "maxLength": 256
                   }
                 }
               },
@@ -195,6 +205,7 @@
             "namespace_grants": {
               "type": "array",
               "minItems": 1,
+              "maxItems": 2048,
               "items": {
                 "type": "object",
                 "additionalProperties": false,
@@ -209,42 +220,51 @@
                 "properties": {
                   "publisher_identity": {
                     "type": "string",
-                    "minLength": 1
+                    "minLength": 1,
+                    "maxLength": 2048
                   },
                   "namespace": {
                     "type": "string",
-                    "minLength": 1
+                    "minLength": 1,
+                    "maxLength": 256
                   },
                   "package_names": {
                     "type": "array",
                     "minItems": 1,
+                    "maxItems": 1024,
                     "items": {
                       "type": "string",
-                      "minLength": 1
+                      "minLength": 1,
+                      "maxLength": 256
                     },
                     "uniqueItems": true
                   },
                   "registry_identities": {
                     "type": "array",
                     "minItems": 1,
+                    "maxItems": 1024,
                     "items": {
                       "type": "string",
-                      "minLength": 1
+                      "minLength": 1,
+                      "maxLength": 2048
                     },
                     "uniqueItems": true
                   },
                   "source_identities": {
                     "type": "array",
                     "minItems": 1,
+                    "maxItems": 1024,
                     "items": {
                       "type": "string",
-                      "minLength": 1
+                      "minLength": 1,
+                      "maxLength": 2048
                     },
                     "uniqueItems": true
                   },
                   "role_id": {
                     "type": "string",
-                    "minLength": 1
+                    "minLength": 1,
+                    "maxLength": 256
                   }
                 }
               },
@@ -253,6 +273,7 @@
             "roles": {
               "type": "array",
               "minItems": 4,
+              "maxItems": 64,
               "items": {
                 "type": "object",
                 "additionalProperties": false,
@@ -265,15 +286,18 @@
                 "properties": {
                   "role_id": {
                     "type": "string",
-                    "minLength": 1
+                    "minLength": 1,
+                    "maxLength": 256
                   },
                   "threshold": {
                     "type": "integer",
-                    "minimum": 1
+                    "minimum": 1,
+                    "maximum": 16
                   },
                   "key_ids": {
                     "type": "array",
                     "minItems": 1,
+                    "maxItems": 128,
                     "items": {
                       "type": "string",
                       "pattern": "^sha256:[0-9a-f]{64}$"
@@ -285,7 +309,8 @@
                       "string",
                       "null"
                     ],
-                    "minLength": 1
+                    "minLength": 1,
+                    "maxLength": 256
                   }
                 }
               },
@@ -305,26 +330,31 @@
               "properties": {
                 "rollback_protection": {
                   "type": "string",
-                  "minLength": 1
+                  "minLength": 1,
+                  "maxLength": 4096
                 },
                 "freeze_protection": {
                   "type": "string",
-                  "minLength": 1
+                  "minLength": 1,
+                  "maxLength": 4096
                 },
                 "downgrade_protection": {
                   "type": "string",
-                  "minLength": 1
+                  "minLength": 1,
+                  "maxLength": 4096
                 },
                 "offline_locked": {
                   "type": "string",
-                  "minLength": 1
+                  "minLength": 1,
+                  "maxLength": 4096
                 },
                 "metadata_expiry_required": {
                   "const": true
                 },
                 "registry_index_equivalence": {
                   "type": "string",
-                  "minLength": 1
+                  "minLength": 1,
+                  "maxLength": 4096
                 }
               }
             }
@@ -359,6 +389,7 @@
         "signatures": {
           "type": "array",
           "minItems": 2,
+          "maxItems": 16,
           "items": {
             "type": "object",
             "additionalProperties": false,
@@ -440,6 +471,7 @@
             "keys": {
               "type": "array",
               "minItems": 3,
+              "maxItems": 128,
               "items": {
                 "type": "object",
                 "additionalProperties": false,
@@ -480,7 +512,8 @@
                   },
                   "publisher_identity": {
                     "type": "string",
-                    "minLength": 1
+                    "minLength": 1,
+                    "maxLength": 2048
                   },
                   "status": {
                     "enum": [
@@ -496,6 +529,7 @@
                   "supersedes_key_ids": {
                     "type": "array",
                     "minItems": 0,
+                    "maxItems": 128,
                     "items": {
                       "type": "string",
                       "pattern": "^sha256:[0-9a-f]{64}$"
@@ -526,7 +560,8 @@
                           },
                           "reason": {
                             "type": "string",
-                            "minLength": 1
+                            "minLength": 1,
+                            "maxLength": 4096
                           }
                         }
                       }
@@ -539,6 +574,7 @@
             "publisher_identities": {
               "type": "array",
               "minItems": 1,
+              "maxItems": 2048,
               "items": {
                 "type": "object",
                 "additionalProperties": false,
@@ -549,11 +585,13 @@
                 "properties": {
                   "publisher_identity": {
                     "type": "string",
-                    "minLength": 1
+                    "minLength": 1,
+                    "maxLength": 2048
                   },
                   "display_name": {
                     "type": "string",
-                    "minLength": 1
+                    "minLength": 1,
+                    "maxLength": 256
                   }
                 }
               },
@@ -562,6 +600,7 @@
             "namespace_grants": {
               "type": "array",
               "minItems": 1,
+              "maxItems": 2048,
               "items": {
                 "type": "object",
                 "additionalProperties": false,
@@ -576,42 +615,51 @@
                 "properties": {
                   "publisher_identity": {
                     "type": "string",
-                    "minLength": 1
+                    "minLength": 1,
+                    "maxLength": 2048
                   },
                   "namespace": {
                     "type": "string",
-                    "minLength": 1
+                    "minLength": 1,
+                    "maxLength": 256
                   },
                   "package_names": {
                     "type": "array",
                     "minItems": 1,
+                    "maxItems": 1024,
                     "items": {
                       "type": "string",
-                      "minLength": 1
+                      "minLength": 1,
+                      "maxLength": 256
                     },
                     "uniqueItems": true
                   },
                   "registry_identities": {
                     "type": "array",
                     "minItems": 1,
+                    "maxItems": 1024,
                     "items": {
                       "type": "string",
-                      "minLength": 1
+                      "minLength": 1,
+                      "maxLength": 2048
                     },
                     "uniqueItems": true
                   },
                   "source_identities": {
                     "type": "array",
                     "minItems": 1,
+                    "maxItems": 1024,
                     "items": {
                       "type": "string",
-                      "minLength": 1
+                      "minLength": 1,
+                      "maxLength": 2048
                     },
                     "uniqueItems": true
                   },
                   "role_id": {
                     "type": "string",
-                    "minLength": 1
+                    "minLength": 1,
+                    "maxLength": 256
                   }
                 }
               },
@@ -620,6 +668,7 @@
             "roles": {
               "type": "array",
               "minItems": 4,
+              "maxItems": 64,
               "items": {
                 "type": "object",
                 "additionalProperties": false,
@@ -632,15 +681,18 @@
                 "properties": {
                   "role_id": {
                     "type": "string",
-                    "minLength": 1
+                    "minLength": 1,
+                    "maxLength": 256
                   },
                   "threshold": {
                     "type": "integer",
-                    "minimum": 1
+                    "minimum": 1,
+                    "maximum": 16
                   },
                   "key_ids": {
                     "type": "array",
                     "minItems": 1,
+                    "maxItems": 128,
                     "items": {
                       "type": "string",
                       "pattern": "^sha256:[0-9a-f]{64}$"
@@ -652,7 +704,8 @@
                       "string",
                       "null"
                     ],
-                    "minLength": 1
+                    "minLength": 1,
+                    "maxLength": 256
                   }
                 }
               },
@@ -672,26 +725,31 @@
               "properties": {
                 "rollback_protection": {
                   "type": "string",
-                  "minLength": 1
+                  "minLength": 1,
+                  "maxLength": 4096
                 },
                 "freeze_protection": {
                   "type": "string",
-                  "minLength": 1
+                  "minLength": 1,
+                  "maxLength": 4096
                 },
                 "downgrade_protection": {
                   "type": "string",
-                  "minLength": 1
+                  "minLength": 1,
+                  "maxLength": 4096
                 },
                 "offline_locked": {
                   "type": "string",
-                  "minLength": 1
+                  "minLength": 1,
+                  "maxLength": 4096
                 },
                 "metadata_expiry_required": {
                   "const": true
                 },
                 "registry_index_equivalence": {
                   "type": "string",
-                  "minLength": 1
+                  "minLength": 1,
+                  "maxLength": 4096
                 }
               }
             }
@@ -726,6 +784,7 @@
         "signatures": {
           "type": "array",
           "minItems": 2,
+          "maxItems": 16,
           "items": {
             "type": "object",
             "additionalProperties": false,
@@ -782,6 +841,7 @@
         "candidate_signatures_by_old_root": {
           "type": "array",
           "minItems": 2,
+          "maxItems": 16,
           "items": {
             "type": "object",
             "additionalProperties": false,
@@ -813,6 +873,7 @@
         "candidate_signatures_by_new_root": {
           "type": "array",
           "minItems": 2,
+          "maxItems": 16,
           "items": {
             "type": "object",
             "additionalProperties": false,

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate the contract-only Axiom Package Trust v1 bundle and vectors."""
+"""Validate the Axiom Package Trust v1 contract fixture and vectors."""
 
 from __future__ import annotations
 
@@ -874,9 +874,9 @@ def evaluate(contract: dict[str, Any]) -> dict[str, Any]:
             "reason_codes": ["OFFLINE_INPUT_MISSING"],
             "observed": {},
             "signers": [],
-            "archive": {},
-            "manifest_digest": {},
-            "provenance": {},
+            "archive": None,
+            "manifest_digest": None,
+            "provenance": None,
             "trust": {},
         }
     assert isinstance(expectation, dict)
@@ -926,7 +926,6 @@ def evaluate(contract: dict[str, Any]) -> dict[str, Any]:
         "root_transcript_sha256": sha256(old_raw),
     }:
         failures.add("ROOT_BOOTSTRAP_MISMATCH")
-    transition_time = parse_time(transition.get("transition_time"))
     old_expiry = parse_time(old_signed.get("expires_at"))
     candidate_issued = parse_time(candidate_signed.get("issued_at"))
     candidate_expiry = parse_time(candidate_signed.get("expires_at"))
@@ -939,15 +938,14 @@ def evaluate(contract: dict[str, Any]) -> dict[str, Any]:
         or candidate_sequence <= old_sequence
         or transition.get("from_version") != old_version
         or transition.get("to_version") != candidate_version
-        or transition_time is None
         or old_expiry is None
         or candidate_issued is None
         or candidate_expiry is None
-        or not (candidate_issued <= transition_time < old_expiry)
-        or transition_time >= candidate_expiry
+        or candidate_issued >= old_expiry
+        or candidate_issued >= candidate_expiry
     ):
         failures.add("ROOT_ROTATION_INVALID")
-    if old_expiry is not None and transition_time is not None and old_expiry <= transition_time:
+    if old_expiry is not None and candidate_issued is not None and old_expiry <= candidate_issued:
         failures.add("METADATA_EXPIRED")
     if candidate_expiry is not None and candidate_expiry <= verification_time:
         failures.add("METADATA_EXPIRED")
@@ -1188,6 +1186,32 @@ def evaluate(contract: dict[str, Any]) -> dict[str, Any]:
     )
     if package_role is not None and package_role.get("threshold") != package_threshold:
         failures.add("PACKAGE_THRESHOLD_NOT_MET")
+    package_authenticated = (
+        package_transcript_value.get("field_order") == PACKAGE_FIELDS
+        and package_transcript_value.get("bytes_hex") == package_raw.hex()
+        and package_transcript_value.get("sha256") == sha256(package_raw)
+        and package_role is not None
+        and package_role.get("threshold") == package_threshold
+        and package_valid_count >= package_threshold
+        and set(required_signers.get("required_key_ids", [])) <= package_valid
+    )
+    package_index = package.get("index", {})
+    package_generation = package_index.get("generation")
+    package_sequence = package_index.get("sequence")
+    # These signed package coordinates are independent publication floors, not
+    # an exact binding to the current index. Only authenticated metadata may
+    # establish that the current index predates either floor.
+    if (
+        index_authenticated
+        and package_authenticated
+        and isinstance(package_generation, int)
+        and isinstance(package_sequence, int)
+        and (
+            package_generation > generation
+            or package_sequence > sequence
+        )
+    ):
+        failures.add("METADATA_REPLAYED")
 
     package_archive = {
         "length": package.get("archive", {}).get("size"),
@@ -1395,8 +1419,9 @@ def validate_contract(contract: dict[str, Any]) -> None:
         "No production" in contract["specification"]["implementation_claim"],
         "fixture must not claim a production verifier",
     )
-    for name, schema_path in SCHEMAS.items():
-        validate_draft_2020_12(contract[name], load_json(schema_path))
+    schemas = {name: load_json(path) for name, path in SCHEMAS.items()}
+    for name, schema in schemas.items():
+        validate_draft_2020_12(contract[name], schema)
     validate_rfc_8032_reference_vector()
     evaluation = evaluate(contract)
     expectation = contract["verification_expectation"]["expected"]
@@ -1413,6 +1438,74 @@ def validate_contract(contract: dict[str, Any]) -> None:
         contract["verification"] == expected_verification(evaluation),
         "verification result does not match every computed evidence field",
     )
+
+    transition_time_changed = copy.deepcopy(contract)
+    transition_time_changed["trust_roots"]["transition"]["transition_time"] = (
+        "9999-12-31T23:59:59Z"
+    )
+    require(
+        evaluate(transition_time_changed) == evaluation,
+        "unsigned transition_time must not affect a trusted decision or evidence",
+    )
+    rejected_transition_time_changed = copy.deepcopy(contract)
+    rejected_transition_time_changed["package_signature"]["signatures"][0]["value"] = (
+        "not-lowercase-hex"
+    )
+    rejected_before = evaluate(rejected_transition_time_changed)
+    rejected_transition_time_changed["trust_roots"]["transition"]["transition_time"] = (
+        "1900-01-01T00:00:00Z"
+    )
+    require(
+        evaluate(rejected_transition_time_changed) == rejected_before,
+        "unsigned transition_time must not convert a rejection to trust or alter its reasons",
+    )
+
+    missing_result = evaluate({})
+    require(
+        missing_result["primary_reason_code"] == "OFFLINE_INPUT_MISSING",
+        "missing required runtime material must map to OFFLINE_INPUT_MISSING",
+    )
+    validate_draft_2020_12(missing_result, schemas["verification"])
+
+    malformed_cases = [
+        (
+            "root",
+            "/trust_roots/trusted_root/transcript/bytes_hex",
+            None,
+            "ROOT_DIGEST_MISMATCH",
+        ),
+        (
+            "index",
+            "/registry_index/transcript/bytes_hex",
+            None,
+            "INDEX_DIGEST_MISMATCH",
+        ),
+        (
+            "package signature",
+            "/package_signature/signatures/0/value",
+            "not-lowercase-hex",
+            "SIGNATURE_MALFORMED",
+        ),
+        (
+            "package transcript",
+            "/package_signature/transcript/field_order",
+            None,
+            "SIGNATURE_INVALID",
+        ),
+    ]
+    for label, path, value, expected_reason in malformed_cases:
+        malformed = copy.deepcopy(contract)
+        apply_mutations(
+            malformed,
+            [{"operation": "replace", "path": path, "value": value}],
+        )
+        malformed_result = evaluate(malformed)
+        require(
+            expected_reason in malformed_result["reason_codes"],
+            f"malformed {label} must map to {expected_reason}",
+        )
+        validate_draft_2020_12(malformed_result, schemas["verification"])
+
     require(
         contract["package_signature"]["transcript"]["field_order"] == PACKAGE_FIELDS,
         "package signing field order mismatch",

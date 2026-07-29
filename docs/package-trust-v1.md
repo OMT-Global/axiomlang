@@ -2,9 +2,12 @@
 
 Package Trust v1 freezes an implementation-language-neutral contract for
 authenticating registry packages with RFC 8032 Ed25519 signatures and SHA-256
-content digests. It is a contract and vector bundle, not a claim that `axiomc`
-already implements this verifier. The current Rust-hosted `publish` and
-`registry-*` commands still use their pre-existing local HMAC sidecars.
+content digests. The contract fixture and its vectors remain the normative
+portable test bundle. Runtime-authored Package Trust inputs and results use the
+same closed schemas and identify themselves as `implemented`. The Rust-hosted
+`publish`, `registry-index`, `registry-validate`, `registry-serve`, and
+`pkg verify` paths now implement the asymmetric Package Trust flow. Legacy
+`axiom-hmac-sha256-v1` sidecars are not Package Trust inputs and are rejected.
 
 The canonical contract-only fixture is
 `stage1/package-trust/contract/package-trust.json`. Its five published schemas
@@ -16,6 +19,87 @@ bundle with:
 make stage1-package-trust-contract
 make stage1-package-trust-contract-test
 ```
+
+Each of the five schemas permits exactly two `contract_status` values:
+`contract_only` for the canonical fixture and `implemented` for values consumed
+or produced by the runtime. Status identifies the producer boundary; it is not
+a trust decision. The checked-in fixture deliberately remains `contract_only`.
+Unknown status values and unknown fields remain rejected.
+
+The verification expectation's `expected` object is an optional vector oracle.
+The contract checker requires and evaluates it for the canonical fixture, but
+production verification ignores it completely. Omitting `expected`, or changing
+it in an otherwise identical production request, cannot change the runtime
+decision.
+
+## Runtime and command boundary
+
+The library signing boundary is the key-storage-agnostic `Ed25519Signer`
+provider: callers expose only a 32-byte public key and a `sign(message)`
+operation. The provider API never accepts or returns secret key material, so
+production callers can delegate to an HSM, keychain, or isolated signing
+service. Every provider result is decoded, its key ID is derived from the
+public key, and the signature is verified before publishing code accepts it.
+
+The command-line adapter is intentionally narrower and local. `publish` and
+`registry-index` accept one or more repeated `--signing-key-file` arguments.
+Each file must contain exactly a 32-byte Ed25519 seed or 64 lowercase
+hexadecimal characters and is bounded to 64 bytes. This file format is a CLI
+adapter, not the library provider contract. Verification commands accept no
+signing key or secret-bearing option.
+
+The implemented registry lifecycle is:
+
+1. `publish` builds the exact package archive, binds its packaged manifest and
+   canonical provenance, signs the Package Trust transcript with distinct
+   authorized package-role providers, and atomically writes the release and
+   `package-signature.json`.
+2. `registry-index` strictly reads those signature envelopes, requires an index
+   threshold of at least two distinct authorized providers, emits a signed
+   `axiom.registry_index.v2` envelope, and fully verifies every indexed release
+   before returning the index.
+3. `registry-validate` strictly loads the signed v2 index and re-verifies every
+   release against the supplied roots and expectation using the exact archive,
+   packaged `axiom.toml`, provenance, and package-signature bytes.
+4. `registry-serve` performs the same complete verification before serving any
+   response. It then snapshots the verified index and served release bytes in
+   memory. Later filesystem replacement or tampering cannot change that
+   running server's responses. `/` and `/index.json` expose the frozen index;
+   only the verified archive, manifest, provenance, and signature paths are
+   included in the served snapshot.
+
+Registry file reads are bounded, reject symlinks and path escape, and compare
+the exact local bytes rather than trusting index metadata alone. The server
+supports `GET` and `HEAD`; malformed targets receive HTTP 400, unsupported
+methods 405, and paths outside the snapshot 404.
+
+All four production JSON inputs—package signature, trust roots, registry index
+v2, and verification expectation—are parsed with duplicate-member rejection
+and validated against the embedded published schema before semantic
+verification. Runtime results are typed `axiom.package_verification.v1`
+documents with `contract_status: implemented`; regression tests validate both
+trusted and every pre-semantic failure shape against the result schema. Result
+schema validation is a wire-contract check, not a substitute for the
+cryptographic decision.
+
+Package Trust metadata is bounded before parsing at 8 MiB per document. The
+schemas additionally cap every signature array and satisfiable threshold at
+16, root keys at 128, root roles at 64, namespace grants at 2,048, index
+releases at 1,024, required package key IDs at 16, and role/supersession key-ID
+arrays at 128. SLSA subject, dependency, and byproduct arrays are capped at
+1,024; retained snapshot history at 10,000; and generic digest, version, and
+parameter maps at 128 properties. Identifiers and package/role/display values
+are bounded to 256 Unicode code points, registry/source/publisher/URI/builder
+identities to 2,048, and relative paths and free text to 4,096. Fixed-size
+digests, keys, and signatures retain their exact patterns. These are rejection
+budgets, not truncation rules.
+
+`axiomc pkg verify --json` writes exactly one verification result to stdout.
+Exit status `0` means `trusted`, `1` means `rejected` (including missing,
+unreadable, malformed, or cryptographically invalid input), and `2` is reserved
+for failure to serialize or write the result. The registry lifecycle commands
+return `0` on success and `1` on validation, signing, filesystem, or serving
+diagnostics.
 
 ## Package signing transcript
 
@@ -38,18 +122,19 @@ Integers are unsigned 64-bit big-endian values. SHA-256 values are their raw
 version, archive digest and length, manifest digest, namespace, package name,
 SemVer version, target path, registry and source identities, publisher and key
 identities, in-toto statement digest, SLSA predicate type and subject, and
-registry index generation and sequence. The fixture stores the exact transcript
-hex and its SHA-256 so independent implementations can reproduce it byte for
-byte.
+registry index publication-floor generation and sequence. The fixture stores
+the exact transcript hex and its SHA-256 so independent implementations can
+reproduce it byte for byte.
 
 Root and index metadata use `axiom-canonical-json-v1`: NFC UTF-8 JSON with keys
 sorted by Unicode code point, no insignificant whitespace, lowercase JSON
 literals, and integer-only numbers. The metadata transcript is the two-byte
 domain length, domain bytes, eight-byte canonical-payload length, and payload
-bytes. Package, root, root-transition, and index envelopes carry `signatures`
-arrays. A threshold counts unique, valid public-key fingerprints, never
-signature entries or repeated key IDs. Required package key IDs must all
-contribute to the satisfied threshold.
+bytes. Package, root, and index envelopes carry `signatures` arrays. Root
+transition authorization carries old-root and new-root signatures over the
+canonical candidate-root bytes. A threshold counts unique, valid public-key
+fingerprints, never signature entries or repeated key IDs. Required package key
+IDs must all contribute to the satisfied threshold.
 
 A key ID is `sha256:` plus the SHA-256 of the canonical JSON key object
 containing exactly the algorithm, public-key encoding, and public-key bytes.
@@ -88,12 +173,17 @@ role graph as TUF metadata.
 
 A root transition accepts exactly root `N+1`. The candidate root's canonical
 bytes must satisfy the old root role threshold and the candidate root role
-threshold independently before the new root is pinned. Repeated signatures
-from one fingerprint do not satisfy either side. The vectors reject skipped or
+threshold independently before the new root is pinned. The signed candidate
+root's `issued_at` is the effective rotation time for expiry checks.
+`transition_time` is retained only as unauthenticated compatibility metadata
+and cannot affect trust, expiry, or key eligibility. The unsigned
+`from_version` and `to_version` fields are consistency checks against the two
+signed root versions, not authorization evidence. Repeated signatures from one
+fingerprint do not satisfy either threshold. The vectors reject skipped or
 unchanged versions, old-only and new-only authorization, duplicate signers,
-expired previous roots, rollback, and signatures made by keys that are
-not-yet-valid, retired, or revoked at the effective sequence and verification
-time.
+previous roots expired at the signed effective rotation time, rollback, and
+signatures made by keys that are not-yet-valid, retired, or revoked at the
+effective sequence and verification time.
 
 The first root is not trusted because it is self-signed. The verification
 expectation carries an out-of-band `trusted_root_anchor` containing the exact
@@ -121,6 +211,16 @@ package coordinates `(registry, source, namespace, name, version)`, in addition
 to unique complete release tuples. This prevents two signed releases from
 creating an ambiguous cache key or target.
 
+The generation and sequence signed into a package envelope are independent,
+immutable publication floors, not an exact snapshot binding. After both the
+package envelope and current registry index authenticate, the current index
+generation must be at least the package generation floor and its sequence must
+be at least the package sequence floor. Either current component below its
+signed floor is `METADATA_REPLAYED`; newer current coordinates are valid. This
+does not relax the exact current-index checks: the signed index transcript,
+retained snapshot state, and offline-lock generation, sequence, and transcript
+digest still identify the current index exactly.
+
 `offline_locked` operation explicitly forbids network fallback and requires
 every input to be present. Its lock is exact, not advisory: root version,
 sequence, and transcript digest; index generation, sequence, and transcript
@@ -145,6 +245,10 @@ subject must be an exact member of the subject array, and that subject's name
 and SHA-256 must bind the selected target and archive. The statement digest,
 SLSA predicate type, selected subject, and canonical statement are compared
 across the request, package, index release, and offline lock.
+The package envelope admits a bounded absolute predicate URI so a structurally
+valid hostile value reaches semantic comparison. Rejected results may preserve
+that observed URI; expectations and trusted results still require the exact
+SLSA Provenance v1 predicate type.
 
 For predicate type `https://slsa.dev/provenance/v1`, the predicate uses the
 official SLSA Provenance v1 structure. `buildDefinition` contains `buildType`,
@@ -164,6 +268,29 @@ first as `primary_reason_code`; it does not stop at the first check. The stored
 result is cross-checked field-for-field against the evaluator's published
 `axiom.package_verification.v1` shape.
 
+The result schema discriminates evidence by `decision`. A `trusted` result has
+`primary_reason_code: OK`, exactly `reason_codes: [OK]`, a non-empty signer
+array, complete observed/archive/manifest/provenance/trust evidence, and
+strictly positive threshold and valid-signer counts. A `rejected` result never
+uses `OK`; it may report only evidence obtained before failure. Its observed
+identity may be partial, its signer array may be empty, archive, manifest, and
+provenance may be `null`, and trust evidence may be `null` or a closed partial
+object whose available counts can be zero. These allowances do not apply to a
+trusted result, and unknown fields remain invalid in both branches.
+
+Malformed and unavailable production inputs use the existing stable reason
+codes:
+
+| Input condition | Required reason mapping |
+| --- | --- |
+| Offline input absent, unreadable, or missing required material | `OFFLINE_INPUT_MISSING` |
+| Trust-root JSON, canonical payload, or transcript malformed | `ROOT_DIGEST_MISMATCH`, plus applicable root signature, threshold, bootstrap, rotation, or key-authorization reasons |
+| Registry-index JSON, canonical payload, or transcript malformed | `INDEX_DIGEST_MISMATCH`, plus applicable index signature or threshold reasons |
+| Package envelope or signature encoding malformed | `SIGNATURE_MALFORMED` when the signature/key encoding cannot be decoded; otherwise `SIGNATURE_INVALID` for a parseable but unauthentic package transcript or signature |
+
+The runtime must return a schema-valid rejected result for these cases rather
+than treating malformed untrusted bytes as a result-serialization error.
+
 The vectors cover every stable reason code and include multi-failure ordering,
 duplicate JSON members, tampered archive and index data, malformed and
 cryptographically invalid signatures, identity/non-canonical/small-order
@@ -171,10 +298,15 @@ points, unknown and revoked keys, mixed-publisher thresholds, invalid
 supersession graphs, wrong publisher/namespace/name/version/source or target,
 unsafe paths, ambiguous cache targets/package coordinates, exact-repeat and
 rebound snapshot behavior, bootstrap-anchor substitution, replay, rollback,
-SemVer prerelease downgrade, expiry, threshold failure, grant/delegation
-failure, and official SLSA predicate mismatch. JSON parsing rejects duplicate
-object member names before schema or semantic evaluation.
+publication floors (including a signed current index below the package floor
+and newer authenticated current indexes), SemVer prerelease downgrade, expiry,
+threshold failure, grant/delegation failure, and official SLSA predicate
+mismatch. JSON parsing rejects duplicate object member names before schema or
+semantic evaluation.
 
-This slice intentionally remains `contract_only`. It does not close issue
-`#1458`, authenticate existing HMAC artifacts as Ed25519, or qualify a hosted
-registry implementation.
+The canonical vector bundle intentionally remains `contract_only`; operational
+inputs and results are `implemented`. The asymmetric registry path accepts only
+strict Package Trust JSON and exact authenticated artifacts. A legacy HMAC
+sidecar is neither upgraded nor grandfathered: it fails strict JSON/schema
+parsing and cannot be indexed, validated, served, or consumed as an Ed25519
+package signature.

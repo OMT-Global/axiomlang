@@ -193,10 +193,22 @@ def main() -> int:
         "axiom://schema/axiom-registry-index-v2",
         "axiom://schema/axiom-trust-roots-v1",
     }
+    new_main_schema_ids = {
+        "axiom://schema/axiom.lsp.v1",
+        "axiom://schema/axiom.runtime_lifecycle.v1",
+        "axiom://schema/axiom.semantic_mir.v1",
+    }
     assert len(baseline_ids) == 52, "accepted baseline must remain the frozen 52-surface ratchet"
-    assert len(current_ids) == 57, "current contract must include five package trust schemas"
+    assert len(current_ids) == 60, "current contract must include five package trust schemas plus Semantic MIR, runtime lifecycle, and persistent LSP schemas"
     assert set(baseline_ids) < set(current_ids)
-    assert set(current_ids) - set(baseline_ids) == new_package_trust_ids
+    assert set(current_ids) - set(baseline_ids) == new_package_trust_ids | new_main_schema_ids
+    assert current_payload["contract_version"] == "0.3.0"
+    current_cli = surface(current_payload, "axiom://cli/axiomc")
+    assert current_cli["version"] == "0.2.0"
+    current_commands = (
+        current_cli["signature"].split("; ", maxsplit=1)[0].split("=")[1].split(",")
+    )
+    assert "pkg verify" in current_commands
     canonical = run(
         BASELINE,
         CURRENT,
@@ -206,25 +218,41 @@ def main() -> int:
     assert canonical.returncode == 0, canonical.stdout + canonical.stderr
     canonical_report = json.loads(canonical.stdout)
     assert canonical_report["summary"] == {
-        "additive": 5,
-        "breaking": 0,
+        "additive": 8,
+        "breaking": 1,
         "compatible": 0,
         "deprecated": 0,
     }
+    expected_changed_ids = new_package_trust_ids | new_main_schema_ids | {"axiom://cli/axiomc"}
     assert {
         item["surface_id"] for item in canonical_report["changes"]
-    } == new_package_trust_ids
+    } == expected_changed_ids
     assert all(
         item["change"] == "added"
         and item["severity"] == "additive"
         and item["surface_kind"] == "schema"
         for item in canonical_report["changes"]
+        if item["surface_id"] in new_package_trust_ids
+    )
+    cli_change = next(
+        item
+        for item in canonical_report["changes"]
+        if item["surface_id"] == "axiom://cli/axiomc"
+    )
+    assert cli_change["change"] == "modified"
+    assert cli_change["severity"] == "breaking"
+    assert cli_change["surface_kind"] == "cli"
+    assert cli_change["migration"] == (
+        "Existing command invocations require no changes. To adopt Package Trust v1 "
+        "verification, invoke axiomc pkg verify with the exact artifact and trust "
+        "metadata paths plus --json, then handle exit 0 as trusted, exit 1 as rejected, "
+        "and exit 2 as an operational failure."
     )
     compiler_schema_ids = {
         f"axiom://schema/{path.name.removesuffix('.schema.json')}"
         for path in (ROOT / "stage1/compiler-contracts/schemas").glob("*.schema.json")
     }
-    assert compiler_schema_ids <= set(baseline_ids)
+    assert compiler_schema_ids - new_main_schema_ids <= set(baseline_ids)
     with tempfile.TemporaryDirectory() as temporary:
         directory = Path(temporary)
         for identifier in baseline_ids:

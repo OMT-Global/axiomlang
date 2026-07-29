@@ -27,7 +27,10 @@
       "const": "package.signature"
     },
     "contract_status": {
-      "const": "contract_only"
+      "enum": [
+        "contract_only",
+        "implemented"
+      ]
     },
     "scheme": {
       "type": "object",
@@ -85,19 +88,23 @@
       "properties": {
         "namespace": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "maxLength": 256
         },
         "name": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "maxLength": 256
         },
         "version": {
           "type": "string",
+          "maxLength": 256,
           "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$"
         },
         "target_path": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "maxLength": 4096
         }
       }
     },
@@ -111,11 +118,13 @@
       "properties": {
         "registry_identity": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "maxLength": 2048
         },
         "source_identity": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "maxLength": 2048
         }
       }
     },
@@ -128,7 +137,8 @@
       "properties": {
         "publisher_identity": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "maxLength": 2048
         }
       }
     },
@@ -137,6 +147,7 @@
     },
     "index": {
       "type": "object",
+      "description": "Immutable signed publication floors. A verifier may use a newer authenticated registry index, but rejects one whose generation or sequence is below the corresponding floor.",
       "additionalProperties": false,
       "required": [
         "generation",
@@ -145,10 +156,12 @@
       "properties": {
         "generation": {
           "type": "integer",
+          "description": "Minimum authenticated registry-index generation eligible to carry this package.",
           "minimum": 1
         },
         "sequence": {
           "type": "integer",
+          "description": "Minimum authenticated registry-index sequence eligible to carry this package.",
           "minimum": 1
         }
       }
@@ -183,7 +196,8 @@
           "minItems": 23,
           "items": {
             "type": "string",
-            "minLength": 1
+            "minLength": 1,
+            "maxLength": 256
           },
           "maxItems": 23,
           "uniqueItems": true
@@ -193,6 +207,7 @@
     "signatures": {
       "type": "array",
       "minItems": 2,
+      "maxItems": 16,
       "items": {
         "$ref": "#/$defs/signature"
       },
@@ -294,9 +309,10 @@
                 "_type": {
                   "const": "https://in-toto.io/Statement/v1"
                 },
-                "subject": {
-                  "type": "array",
-                  "minItems": 1,
+          "subject": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 1024,
                   "items": {
                     "type": "object",
                     "additionalProperties": false,
@@ -305,9 +321,10 @@
                       "digest"
                     ],
                     "properties": {
-                      "name": {
-                        "type": "string",
-                        "minLength": 1
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 4096
                       },
                       "digest": {
                         "type": "object",
@@ -327,7 +344,10 @@
                   "uniqueItems": true
                 },
                 "predicateType": {
-                  "const": "https://slsa.dev/provenance/v1"
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2048,
+                  "pattern": "^[A-Za-z][A-Za-z0-9+.-]*:[^\\s]+$"
                 },
                 "predicate": {
                   "type": "object",
@@ -347,21 +367,25 @@
                         "resolvedDependencies"
                       ],
                       "properties": {
-                        "buildType": {
-                          "type": "string",
-                          "minLength": 1
+                "buildType": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2048
                         },
-                        "externalParameters": {
-                          "type": "object",
-                          "additionalProperties": true
-                        },
-                        "internalParameters": {
-                          "type": "object",
-                          "additionalProperties": true
-                        },
-                        "resolvedDependencies": {
-                          "type": "array",
-                          "minItems": 1,
+                "externalParameters": {
+                  "type": "object",
+                  "maxProperties": 128,
+                  "additionalProperties": true
+                },
+                "internalParameters": {
+                  "type": "object",
+                  "maxProperties": 128,
+                  "additionalProperties": true
+                },
+                "resolvedDependencies": {
+                  "type": "array",
+                  "minItems": 1,
+                  "maxItems": 1024,
                           "items": {
                             "type": "object",
                             "additionalProperties": false,
@@ -370,13 +394,15 @@
                               "digest"
                             ],
                             "properties": {
-                              "uri": {
-                                "type": "string",
-                                "minLength": 1
+                      "uri": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 2048
                               },
-                              "digest": {
-                                "type": "object",
-                                "minProperties": 1,
+                        "digest": {
+                          "type": "object",
+                          "minProperties": 1,
+                          "maxProperties": 128,
                                 "additionalProperties": {
                                   "type": "string",
                                   "pattern": "^[0-9a-f]{64}$"
@@ -406,13 +432,15 @@
                             "version"
                           ],
                           "properties": {
-                            "id": {
-                              "type": "string",
-                              "minLength": 1
+                    "id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 2048
                             },
-                            "builderDependencies": {
-                              "type": "array",
-                              "minItems": 0,
+                    "builderDependencies": {
+                      "type": "array",
+                      "minItems": 0,
+                      "maxItems": 1024,
                               "items": {
                                 "type": "object",
                                 "additionalProperties": false,
@@ -421,13 +449,15 @@
                                   "digest"
                                 ],
                                 "properties": {
-                                  "uri": {
-                                    "type": "string",
-                                    "minLength": 1
+                          "uri": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 2048
                                   },
-                                  "digest": {
-                                    "type": "object",
-                                    "minProperties": 1,
+                            "digest": {
+                              "type": "object",
+                              "minProperties": 1,
+                              "maxProperties": 128,
                                     "additionalProperties": {
                                       "type": "string",
                                       "pattern": "^[0-9a-f]{64}$"
@@ -437,12 +467,14 @@
                               },
                               "uniqueItems": true
                             },
-                            "version": {
-                              "type": "object",
-                              "minProperties": 1,
+                    "version": {
+                      "type": "object",
+                      "minProperties": 1,
+                      "maxProperties": 128,
                               "additionalProperties": {
-                                "type": "string",
-                                "minLength": 1
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 4096
                               }
                             }
                           }
@@ -456,9 +488,10 @@
                             "finishedOn"
                           ],
                           "properties": {
-                            "invocationId": {
-                              "type": "string",
-                              "minLength": 1
+                    "invocationId": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 4096
                             },
                             "startedOn": {
                               "type": "string",
@@ -470,9 +503,10 @@
                             }
                           }
                         },
-                        "byproducts": {
-                          "type": "array",
-                          "minItems": 0,
+                "byproducts": {
+                  "type": "array",
+                  "minItems": 0,
+                  "maxItems": 1024,
                           "items": {
                             "type": "object",
                             "additionalProperties": false,
@@ -481,13 +515,15 @@
                               "digest"
                             ],
                             "properties": {
-                              "uri": {
-                                "type": "string",
-                                "minLength": 1
+                      "uri": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 2048
                               },
-                              "digest": {
-                                "type": "object",
-                                "minProperties": 1,
+                        "digest": {
+                          "type": "object",
+                          "minProperties": 1,
+                          "maxProperties": 128,
                                 "additionalProperties": {
                                   "type": "string",
                                   "pattern": "^[0-9a-f]{64}$"
@@ -513,9 +549,10 @@
             "digest"
           ],
           "properties": {
-            "name": {
-              "type": "string",
-              "minLength": 1
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096
             },
             "digest": {
               "type": "object",

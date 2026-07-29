@@ -23,6 +23,7 @@ SUPPORTED_ASSERTIONS = {
     "additionalProperties",
     "pattern",
     "minLength",
+    "maxLength",
     "minItems",
     "maxItems",
     "minProperties",
@@ -130,6 +131,9 @@ def _validate(instance: Any, schema: Any, root: dict[str, Any], path: str) -> No
         minimum = schema.get("minLength")
         if isinstance(minimum, int) and len(instance) < minimum:
             raise ValueError(f"{path} must have length at least {minimum}")
+        maximum = schema.get("maxLength")
+        if isinstance(maximum, int) and len(instance) > maximum:
+            raise ValueError(f"{path} must have length at most {maximum}")
         pattern = schema.get("pattern")
         if isinstance(pattern, str) and re.search(pattern, instance) is None:
             raise ValueError(f"{path} does not match required pattern {pattern!r}")
