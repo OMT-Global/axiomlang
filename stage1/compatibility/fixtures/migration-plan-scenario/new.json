@@ -1,0 +1,107 @@
+{
+  "compiler": {
+    "current": "0.1.0",
+    "maximum": "0.1.0",
+    "minimum": "0.1.0",
+    "source": {
+      "path": "docs/compatibility-v1.md",
+      "role": "synthetic_scenario",
+      "selector": "plan-only compiler range",
+      "sha256": "092921ac1e203f59df7a7fcf04c0f50afe1b5586354d2a00c22dd7de2d72ea25"
+    }
+  },
+  "contract_version": "2.0.0",
+  "edition": {
+    "id": "2026",
+    "source": {
+      "path": "docs/compatibility-v1.md",
+      "role": "synthetic_scenario",
+      "selector": "plan-only edition",
+      "sha256": "092921ac1e203f59df7a7fcf04c0f50afe1b5586354d2a00c22dd7de2d72ea25"
+    },
+    "status": "experimental"
+  },
+  "migrations": {},
+  "policy_version": "1.0.0",
+  "schema_version": "axiom.public_contract.v1",
+  "snapshot_id": "axiom://compatibility/migration-plan-scenario/new",
+  "surfaces": [
+    {
+      "id": "axiom://language/loop",
+      "kind": "language",
+      "signature": "loop(condition, body)",
+      "sources": [{"path": "docs/compatibility-v1.md", "role": "synthetic_scenario", "selector": "language loop", "sha256": "092921ac1e203f59df7a7fcf04c0f50afe1b5586354d2a00c22dd7de2d72ea25"}],
+      "stability": "stable",
+      "version": "1.1.0"
+    },
+    {
+      "deprecation": {
+        "announced_on": "2026-01-01",
+        "remove_after": "2026-07-01",
+        "supported_editions": ["2027", "2028"]
+      },
+      "id": "axiom://stdlib/text/lines",
+      "kind": "stdlib",
+      "migration": {
+        "action": "Replace text.lines with text.split_lines before removal.",
+        "replacement": "axiom://stdlib/text/split-lines"
+      },
+      "replacement": "axiom://stdlib/text/split-lines",
+      "signature": "text.lines(text) -> Sequence<Text>",
+      "sources": [{"path": "docs/compatibility-v1.md", "role": "synthetic_scenario", "selector": "stdlib lines", "sha256": "092921ac1e203f59df7a7fcf04c0f50afe1b5586354d2a00c22dd7de2d72ea25"}],
+      "stability": "deprecated",
+      "version": "1.1.0"
+    },
+    {
+      "id": "axiom://stdlib/text/split-lines",
+      "kind": "stdlib",
+      "signature": "text.split_lines(text) -> Sequence<Text>",
+      "sources": [{"path": "docs/compatibility-v1.md", "role": "synthetic_scenario", "selector": "stdlib split lines", "sha256": "092921ac1e203f59df7a7fcf04c0f50afe1b5586354d2a00c22dd7de2d72ea25"}],
+      "stability": "stable",
+      "version": "1.0.0"
+    },
+    {
+      "id": "axiom://cli/check",
+      "kind": "cli",
+      "migration": {
+        "action": "Keep --json and add --properties --backend when running property fixtures."
+      },
+      "signature": "axiomc check <package> --json [--properties]",
+      "sources": [{"path": "docs/compatibility-v1.md", "role": "synthetic_scenario", "selector": "cli check", "sha256": "092921ac1e203f59df7a7fcf04c0f50afe1b5586354d2a00c22dd7de2d72ea25"}],
+      "stability": "stable",
+      "version": "2.0.0"
+    },
+    {
+      "id": "axiom://package/manifest",
+      "kind": "package",
+      "signature": "axiom.toml semantic manifest v1",
+      "sources": [{"path": "docs/compatibility-v1.md", "role": "synthetic_scenario", "selector": "package manifest", "sha256": "092921ac1e203f59df7a7fcf04c0f50afe1b5586354d2a00c22dd7de2d72ea25"}],
+      "stability": "stable",
+      "version": "1.0.0"
+    },
+    {
+      "id": "axiom://abi/direct-native",
+      "kind": "abi",
+      "signature": "main() -> process-status",
+      "sources": [{"path": "docs/compatibility-v1.md", "role": "synthetic_scenario", "selector": "logical ABI", "sha256": "092921ac1e203f59df7a7fcf04c0f50afe1b5586354d2a00c22dd7de2d72ea25"}],
+      "stability": "experimental",
+      "version": "1.0.0"
+    },
+    {
+      "id": "axiom://schema/intent-ir",
+      "kind": "schema",
+      "signature": "axiom.intent_ir.v0",
+      "sources": [{"path": "docs/compatibility-v1.md", "role": "synthetic_scenario", "selector": "intent schema", "sha256": "092921ac1e203f59df7a7fcf04c0f50afe1b5586354d2a00c22dd7de2d72ea25"}],
+      "stability": "stable",
+      "version": "1.1.0"
+    },
+    {
+      "id": "axiom://artifact/envelope",
+      "kind": "artifact",
+      "signature": "AxiOM artifact envelope",
+      "sources": [{"path": "docs/compatibility-v1.md", "role": "synthetic_scenario", "selector": "artifact envelope", "sha256": "092921ac1e203f59df7a7fcf04c0f50afe1b5586354d2a00c22dd7de2d72ea25"}],
+      "stability": "experimental",
+      "version": "1.0.0"
+    }
+  ]
+}

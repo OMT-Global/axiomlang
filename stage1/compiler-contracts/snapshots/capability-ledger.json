@@ -888,6 +888,12 @@
     },
     {
       "evidenceTier": "static_spike",
+      "name": "https://axiom.omt.global/schemas/axiom-compatibility-policy-v1.schema.json",
+      "source": "stage1/schemas/axiom-compatibility-policy-v1.schema.json",
+      "status": "checked"
+    },
+    {
+      "evidenceTier": "static_spike",
       "name": "https://axiom.omt.global/schemas/axiom-compatibility-report-v1.schema.json",
       "source": "stage1/schemas/axiom-compatibility-report-v1.schema.json",
       "status": "checked"

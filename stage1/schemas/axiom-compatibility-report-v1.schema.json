@@ -1,47 +1,148 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://axiom.omt.global/schemas/axiom-compatibility-report-v1.schema.json",
-  "title": "Axiom Compatibility Report v1",
-  "type": "object",
-  "required": ["schema_version", "ok", "command", "old", "new", "edition", "summary", "changes"],
-  "additionalProperties": false,
-  "properties": {
-    "schema_version": {"const": "axiom.compatibility_report.v1"},
-    "ok": {"type": "boolean"},
-    "command": {"const": "compatibility-report"},
-    "old": {"type": "string", "minLength": 1},
-    "new": {"type": "string", "minLength": 1},
-    "edition": {"$ref": "#/$defs/editionChange"},
-    "summary": {"$ref": "#/$defs/summary"},
-    "changes": {"type": "array", "items": {"$ref": "#/$defs/change"}}
-  },
+  "title": "AxiOM Compatibility Report v1",
+  "oneOf": [
+    {"$ref": "#/$defs/success"},
+    {"$ref": "#/$defs/failure"}
+  ],
   "$defs": {
-    "editionChange": {
+    "axiomId": {
+      "type": "string",
+      "pattern": "^axiom://[A-Za-z0-9._~:/#@!$&'()*+,;=%-]+$"
+    },
+    "semver": {"type": "string", "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"},
+    "success": {
       "type": "object",
-      "required": ["old", "new", "severity", "migration"],
       "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "ok",
+        "command",
+        "policies",
+        "contracts",
+        "old",
+        "new",
+        "compiler",
+        "edition",
+        "summary",
+        "changes"
+      ],
+      "properties": {
+        "schema_version": {"const": "axiom.compatibility_report.v1"},
+        "ok": {"const": true},
+        "command": {"const": "compatibility-report"},
+        "policies": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["old", "new", "severity", "migration"],
+          "properties": {
+            "old": {"$ref": "#/$defs/semver"},
+            "new": {"$ref": "#/$defs/semver"},
+            "severity": {"enum": ["compatible", "additive", "deprecated", "breaking"]},
+            "migration": {"type": ["string", "null"]}
+          },
+          "allOf": [{
+            "if": {"properties": {"severity": {"enum": ["breaking", "deprecated"]}}, "required": ["severity"]},
+            "then": {"properties": {"migration": {"type": "string", "pattern": ".*\\S.*"}}},
+            "else": {"properties": {"migration": {"type": "null"}}}
+          }]
+        },
+        "contracts": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["old", "new"],
+          "properties": {
+            "old": {"$ref": "#/$defs/semver"},
+            "new": {"$ref": "#/$defs/semver"}
+          }
+        },
+        "old": {"$ref": "#/$defs/axiomId"},
+        "new": {"$ref": "#/$defs/axiomId"},
+        "compiler": {"$ref": "#/$defs/compilerChange"},
+        "edition": {"$ref": "#/$defs/editionChange"},
+        "summary": {"$ref": "#/$defs/summary"},
+        "changes": {"type": "array", "items": {"$ref": "#/$defs/change"}}
+      }
+    },
+    "failure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "ok", "command", "error"],
+      "properties": {
+        "schema_version": {"const": "axiom.compatibility_report.v1"},
+        "ok": {"const": false},
+        "command": {"const": "compatibility-report"},
+        "error": {"type": "string", "minLength": 1}
+      }
+    },
+    "compilerRange": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["current", "minimum", "maximum"],
+      "properties": {
+        "current": {"$ref": "#/$defs/semver"},
+        "minimum": {"$ref": "#/$defs/semver"},
+        "maximum": {"$ref": "#/$defs/semver"}
+      }
+    },
+    "compilerChange": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["old", "new", "severity", "migration"],
+      "properties": {
+        "old": {"$ref": "#/$defs/compilerRange"},
+        "new": {"$ref": "#/$defs/compilerRange"},
+        "severity": {"enum": ["compatible", "additive", "breaking"]},
+        "migration": {"type": ["string", "null"]}
+      },
       "allOf": [
         {
-          "if": {
-            "properties": {"severity": {"const": "deprecated"}},
-            "required": ["severity"]
-          },
-          "then": {"required": ["replacement"]},
-          "else": {"not": {"required": ["replacement"]}}
+          "if": {"properties": {"severity": {"const": "breaking"}}, "required": ["severity"]},
+          "then": {"properties": {"migration": {"type": "string", "pattern": ".*\\S.*"}}},
+          "else": {"properties": {"migration": {"type": "null"}}}
         }
-      ],
+      ]
+    },
+    "editionChange": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["old", "new", "severity", "migration"],
       "properties": {
         "old": {"type": "string", "pattern": "^[0-9]{4}$"},
         "new": {"type": "string", "pattern": "^[0-9]{4}$"},
         "severity": {"enum": ["compatible", "breaking", "deprecated"]},
         "migration": {"type": ["string", "null"]},
         "replacement": {"type": "string", "pattern": "^[0-9]{4}$"}
-      }
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"severity": {"const": "breaking"}}, "required": ["severity"]},
+          "then": {
+            "properties": {"migration": {"type": "string", "pattern": ".*\\S.*"}},
+            "not": {"required": ["replacement"]}
+          }
+        },
+        {
+          "if": {"properties": {"severity": {"const": "deprecated"}}, "required": ["severity"]},
+          "then": {
+            "required": ["replacement"],
+            "properties": {"migration": {"type": "string", "pattern": ".*\\S.*"}}
+          }
+        },
+        {
+          "if": {"properties": {"severity": {"const": "compatible"}}, "required": ["severity"]},
+          "then": {
+            "properties": {"migration": {"type": "null"}},
+            "not": {"required": ["replacement"]}
+          }
+        }
+      ]
     },
     "summary": {
       "type": "object",
-      "required": ["breaking", "additive", "deprecated", "compatible"],
       "additionalProperties": false,
+      "required": ["breaking", "additive", "deprecated", "compatible"],
       "properties": {
         "breaking": {"type": "integer", "minimum": 0},
         "additive": {"type": "integer", "minimum": 0},
@@ -51,35 +152,89 @@
     },
     "change": {
       "type": "object",
-      "required": ["change", "severity", "surface_kind", "surface_id", "description", "migration"],
       "additionalProperties": false,
-      "allOf": [
-        {
-          "if": {
-            "properties": {"severity": {"const": "deprecated"}},
-            "required": ["severity"]
-          },
-          "then": {"required": ["replacement"]}
-        },
-        {
-          "if": {
-            "properties": {"severity": {"enum": ["additive", "compatible"]}},
-            "required": ["severity"]
-          },
-          "then": {"not": {"required": ["replacement"]}}
-        }
+      "required": [
+        "change",
+        "severity",
+        "surface_kind",
+        "surface_id",
+        "description",
+        "migration"
       ],
       "properties": {
         "change": {"enum": ["added", "removed", "modified", "deprecated"]},
         "severity": {"enum": ["breaking", "additive", "deprecated", "compatible"]},
-        "surface_kind": {"enum": ["compiler", "language", "stdlib", "cli", "package", "abi", "schema", "artifact"]},
-        "surface_id": {"type": "string", "pattern": "^axiom://[A-Za-z0-9._~:/#@!$&'()*+,;=%-]+$"},
-        "old_version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"},
-        "new_version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"},
-        "description": {"type": "string", "minLength": 1},
+        "surface_kind": {
+          "enum": ["language", "stdlib", "cli", "package", "abi", "schema", "artifact"]
+        },
+        "surface_id": {
+          "type": "string",
+          "pattern": "^axiom://[A-Za-z0-9._~:/#@!$&'()*+,;=%-]+$"
+        },
+        "old_version": {"$ref": "#/$defs/semver"},
+        "new_version": {"$ref": "#/$defs/semver"},
+        "description": {"type": "string", "pattern": ".*\\S.*"},
         "migration": {"type": ["string", "null"]},
-        "replacement": {"type": "string", "pattern": "^axiom://[A-Za-z0-9._~:/#@!$&'()*+,;=%-]+$"}
-      }
+        "replacement": {
+          "type": "string",
+          "pattern": "^axiom://[A-Za-z0-9._~:/#@!$&'()*+,;=%-]+$"
+        }
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"change": {"const": "added"}}, "required": ["change"]},
+          "then": {
+            "required": ["new_version"],
+            "properties": {
+              "severity": {"const": "additive"},
+              "migration": {"type": "null"}
+            },
+            "allOf": [
+              {"not": {"required": ["old_version"]}},
+              {"not": {"required": ["replacement"]}}
+            ]
+          }
+        },
+        {
+          "if": {"properties": {"change": {"const": "removed"}}, "required": ["change"]},
+          "then": {
+            "required": ["old_version", "replacement"],
+            "properties": {
+              "severity": {"const": "breaking"},
+              "migration": {"type": "string", "pattern": ".*\\S.*"}
+            },
+            "not": {"required": ["new_version"]}
+          }
+        },
+        {
+          "if": {"properties": {"change": {"const": "modified"}}, "required": ["change"]},
+          "then": {
+            "required": ["old_version", "new_version"],
+            "properties": {
+              "severity": {"enum": ["breaking", "additive", "compatible"]}
+            },
+            "not": {"required": ["replacement"]}
+          }
+        },
+        {
+          "if": {"properties": {"change": {"const": "deprecated"}}, "required": ["change"]},
+          "then": {
+            "required": ["old_version", "new_version", "replacement"],
+            "properties": {
+              "severity": {"const": "deprecated"},
+              "migration": {"type": "string", "pattern": ".*\\S.*"}
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {"severity": {"enum": ["breaking", "deprecated"]}},
+            "required": ["severity"]
+          },
+          "then": {"properties": {"migration": {"type": "string", "pattern": ".*\\S.*"}}},
+          "else": {"properties": {"migration": {"type": "null"}}}
+        }
+      ]
     }
   }
 }

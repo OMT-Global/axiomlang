@@ -1,0 +1,165 @@
+{
+  "compiler": {
+    "current": "0.1.0",
+    "maximum": "0.1.0",
+    "minimum": "0.1.0",
+    "source": {
+      "path": "stage1/Cargo.toml",
+      "role": "compiler_version",
+      "selector": "workspace.package.version",
+      "sha256": "af61ad48eb413b81330670814492934814986017e112eeb06f61636b03d8529e"
+    }
+  },
+  "contract_version": "0.0.1",
+  "edition": {
+    "id": "2026",
+    "source": {
+      "path": "stage1/compatibility/policy-v1.json",
+      "role": "edition_policy",
+      "selector": "editions.current",
+      "sha256": "d3e0f5950eb78df0a6c626a29761491194b57fe4a53a8ec755b7b9b69aea2312"
+    },
+    "status": "experimental"
+  },
+  "migrations": {},
+  "policy_version": "1.0.0",
+  "schema_version": "axiom.public_contract.v1",
+  "snapshot_id": "axiom://compatibility/previous-contract-fixture",
+  "surfaces": [
+    {
+      "id": "axiom://language/edition/2026",
+      "kind": "language",
+      "signature": "edition 2026; status=experimental; selection=not_implemented; coverage=governed_partial; language_semantic_digest=af0632c1bb5bf939d3877901576ba1c97957163ea3c513a9f63df0c85a6c6f9f",
+      "sources": [
+        {
+          "path": "stage1/compatibility/policy-v1.json",
+          "role": "edition_policy",
+          "selector": "editions.current",
+          "sha256": "d3e0f5950eb78df0a6c626a29761491194b57fe4a53a8ec755b7b9b69aea2312"
+        },
+        {
+          "path": "stage1/compiler-contracts/snapshots/diagnostics-syntax.json",
+          "role": "language_semantic_contract",
+          "selector": "schema_version,contract and semantic fields",
+          "sha256": "1c34f1fd84747f200649257fc826aa69a6378ca8bd6282df2f8655d0d8729687"
+        },
+        {
+          "path": "stage1/compiler-contracts/snapshots/hir-ownership-capability.json",
+          "role": "language_semantic_contract",
+          "selector": "schema_version,contract and semantic fields",
+          "sha256": "37602348826c25bd253cfb84e4f7c0882af0ec3fcbf8defbd90e8f63ce07e4a9"
+        }
+      ],
+      "stability": "experimental",
+      "version": "0.1.0"
+    },
+    {
+      "id": "axiom://stdlib/catalog",
+      "kind": "stdlib",
+      "signature": "axiom.compiler.stdlib_catalog.v1; catalog_semantic_digest=18f84b3d7b2aa9f004b4f0a3cd72e1b26f9ad954d22db1673ed073d633b19edd; modules=34; symbols=299",
+      "sources": [
+        {
+          "path": "stage1/compiler-contracts/snapshots/stdlib-catalog.json",
+          "role": "stdlib_catalog",
+          "selector": "modules[*].name,symbols[*].signature",
+          "sha256": "c6c06b27315b8ea273909e0a3e5525c3e35122d7213fb7b1b7e84e085c2a4cd7"
+        }
+      ],
+      "stability": "experimental",
+      "version": "1.0.0"
+    },
+    {
+      "id": "axiom://cli/axiomc",
+      "kind": "cli",
+      "signature": "commands=bench,build,caps,caps diff,check,dap,doc,doctor,evidence,explain,fmt,generate,generate openapi,generate policy,generate runbook,generate sql,generate terraform,inspect,inspect artifacts,inspect effects,inspect graph,inspect intent,inspect symbols,lsp,migrate,mutation-report,new,parse,pkg,pkg graph,publish,registry-index,registry-serve,registry-validate,repair-plan,repl,run,semantic-diff,task-contract,test,trace,verification-plan,verify; command_semantic_digest=5ef3671daf530073afd1be94e7212e7418a0ffd25bc3eb32bd5be3f4f2eafbeb; flags_status=experimental_partial; flags=--json is the versioned machine envelope opt-in where the command publishes JSON; command-specific optional flags remain additive.; exit=0 means the requested operation completed successfully; nonzero means diagnostics or an operational failure.; json=axiom.stage1.v1 for governed stage1 command payloads; command-specific schemas retain their own AxiOM schema IDs.",
+      "sources": [
+        {
+          "path": "stage1/compatibility/cli-surface-v1.json",
+          "role": "cli_public_surface",
+          "selector": "command_paths,flags,exit_status",
+          "sha256": "09d449efa5e533f69c4513eb6d02571d1bf6b0cbd881aa5e6e5f2862a741e117"
+        },
+        {
+          "path": "stage1/compiler-contracts/schemas/axiom.stage1.command.schema.json",
+          "role": "cli_json_envelope",
+          "selector": "$id,oneOf",
+          "sha256": "ddc64d122d59925ec93391d86781b8d4f76adf01e846f7120d312f32ce71421c"
+        },
+        {
+          "path": "stage1/compiler-contracts/snapshots/capability-ledger.json",
+          "role": "cli_top_level_parity",
+          "selector": "commands[*].name",
+          "sha256": "4dfa828e4632efc700f0487fcf17d8770e8c6b43e755d926f61b69c90b331f20"
+        },
+        {
+          "path": "stage1/crates/axiomc/src/main.rs",
+          "role": "cli_command_graph_parity",
+          "selector": "Command and nested command variant names",
+          "sha256": "9a012f01b75ff9aaa36c6b6be10257d446cd90a79d2f8e803a57803fd4a892c2"
+        }
+      ],
+      "stability": "experimental",
+      "version": "0.1.0"
+    },
+    {
+      "id": "axiom://package/lockfile",
+      "kind": "package",
+      "signature": "axiom.lock format=1; records=package(name,version,source)",
+      "sources": [
+        {
+          "path": "stage1/compatibility/fixtures/current/axiom.lock",
+          "role": "lockfile_format",
+          "selector": "version,package[*]",
+          "sha256": "b84320f39f44d45319d8efd29d612922227bb8ed30111c2291df1f2ec98e1ea1"
+        }
+      ],
+      "stability": "experimental",
+      "version": "0.1.0"
+    },
+    {
+      "id": "axiom://abi/direct-native",
+      "kind": "abi",
+      "signature": "axiom.direct_native.runtime_abi.v0; target=axiom://target/stage1-direct-native; status=partial; semantic_digest=2e100d1a9abc95fd3a16760c05404a6e0e1627fdc58fe5999860f4d59587e937; semantic_rows=array.fixed,async.runtime,boolean,clock.now_sleep,crypto.aead,crypto.hash,crypto.mac,crypto.random,crypto.signature,enum.payload,env.read,ffi.call,fs.read,fs.write,io.logging_stdio,json.serdes,map.lookup,network.dns.resolve,network.http.async_server,network.http.client,network.http.server,network.tcp,network.udp,numeric.scalars,option,owned.move_state,process.status,regex.match_replace,result,slice.borrowed,string,struct.field,sync.primitives,tuple",
+      "sources": [
+        {
+          "path": "stage1/runtime-abi/direct-native-v0.json",
+          "role": "logical_runtime_abi",
+          "selector": "target_id,status,value_features[*].id,capability_shims[*].id",
+          "sha256": "6e54b6b2f2b4d89c6a8b53a1cbcee6393037993ad02245bbb01d86f1e33e87ba"
+        }
+      ],
+      "stability": "experimental",
+      "version": "0.1.0"
+    },
+    {
+      "id": "axiom://schema/axiom-agent-task-spec-v0",
+      "kind": "schema",
+      "signature": "published schema id=https://axiom.omt.global/schemas/axiom-agent-task-spec-v0.schema.json; semantic_digest=3acd9248b35adca28f836deed5d29e72fd363d11949672b50ec34a0b1d8a2ee7; envelope=axiom.agent_task.spec.v0",
+      "sources": [
+        {
+          "path": "stage1/schemas/axiom-agent-task-spec-v0.schema.json",
+          "role": "published_schema",
+          "selector": "$id,properties.schema_version.const",
+          "sha256": "eb23def010213b1459a5920a5d49b7e0ab15d605ec7fb9ea7146e52fc7e77ca2"
+        }
+      ],
+      "stability": "experimental",
+      "version": "0.1.0"
+    },
+    {
+      "id": "axiom://artifact/envelope",
+      "kind": "artifact",
+      "signature": "schema=https://axiomlang.dev/schemas/axiom-artifacts-v0.schema.json; semantic_digest=cb94abafd35bd85cc649fd5989e2e4cc46574046e28a1a029f4ae964bd9634af; target_neutral_kinds=benchmark_report,docs,native_binary,openapi_spec,policy_bundle,runbook,sql_migration,terraform_module,test_report; identity=axiom artifact IDs; compatibility_host_source_kind=excluded",
+      "sources": [
+        {
+          "path": "stage1/schemas/axiom-artifacts-v0.schema.json",
+          "role": "artifact_envelope",
+          "selector": "$id,$defs.artifact.properties.kind.enum",
+          "sha256": "777f24f3c7e7414c4850c3cfa309ad267d82c1587d535748d8dd0f323614e64d"
+        }
+      ],
+      "stability": "experimental",
+      "version": "0.1.0"
+    }
+  ]
+}

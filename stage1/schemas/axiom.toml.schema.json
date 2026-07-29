@@ -77,10 +77,14 @@
               "path"
             ],
             "properties": {
-              "path": {
-                "type": "string",
-                "minLength": 1
-              }
+          "path": {
+            "type": "string",
+            "minLength": 1
+          },
+          "version": {
+            "type": "string",
+            "pattern": "^(\\*|\\^?(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*))$"
+          }
             },
             "additionalProperties": false
           }
@@ -111,8 +115,13 @@
             "type": "string"
           },
           "kind": {
-            "type": "string",
-            "minLength": 1
+            "enum": [
+              "unit",
+              "table",
+              "property",
+              "snapshot",
+              "benchmark"
+            ]
           },
           "stderr": {
             "type": "string"
@@ -158,6 +167,7 @@
           },
           "capabilities": {
             "type": "array",
+            "maxItems": 0,
             "items": {
               "enum": [
                 "fs",
@@ -173,10 +183,30 @@
             },
             "uniqueItems": true
           },
-          "package": {
+      "package": {
+        "type": "string",
+        "minLength": 1
+      },
+      "http": {
+        "type": "object",
+        "required": [
+          "path",
+          "expected_body"
+        ],
+        "properties": {
+          "bind": {
+            "type": "string"
+          },
+          "path": {
             "type": "string",
             "minLength": 1
+          },
+          "expected_body": {
+            "type": "string"
           }
+        },
+        "additionalProperties": false
+      }
         },
         "additionalProperties": false
       }
@@ -273,10 +303,14 @@
           ],
           "default": false
         },
-        "env_unrestricted": {
-          "type": "boolean",
-          "default": false
-        },
+    "env_unrestricted": {
+      "type": "boolean",
+      "default": false
+    },
+    "unsafe_rationale": {
+      "type": "string",
+      "minLength": 1
+    },
         "clock": {
           "type": "boolean",
           "default": false
@@ -339,7 +373,7 @@
       "properties": {
         "registry": {
           "type": "string",
-          "pattern": "^(https://|file:).+"
+          "pattern": "^(https://[^/?#@]+(?:/[^?#]*)?|file:///[^?#]+)$"
         },
         "checksum": {
           "type": "string",

@@ -1,0 +1,72 @@
+{
+  "schema_version": "axiom.compatibility_source_inventory.v1",
+  "contract_version": "0.1.0",
+  "snapshot_id": "axiom://compatibility/current-source-contract",
+  "sources": [
+    {
+      "kind": "compiler",
+      "path": "stage1/Cargo.toml",
+      "extractor": "cargo_workspace_version"
+    },
+    {
+      "kind": "language",
+      "path": "stage1/compatibility/policy-v1.json",
+      "extractor": "current_edition",
+      "related": [
+        "stage1/compiler-contracts/snapshots/diagnostics-syntax.json",
+        "stage1/compiler-contracts/snapshots/hir-ownership-capability.json"
+      ]
+    },
+    {
+      "kind": "stdlib",
+      "path": "stage1/compiler-contracts/snapshots/stdlib-catalog.json",
+      "extractor": "stdlib_catalog"
+    },
+    {
+      "kind": "cli",
+      "path": "stage1/compatibility/cli-surface-v1.json",
+      "extractor": "cli_commands",
+      "related": "stage1/compiler-contracts/snapshots/capability-ledger.json",
+      "schema": "stage1/compiler-contracts/schemas/axiom.stage1.command.schema.json",
+      "implementation": "stage1/crates/axiomc/src/main.rs"
+    },
+    {
+      "kind": "package",
+      "path": "stage1/schemas/axiom.toml.schema.json",
+      "extractor": "package_manifest",
+      "implementation": "stage1/crates/axiomc/src/manifest.rs",
+      "parser_contract": "stage1/compatibility/manifest-parser-contract-v1.json"
+    },
+    {
+      "kind": "package",
+      "path": "stage1/compatibility/fixtures/current/axiom.lock",
+      "extractor": "lockfile"
+    },
+    {
+      "kind": "abi",
+      "path": "stage1/compatibility/abi-surface-v1.json",
+      "extractor": "logical_abi",
+      "readiness": "stage1/runtime-abi/direct-native-v0.json"
+    },
+    {
+      "kind": "schema",
+      "path": "stage1/schemas",
+      "extractor": "published_schemas"
+    },
+    {
+      "kind": "schema",
+      "path": "stage1/compiler-contracts/schemas",
+      "extractor": "published_compiler_contract_schemas"
+    },
+    {
+      "kind": "artifact",
+      "path": "stage1/schemas/axiom-artifacts-v0.schema.json",
+      "extractor": "artifact_envelope"
+    }
+  ],
+  "cli_semantics": {
+    "flags": "--json is the versioned machine envelope opt-in where the command publishes JSON; command-specific optional flags remain additive.",
+    "exit_status": "0 means the requested operation completed successfully; nonzero means diagnostics or an operational failure.",
+    "json_envelope": "axiom.stage1.v1 for governed stage1 command payloads; command-specific schemas retain their own AxiOM schema IDs."
+  }
+}

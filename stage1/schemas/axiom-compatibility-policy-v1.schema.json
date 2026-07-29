@@ -1,0 +1,244 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://axiom.omt.global/schemas/axiom-compatibility-policy-v1.schema.json",
+  "title": "AxiOM Compatibility Policy v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "policy_version",
+    "release_state",
+    "semver",
+    "deprecation",
+    "editions",
+    "compiler_support",
+    "evolution",
+    "support_matrix"
+  ],
+  "properties": {
+    "schema_version": {"const": "axiom.compatibility_policy.v1"},
+    "policy_version": {"type": "string", "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"},
+    "transition": {"$ref": "#/$defs/policyTransition"},
+    "release_state": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["phase", "published_compiler_releases", "pre_1_0_rule"],
+      "properties": {
+        "phase": {"const": "pre_1_0_unreleased"},
+        "published_compiler_releases": {"const": false},
+        "pre_1_0_rule": {"type": "string", "minLength": 1}
+      }
+    },
+    "semver": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["stable", "experimental", "deprecated"],
+      "properties": {
+        "stable": {"$ref": "#/$defs/semverRule"},
+        "experimental": {"$ref": "#/$defs/semverRule"},
+        "deprecated": {"$ref": "#/$defs/semverRule"}
+      }
+    },
+    "deprecation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "minimum_days",
+        "minimum_supported_editions",
+        "removal_requires_major",
+        "migration_required",
+        "replacement_required"
+      ],
+      "properties": {
+        "minimum_days": {"const": 180},
+        "minimum_supported_editions": {"const": 2},
+        "removal_requires_major": {"const": true},
+        "migration_required": {"const": true},
+        "replacement_required": {"const": true}
+      }
+    },
+    "editions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "current",
+        "selection",
+        "implementation_status",
+        "lifecycle",
+        "migration_command",
+        "supported"
+      ],
+      "properties": {
+        "current": {"type": "string", "pattern": "^[0-9]{4}$"},
+        "selection": {"const": "not_implemented"},
+        "implementation_status": {
+          "const": "The current manifest and compiler do not expose an edition selector; 2026 is a policy identifier for future migration qualification, not a selectable released language edition."
+        },
+        "lifecycle": {
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 4,
+          "prefixItems": [
+            {"const": "experimental"},
+            {"const": "supported"},
+            {"const": "deprecated"},
+            {"const": "removed"}
+          ],
+          "items": false
+        },
+        "migration_command": {"const": "axiomc migrate --report <report.json> --json"},
+        "supported": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "status", "manifest_selection"],
+            "properties": {
+              "id": {"type": "string", "pattern": "^[0-9]{4}$"},
+              "status": {"enum": ["experimental", "supported", "deprecated"]},
+              "manifest_selection": {"const": "unavailable"}
+            }
+          }
+        }
+      }
+    },
+    "compiler_support": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "minimum",
+        "maximum",
+        "maintenance_line",
+        "current",
+        "previous_supported"
+      ],
+      "properties": {
+        "minimum": {"$ref": "#/$defs/semver"},
+        "maximum": {"$ref": "#/$defs/semver"},
+        "maintenance_line": {"type": "string", "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.x$"},
+        "current": {"$ref": "#/$defs/semver"},
+        "previous_supported": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "reason"],
+          "properties": {
+            "status": {"const": "unavailable"},
+            "reason": {"type": "string", "minLength": 1}
+          }
+        }
+      }
+    },
+    "evolution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["language", "stdlib", "cli", "package_manifest", "lockfile", "schema", "abi", "artifact"],
+      "properties": {
+        "language": {"$ref": "#/$defs/evolutionRule"},
+        "stdlib": {"$ref": "#/$defs/evolutionRule"},
+        "cli": {"$ref": "#/$defs/cliEvolutionRule"},
+        "package_manifest": {"$ref": "#/$defs/evolutionRule"},
+        "lockfile": {"$ref": "#/$defs/evolutionRule"},
+        "schema": {"$ref": "#/$defs/schemaEvolutionRule"},
+        "abi": {"$ref": "#/$defs/abiEvolutionRule"},
+        "artifact": {"$ref": "#/$defs/evolutionRule"}
+      }
+    },
+    "support_matrix": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["compiler", "edition", "edition_status", "maintenance", "status"],
+        "properties": {
+          "compiler": {
+            "type": "string",
+            "pattern": "^(none|(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*))$"
+          },
+          "edition": {"type": "string", "pattern": "^[0-9]{4}$"},
+          "edition_status": {"enum": ["policy_only_not_selectable", "selectable"]},
+          "maintenance": {"enum": ["development", "security_and_correctness", "none"]},
+          "status": {"enum": ["current", "previous", "unavailable"]}
+        }
+      }
+    }
+  },
+  "$defs": {
+    "policyTransition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["from", "severity", "migration"],
+      "properties": {
+        "from": {"$ref": "#/$defs/semver"},
+        "severity": {"enum": ["compatible", "additive", "deprecated", "breaking"]},
+        "migration": {"type": ["string", "null"], "pattern": ".*\\S.*"}
+      },
+      "allOf": [{
+        "if": {"properties": {"severity": {"enum": ["breaking", "deprecated"]}}, "required": ["severity"]},
+        "then": {"properties": {"migration": {"type": "string", "pattern": ".*\\S.*"}}},
+        "else": {"properties": {"migration": {"type": "null"}}}
+      }]
+    },
+    "semver": {"type": "string", "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"},
+    "semverRule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["breaking", "additive", "compatible", "requirements"],
+      "properties": {
+        "breaking": {"enum": ["major", "minor", "any_higher"]},
+        "additive": {"enum": ["minor", "any_higher"]},
+        "compatible": {"enum": ["patch", "any_higher"]},
+        "requirements": {"type": "string", "minLength": 1}
+      }
+    },
+    "evolutionRule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["identity", "additive", "breaking"],
+      "properties": {
+        "identity": {"type": "string", "minLength": 1},
+        "additive": {"type": "string", "minLength": 1},
+        "breaking": {"type": "string", "minLength": 1}
+      }
+    },
+    "cliEvolutionRule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["identity", "additive", "breaking", "machine_output", "human_output"],
+      "properties": {
+        "identity": {"type": "string", "minLength": 1},
+        "additive": {"type": "string", "minLength": 1},
+        "breaking": {"type": "string", "minLength": 1},
+        "machine_output": {"type": "string", "minLength": 1},
+        "human_output": {"type": "string", "minLength": 1}
+      }
+    },
+    "schemaEvolutionRule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["identity", "additive", "breaking", "producer_compatibility", "consumer_compatibility"],
+      "properties": {
+        "identity": {"type": "string", "minLength": 1},
+        "additive": {"type": "string", "minLength": 1},
+        "breaking": {"type": "string", "minLength": 1},
+        "producer_compatibility": {"type": "string", "minLength": 1},
+        "consumer_compatibility": {"type": "string", "minLength": 1}
+      }
+    },
+    "abiEvolutionRule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["identity", "additive", "breaking", "physical_layout"],
+      "properties": {
+        "identity": {"type": "string", "minLength": 1},
+        "additive": {"type": "string", "minLength": 1},
+        "breaking": {"type": "string", "minLength": 1},
+        "physical_layout": {"const": "Rust types, enum discriminants, repr attributes, serializer layout, crate paths, and native host layout are implementation details and forbidden from the public ABI contract."}
+      }
+    }
+  }
+}

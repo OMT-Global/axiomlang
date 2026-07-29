@@ -1,0 +1,17 @@
+{
+  "schema_version": "axiom.compatibility_corpus.v1",
+  "role": "current_source_snapshot",
+  "compiler": {
+    "status": "workspace_source",
+    "version": "0.1.0",
+    "released": false,
+    "qualified_previous": false
+  },
+  "edition": {
+    "id": "2026",
+    "policy_status": "experimental",
+    "manifest_selection": "unavailable"
+  },
+  "contract": "contract.json",
+  "qualification": "Source and fixture integrity only; this corpus is not evidence of a published or previous compiler."
+}

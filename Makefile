@@ -5,7 +5,9 @@ capability-ledger:
 	cargo test --manifest-path stage1/Cargo.toml -p axiomc --test capability_ledger
 
 compatibility-v1:
-	python3 scripts/ci/check-compatibility-v1.py --old stage1/examples/compatibility_v1/old.json --new stage1/examples/compatibility_v1/current.json --json
+	python3 scripts/ci/extract-public-contract-v1.py --check
+	python3 scripts/ci/check-compatibility-corpus-v1.py --json
+	python3 scripts/ci/check-compatibility-v1.py --old stage1/compatibility/fixtures/accepted-baseline/contract.json --old-policy stage1/compatibility/fixtures/accepted-baseline/policy.json --new stage1/compatibility/fixtures/current/contract.json --json
 
 compatibility-v1-test:
 	bash scripts/ci/test-check-compatibility-v1.sh
