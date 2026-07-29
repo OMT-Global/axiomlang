@@ -578,26 +578,34 @@ def extract(inventory_path: Path, policy_path: Path) -> dict[str, Any]:
     cli_flags = cli_contract.get("flags")
     if not isinstance(cli_flags, dict) or cli_flags.get("coverage") != "partial":
         raise ValueError("CLI flag coverage must explicitly record its current partial status")
-    surfaces.append(
-        surface(
-            "axiom://cli/axiomc",
-            "cli",
-            public_surface_version("axiom://cli/axiomc"),
-            (
-                f"commands={','.join(command_paths)}; "
-                f"command_semantic_digest={semantic_digest(cli_contract)}; "
-                f"flags_status=experimental_partial; "
-                f"flags={cli_semantics.get('flags')}; "
-                f"exit={cli_semantics.get('exit_status')}; json={cli_semantics.get('json_envelope')}"
-            ),
-            [
-                source(cli_path, "cli_public_surface", "command_paths,flags,exit_status"),
-                source(cli_schema_path, "cli_json_envelope", "$id,oneOf"),
-                source(ledger_path, "cli_top_level_parity", "commands[*].name"),
-                source(implementation_path, "cli_command_graph_parity", "Command and nested command variant names"),
-            ],
-        )
+    cli_migration = cli_contract.get("migration")
+    if (
+        not isinstance(cli_migration, dict)
+        or set(cli_migration) != {"action"}
+        or not isinstance(cli_migration.get("action"), str)
+        or not cli_migration["action"].strip()
+    ):
+        raise ValueError("CLI surface migration must contain one non-empty action")
+    cli_surface = surface(
+        "axiom://cli/axiomc",
+        "cli",
+        public_surface_version("axiom://cli/axiomc"),
+        (
+            f"commands={','.join(command_paths)}; "
+            f"command_semantic_digest={semantic_digest(cli_contract)}; "
+            f"flags_status=experimental_partial; "
+            f"flags={cli_semantics.get('flags')}; "
+            f"exit={cli_semantics.get('exit_status')}; json={cli_semantics.get('json_envelope')}"
+        ),
+        [
+            source(cli_path, "cli_public_surface", "command_paths,flags,exit_status,migration"),
+            source(cli_schema_path, "cli_json_envelope", "$id,oneOf"),
+            source(ledger_path, "cli_top_level_parity", "commands[*].name"),
+            source(implementation_path, "cli_command_graph_parity", "Command and nested command variant names"),
+        ],
     )
+    cli_surface["migration"] = {"action": cli_migration["action"].strip()}
+    surfaces.append(cli_surface)
 
     manifest_path = entry_path(entries, "package_manifest")
     manifest_schema = load_object(manifest_path)

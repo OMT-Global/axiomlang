@@ -7,10 +7,10 @@
       "path": "stage1/Cargo.toml",
       "role": "compiler_version",
       "selector": "workspace.package.version",
-      "sha256": "af61ad48eb413b81330670814492934814986017e112eeb06f61636b03d8529e"
+      "sha256": "0a7df662030a201d7953255a50ad4a5355758bc0626faa44ba879cd1d4eee00f"
     }
   },
-  "contract_version": "0.2.0",
+  "contract_version": "0.3.0",
   "edition": {
     "id": "2026",
     "source": {
@@ -71,13 +71,16 @@
     {
       "id": "axiom://cli/axiomc",
       "kind": "cli",
-      "signature": "commands=bench,build,caps,caps diff,check,dap,doc,doctor,evidence,explain,fmt,generate,generate openapi,generate policy,generate runbook,generate sql,generate terraform,inspect,inspect artifacts,inspect effects,inspect graph,inspect intent,inspect symbols,lsp,migrate,mutation-report,new,parse,pkg,pkg graph,publish,registry-index,registry-serve,registry-validate,repair-plan,repl,run,semantic-diff,task-contract,test,trace,verification-plan,verify; command_semantic_digest=5ef3671daf530073afd1be94e7212e7418a0ffd25bc3eb32bd5be3f4f2eafbeb; flags_status=experimental_partial; flags=--json is the versioned machine envelope opt-in where the command publishes JSON; command-specific optional flags remain additive.; exit=0 means the requested operation completed successfully; nonzero means diagnostics or an operational failure.; json=axiom.stage1.v1 for governed stage1 command payloads; command-specific schemas retain their own AxiOM schema IDs.",
+      "migration": {
+        "action": "Existing command invocations require no changes. To adopt Package Trust v1 verification, invoke axiomc pkg verify with the exact artifact and trust metadata paths plus --json, then handle exit 0 as trusted, exit 1 as rejected, and exit 2 as an operational failure."
+      },
+      "signature": "commands=bench,build,caps,caps diff,check,dap,doc,doctor,evidence,explain,fmt,generate,generate openapi,generate policy,generate runbook,generate sql,generate terraform,inspect,inspect artifacts,inspect effects,inspect graph,inspect intent,inspect symbols,lsp,migrate,mutation-report,new,parse,pkg,pkg graph,pkg verify,publish,registry-index,registry-serve,registry-validate,repair-plan,repl,run,semantic-diff,task-contract,test,trace,verification-plan,verify; command_semantic_digest=eb9bfe7d1fdd4d572ec7f0d33aa8c5e455c1cc8b13507daf52b634791bf6a98b; flags_status=experimental_partial; flags=--json is the versioned machine envelope opt-in where the command publishes JSON; command-specific optional flags remain additive.; exit=0 means the requested operation completed successfully; nonzero means diagnostics or an operational failure.; json=axiom.stage1.v1 for governed stage1 command payloads; command-specific schemas retain their own AxiOM schema IDs.",
       "sources": [
         {
           "path": "stage1/compatibility/cli-surface-v1.json",
           "role": "cli_public_surface",
-          "selector": "command_paths,flags,exit_status",
-          "sha256": "09d449efa5e533f69c4513eb6d02571d1bf6b0cbd881aa5e6e5f2862a741e117"
+          "selector": "command_paths,flags,exit_status,migration",
+          "sha256": "8972e6b09446133fefd800feae3214f26fd79766886e8232056f9dea473978e6"
         },
         {
           "path": "stage1/compiler-contracts/schemas/axiom.stage1.command.schema.json",
@@ -95,11 +98,11 @@
           "path": "stage1/crates/axiomc/src/main.rs",
           "role": "cli_command_graph_parity",
           "selector": "Command and nested command variant names",
-          "sha256": "9a012f01b75ff9aaa36c6b6be10257d446cd90a79d2f8e803a57803fd4a892c2"
+          "sha256": "2bc006190af0a4f260cccc2299257b7a66e3614a64d1484d1981a767bd4bfc6c"
         }
       ],
       "stability": "experimental",
-      "version": "0.1.0"
+      "version": "0.2.0"
     },
     {
       "id": "axiom://package/lockfile",
@@ -482,13 +485,13 @@
     {
       "id": "axiom://schema/axiom-package-signature-v1",
       "kind": "schema",
-      "signature": "published schema id=https://axiom.omt.global/schemas/axiom-package-signature-v1.schema.json; semantic_digest=fc2551b01ba648c7c29f3195b03cc9bb05d3f34a5c0a7d7664da29f7f6626cea; envelope=axiom.package_signature.v1",
+      "signature": "published schema id=https://axiom.omt.global/schemas/axiom-package-signature-v1.schema.json; semantic_digest=a3da16733a4ed9ce27fa38d89caa028a84cb09439d3b50d7a2bc5f6fcb5a91ad; envelope=axiom.package_signature.v1",
       "sources": [
         {
           "path": "stage1/schemas/axiom-package-signature-v1.schema.json",
           "role": "published_schema",
           "selector": "$id,properties.schema_version.const",
-          "sha256": "efc46c4851ad216b04e103e545d1b2c0a72d37802e659128f80642bd9700da39"
+          "sha256": "2ecb8bc544afe134a8c4e4a6ee9a38b8950069a3ed31a655e4cb4b9bf5951960"
         }
       ],
       "stability": "experimental",
@@ -497,13 +500,13 @@
     {
       "id": "axiom://schema/axiom-package-verification-expectation-v1",
       "kind": "schema",
-      "signature": "published schema id=https://axiom.omt.global/schemas/axiom-package-verification-expectation-v1.schema.json; semantic_digest=f3156f6df1d3b126378a325938ebccb47ee4b11440d10d6e71bb9454d9a2367f; envelope=axiom.package_verification_expectation.v1",
+      "signature": "published schema id=https://axiom.omt.global/schemas/axiom-package-verification-expectation-v1.schema.json; semantic_digest=a886e7eb71d59e19e8b4b42fc2b58c7cb1672bce95a2925012c3c7cd81a6a97c; envelope=axiom.package_verification_expectation.v1",
       "sources": [
         {
           "path": "stage1/schemas/axiom-package-verification-expectation-v1.schema.json",
           "role": "published_schema",
           "selector": "$id,properties.schema_version.const",
-          "sha256": "4e4101232b984100c02aa003bed75127f116cd467771eb5f707a821072537b22"
+          "sha256": "7674c4878554454a1e227e99f87fa74cab5e479c973907c7f0f506b0cd5781eb"
         }
       ],
       "stability": "experimental",
@@ -512,13 +515,13 @@
     {
       "id": "axiom://schema/axiom-package-verification-v1",
       "kind": "schema",
-      "signature": "published schema id=https://axiom.omt.global/schemas/axiom-package-verification-v1.schema.json; semantic_digest=7f626d92b20c1ab5bb3989cd3a3b6d6cc941892a9b945ea948496c0a06966f1d; envelope=axiom.package_verification.v1",
+      "signature": "published schema id=https://axiom.omt.global/schemas/axiom-package-verification-v1.schema.json; semantic_digest=7275102d0f7368c26bd973e46b4bb32cbbb0fa022ed1562d2f1edf8b35888d89; envelope=axiom.package_verification.v1",
       "sources": [
         {
           "path": "stage1/schemas/axiom-package-verification-v1.schema.json",
           "role": "published_schema",
           "selector": "$id,properties.schema_version.const",
-          "sha256": "1cc603ec5b983e99f4ece9786b333d6a42da1bcd21e11122206d0c1243df8828"
+          "sha256": "39a7180e9a97a2f21657f97cb5a59ac941865ec3a359c6b838e5df5e35800fc8"
         }
       ],
       "stability": "experimental",
@@ -572,13 +575,13 @@
     {
       "id": "axiom://schema/axiom-registry-index-v2",
       "kind": "schema",
-      "signature": "published schema id=https://axiom.omt.global/schemas/axiom-registry-index-v2.schema.json; semantic_digest=33650578bb57760dbc1465c0865ce163913e29981d9bb80b4be5e9129fd4709a; envelope=axiom.registry_index.v2",
+      "signature": "published schema id=https://axiom.omt.global/schemas/axiom-registry-index-v2.schema.json; semantic_digest=bc11418a3b935458b2377365596b9b2f5c14c8093f805e317afe8a9856cf7dbb; envelope=axiom.registry_index.v2",
       "sources": [
         {
           "path": "stage1/schemas/axiom-registry-index-v2.schema.json",
           "role": "published_schema",
           "selector": "$id,properties.schema_version.const",
-          "sha256": "e1ac14dac477e73a7ee2d15e5affb12351306ab562874dce930e08a8db66c804"
+          "sha256": "a2402122a95a34eebc39b85bc11de44e08273b4db943f8f53bf3aa5649d9ea5b"
         }
       ],
       "stability": "experimental",
@@ -692,13 +695,13 @@
     {
       "id": "axiom://schema/axiom-trust-roots-v1",
       "kind": "schema",
-      "signature": "published schema id=https://axiom.omt.global/schemas/axiom-trust-roots-v1.schema.json; semantic_digest=7ff64283bc553a880ea3c337f56888f6933e094bb8cb4b22c073e077058132ac; envelope=axiom.package_trust_roots.v1",
+      "signature": "published schema id=https://axiom.omt.global/schemas/axiom-trust-roots-v1.schema.json; semantic_digest=0f431c92053875157ace3f8372f0d6c0bcd3c2404669f12b84f8a6573a330846; envelope=axiom.package_trust_roots.v1",
       "sources": [
         {
           "path": "stage1/schemas/axiom-trust-roots-v1.schema.json",
           "role": "published_schema",
           "selector": "$id,properties.schema_version.const",
-          "sha256": "c3c6245c6b851912d29a01faecff7772cbe64e579d860bf44d755eef307cf79a"
+          "sha256": "16f6d8356ebf9452aedebb308f45d9e05708c22e6953d4803da8ceff3355d41c"
         }
       ],
       "stability": "experimental",

@@ -1568,7 +1568,7 @@
         {
           "operation": "replace",
           "path": "/trust_roots/trusted_root/signed/expires_at",
-          "value": "2026-07-14T00:00:00Z"
+          "value": "2026-06-30T00:00:00Z"
         }
       ],
       "expected": {
@@ -2485,6 +2485,7 @@
         "primary_reason_code": "ROLLBACK_DETECTED",
         "reason_codes": [
           "ROLLBACK_DETECTED",
+          "METADATA_REPLAYED",
           "OFFLINE_LOCK_MISMATCH"
         ]
       }

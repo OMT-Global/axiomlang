@@ -1205,11 +1205,22 @@ fn package_trust_v1_schemas_compile_and_validate_contract_sections() {
         .expect("package trust schema is valid JSON");
         assert_eq!(schema["$id"], id);
         assert_eq!(schema["properties"]["schema_version"]["const"], version);
+        assert_eq!(
+            schema["properties"]["contract_status"]["enum"],
+            serde_json::json!(["contract_only", "implemented"])
+        );
         assert_eq!(schema["additionalProperties"], false);
         let validator = compile_validator(&schema);
+        assert_eq!(contract[section]["contract_status"], "contract_only");
         validator
             .validate(&contract[section])
             .unwrap_or_else(|error| panic!("{section} fixture must match {file}: {error}"));
+
+        let mut implemented = contract[section].clone();
+        implemented["contract_status"] = serde_json::json!("implemented");
+        validator.validate(&implemented).unwrap_or_else(|error| {
+            panic!("{section} implemented shape must match {file}: {error}")
+        });
 
         let mut unknown = contract[section].clone();
         unknown["legacy_hmac"] = serde_json::json!("forbidden");
@@ -1218,4 +1229,166 @@ fn package_trust_v1_schemas_compile_and_validate_contract_sections() {
             "{section} root must reject unknown fields"
         );
     }
+
+    let expectation_schema: Value = serde_json::from_str(
+        &fs::read_to_string(
+            schema_dir().join("axiom-package-verification-expectation-v1.schema.json"),
+        )
+        .expect("read package verification expectation schema"),
+    )
+    .expect("package verification expectation schema is valid JSON");
+    let mut production_expectation = contract["verification_expectation"].clone();
+    production_expectation["contract_status"] = serde_json::json!("implemented");
+    production_expectation
+        .as_object_mut()
+        .expect("expectation is an object")
+        .remove("expected");
+    compile_validator(&expectation_schema)
+        .validate(&production_expectation)
+        .expect("production expectation does not require a fixture oracle");
+
+    let package_schema: Value = serde_json::from_str(
+        &fs::read_to_string(schema_dir().join("axiom-package-signature-v1.schema.json"))
+            .expect("read package signature schema"),
+    )
+    .expect("package signature schema is valid JSON");
+    let package_validator = compile_validator(&package_schema);
+    let mut observed_non_slsa = contract["package_signature"].clone();
+    observed_non_slsa["provenance"]["statement"]["value"]["predicateType"] =
+        serde_json::json!("https://example.test/other");
+    package_validator
+        .validate(&observed_non_slsa)
+        .expect("package input accepts a bounded absolute non-SLSA predicate URI");
+    observed_non_slsa["provenance"]["statement"]["value"]["predicateType"] =
+        serde_json::json!("not-an-absolute-uri");
+    assert!(
+        !package_validator.is_valid(&observed_non_slsa),
+        "package input rejects a relative predicate identifier"
+    );
+
+    let verification_schema: Value = serde_json::from_str(
+        &fs::read_to_string(schema_dir().join("axiom-package-verification-v1.schema.json"))
+            .expect("read package verification result schema"),
+    )
+    .expect("package verification result schema is valid JSON");
+    let validator = compile_validator(&verification_schema);
+    let mut implemented_trusted = contract["verification"].clone();
+    implemented_trusted["contract_status"] = serde_json::json!("implemented");
+    validator
+        .validate(&implemented_trusted)
+        .expect("implemented trusted result retains complete evidence");
+
+    let rejected_partial = serde_json::json!({
+        "schema_version": "axiom.package_verification.v1",
+        "contract": "package.verification",
+        "contract_status": "implemented",
+        "decision": "rejected",
+        "primary_reason_code": "OFFLINE_INPUT_MISSING",
+        "reason_codes": ["OFFLINE_INPUT_MISSING"],
+        "observed": {
+            "registry_identity": "axiom-registry-production"
+        },
+        "signers": [],
+        "archive": null,
+        "manifest_digest": null,
+        "provenance": null,
+        "trust": {
+            "package_threshold": 0,
+            "package_valid_signers": 0,
+            "index_threshold": 0,
+            "index_valid_signers": 0
+        }
+    });
+    validator
+        .validate(&rejected_partial)
+        .expect("rejected result may expose only the evidence available");
+
+    let rejected_unavailable = serde_json::json!({
+        "schema_version": "axiom.package_verification.v1",
+        "contract": "package.verification",
+        "contract_status": "implemented",
+        "decision": "rejected",
+        "primary_reason_code": "OFFLINE_INPUT_MISSING",
+        "reason_codes": ["OFFLINE_INPUT_MISSING"],
+        "observed": {
+            "registry_identity": null,
+            "source_identity": null,
+            "namespace": null,
+            "name": null,
+            "version": null,
+            "target_path": null,
+            "publisher_identity": null
+        },
+        "signers": [],
+        "archive": {},
+        "manifest_digest": {},
+        "provenance": {},
+        "trust": {
+            "root_version": null,
+            "root_sequence": null,
+            "root_transition_from": null,
+            "index_generation": 0,
+            "index_sequence": 0,
+            "package_threshold": 0,
+            "package_valid_signers": 0,
+            "index_threshold": null,
+            "index_valid_signers": 0,
+            "offline_mode": null,
+            "network_fallback": null,
+            "consistent_snapshot": null
+        }
+    });
+    validator
+        .validate(&rejected_unavailable)
+        .expect("rejected result may mark all unavailable evidence explicitly");
+
+    let mut trusted_missing = implemented_trusted.clone();
+    trusted_missing
+        .as_object_mut()
+        .expect("verification is an object")
+        .remove("archive");
+    assert!(
+        !validator.is_valid(&trusted_missing),
+        "trusted results cannot omit evidence"
+    );
+
+    let mut trusted_zero_signers = implemented_trusted.clone();
+    trusted_zero_signers["signers"] = serde_json::json!([]);
+    assert!(
+        !validator.is_valid(&trusted_zero_signers),
+        "trusted results require at least one signer"
+    );
+
+    let mut trusted_zero_counts = implemented_trusted.clone();
+    trusted_zero_counts["trust"]["package_threshold"] = serde_json::json!(0);
+    trusted_zero_counts["trust"]["package_valid_signers"] = serde_json::json!(0);
+    assert!(
+        !validator.is_valid(&trusted_zero_counts),
+        "trusted results require nonzero thresholds and valid signer counts"
+    );
+
+    let mut rejected_non_slsa = implemented_trusted.clone();
+    rejected_non_slsa["decision"] = serde_json::json!("rejected");
+    rejected_non_slsa["primary_reason_code"] = serde_json::json!("PROVENANCE_PREDICATE_MISMATCH");
+    rejected_non_slsa["reason_codes"] = serde_json::json!(["PROVENANCE_PREDICATE_MISMATCH"]);
+    rejected_non_slsa["provenance"]["statement"]["value"]["predicateType"] =
+        serde_json::json!("https://example.test/other");
+    validator
+        .validate(&rejected_non_slsa)
+        .expect("rejected results preserve a bounded observed predicate URI");
+
+    let mut trusted_non_slsa = implemented_trusted;
+    trusted_non_slsa["provenance"]["statement"]["value"]["predicateType"] =
+        serde_json::json!("https://example.test/other");
+    assert!(
+        !validator.is_valid(&trusted_non_slsa),
+        "trusted results retain the expected SLSA v1 predicate"
+    );
+
+    let mut rejected_unknown = rejected_partial;
+    rejected_unknown["observed"]["legacy_hmac"] = serde_json::json!("forbidden");
+    assert!(
+        !validator.is_valid(&rejected_unknown),
+        "partial rejected evidence remains closed to unknown fields"
+    );
 }

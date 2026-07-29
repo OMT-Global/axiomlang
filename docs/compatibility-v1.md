@@ -80,11 +80,23 @@ release history or a previous compiler.
 `previous-contract-fixture/` remains sparse synthetic checker input and is not
 used as the canonical ratchet.
 
-The current source contract is version `0.2.0` with 57 surfaces. Its only
-changes from the byte-frozen 52-surface `0.1.0` accepted baseline are the five
-additive Package Trust v1 schemas. Per-surface versions remain `0.1.0` for
-unchanged surfaces and are `0.2.0` for those five additions, so a contract-level
-version bump does not fabricate semantic drift across the existing inventory.
+The current source contract is version `0.3.0` with 57 surfaces. Its changes
+from the byte-frozen 52-surface `0.1.0` accepted baseline are the five additive
+Package Trust v1 schemas and the additive `pkg verify` command path. Per-surface
+versions remain `0.1.0` for unchanged surfaces and are `0.2.0` for the five
+schema additions and the CLI surface, so a contract-level version bump does not
+fabricate semantic drift across the existing inventory.
+
+Existing command invocations require no changes. Because Compatibility v1
+conservatively treats any aggregate CLI signature change as breaking, the CLI
+surface carries explicit migration guidance: operators opting into offline
+Package Trust verification provide the exact archive, manifest, provenance,
+package-signature, trust-roots, registry-index, and expectation files and
+select the required `--json` output. The command emits an
+`axiom.package_verification.v1` result, exits `0` for a trusted decision, exits
+`1` for a schema-compatible rejected decision (including missing or malformed
+package inputs), and reserves exit `2` for an operational or output-I/O
+failure.
 
 Verify source derivation and the corpus with:
 

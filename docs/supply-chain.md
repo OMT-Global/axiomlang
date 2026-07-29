@@ -41,10 +41,14 @@ The target runs `scripts/ci/run-toolchain-supply-chain.sh`.
   `stage1/target/sbom/stage1.spdx.json`, and CI uploads that file as the
   `stage1-sbom` artifact.
 - `make stage1-package-trust-contract` and its regression target validate the
-  contract-only RFC 8032 Ed25519 + SHA-256 transcript, threshold trust/root and
-  index metadata, offline pins, provenance bindings, and negative vectors. See
-  [Package Trust v1 Contract](package-trust-v1.md). This does not claim that the
-  current HMAC-backed stage1 registry commands implement the contract.
+  RFC 8032 Ed25519 + SHA-256 transcript, threshold trust/root and index
+  metadata, package publication floors, exact current-index/offline pins,
+  provenance bindings, and negative vectors. The
+  `publish` and `registry-index` commands consume protected Ed25519 seed files
+  through repeatable `--signing-key-file` arguments; `registry-validate` and
+  `registry-serve` consume only public trust inputs and perform full artifact
+  verification. Legacy HMAC sidecars are rejected. See
+  [Package Trust v1 Contract](package-trust-v1.md).
 - `make stage1-package-graph-boundary` proves the self-hosting package graph
   fixture is derived from `axiom.toml` and `axiom.lock` and rejects
   Cargo-derived graph outputs.
@@ -56,6 +60,7 @@ the signed-package verification path active for npm work while avoiding unused
 Node tool extraction on self-hosted runners for the current Rust-only stage1
 graph.
 
-Hosted registry service ownership, external trust-root operation, and package
-authenticity beyond the local static-publish sidecar remain outside this gate
-and are tracked separately by the hosted-registry roadmap issue.
+Hosted registry service ownership and external trust-root operation remain
+outside this gate and are tracked separately by the hosted-registry roadmap
+issue. The local static registry verifies package authenticity and serves only
+an immutable in-memory snapshot of already verified bytes.
