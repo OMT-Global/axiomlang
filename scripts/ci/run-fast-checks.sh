@@ -59,6 +59,7 @@ bash "$script_repo_root/scripts/ci/test-check-python-exit-readiness.sh"
 bash "$script_repo_root/scripts/ci/test-check-rust-exit-readiness.sh"
 bash "$script_repo_root/scripts/ci/test-check-self-hosting-language-readiness.sh"
 bash "$script_repo_root/scripts/ci/test-check-compatibility-v1.sh"
+bash "$script_repo_root/scripts/ci/test-check-package-trust-contract.sh"
 cargo test --manifest-path "$repo_root/stage1/Cargo.toml" -p axiomc \
   --test migration_plan_cli --locked
 python3 "$script_repo_root/scripts/ci/check-capability-ledger.py" \

@@ -978,6 +978,24 @@
     },
     {
       "evidenceTier": "static_spike",
+      "name": "https://axiom.omt.global/schemas/axiom-package-signature-v1.schema.json",
+      "source": "stage1/schemas/axiom-package-signature-v1.schema.json",
+      "status": "checked"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "https://axiom.omt.global/schemas/axiom-package-verification-expectation-v1.schema.json",
+      "source": "stage1/schemas/axiom-package-verification-expectation-v1.schema.json",
+      "status": "checked"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "https://axiom.omt.global/schemas/axiom-package-verification-v1.schema.json",
+      "source": "stage1/schemas/axiom-package-verification-v1.schema.json",
+      "status": "checked"
+    },
+    {
+      "evidenceTier": "static_spike",
       "name": "https://axiomlang.dev/schemas/axiom-production-language-readiness-v1.schema.json",
       "source": "stage1/schemas/axiom-production-language-readiness-v1.schema.json",
       "status": "checked"
@@ -992,6 +1010,12 @@
       "evidenceTier": "static_spike",
       "name": "https://axiom.omt.global/schemas/axiom-public-contract-v1.schema.json",
       "source": "stage1/schemas/axiom-public-contract-v1.schema.json",
+      "status": "checked"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "https://axiom.omt.global/schemas/axiom-registry-index-v2.schema.json",
+      "source": "stage1/schemas/axiom-registry-index-v2.schema.json",
       "status": "checked"
     },
     {
@@ -1034,6 +1058,12 @@
       "evidenceTier": "static_spike",
       "name": "https://axiom-lang.dev/schemas/axiom-trace-v0.schema.json",
       "source": "stage1/schemas/axiom-trace-v0.schema.json",
+      "status": "checked"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "https://axiom.omt.global/schemas/axiom-trust-roots-v1.schema.json",
+      "source": "stage1/schemas/axiom-trust-roots-v1.schema.json",
       "status": "checked"
     },
     {
@@ -1774,11 +1804,11 @@
       "direct_runtime": 2,
       "production_qualified": 0,
       "scaffold": 5,
-      "static_spike": 204,
+      "static_spike": 209,
       "unsupported": 5
     },
     "runtimeAbiRows": 34,
-    "schemas": 45,
+    "schemas": 50,
     "stdlibFunctions": 299,
     "stdlibModules": 34,
     "supportedNativeBackend": "cranelift"

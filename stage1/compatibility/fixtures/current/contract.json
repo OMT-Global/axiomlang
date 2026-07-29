@@ -10,7 +10,7 @@
       "sha256": "af61ad48eb413b81330670814492934814986017e112eeb06f61636b03d8529e"
     }
   },
-  "contract_version": "0.1.0",
+  "contract_version": "0.2.0",
   "edition": {
     "id": "2026",
     "source": {
@@ -89,7 +89,7 @@
           "path": "stage1/compiler-contracts/snapshots/capability-ledger.json",
           "role": "cli_top_level_parity",
           "selector": "commands[*].name",
-          "sha256": "4dfa828e4632efc700f0487fcf17d8770e8c6b43e755d926f61b69c90b331f20"
+          "sha256": "7d3cb439d1f87c939da451f89e360e9fa091ce2b6ea59549c8d884f8bc3d01ac"
         },
         {
           "path": "stage1/crates/axiomc/src/main.rs",
@@ -480,6 +480,51 @@
       "version": "0.1.0"
     },
     {
+      "id": "axiom://schema/axiom-package-signature-v1",
+      "kind": "schema",
+      "signature": "published schema id=https://axiom.omt.global/schemas/axiom-package-signature-v1.schema.json; semantic_digest=fc2551b01ba648c7c29f3195b03cc9bb05d3f34a5c0a7d7664da29f7f6626cea; envelope=axiom.package_signature.v1",
+      "sources": [
+        {
+          "path": "stage1/schemas/axiom-package-signature-v1.schema.json",
+          "role": "published_schema",
+          "selector": "$id,properties.schema_version.const",
+          "sha256": "efc46c4851ad216b04e103e545d1b2c0a72d37802e659128f80642bd9700da39"
+        }
+      ],
+      "stability": "experimental",
+      "version": "0.2.0"
+    },
+    {
+      "id": "axiom://schema/axiom-package-verification-expectation-v1",
+      "kind": "schema",
+      "signature": "published schema id=https://axiom.omt.global/schemas/axiom-package-verification-expectation-v1.schema.json; semantic_digest=f3156f6df1d3b126378a325938ebccb47ee4b11440d10d6e71bb9454d9a2367f; envelope=axiom.package_verification_expectation.v1",
+      "sources": [
+        {
+          "path": "stage1/schemas/axiom-package-verification-expectation-v1.schema.json",
+          "role": "published_schema",
+          "selector": "$id,properties.schema_version.const",
+          "sha256": "4e4101232b984100c02aa003bed75127f116cd467771eb5f707a821072537b22"
+        }
+      ],
+      "stability": "experimental",
+      "version": "0.2.0"
+    },
+    {
+      "id": "axiom://schema/axiom-package-verification-v1",
+      "kind": "schema",
+      "signature": "published schema id=https://axiom.omt.global/schemas/axiom-package-verification-v1.schema.json; semantic_digest=7f626d92b20c1ab5bb3989cd3a3b6d6cc941892a9b945ea948496c0a06966f1d; envelope=axiom.package_verification.v1",
+      "sources": [
+        {
+          "path": "stage1/schemas/axiom-package-verification-v1.schema.json",
+          "role": "published_schema",
+          "selector": "$id,properties.schema_version.const",
+          "sha256": "1cc603ec5b983e99f4ece9786b333d6a42da1bcd21e11122206d0c1243df8828"
+        }
+      ],
+      "stability": "experimental",
+      "version": "0.2.0"
+    },
+    {
       "id": "axiom://schema/axiom-production-language-readiness-v1",
       "kind": "schema",
       "signature": "published schema id=https://axiomlang.dev/schemas/axiom-production-language-readiness-v1.schema.json; semantic_digest=7ed9150c6382d82f93ef2017435ef64a1802285f22e35082d51fd59b58f7edee",
@@ -523,6 +568,21 @@
       ],
       "stability": "experimental",
       "version": "0.1.0"
+    },
+    {
+      "id": "axiom://schema/axiom-registry-index-v2",
+      "kind": "schema",
+      "signature": "published schema id=https://axiom.omt.global/schemas/axiom-registry-index-v2.schema.json; semantic_digest=33650578bb57760dbc1465c0865ce163913e29981d9bb80b4be5e9129fd4709a; envelope=axiom.registry_index.v2",
+      "sources": [
+        {
+          "path": "stage1/schemas/axiom-registry-index-v2.schema.json",
+          "role": "published_schema",
+          "selector": "$id,properties.schema_version.const",
+          "sha256": "e1ac14dac477e73a7ee2d15e5affb12351306ab562874dce930e08a8db66c804"
+        }
+      ],
+      "stability": "experimental",
+      "version": "0.2.0"
     },
     {
       "id": "axiom://schema/axiom-repair-v0",
@@ -628,6 +688,21 @@
       ],
       "stability": "experimental",
       "version": "0.1.0"
+    },
+    {
+      "id": "axiom://schema/axiom-trust-roots-v1",
+      "kind": "schema",
+      "signature": "published schema id=https://axiom.omt.global/schemas/axiom-trust-roots-v1.schema.json; semantic_digest=7ff64283bc553a880ea3c337f56888f6933e094bb8cb4b22c073e077058132ac; envelope=axiom.package_trust_roots.v1",
+      "sources": [
+        {
+          "path": "stage1/schemas/axiom-trust-roots-v1.schema.json",
+          "role": "published_schema",
+          "selector": "$id,properties.schema_version.const",
+          "sha256": "c3c6245c6b851912d29a01faecff7772cbe64e579d860bf44d755eef307cf79a"
+        }
+      ],
+      "stability": "experimental",
+      "version": "0.2.0"
     },
     {
       "id": "axiom://schema/axiom-verification-plan-v0",

@@ -80,6 +80,12 @@ release history or a previous compiler.
 `previous-contract-fixture/` remains sparse synthetic checker input and is not
 used as the canonical ratchet.
 
+The current source contract is version `0.2.0` with 57 surfaces. Its only
+changes from the byte-frozen 52-surface `0.1.0` accepted baseline are the five
+additive Package Trust v1 schemas. Per-surface versions remain `0.1.0` for
+unchanged surfaces and are `0.2.0` for those five additions, so a contract-level
+version bump does not fabricate semantic drift across the existing inventory.
+
 Verify source derivation and the corpus with:
 
 ```bash

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Small unconditional Draft 2020-12 validator for repository policy schemas.
+"""Small unconditional Draft 2020-12 validator for repository contract schemas.
 
-This intentionally implements only the keywords used by the checked
-Compatibility v1 policy schema. Unsupported keywords fail closed.
+This intentionally implements only the keywords used by checked repository
+schemas. Unsupported keywords fail closed.
 """
 
 from __future__ import annotations
@@ -25,6 +25,8 @@ SUPPORTED_ASSERTIONS = {
     "minLength",
     "minItems",
     "maxItems",
+    "minProperties",
+    "maxProperties",
     "uniqueItems",
     "prefixItems",
     "items",
@@ -137,6 +139,16 @@ def _validate(instance: Any, schema: Any, root: dict[str, Any], path: str) -> No
         if "maximum" in schema and instance > schema["maximum"]:
             raise ValueError(f"{path} must be at most {schema['maximum']}")
     if isinstance(instance, dict):
+        minimum_properties = schema.get("minProperties")
+        if isinstance(minimum_properties, int) and len(instance) < minimum_properties:
+            raise ValueError(
+                f"{path} must contain at least {minimum_properties} properties"
+            )
+        maximum_properties = schema.get("maxProperties")
+        if isinstance(maximum_properties, int) and len(instance) > maximum_properties:
+            raise ValueError(
+                f"{path} must contain at most {maximum_properties} properties"
+            )
         required = schema.get("required", [])
         if not isinstance(required, list) or not all(isinstance(key, str) for key in required):
             raise ValueError(f"policy schema required list at {path} is invalid")
