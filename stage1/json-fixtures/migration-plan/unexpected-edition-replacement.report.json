@@ -2,8 +2,16 @@
   "schema_version": "axiom.compatibility_report.v1",
   "ok": true,
   "command": "compatibility-report",
-  "old": "stage1/examples/compatibility_v1/old.json",
-  "new": "stage1/examples/compatibility_v1/current.json",
+  "policies": {"old": "1.0.0", "new": "1.0.0", "severity": "compatible", "migration": null},
+  "contracts": {"old": "1.0.0", "new": "2.0.0"},
+  "old": "axiom://compatibility/migration-plan-scenario/old",
+  "new": "axiom://compatibility/migration-plan-scenario/new",
+  "compiler": {
+    "old": {"current": "0.1.0", "minimum": "0.1.0", "maximum": "0.1.0"},
+    "new": {"current": "0.1.0", "minimum": "0.1.0", "maximum": "0.1.0"},
+    "severity": "compatible",
+    "migration": null
+  },
   "edition": {
     "old": "2026",
     "new": "2027",
@@ -12,7 +20,7 @@
     "replacement": "2028"
   },
   "summary": {
-    "breaking": 2,
+    "breaking": 1,
     "additive": 3,
     "deprecated": 1,
     "compatible": 0
@@ -27,16 +35,6 @@
       "new_version": "2.0.0",
       "description": "modified cli surface axiom://cli/check",
       "migration": "Keep --json; add --properties --backend cranelift when executing property fixtures."
-    },
-    {
-      "change": "modified",
-      "severity": "breaking",
-      "surface_kind": "compiler",
-      "surface_id": "axiom://compiler/support-range",
-      "old_version": "0.1.0",
-      "new_version": "0.2.0",
-      "description": "compiler support range changed from 0.1.0..0.1.9 to 0.2.0..0.2.9",
-      "migration": "Install a supported 0.2 compiler before adopting edition 2027."
     },
     {
       "change": "deprecated",

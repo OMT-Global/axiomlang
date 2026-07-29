@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://axiom.omt.global/compatibility-fixtures/previous.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "value"],
+  "properties": {
+    "schema_version": {"const": "axiom.compatibility_fixture.previous.v1"},
+    "value": {"type": "integer"}
+  }
+}
