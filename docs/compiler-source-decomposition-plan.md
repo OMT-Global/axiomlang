@@ -229,7 +229,7 @@ matching ceiling in this table in the same PR.
 | `stage1/crates/axiomc/src/cranelift_backend/evaluator.rs` | 4135 |
 | `stage1/crates/axiomc/src/cranelift_backend/host_fs.rs` | 984 |
 | `stage1/crates/axiomc/src/cranelift_backend/host_crypto.rs` | 783 |
-| `stage1/crates/axiomc/src/cranelift_backend/host_net_http.rs` | 1043 |
+| `stage1/crates/axiomc/src/cranelift_backend/host_net_http.rs` | 1121 |
 | `stage1/crates/axiomc/src/hir.rs` | 5849 |
 | `stage1/crates/axiomc/src/project.rs` | 12096 |
 | `stage1/crates/axiomc/src/project/build_contract.rs` | 118 |
