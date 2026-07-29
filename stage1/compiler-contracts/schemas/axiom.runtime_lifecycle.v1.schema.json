@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://omt-global.github.io/axiom/schemas/axiom.runtime_lifecycle.v1.schema.json",
+  "title": "Axiom Runtime Lifecycle ABI v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "contract", "issue", "semantic_mir_version", "features", "operations", "cleanup", "backend", "inspection_fields", "fixtures", "migration"],
+  "properties": {
+    "schema_version": {"const": "axiom.runtime_lifecycle.v1"},
+    "contract": {"const": "runtime.lifecycle"},
+    "issue": {"const": 1438},
+    "semantic_mir_version": {"const": "axiom.semantic_mir.v1"},
+    "features": {"type": "array", "minItems": 17, "items": {"type": "string", "minLength": 1}},
+    "operations": {"type": "array", "minItems": 13, "items": {"$ref": "#/$defs/operation"}},
+    "cleanup": {"$ref": "#/$defs/cleanup"},
+    "backend": {"$ref": "#/$defs/backend"},
+    "inspection_fields": {"type": "array", "minItems": 6, "items": {"type": "string", "minLength": 1}},
+    "fixtures": {"type": "array", "minItems": 12, "items": {"$ref": "#/$defs/fixture"}},
+    "migration": {"$ref": "#/$defs/migration"}
+  },
+  "$defs": {
+    "axiom_id": {"type": "string", "pattern": "^axiom://[A-Za-z0-9._~:/#@!$&'()*+,;=%-]+$"},
+    "operation": {"type": "object", "additionalProperties": false, "required": ["id", "kind", "ownership", "effects", "source"], "properties": {"id": {"$ref": "#/$defs/axiom_id"}, "kind": {"enum": ["allocate", "resize", "allocation_failure", "move", "copy", "clone", "borrow", "borrow_end", "drop", "recursive_destroy", "defer", "scope_exit", "resource_close", "resource_use"]}, "ownership": {"enum": ["creates", "transfers", "duplicates_copyable", "duplicates_cloned", "borrows", "ends_borrow", "discharges", "preserves_on_failure", "rejects_escape"]}, "effects": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}}, "source": {"$ref": "#/$defs/axiom_id"}}},
+    "cleanup": {"type": "object", "additionalProperties": false, "required": ["exit_reasons", "defer_order", "drop_order", "aggregate_order", "exactly_once"], "properties": {"exit_reasons": {"type": "array", "minItems": 5, "items": {"enum": ["normal_return", "early_return", "error_return", "panic_unwind", "cancellation"]}}, "defer_order": {"const": "last_in_first_out_before_drop"}, "drop_order": {"const": "reverse_introduction"}, "aggregate_order": {"const": "reverse_declaration_or_insertion_then_release"}, "exactly_once": {"const": true}}},
+    "backend": {"type": "object", "additionalProperties": false, "required": ["required_declarations", "unsupported_diagnostic", "diagnostic_fields", "prohibited_fallbacks"], "properties": {"required_declarations": {"type": "array", "minItems": 3, "items": {"type": "string", "minLength": 1}}, "unsupported_diagnostic": {"const": "backend.unsupported_lifecycle_feature"}, "diagnostic_fields": {"type": "array", "minItems": 4, "items": {"type": "string", "minLength": 1}}, "prohibited_fallbacks": {"type": "array", "minItems": 2, "items": {"type": "string", "minLength": 1}}}},
+    "fixture": {"type": "object", "additionalProperties": false, "required": ["id", "kind", "scenario", "expected"], "properties": {"id": {"$ref": "#/$defs/axiom_id"}, "kind": {"enum": ["positive", "negative"]}, "scenario": {"type": "string", "minLength": 1}, "expected": {"type": "string", "minLength": 1}}},
+    "migration": {"type": "object", "additionalProperties": false, "required": ["semantic_input", "out_of_scope", "forbidden_terms"], "properties": {"semantic_input": {"type": "string", "minLength": 1}, "out_of_scope": {"type": "array", "minItems": 3, "items": {"type": "string", "minLength": 1}}, "forbidden_terms": {"type": "array", "minItems": 4, "items": {"type": "string", "minLength": 1}}}}
+  }
+}

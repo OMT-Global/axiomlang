@@ -174,17 +174,48 @@ jobs:
 
       - name: Ensure Rust linker availability
         run: |
-          if command -v cc >/dev/null 2>&1; then
+          host_triple="$(rustc -vV | awk '/^host:/ { print $2 }')"
+          rust_lld="$(rustc --print sysroot)/lib/rustlib/${host_triple}/bin/rust-lld"
+          cargo_linker_var="CARGO_TARGET_$(printf '%s' "$host_triple" | tr '[:lower:]-' '[:upper:]_')_LINKER"
+
+          for candidate in cc gcc clang; do
+            if command -v "$candidate" >/dev/null 2>&1; then
+              exit 0
+            fi
+          done
+
+          if command -v apt-get >/dev/null 2>&1 && [[ "$(id -u)" == "0" ]]; then
+            apt_cache="${RUNNER_TEMP:-/tmp}/axiom-full-lib-apt-cache"
+            apt_lists="${RUNNER_TEMP:-/tmp}/axiom-full-lib-apt-lists"
+            mkdir -p "$apt_cache/partial" "$apt_lists/partial"
+            apt_get=(
+              apt-get
+              -o Acquire::Retries=3
+              -o Dpkg::Use-Pty=0
+              -o APT::Sandbox::User=root
+              -o Dir::Cache::archives="$apt_cache"
+              -o Dir::State::lists="$apt_lists"
+            )
+            "${apt_get[@]}" update || true
+            DEBIAN_FRONTEND=noninteractive "${apt_get[@]}" install -y --no-install-recommends gcc libc6-dev || true
+          fi
+
+          for candidate in cc gcc clang; do
+            if command -v "$candidate" >/dev/null 2>&1; then
+              exit 0
+            fi
+          done
+
+          if [[ -x "$rust_lld" ]]; then
+            {
+              printf '%s=%s\n' "$cargo_linker_var" "$rust_lld"
+              printf 'RUSTFLAGS=-C linker=%s\n' "$rust_lld"
+            } >> "$GITHUB_ENV"
             exit 0
           fi
-          if command -v apt-get >/dev/null 2>&1; then
-            if [[ "$(id -u)" = "0" ]]; then
-              apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends gcc libc6-dev
-            else
-              sudo apt-get update && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends gcc libc6-dev
-            fi
-          fi
-          command -v cc >/dev/null 2>&1 || { echo "::error::no usable Rust linker found for the full lib suite"; exit 1; }
+
+          echo "::error::no usable Rust linker found; the full lib suite requires native build support"
+          exit 1
 
       - name: Run full axiomc lib suite
         # The #1255 blocking lane: the full lib suite must be green. Tests
