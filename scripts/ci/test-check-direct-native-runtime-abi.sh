@@ -24,15 +24,17 @@ assert report["value_feature_count"] == 12
 assert report["capability_shim_count"] == 22
 assert report["status_counts"]["value_features"]["implemented"] == 11
 assert report["status_counts"]["value_features"]["partial"] == 1
-assert report["status_counts"]["capability_shims"]["implemented"] == 16
-assert report["status_counts"]["capability_shims"]["partial"] == 6
+assert report["status_counts"]["capability_shims"]["implemented"] == 14
+assert report["status_counts"]["capability_shims"]["partial"] == 8
 assert report["blocked_rows"] == []
 assert report["incomplete_rows"] == [
+    "async.runtime",
     "crypto.aead",
     "crypto.signature",
     "network.dns.resolve",
     "network.http.async_server",
     "network.http.client",
+    "network.tcp",
     "network.udp",
     "owned.move_state",
 ]

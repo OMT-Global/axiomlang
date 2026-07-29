@@ -13,6 +13,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
+from stage1_benchmark_workloads import (
+    Workload,
+    build_payload_matches_expected_lowering,
+    load_workloads,
+    semantic_outputs_match,
+)
+
 ROUNDS = 5
 BASELINE_FLOOR_MS = 50.0
 COLD_BUILD_LIMIT_MULTIPLIER = 4.0
@@ -23,18 +30,9 @@ REGRESSION_TOLERANCE = 0.35
 REPO_ROOT = Path(__file__).resolve().parents[2]
 AXIOMC_MANIFEST = REPO_ROOT / "stage1/Cargo.toml"
 AXIOMC_BIN = REPO_ROOT / "stage1/target/debug/axiomc"
-REF_ROOT = REPO_ROOT / "stage1/benchmarks/reference"
 BASELINE_PATH = REPO_ROOT / "stage1/benchmarks/baselines/stage1-build-median.json"
 DIAGNOSTIC_FIXTURE = REPO_ROOT / "stage1/conformance/fail/ownership_use_after_move"
 CAPABILITY_NAMES = ["fs", "fs:write", "net", "process", "env", "clock", "crypto", "ffi", "async"]
-
-
-@dataclass(frozen=True)
-class Workload:
-    name: str
-    kind: str
-    project: Path
-    reference: Path
 
 
 @dataclass(frozen=True)
@@ -45,11 +43,7 @@ class CommandResult:
     stderr: str
 
 
-WORKLOADS = [
-    Workload("hello", "compute", REPO_ROOT / "stage1/examples/hello", REF_ROOT / "hello"),
-    Workload("capabilities", "io", REPO_ROOT / "stage1/examples/capabilities", REF_ROOT / "capabilities"),
-    Workload("stdlib_async", "concurrency", REPO_ROOT / "stage1/examples/stdlib_async", REF_ROOT / "stdlib_async"),
-]
+WORKLOADS = load_workloads(REPO_ROOT)
 
 
 def timed_run(cmd: list[str], *, cwd: Path | None = None, check: bool = True) -> CommandResult:
@@ -96,8 +90,13 @@ def axiom_build(workload: Workload, *, cold: bool) -> CommandResult:
     return timed_run([str(AXIOMC_BIN), "build", str(workload.project), "--json"], cwd=REPO_ROOT)
 
 
-def axiom_binary_from_build(result: CommandResult) -> Path:
+def axiom_binary_from_build(workload: Workload, result: CommandResult) -> Path:
     payload = json.loads(result.stdout)
+    if not build_payload_matches_expected_lowering(workload, payload):
+        raise SystemExit(
+            f"{workload.name} build did not preserve expected lowering mode "
+            f"{workload.expected_lowering_mode}"
+        )
     binary = Path(payload["binary"])
     return binary if binary.is_absolute() else REPO_ROOT / binary
 
@@ -214,7 +213,7 @@ def compare_to_baseline(report: dict[str, Any], baseline: dict[str, Any], tolera
 def benchmark_workload(workload: Workload, temp_dir: Path) -> dict[str, Any]:
     print(f"warming comparison commands for {workload.name} ({workload.kind})...", file=sys.stderr)
     axiom_warm_build = axiom_build(workload, cold=True)
-    axiom_binary = axiom_binary_from_build(axiom_warm_build)
+    axiom_binary = axiom_binary_from_build(workload, axiom_warm_build)
     go_warm_build, go_binary = go_build(workload, temp_dir)
     rust_warm_build, rust_binary = rust_build(workload, temp_dir)
     run_binary(axiom_binary)
@@ -224,7 +223,7 @@ def benchmark_workload(workload: Workload, temp_dir: Path) -> dict[str, Any]:
     print(f"collecting comparison medians for {workload.name}...", file=sys.stderr)
     axiom_cold_samples, axiom_cold_median = collect_samples(lambda: axiom_build(workload, cold=True))
     final_axiom_build = axiom_build(workload, cold=False)
-    axiom_binary = axiom_binary_from_build(final_axiom_build)
+    axiom_binary = axiom_binary_from_build(workload, final_axiom_build)
     axiom_warm_samples, axiom_warm_median = collect_samples(lambda: axiom_build(workload, cold=False))
     go_build_samples, go_build_median = collect_samples(lambda: go_build(workload, temp_dir)[0])
     _, go_binary = go_build(workload, temp_dir)
@@ -234,6 +233,16 @@ def benchmark_workload(workload: Workload, temp_dir: Path) -> dict[str, Any]:
     axiom_run_samples, axiom_run_median = collect_samples(lambda: run_binary(axiom_binary))
     go_run_samples, go_run_median = collect_samples(lambda: run_binary(go_binary))
     rust_run_samples, rust_run_median = collect_samples(lambda: run_binary(rust_binary))
+    semantic_runs = {
+        "axiom": run_binary(axiom_binary),
+        "go": run_binary(go_binary),
+        "rust": run_binary(rust_binary),
+    }
+    semantic_results = {
+        name: (result.returncode, result.stdout)
+        for name, result in semantic_runs.items()
+    }
+    semantic_match = semantic_outputs_match(semantic_results)
 
     reference_floor = max(min(go_build_median, rust_build_median), BASELINE_FLOOR_MS)
     cold_multiplier = (
@@ -261,6 +270,18 @@ def benchmark_workload(workload: Workload, temp_dir: Path) -> dict[str, Any]:
             "status": {
                 "axiom_cold_build": compare_limit(axiom_cold_median, cold_limit),
                 "axiom_warm_build": compare_limit(axiom_warm_median, warm_limit),
+                "semantic_output_parity": "pass" if semantic_match else "fail",
+            },
+        },
+        "execution_contract": {
+            "expected_lowering_mode": workload.expected_lowering_mode,
+            "semantic_output_match": semantic_match,
+            "results": {
+                name: {
+                    "returncode": result.returncode,
+                    "stdout": result.stdout,
+                }
+                for name, result in semantic_runs.items()
             },
         },
         "samples_ms": {

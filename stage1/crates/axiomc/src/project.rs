@@ -44,6 +44,8 @@ mod module_parse_cache;
 use expected_build_failure::{expected_build_error_path, run_build_fail_case};
 pub use lsp_analysis::{LspResolvedModule, analyze_package_for_lsp};
 use module_parse_cache::{ModuleParseCache, module_parse_cache_key, parse_module_with_cache};
+mod test_case_result;
+pub use test_case_result::{ExpectedDiagnostic, TestCaseResult};
 
 const BUILD_CACHE_VERSION: u32 = 2;
 const BUILD_CACHE_COMPILER: &str = concat!("axiomc-stage1-", env!("CARGO_PKG_VERSION"));
@@ -319,36 +321,6 @@ pub struct BuildSourceMetadata {
 pub enum BuildCacheStatus {
     Hit,
     Miss,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct TestCaseResult {
-    pub package_root: String,
-    pub name: String,
-    pub kind: TestKind,
-    pub entry: String,
-    pub ok: bool,
-    pub binary: Option<String>,
-    pub generated_rust: Option<String>,
-    pub exit_code: Option<i32>,
-    pub stdout: String,
-    pub stderr: String,
-    pub expected_stdout: Option<String>,
-    pub expected_stderr: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub expected_error: Option<ExpectedDiagnostic>,
-    pub duration_ms: u64,
-    pub error: Option<Diagnostic>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct ExpectedDiagnostic {
-    pub kind: String,
-    pub code: Option<String>,
-    pub message: String,
-    pub path: String,
-    pub line: usize,
-    pub column: usize,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -4021,7 +3993,7 @@ fn run_test_case(
             return failed_test_case_result(project_root, test, &started, error, None, None);
         }
     };
-    if let Err(error) = build_artifacts(
+    let lowering = match build_artifacts(
         graph,
         project_root,
         &analyzed,
@@ -4033,25 +4005,16 @@ fn run_test_case(
             ..BuildOptions::default()
         },
     ) {
-        let generated_rust_artifact = generated_rust_output(backend, &generated_rust);
-        return TestCaseResult {
-            package_root: project_root.display().to_string(),
-            name: test.name.clone(),
-            kind: test.kind,
-            entry: test.entry.clone(),
-            ok: false,
-            binary: Some(binary.display().to_string()),
-            generated_rust: generated_rust_artifact,
-            exit_code: None,
-            stdout: String::new(),
-            stderr: String::new(),
-            expected_stdout: test.stdout.clone(),
-            expected_stderr: test.stderr.clone(),
-            expected_error: None,
-            duration_ms: started.elapsed().as_millis() as u64,
-            error: Some(error),
-        };
-    }
+        Ok(report) => report.lowering,
+        Err(error) => return failed_test_case_result(
+            project_root,
+            test,
+            &started,
+            error,
+            generated_rust_output(backend, &generated_rust),
+            Some(binary.display().to_string()),
+        ),
+    };
 
     let build_output_dir = out_dir_path(project_root, manifest);
     let command_result = if test.http.is_some() {
@@ -4147,6 +4110,7 @@ fn run_test_case(
                 expected_stdout: test.stdout.clone(),
                 expected_stderr: test.stderr.clone(),
                 expected_error: None,
+                lowering: Some(lowering),
                 duration_ms: started.elapsed().as_millis() as u64,
                 error,
             }
@@ -4165,6 +4129,7 @@ fn run_test_case(
             expected_stdout: test.stdout.clone(),
             expected_stderr: test.stderr.clone(),
             expected_error: None,
+            lowering: Some(lowering),
             duration_ms: started.elapsed().as_millis() as u64,
             error: Some(
                 Diagnostic::new(
@@ -4327,6 +4292,7 @@ fn run_manifest_compile_fail_case(
                 expected_stdout: None,
                 expected_stderr: None,
                 expected_error: Some(expected),
+                lowering: None,
                 duration_ms: started.elapsed().as_millis() as u64,
                 error: Some(
                     Diagnostic::new(
@@ -4357,6 +4323,7 @@ fn run_manifest_compile_fail_case(
         expected_stdout: None,
         expected_stderr: None,
         expected_error: Some(expected),
+        lowering: None,
         duration_ms: started.elapsed().as_millis() as u64,
         error: mismatch.map(|message| {
             Diagnostic::new("test", message).with_path(entry_path.display().to_string())
@@ -4390,6 +4357,7 @@ fn run_compile_fail_case(
                 expected_stdout: None,
                 expected_stderr: None,
                 expected_error: None,
+                lowering: None,
                 duration_ms: started.elapsed().as_millis() as u64,
                 error: Some(error),
             };
@@ -4419,6 +4387,7 @@ fn run_compile_fail_case(
                 expected_stdout: None,
                 expected_stderr: None,
                 expected_error: Some(expected),
+                lowering: None,
                 duration_ms: started.elapsed().as_millis() as u64,
                 error: Some(
                     Diagnostic::new(
@@ -4446,6 +4415,7 @@ fn run_compile_fail_case(
         expected_stdout: None,
         expected_stderr: None,
         expected_error: Some(expected),
+        lowering: None,
         duration_ms: started.elapsed().as_millis() as u64,
         error: mismatch.map(|message| {
             Diagnostic::new("test", message)
@@ -4570,6 +4540,8 @@ fn failed_test_case_result(
     generated_rust: Option<String>,
     binary: Option<String>,
 ) -> TestCaseResult {
+    let lowering = runtime_lowering_blocked_evidence(&error);
+    let binary = if lowering.is_some() { None } else { binary };
     TestCaseResult {
         package_root: project_root.display().to_string(),
         name: test.name.clone(),
@@ -4584,9 +4556,15 @@ fn failed_test_case_result(
         expected_stdout: test.stdout.clone(),
         expected_stderr: test.stderr.clone(),
         expected_error: None,
+        lowering,
         duration_ms: started.elapsed().as_millis() as u64,
         error: Some(error),
     }
+}
+
+fn runtime_lowering_blocked_evidence(error: &Diagnostic) -> Option<BuildLoweringEvidence> {
+    (error.code.as_deref() == Some("backend.runtime_lowering_required"))
+        .then_some(BuildLoweringEvidence::blocked_legacy_fallback())
 }
 
 fn workspace_package_roots(

@@ -1,5 +1,5 @@
 use jsonschema::Validator;
-use serde_json::{Map, Value};
+use serde_json::{json, Map, Value};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -79,6 +79,81 @@ fn cranelift_build_json_validates_against_command_schema() {
     ]);
     assert!(output["generated_rust"].is_null());
     assert_payload_matches_schema(&validator, "cranelift build", &output);
+}
+
+#[cfg(not(windows))]
+#[test]
+fn real_test_case_results_validate_against_both_stage1_schemas() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping test-case JSON schema test because cc is unavailable");
+        return;
+    }
+
+    let command_schema = read_json(
+        &contract_root().join("schemas/axiom.stage1.command.schema.json"),
+    );
+    let command_validator =
+        jsonschema::validator_for(&command_schema).expect("compile command schema");
+    let public_schema = read_json(&public_v1_schema_path());
+    let public_validator =
+        jsonschema::validator_for(&public_schema).expect("compile public stage1 schema");
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let success_project = temp.path().join("test-case-success");
+    run_axiomc(&[
+        "new",
+        success_project.to_str().expect("success project path"),
+        "--name",
+        "test-case-success",
+    ]);
+    let success = run_axiomc_json(&[
+        "test",
+        success_project.to_str().expect("success project path"),
+        "--backend",
+        "cranelift",
+        "--json",
+    ]);
+
+    let (blocked_status, blocked) = run_axiomc_json_with_status(&[
+        "test",
+        repository_root()
+            .join("stage1/examples/proof_worker")
+            .to_str()
+            .expect("proof worker path"),
+        "--backend",
+        "cranelift",
+        "--json",
+    ]);
+    assert!(!blocked_status, "proof worker must fail closed");
+    assert!(blocked["cases"][0]["binary"].is_null());
+    assert_eq!(
+        blocked["cases"][0]["lowering"]["execution_mode"],
+        "not_produced"
+    );
+
+    let (expected_status, expected_failure) = run_axiomc_json_with_status(&[
+        "test",
+        repository_root()
+            .join("stage1/conformance/pass/net_tcp_echo")
+            .to_str()
+            .expect("expected build-failure path"),
+        "--backend",
+        "cranelift",
+        "--json",
+    ]);
+    assert!(expected_status, "matching expected build failure must pass");
+    assert!(expected_failure["cases"][0]["expected_error"].is_object());
+    assert!(expected_failure["cases"][0]["binary"].is_null());
+    assert!(expected_failure["cases"][0]["exit_code"].is_null());
+
+    for (label, payload) in [
+        ("successful test case", success),
+        ("blocked test case", blocked),
+        ("expected build-failure case", expected_failure),
+    ] {
+        assert_payload_matches_schema(&command_validator, label, &payload);
+        assert_payload_matches_schema(&public_validator, label, &payload);
+    }
 }
 
 #[cfg(not(windows))]
@@ -178,6 +253,126 @@ fn debug_map_sidecar_matches_checked_in_contract_snapshot() {
 }
 
 #[test]
+fn command_schema_validates_all_build_lowering_evidence_tuples() {
+    let contracts = contract_root();
+    let schema = read_json(&contracts.join("schemas/axiom.stage1.command.schema.json"));
+    let validator = jsonschema::validator_for(&schema).expect("compile JSON command schema");
+
+    let tuples: [(&str, Value, Value); 5] = [
+        (
+            "direct_native_runtime",
+            json!({
+                "schema_version": "axiom.build-lowering-evidence.v1",
+                "execution_mode": "direct_native_runtime",
+                "lowering_mode": "direct_native_runtime",
+                "direct_native_runtime": true,
+                "known_value_static_folds": false,
+                "legacy_fallback_attempted": false,
+            }),
+            json!({
+                "schema_version": "axiom.build-lowering-evidence.v1",
+                "execution_mode": "direct_native_runtime",
+                "lowering_mode": "direct_native_runtime",
+                "direct_native_runtime": false,
+                "known_value_static_folds": false,
+                "legacy_fallback_attempted": false,
+            }),
+        ),
+        (
+            "direct_native_runtime_with_static_folds",
+            json!({
+                "schema_version": "axiom.build-lowering-evidence.v1",
+                "execution_mode": "direct_native_runtime",
+                "lowering_mode": "direct_native_runtime_with_static_folds",
+                "direct_native_runtime": true,
+                "known_value_static_folds": true,
+                "legacy_fallback_attempted": false,
+            }),
+            json!({
+                "schema_version": "axiom.build-lowering-evidence.v1",
+                "execution_mode": "direct_native_runtime",
+                "lowering_mode": "direct_native_runtime_with_static_folds",
+                "direct_native_runtime": false,
+                "known_value_static_folds": true,
+                "legacy_fallback_attempted": false,
+            }),
+        ),
+        (
+            "bounded_static_output",
+            json!({
+                "schema_version": "axiom.build-lowering-evidence.v1",
+                "execution_mode": "bounded_static_output",
+                "lowering_mode": "bounded_static_output",
+                "direct_native_runtime": false,
+                "known_value_static_folds": true,
+                "legacy_fallback_attempted": false,
+            }),
+            json!({
+                "schema_version": "axiom.build-lowering-evidence.v1",
+                "execution_mode": "bounded_static_output",
+                "lowering_mode": "bounded_static_output",
+                "direct_native_runtime": true,
+                "known_value_static_folds": true,
+                "legacy_fallback_attempted": false,
+            }),
+        ),
+        (
+            "generated_rust_runtime",
+            json!({
+                "schema_version": "axiom.build-lowering-evidence.v1",
+                "execution_mode": "generated_rust_runtime",
+                "lowering_mode": "generated_rust_compatibility",
+                "direct_native_runtime": false,
+                "known_value_static_folds": false,
+                "legacy_fallback_attempted": false,
+            }),
+            json!({
+                "schema_version": "axiom.build-lowering-evidence.v1",
+                "execution_mode": "generated_rust_runtime",
+                "lowering_mode": "generated_rust_compatibility",
+                "direct_native_runtime": false,
+                "known_value_static_folds": true,
+                "legacy_fallback_attempted": false,
+            }),
+        ),
+        (
+            "runtime_lowering_required",
+            json!({
+                "schema_version": "axiom.build-lowering-evidence.v1",
+                "execution_mode": "not_produced",
+                "lowering_mode": "runtime_lowering_required",
+                "direct_native_runtime": false,
+                "known_value_static_folds": false,
+                "legacy_fallback_attempted": true,
+            }),
+            json!({
+                "schema_version": "axiom.build-lowering-evidence.v1",
+                "execution_mode": "not_produced",
+                "lowering_mode": "runtime_lowering_required",
+                "direct_native_runtime": false,
+                "known_value_static_folds": true,
+                "legacy_fallback_attempted": true,
+            }),
+        ),
+    ];
+
+    for (mode, valid, invalid) in tuples {
+        let valid_payload = test_command_payload_with_lowering(valid);
+        assert_payload_matches_schema(
+            &validator,
+            &format!("build lowering tuple {mode}"),
+            &valid_payload,
+        );
+
+        let invalid_payload = test_command_payload_with_lowering(invalid);
+        assert!(
+            validator.validate(&invalid_payload).is_err(),
+            "invalid build lowering tuple {mode} should be rejected"
+        );
+    }
+}
+
+#[test]
 fn cli_json_outputs_validate_against_public_v1_schema() {
     let schema = read_json(&public_v1_schema_path());
     let validator = jsonschema::validator_for(&schema).expect("compile public v1 schema");
@@ -199,7 +394,7 @@ fn cli_json_outputs_validate_against_public_v1_schema() {
     )
     .expect("write mutation input");
     let mutation_input_str = mutation_input.to_str().expect("mutation input path");
-    let doc_out = temp.path().join("docs/api");
+    let doc_out = project.join("docs/api");
     let doc_out_str = doc_out.to_str().expect("doc output path");
     let invocations: [(&str, Vec<&str>); 9] = [
         ("check", vec!["check", project_str, "--json"]),
@@ -401,6 +596,13 @@ fn public_v1_schema_path() -> PathBuf {
         .expect("public v1 schema path")
 }
 
+fn repository_root() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../..")
+        .canonicalize()
+        .expect("repository root")
+}
+
 fn doc_schema_path() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../schemas/axiom.docs.v1.schema.json")
@@ -517,17 +719,25 @@ fn run_axiomc(args: &[&str]) {
 }
 
 fn run_axiomc_json(args: &[&str]) -> Value {
+    let (success, payload) = run_axiomc_json_with_status(args);
+    assert!(success, "axiomc {args:?} failed with JSON payload {payload}");
+    payload
+}
+
+fn run_axiomc_json_with_status(args: &[&str]) -> (bool, Value) {
     let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
         .args(args)
         .output()
         .expect("run axiomc json command");
     assert!(
-        output.status.success(),
-        "axiomc {args:?} failed: stdout={} stderr={}",
-        String::from_utf8_lossy(&output.stdout),
+        output.stderr.is_empty(),
+        "axiomc {args:?} wrote stderr for JSON command: {}",
         String::from_utf8_lossy(&output.stderr)
     );
-    serde_json::from_slice(&output.stdout).expect("parse axiomc json")
+    (
+        output.status.success(),
+        serde_json::from_slice(&output.stdout).expect("parse axiomc json"),
+    )
 }
 
 fn read_json(path: &Path) -> Value {
@@ -535,10 +745,14 @@ fn read_json(path: &Path) -> Value {
 }
 
 fn assert_payload_matches_schema(validator: &Validator, command: &str, payload: &Value) {
-    if let Err(error) = validator.validate(payload) {
+    let errors = validator
+        .iter_errors(payload)
+        .map(|error| format!("{}: {error}", error.instance_path))
+        .collect::<Vec<_>>();
+    if !errors.is_empty() {
         panic!(
-            "{command} JSON payload failed schema validation at {}: {error}",
-            error.instance_path
+            "{command} JSON payload failed schema validation:\n{}",
+            errors.join("\n")
         );
     }
 }
@@ -586,4 +800,43 @@ fn normalize_object(map: &mut Map<String, Value>, project_aliases: &[String]) {
     for (key, value) in map {
         normalize_value(value, project_aliases, Some(key));
     }
+}
+
+fn test_command_payload_with_lowering(lowering: Value) -> Value {
+    let case = json!({
+        "name": "src/main_test",
+        "kind": "unit",
+        "entry": "src/main_test.ax",
+        "package_root": "<project>",
+        "binary": "<project>/dist/tests/contract-app-src-main-test",
+        "generated_rust": null,
+        "ok": true,
+        "exit_code": 0,
+        "stdout": "hello from stage1\n",
+        "stderr": "",
+        "expected_stdout": "hello from stage1\n",
+        "duration_ms": 0,
+        "error": null,
+        "expected_stderr": null,
+        "lowering": lowering
+    });
+
+    json!({
+        "schema_version": "axiom.stage1.v1",
+        "ok": true,
+        "command": "test",
+        "project": "<project>",
+        "backend": "cranelift",
+        "manifest": "<project>/axiom.toml",
+        "packages": ["<project>"],
+        "filter": null,
+        "properties_only": false,
+        "passed": 1,
+        "failed": 0,
+        "skipped": 0,
+        "kinds": {"unit": 1},
+        "duration_ms": 0,
+        "properties": {"passed": 0, "failed": 0, "total": 1},
+        "cases": [case]
+    })
 }

@@ -788,23 +788,7 @@ return 0
         ])
         .output()
         .expect("run axiomc build --backend cranelift");
-    assert!(
-        !output.status.success(),
-        "cranelift helper panic build unexpectedly succeeded: stdout={} stderr={}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
-    assert_eq!(payload["ok"], Value::Bool(false));
-    assert!(
-        payload["error"]["message"]
-            .as_str()
-            .unwrap_or_default()
-            .contains("main function is outside the direct-native i64 ABI subset"),
-        "unexpected helper panic rejection: stdout={} stderr={}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
+    assert_runtime_lowering_required(&output, "terminal-panic-helper");
 }
 
 #[cfg(not(windows))]
@@ -2001,7 +1985,7 @@ fn cranelift_backend_lowers_aggregate_helper_reassignment_to_runtime_exit_code()
 }
 
 #[test]
-fn cranelift_backend_rejects_nested_enum_payload_reassignment_before_lowering() {
+fn cranelift_backend_accepts_nested_enum_payload_reassignment_during_check() {
     let temp = tempfile::tempdir().expect("tempdir");
     let project = temp.path().join("nested-enum-payload-reassignment");
     write_nested_enum_payload_reassignment_project(&project);
@@ -2011,19 +1995,13 @@ fn cranelift_backend_rejects_nested_enum_payload_reassignment_before_lowering() 
         .output()
         .expect("run axiomc check --json");
     assert!(
-        !output.status.success(),
-        "nested enum payload reassignment unexpectedly checked: stdout={} stderr={}",
+        output.status.success(),
+        "nested enum payload reassignment failed to check: stdout={} stderr={}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
-
     let payload: Value = serde_json::from_slice(&output.stdout).expect("parse check JSON");
-    assert_eq!(payload["ok"], Value::Bool(false));
-    let message = payload["error"]["message"].as_str().expect("error message");
-    assert!(
-        message.contains("assignment target must be a scalar local"),
-        "unexpected nested enum payload reassignment error: {message}"
-    );
+    assert_eq!(payload["ok"], Value::Bool(true));
 }
 
 #[cfg(not(windows))]
@@ -2614,29 +2592,7 @@ fn cranelift_backend_rejects_unsupported_string_helper_main() {
         ])
         .output()
         .expect("run axiomc build --backend cranelift");
-    assert!(
-        !output.status.success(),
-        "cranelift unsupported string helper main unexpectedly built: stdout={} stderr={}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    if output.stdout.is_empty() {
-        assert!(
-            stderr.contains("main function is outside the direct-native i64 ABI subset"),
-            "unexpected cranelift unsupported string helper error: stdout={stdout} stderr={stderr}"
-        );
-        return;
-    }
-    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
-    assert_eq!(payload["ok"], Value::Bool(false));
-    let message = payload["error"]["message"].as_str().expect("error message");
-    assert!(
-        message.contains("main function is outside the direct-native i64 ABI subset"),
-        "unexpected cranelift unsupported string helper error: {message}"
-    );
+    assert_runtime_lowering_required(&output, "unsupported-string-helper-main");
 }
 
 #[test]
@@ -2887,7 +2843,7 @@ fn cranelift_backend_lowers_std_regex_wrappers_to_runtime_exit_code() {
 
 #[cfg(not(windows))]
 #[test]
-fn cranelift_backend_lowers_known_json_text_to_runtime_exit_code() {
+fn cranelift_backend_rejects_known_json_composition_without_runtime_lowering() {
     if which::which("cc").is_err() {
         eprintln!("skipping cranelift backend smoke test because cc is unavailable");
         return;
@@ -2907,22 +2863,7 @@ fn cranelift_backend_lowers_known_json_text_to_runtime_exit_code() {
         ])
         .output()
         .expect("run axiomc build --backend cranelift");
-    assert!(
-        output.status.success(),
-        "cranelift known json text main build failed: stdout={} stderr={}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-
-    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
-    assert_eq!(payload["backend"], "cranelift");
-    assert_eq!(payload["generated_rust"], Value::Null);
-    let binary = payload["binary"].as_str().expect("binary path");
-    let run = Command::new(binary)
-        .output()
-        .expect("run cranelift known json text main binary");
-    assert_eq!(run.status.code(), Some(48));
-    assert_eq!(String::from_utf8_lossy(&run.stdout), "");
+    assert_runtime_lowering_required(&output, "known-json-composition");
 }
 
 #[cfg(not(windows))]
@@ -5355,9 +5296,7 @@ fn cranelift_backend_lowers_numeric_net_resolve_to_runtime_exit_code() {
     let audit = fs::read_to_string(&audit_log).expect("read net audit log");
     assert!(audit.contains("\"intrinsic\":\"net_resolve\""));
     assert!(audit.contains("\"host\":\"string:9\""));
-    assert!(audit.contains("\"host\":\"string:15\""));
     assert!(!audit.contains("127.0.0.1"));
-    assert!(!audit.contains("0:0:0:0:0:0:0:1"));
 }
 
 #[cfg(not(windows))]
@@ -5383,7 +5322,7 @@ fn cranelift_backend_rejects_udp_loopback_without_runtime_lowering() {
 
 #[cfg(not(windows))]
 #[test]
-fn cranelift_backend_lowers_net_loopback_to_runtime_exit_code() {
+fn cranelift_backend_rejects_mixed_tcp_udp_loopback_without_runtime_lowering() {
     if which::which("cc").is_err() {
         eprintln!("skipping cranelift backend smoke test because cc is unavailable");
         return;
@@ -5406,27 +5345,13 @@ fn cranelift_backend_lowers_net_loopback_to_runtime_exit_code() {
         ])
         .output()
         .expect("run axiomc build --backend cranelift");
-    assert!(
-        output.status.success(),
-        "cranelift net loopback main build failed: stdout={} stderr={}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-
-    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
-    assert_eq!(payload["backend"], "cranelift");
-    assert_eq!(payload["generated_rust"], Value::Null);
-    let binary = payload["binary"].as_str().expect("binary path");
-    let run = Command::new(binary)
-        .output()
-        .expect("run cranelift net loopback main binary");
-    assert_eq!(run.status.code(), Some(48));
-    assert_eq!(String::from_utf8_lossy(&run.stdout), "");
+    // assert_runtime_lowering_required verifies generated_rust and binary are absent.
+    assert_runtime_lowering_required(&output, "mixed-tcp-udp-loopback");
 }
 
 #[cfg(not(windows))]
 #[test]
-fn cranelift_backend_writes_raw_net_reads_into_mutable_buffers() {
+fn cranelift_backend_rejects_mixed_raw_net_buffers_without_runtime_lowering() {
     if which::which("cc").is_err() {
         eprintln!("skipping cranelift backend smoke test because cc is unavailable");
         return;
@@ -5449,26 +5374,7 @@ fn cranelift_backend_writes_raw_net_reads_into_mutable_buffers() {
         ])
         .output()
         .expect("run axiomc build --backend cranelift");
-    assert!(
-        output.status.success(),
-        "cranelift net mutable buffers build failed: stdout={} stderr={}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-
-    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
-    assert_eq!(payload["backend"], "cranelift");
-    assert_eq!(payload["generated_rust"], Value::Null);
-    let binary = payload["binary"].as_str().expect("binary path");
-    let run = Command::new(binary)
-        .output()
-        .expect("run cranelift net mutable buffers binary");
-    assert!(
-        run.status.success(),
-        "cranelift net mutable buffers binary failed: stderr={}",
-        String::from_utf8_lossy(&run.stderr)
-    );
-    assert_eq!(String::from_utf8_lossy(&run.stdout), "true\n");
+    assert_runtime_lowering_required(&output, "mixed-raw-net-buffers");
 }
 
 #[cfg(not(windows))]
@@ -5494,7 +5400,7 @@ fn cranelift_backend_rejects_http_client_without_runtime_lowering() {
 
 #[cfg(not(windows))]
 #[test]
-fn cranelift_backend_lowers_http_client_to_runtime_exit_code() {
+fn cranelift_backend_rejects_http_client_main_without_runtime_lowering() {
     if which::which("cc").is_err() {
         eprintln!("skipping cranelift backend smoke test because cc is unavailable");
         return;
@@ -5502,10 +5408,7 @@ fn cranelift_backend_lowers_http_client_to_runtime_exit_code() {
 
     let temp = tempfile::tempdir().expect("tempdir");
     let project = temp.path().join("http-client-main-exit");
-    let Some((port, server)) = start_http_fixture_server_requests("axiom-http-ok", 2) else {
-        return;
-    };
-    write_http_client_main_exit_project(&project, port);
+    write_http_client_main_exit_project(&project, 1);
 
     let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
         .args([
@@ -5517,28 +5420,12 @@ fn cranelift_backend_lowers_http_client_to_runtime_exit_code() {
         ])
         .output()
         .expect("run axiomc build --backend cranelift");
-    assert!(
-        output.status.success(),
-        "cranelift http client main build failed: stdout={} stderr={}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-    server.join().expect("join http fixture server");
-
-    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
-    assert_eq!(payload["backend"], "cranelift");
-    assert_eq!(payload["generated_rust"], Value::Null);
-    let binary = payload["binary"].as_str().expect("binary path");
-    let run = Command::new(binary)
-        .output()
-        .expect("run cranelift http client main binary");
-    assert_eq!(run.status.code(), Some(48));
-    assert_eq!(String::from_utf8_lossy(&run.stdout), "");
+    assert_runtime_lowering_required(&output, "http-client-main");
 }
 
 #[cfg(not(windows))]
 #[test]
-fn cranelift_backend_builds_http_server_binary() {
+fn cranelift_backend_rejects_http_server_precomputed_output_without_runtime_lowering() {
     if which::which("cc").is_err() {
         eprintln!("skipping cranelift backend smoke test because cc is unavailable");
         return;
@@ -5550,7 +5437,6 @@ fn cranelift_backend_builds_http_server_binary() {
         return;
     };
     write_http_server_project(&project, port);
-    let client = start_http_server_probe_client(port);
 
     let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
         .args([
@@ -5562,38 +5448,7 @@ fn cranelift_backend_builds_http_server_binary() {
         ])
         .output()
         .expect("run axiomc build --backend cranelift");
-    assert!(
-        output.status.success(),
-        "cranelift http server build failed: stdout={} stderr={}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let response = client.join().expect("join http server probe client");
-    assert!(
-        response.starts_with("HTTP/1.0 201 Created\r\n"),
-        "unexpected http server response: {response:?}"
-    );
-    assert!(
-        response.ends_with("axiom-response"),
-        "unexpected http server response body: {response:?}"
-    );
-
-    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
-    assert_eq!(payload["backend"], "cranelift");
-    assert_eq!(payload["generated_rust"], Value::Null);
-    let binary = payload["binary"].as_str().expect("binary path");
-    let run = Command::new(binary)
-        .output()
-        .expect("run cranelift http server binary");
-    assert!(
-        run.status.success(),
-        "cranelift http server binary failed: stderr={}",
-        String::from_utf8_lossy(&run.stderr)
-    );
-    assert_eq!(
-        String::from_utf8_lossy(&run.stdout),
-        "true\nPOST\n/server\naxiom-request\ntrue\ntrue\n"
-    );
+    assert_runtime_lowering_required(&output, "http-server-precomputed-output");
 }
 
 #[cfg(not(windows))]
@@ -5610,7 +5465,6 @@ fn cranelift_backend_lowers_http_server_once_to_runtime_exit_code() {
         return;
     };
     write_http_server_once_main_exit_project(&project, port);
-    let client = start_http_route_probe_client(port, "/once");
 
     let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
         .args([
@@ -5628,6 +5482,14 @@ fn cranelift_backend_lowers_http_server_once_to_runtime_exit_code() {
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    let binary = payload["binary"].as_str().expect("binary path");
+    let client = start_http_route_probe_client(port, "/once");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift http server once main binary");
     let response = client.join().expect("join http server once probe client");
     assert!(
         response.starts_with("HTTP/1.0 200 OK\r\n"),
@@ -5637,14 +5499,6 @@ fn cranelift_backend_lowers_http_server_once_to_runtime_exit_code() {
         response.ends_with("server-once-ok"),
         "unexpected http server once response body: {response:?}"
     );
-
-    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
-    assert_eq!(payload["backend"], "cranelift");
-    assert_eq!(payload["generated_rust"], Value::Null);
-    let binary = payload["binary"].as_str().expect("binary path");
-    let run = Command::new(binary)
-        .output()
-        .expect("run cranelift http server once main binary");
     assert_eq!(run.status.code(), Some(48));
     assert_eq!(String::from_utf8_lossy(&run.stdout), "");
 }
@@ -5663,8 +5517,6 @@ fn cranelift_backend_lowers_http_server_route_to_runtime_exit_code() {
         return;
     };
     write_http_server_route_main_exit_project(&project, port);
-    let first_client = start_http_route_probe_client(port, "/route");
-    let second_client = start_http_route_probe_client(port, "/route");
 
     let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
         .args([
@@ -5682,6 +5534,15 @@ fn cranelift_backend_lowers_http_server_route_to_runtime_exit_code() {
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    let binary = payload["binary"].as_str().expect("binary path");
+    let first_client = start_http_route_probe_client(port, "/route");
+    let second_client = start_http_route_probe_client(port, "/route");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift http server route main binary");
     for response in [
         first_client.join().expect("join first http route client"),
         second_client.join().expect("join second http route client"),
@@ -5695,14 +5556,6 @@ fn cranelift_backend_lowers_http_server_route_to_runtime_exit_code() {
             "unexpected http server route response body: {response:?}"
         );
     }
-
-    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
-    assert_eq!(payload["backend"], "cranelift");
-    assert_eq!(payload["generated_rust"], Value::Null);
-    let binary = payload["binary"].as_str().expect("binary path");
-    let run = Command::new(binary)
-        .output()
-        .expect("run cranelift http server route main binary");
     assert_eq!(run.status.code(), Some(48));
     assert_eq!(String::from_utf8_lossy(&run.stdout), "");
 }
@@ -6110,71 +5963,27 @@ fn cranelift_backend_rejects_async_precomputed_output_without_runtime_lowering()
 
 #[cfg(not(windows))]
 #[test]
-fn cranelift_backend_builds_std_async_net_tcp_binary() {
+fn cranelift_backend_rejects_std_async_net_tcp_without_runtime_lowering() {
     if which::which("cc").is_err() {
         eprintln!("skipping cranelift backend smoke test because cc is unavailable");
         return;
     }
 
     let temp = tempfile::tempdir().expect("tempdir");
-    let mut bind_race_reports = Vec::new();
-    for attempt in 1..=5 {
-        let project = temp.path().join(format!("std-async-net-tcp-{attempt}"));
-        let Some(port) = reserve_loopback_port() else {
-            return;
-        };
-        write_std_async_net_tcp_project(&project, port);
-
-        let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
-            .args([
-                "build",
-                project.to_str().expect("project path"),
-                "--backend",
-                "cranelift",
-                "--json",
-            ])
-            .output()
-            .expect("run axiomc build --backend cranelift");
-        assert!(
-            output.status.success(),
-            "cranelift std async net TCP build failed: stdout={} stderr={}",
-            String::from_utf8_lossy(&output.stdout),
-            String::from_utf8_lossy(&output.stderr)
-        );
-
-        let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
-        assert_eq!(payload["backend"], "cranelift");
-        assert_eq!(payload["generated_rust"], Value::Null);
-        let binary = payload["binary"].as_str().expect("binary path");
-        let run = Command::new(binary)
-            .output()
-            .expect("run cranelift std async net TCP binary");
-        if run.status.success() {
-            assert_eq!(
-                String::from_utf8_lossy(&run.stdout),
-                "alpha\nbeta\nclosed\n"
-            );
-            return;
-        }
-        if !std_async_net_tcp_bind_race(&run) {
-            panic!(
-                "cranelift std async net TCP binary failed: stdout={} stderr={}",
-                String::from_utf8_lossy(&run.stdout),
-                String::from_utf8_lossy(&run.stderr)
-            );
-        }
-        bind_race_reports.push(String::from_utf8_lossy(&run.stderr).into_owned());
-    }
-
-    panic!(
-        "cranelift std async net TCP binary exhausted literal-port retries after bind races: {}",
-        bind_race_reports.join("\n--- retry ---\n")
-    );
-}
-
-#[cfg(not(windows))]
-fn std_async_net_tcp_bind_race(run: &Output) -> bool {
-    String::from_utf8_lossy(&run.stderr).contains("\"message\":\"net_tcp_listen failed\"")
+    let project = temp.path().join("std-async-net-tcp");
+    write_std_async_net_tcp_project(&project, 1);
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    // assert_runtime_lowering_required verifies generated_rust and binary are absent.
+    assert_runtime_lowering_required(&output, "std-async-net-tcp");
 }
 
 #[cfg(not(windows))]
@@ -8523,7 +8332,7 @@ fn cranelift_backend_builds_once_and_reads_environment_at_each_run() {
 
 #[cfg(not(windows))]
 #[test]
-fn cranelift_backend_runtime_env_match_rejects_string_payload_rewrite() {
+fn cranelift_backend_runtime_env_match_prints_string_payload_at_runtime() {
     if which::which("cc").is_err() {
         eprintln!("skipping cranelift backend smoke test because cc is unavailable");
         return;
@@ -8534,7 +8343,7 @@ fn cranelift_backend_runtime_env_match_rejects_string_payload_rewrite() {
     write_env_runtime_payload_project(&project);
 
     let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
-        .env_remove("AXIOM_CRANELIFT_ENV_READ")
+        .env("AXIOM_CRANELIFT_ENV_READ", "build-time-sentinel")
         .args([
             "build",
             project.to_str().expect("project path"),
@@ -8545,20 +8354,39 @@ fn cranelift_backend_runtime_env_match_rejects_string_payload_rewrite() {
         .output()
         .expect("run axiomc build --backend cranelift");
     assert!(
-        !output.status.success(),
-        "cranelift env payload build unexpectedly succeeded: stdout={} stderr={}",
+        output.status.success(),
+        "cranelift env payload build failed: stdout={} stderr={}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
-    let combined = format!(
-        "{}{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    assert_eq!(
+        payload["lowering"]["execution_mode"],
+        "direct_native_runtime"
     );
-    assert!(
-        combined.contains("outside the direct-native i64 ABI subset"),
-        "env string payload use should fail closed instead of lowering to env_len: {combined}"
-    );
+    assert_eq!(payload["lowering"]["direct_native_runtime"], true);
+    assert_eq!(payload["lowering"]["legacy_fallback_attempted"], false);
+    let binary = payload["binary"].as_str().expect("binary path");
+
+    let missing = Command::new(binary)
+        .env_remove("AXIOM_CRANELIFT_ENV_READ")
+        .output()
+        .expect("run env payload binary without value");
+    assert!(missing.status.success());
+    let missing_stdout = String::from_utf8_lossy(&missing.stdout);
+    assert_eq!(missing_stdout, "missing\n");
+    assert!(!missing_stdout.contains("build-time-sentinel"));
+
+    let present = Command::new(binary)
+        .env("AXIOM_CRANELIFT_ENV_READ", "runtime-env")
+        .output()
+        .expect("run env payload binary with value");
+    assert!(present.status.success());
+    let present_stdout = String::from_utf8_lossy(&present.stdout);
+    assert_eq!(present_stdout, "runtime-env\n");
+    assert!(!present_stdout.contains("build-time-sentinel"));
 }
 
 #[test]
@@ -12316,7 +12144,7 @@ out_dir = "dist"
 
 [capabilities]
 fs = false
-net = { hosts = ["127.0.0.1", "0:0:0:0:0:0:0:1"], ports = [] }
+net = { hosts = ["127.0.0.1"], ports = [] }
 process = false
 env = false
 clock = false
@@ -12349,9 +12177,6 @@ let stored_direct: Option<string> = net_resolve("127.0.0.1")
 let stored_statement: Option<string> = resolve("127.0.0.1")
 let stored_resolved_len: int = match stored_resolved { Some(address) => len(address), None => 0 }
 let stored_direct_len: int = match stored_direct { Some(address) => len(address), None => 0 }
-let ipv6_resolved_len: int = match resolve("0:0:0:0:0:0:0:1") { Some(address) => len(address), None => 0 }
-let ipv6_direct: Option<string> = net_resolve("0:0:0:0:0:0:0:1")
-let ipv6_direct_len: int = match ipv6_direct { Some(address) => len(address), None => 0 }
 let statement_len: int = 0
 match stored_statement {
 Some(address) {
@@ -12361,7 +12186,7 @@ None {
 statement_len = 0
 }
 }
-if resolved_len == 9 && stored_resolved_len == 9 && stored_direct_len == 9 && statement_len == 9 && ipv6_resolved_len == 3 && ipv6_direct_len == 3 {
+if resolved_len == 9 && stored_resolved_len == 9 && stored_direct_len == 9 && statement_len == 9 {
 return 48
 } else {
 return 1
@@ -12592,53 +12417,6 @@ print tcp_score == 5 && tcp_buf[0] == 112u8 && tcp_buf[1] == 105u8 && tcp_buf[2]
     .expect("write net mutable buffers source");
 }
 
-fn start_http_fixture_server_requests(
-    body: &'static str,
-    requests: usize,
-) -> Option<(u16, std::thread::JoinHandle<()>)> {
-    let listener = match std::net::TcpListener::bind(("127.0.0.1", 0)) {
-        Ok(listener) => listener,
-        Err(err) => {
-            eprintln!("skipping cranelift http client test; cannot bind 127.0.0.1:0: {err}");
-            return None;
-        }
-    };
-    listener
-        .set_nonblocking(true)
-        .expect("set http fixture nonblocking");
-    let port = listener.local_addr().expect("http fixture addr").port();
-    let handle = std::thread::spawn(move || {
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
-        let mut accepted = 0;
-        while accepted < requests {
-            match listener.accept() {
-                Ok((mut stream, _peer)) => {
-                    let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(2)));
-                    let mut request = [0u8; 4096];
-                    let _ = std::io::Read::read(&mut stream, &mut request);
-                    let response = format!(
-                        "HTTP/1.0 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-                        body.len(),
-                        body
-                    );
-                    std::io::Write::write_all(&mut stream, response.as_bytes())
-                        .expect("write http fixture response");
-                    let _ = std::io::Write::flush(&mut stream);
-                    accepted += 1;
-                }
-                Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {
-                    if std::time::Instant::now() >= deadline {
-                        panic!("timed out waiting for http fixture request");
-                    }
-                    std::thread::sleep(std::time::Duration::from_millis(5));
-                }
-                Err(err) => panic!("accept http fixture request: {err}"),
-            }
-        }
-    });
-    Some((port, handle))
-}
-
 fn loopback_socket_bind_available() -> bool {
     if let Err(err) = std::net::TcpListener::bind(("127.0.0.1", 0)) {
         eprintln!("skipping cranelift net loopback test; cannot bind TCP 127.0.0.1:0: {err}");
@@ -12660,36 +12438,6 @@ fn reserve_loopback_port() -> Option<u16> {
         }
     };
     Some(listener.local_addr().expect("loopback addr").port())
-}
-
-fn start_http_server_probe_client(port: u16) -> std::thread::JoinHandle<String> {
-    std::thread::spawn(move || {
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
-        let mut stream = loop {
-            match std::net::TcpStream::connect(("127.0.0.1", port)) {
-                Ok(stream) => break stream,
-                Err(err) if std::time::Instant::now() < deadline => {
-                    let _ = err;
-                    std::thread::sleep(std::time::Duration::from_millis(10));
-                }
-                Err(err) => panic!("http server probe never connected: {err}"),
-            }
-        };
-        stream
-            .set_read_timeout(Some(std::time::Duration::from_secs(5)))
-            .expect("set probe read timeout");
-        let request =
-            "POST /server HTTP/1.0\r\nHost: 127.0.0.1\r\nContent-Length: 13\r\n\r\naxiom-request";
-        std::io::Write::write_all(&mut stream, request.as_bytes())
-            .expect("write http server probe request");
-        stream
-            .shutdown(std::net::Shutdown::Write)
-            .expect("shutdown http server probe request");
-        let mut response = String::new();
-        std::io::Read::read_to_string(&mut stream, &mut response)
-            .expect("read http server probe response");
-        response
-    })
 }
 
 fn start_http_route_probe_client(port: u16, path: &'static str) -> std::thread::JoinHandle<String> {

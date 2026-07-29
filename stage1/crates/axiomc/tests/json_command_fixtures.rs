@@ -150,6 +150,78 @@ fn build_fixtures_cover_direct_native_target_and_no_fallback_failure() {
     lowering_validator
         .validate(&blocked["lowering"])
         .expect("blocked lowering evidence matches schema");
+    let exact_lowering_tuples = [
+        serde_json::json!({
+            "schema_version": "axiom.build-lowering-evidence.v1",
+            "execution_mode": "direct_native_runtime",
+            "lowering_mode": "direct_native_runtime",
+            "direct_native_runtime": true,
+            "known_value_static_folds": false,
+            "legacy_fallback_attempted": false
+        }),
+        serde_json::json!({
+            "schema_version": "axiom.build-lowering-evidence.v1",
+            "execution_mode": "direct_native_runtime",
+            "lowering_mode": "direct_native_runtime_with_static_folds",
+            "direct_native_runtime": true,
+            "known_value_static_folds": true,
+            "legacy_fallback_attempted": false
+        }),
+        serde_json::json!({
+            "schema_version": "axiom.build-lowering-evidence.v1",
+            "execution_mode": "generated_rust_runtime",
+            "lowering_mode": "generated_rust_compatibility",
+            "direct_native_runtime": false,
+            "known_value_static_folds": false,
+            "legacy_fallback_attempted": false
+        }),
+        serde_json::json!({
+            "schema_version": "axiom.build-lowering-evidence.v1",
+            "execution_mode": "not_produced",
+            "lowering_mode": "runtime_lowering_required",
+            "direct_native_runtime": false,
+            "known_value_static_folds": false,
+            "legacy_fallback_attempted": true
+        }),
+        serde_json::json!({
+            "schema_version": "axiom.build-lowering-evidence.v1",
+            "execution_mode": "bounded_static_output",
+            "lowering_mode": "bounded_static_output",
+            "direct_native_runtime": false,
+            "known_value_static_folds": true,
+            "legacy_fallback_attempted": false
+        }),
+    ];
+    for evidence in exact_lowering_tuples {
+        let mode = evidence["lowering_mode"]
+            .as_str()
+            .expect("lowering mode")
+            .to_string();
+        lowering_validator
+            .validate(&evidence)
+            .unwrap_or_else(|error| panic!("{mode} exact tuple failed schema validation: {error}"));
+
+        let mut build_payload = success.clone();
+        build_payload["lowering"] = evidence.clone();
+        build_payload["packages"][0]["lowering"] = evidence.clone();
+        assert_matches_stage1_schema(&validator, &build_payload);
+
+        let mut contradiction = evidence;
+        let legacy_fallback = contradiction["legacy_fallback_attempted"]
+            .as_bool()
+            .expect("legacy fallback boolean");
+        contradiction["legacy_fallback_attempted"] = serde_json::json!(!legacy_fallback);
+        assert!(
+            lowering_validator.validate(&contradiction).is_err(),
+            "{mode} must reject a contradictory lowering tuple"
+        );
+        build_payload["lowering"] = contradiction.clone();
+        build_payload["packages"][0]["lowering"] = contradiction;
+        assert!(
+            validator.validate(&build_payload).is_err(),
+            "stage1 command schema must reject contradictory {mode} evidence"
+        );
+    }
 
     let unsupported_target = fixture("build", "unsupported-target.json");
     assert_matches_stage1_schema(&validator, &unsupported_target);

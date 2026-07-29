@@ -13,127 +13,127 @@
       "timings": {
         "parse": {
           "samples_ms": [
-            52.016,
-            51.565,
-            55.485
+            842.854,
+            848.752,
+            881.941
           ],
-          "median_ms": 52.016,
+          "median_ms": 848.752,
           "statement_count": 6
         },
         "check": {
           "samples_ms": [
-            52.419,
-            50.954,
-            55.787
+            845.456,
+            835.614,
+            846.329
           ],
-          "median_ms": 52.419,
+          "median_ms": 845.456,
           "statement_count": 11
         },
         "build": {
           "samples_ms": [
-            360.943,
-            87.011,
-            82.25
+            822.211,
+            839.821,
+            826.505
           ],
-          "median_ms": 87.011,
+          "median_ms": 826.505,
           "statement_count": 11,
-          "compiler_duration_ms": 26,
+          "compiler_duration_ms": 4,
           "cache_hits": 1,
           "cache_misses": 0
         },
         "run": {
           "samples_ms": [
-            78.167,
-            77.71,
-            102.002
+            847.414,
+            819.196,
+            843.868
           ],
-          "median_ms": 78.167
+          "median_ms": 843.868
         }
       }
     },
-    "capabilities": {
-      "project": "stage1/examples/capabilities",
+    "stdlib_time": {
+      "project": "stage1/examples/stdlib_time",
       "timings": {
         "parse": {
           "samples_ms": [
-            49.498,
-            49.716,
-            49.222
+            825.116,
+            813.216,
+            807.007
           ],
-          "median_ms": 49.498,
-          "statement_count": 6
+          "median_ms": 813.216,
+          "statement_count": 7
         },
         "check": {
           "samples_ms": [
-            51.55,
-            50.136,
-            50.326
+            813.787,
+            804.656,
+            830.453
           ],
-          "median_ms": 50.326,
+          "median_ms": 813.787,
           "statement_count": 12
         },
         "build": {
           "samples_ms": [
-            500.435,
-            78.767,
-            77.48
+            798.805,
+            836.471,
+            819.176
           ],
-          "median_ms": 78.767,
+          "median_ms": 819.176,
           "statement_count": 12,
-          "compiler_duration_ms": 25,
+          "compiler_duration_ms": 4,
           "cache_hits": 1,
           "cache_misses": 0
         },
         "run": {
           "samples_ms": [
-            109.178,
-            78.001,
-            78.825
+            832.674,
+            841.828,
+            865.508
           ],
-          "median_ms": 78.825
+          "median_ms": 841.828
         }
       }
     },
-    "modules": {
-      "project": "stage1/examples/modules",
+    "stdlib_sync": {
+      "project": "stage1/examples/stdlib_sync",
       "timings": {
         "parse": {
           "samples_ms": [
-            58.304,
-            50.61,
-            50.946
+            827.812,
+            826.823,
+            798.068
           ],
-          "median_ms": 50.946,
-          "statement_count": 5
+          "median_ms": 826.823,
+          "statement_count": 12
         },
         "check": {
           "samples_ms": [
-            83.776,
-            59.501,
-            66.482
+            830.829,
+            817.323,
+            846.273
           ],
-          "median_ms": 66.482,
-          "statement_count": 12
+          "median_ms": 830.829,
+          "statement_count": 29
         },
         "build": {
           "samples_ms": [
-            361.702,
-            84.498,
-            87.064
+            896.923,
+            923.609,
+            853.228
           ],
-          "median_ms": 87.064,
-          "statement_count": 12,
-          "compiler_duration_ms": 26,
+          "median_ms": 896.923,
+          "statement_count": 29,
+          "compiler_duration_ms": 5,
           "cache_hits": 1,
           "cache_misses": 0
         },
         "run": {
           "samples_ms": [
-            80.631,
-            85.865,
-            82.18
+            849.559,
+            861.35,
+            835.687
           ],
-          "median_ms": 82.18
+          "median_ms": 849.559
         }
       }
     }

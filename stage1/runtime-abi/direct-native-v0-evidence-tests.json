@@ -77,7 +77,7 @@
   "capability_shims": {
     "async.runtime": [
       "cranelift_backend_rejects_async_precomputed_output_without_runtime_lowering",
-      "cranelift_backend_builds_std_async_net_tcp_binary",
+      "cranelift_backend_rejects_std_async_net_tcp_without_runtime_lowering",
       "cranelift_backend_rejects_async_runtime_denial_before_backend_lowering"
     ],
     "clock.now_sleep": [
@@ -116,6 +116,7 @@
       "cranelift_backend_rejects_env_precomputed_output_without_runtime_lowering",
       "cranelift_backend_lowers_env_read_to_runtime_exit_code",
       "cranelift_backend_builds_once_and_reads_environment_at_each_run",
+      "cranelift_backend_runtime_env_match_prints_string_payload_at_runtime",
       "cranelift_backend_rejects_env_denial_before_backend_lowering"
     ],
     "ffi.call": [
@@ -143,7 +144,7 @@
       "cranelift_backend_lowers_std_log_level_wrapper_to_runtime_stderr"
     ],
     "json.serdes": [
-      "cranelift_backend_lowers_known_json_text_to_runtime_exit_code",
+      "cranelift_backend_rejects_known_json_composition_without_runtime_lowering",
       "cranelift_backend_lowers_std_json_wrappers_to_runtime_exit_code",
       "cranelift_backend_rejects_json_precomputed_output_without_runtime_lowering",
       "cranelift_backend_rejects_serdes_precomputed_output_without_runtime_lowering",
@@ -152,6 +153,7 @@
       "cranelift_backend_lowers_std_serdes_known_json_eprintln_to_runtime_stderr"
     ],
     "network.dns.resolve": [
+      "cranelift_backend_lowers_numeric_net_resolve_to_runtime_exit_code",
       "cranelift_backend_rejects_net_resolve_without_runtime_lowering",
       "cranelift_backend_rejects_dynamic_net_targets_before_backend_lowering"
     ],
@@ -164,14 +166,14 @@
       "cranelift_backend_rejects_http_client_denial_before_backend_lowering"
     ],
     "network.http.server": [
-      "cranelift_backend_builds_http_server_binary",
+      "cranelift_backend_rejects_http_server_precomputed_output_without_runtime_lowering",
       "cranelift_backend_lowers_http_server_once_to_runtime_exit_code",
       "cranelift_backend_lowers_http_server_route_to_runtime_exit_code",
       "cranelift_backend_rejects_http_server_denial_before_backend_lowering"
     ],
     "network.tcp": [
-      "cranelift_backend_lowers_net_loopback_to_runtime_exit_code",
-      "cranelift_backend_builds_std_async_net_tcp_binary",
+      "cranelift_backend_rejects_mixed_tcp_udp_loopback_without_runtime_lowering",
+      "cranelift_backend_rejects_std_async_net_tcp_without_runtime_lowering",
       "cranelift_backend_rejects_tcp_denial_before_backend_lowering"
     ],
     "network.udp": [

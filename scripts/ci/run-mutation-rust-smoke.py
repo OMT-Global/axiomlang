@@ -547,23 +547,31 @@ def run_profile(
     clock: Callable[[], float] = time.monotonic,
 ) -> dict[str, object]:
     started = clock()
-    results: list[dict[str, object]] = []
-    for mutant in mutants:
-        mutant_started = clock()
-        remaining_total = total_budget - (mutant_started - started)
+    baselines: list[TestOutcome | None] = [None] * len(mutants)
+    results: list[dict[str, object] | None] = [None] * len(mutants)
+
+    # Run every clean-checkout baseline before changing any source file. Besides
+    # proving that each focused test passes, this warms the shared Cargo target.
+    # Interleaving baseline and mutation runs caused each restored source mtime
+    # to invalidate the next baseline build, consuming almost the entire
+    # per-mutant budget before the mutation was exercised.
+    for index, mutant in enumerate(mutants):
+        baseline_started = clock()
+        remaining_total = total_budget - (baseline_started - started)
         if remaining_total <= 0:
             outcome = TestOutcome(
-                "budget_exhausted", None, 0.0, stderr="total mutation budget exhausted"
+                "budget_exhausted",
+                None,
+                0.0,
+                stderr="total mutation budget exhausted during baseline preflight",
             )
-            results.append(
-                result_record(
-                    mutant,
-                    head_sha,
-                    per_mutant_budget,
-                    total_budget,
-                    outcome,
-                    phase="baseline",
-                )
+            results[index] = result_record(
+                mutant,
+                head_sha,
+                per_mutant_budget,
+                total_budget,
+                outcome,
+                phase="baseline",
             )
             continue
         baseline_timeout = min(per_mutant_budget, remaining_total)
@@ -588,61 +596,59 @@ def run_profile(
                     baseline.stdout,
                     baseline.stderr,
                 )
-            results.append(
-                result_record(
-                    mutant,
-                    head_sha,
-                    per_mutant_budget,
-                    total_budget,
-                    baseline,
-                    phase="baseline",
-                    baseline_duration_ms=baseline.duration_ms,
-                )
-            )
-            continue
-        now = clock()
-        remaining_total = total_budget - (now - started)
-        remaining_mutant = per_mutant_budget - (now - mutant_started)
-        if remaining_total <= 0 or remaining_mutant <= 0:
-            results.append(
-                result_record(
-                    mutant,
-                    head_sha,
-                    per_mutant_budget,
-                    total_budget,
-                    TestOutcome(
-                        "budget_exhausted",
-                        None,
-                        0.0,
-                        stderr=(
-                            "total mutation budget exhausted after baseline"
-                            if remaining_total <= 0
-                            else "per-mutant budget exhausted by baseline"
-                        ),
-                    ),
-                    phase="mutation",
-                    baseline_duration_ms=baseline.duration_ms,
-                )
-            )
-            continue
-        timeout = min(remaining_mutant, remaining_total)
-        results.append(
-            run_mutant(
+            results[index] = result_record(
                 mutant,
-                head_sha=head_sha,
-                timeout_seconds=timeout,
-                total_limited=remaining_total <= remaining_mutant,
-                per_mutant_budget=per_mutant_budget,
-                total_budget=total_budget,
+                head_sha,
+                per_mutant_budget,
+                total_budget,
+                baseline,
+                phase="baseline",
                 baseline_duration_ms=baseline.duration_ms,
-                test_runner=test_runner,
             )
+            continue
+        baselines[index] = baseline
+
+    for index, mutant in enumerate(mutants):
+        if results[index] is not None:
+            continue
+        baseline = baselines[index]
+        assert baseline is not None
+        mutation_started = clock()
+        remaining_total = total_budget - (mutation_started - started)
+        if remaining_total <= 0:
+            results[index] = result_record(
+                mutant,
+                head_sha,
+                per_mutant_budget,
+                total_budget,
+                TestOutcome(
+                    "budget_exhausted",
+                    None,
+                    0.0,
+                    stderr="total mutation budget exhausted before mutation",
+                ),
+                phase="mutation",
+                baseline_duration_ms=baseline.duration_ms,
+            )
+            continue
+        timeout = min(per_mutant_budget, remaining_total)
+        results[index] = run_mutant(
+            mutant,
+            head_sha=head_sha,
+            timeout_seconds=timeout,
+            total_limited=remaining_total <= per_mutant_budget,
+            per_mutant_budget=per_mutant_budget,
+            total_budget=total_budget,
+            baseline_duration_ms=baseline.duration_ms,
+            test_runner=test_runner,
         )
+    complete_results = [result for result in results if result is not None]
+    assert len(complete_results) == len(mutants)
     return build_report(
         head_sha=head_sha,
         per_mutant_budget=per_mutant_budget,
         total_budget=total_budget,
-        results=results,
+        results=complete_results,
         fail_on_survivors=fail_on_survivors,
     )
 

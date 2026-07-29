@@ -112,7 +112,7 @@ class MutationRustSmokeTests(unittest.TestCase):
             self.assertEqual("budget_exhausted", report["mutants"][0]["status"])
             self.assertEqual("alpha\n", path.read_text())
 
-    def test_baseline_time_counts_against_per_mutant_budget(self) -> None:
+    def test_preflight_baseline_does_not_consume_per_mutant_budget(self) -> None:
         with tempfile.TemporaryDirectory() as temp_name:
             path = Path(temp_name) / "sample.rs"
             path.write_text("alpha\n")
@@ -123,12 +123,73 @@ class MutationRustSmokeTests(unittest.TestCase):
                 clock=lambda: next(ticks),
                 total=10.0,
             )
-            self.assertEqual("budget_exhausted", report["mutants"][0]["status"])
-            self.assertIn(
-                "per-mutant budget exhausted by baseline",
-                report["mutants"][0]["stderr_tail"],
-            )
+            self.assertEqual("killed", report["mutants"][0]["status"])
             self.assertEqual("alpha\n", path.read_text())
+
+    def test_all_baselines_run_before_the_first_mutation(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_name:
+            root = Path(temp_name)
+            first_path = root / "first.rs"
+            second_path = root / "second.rs"
+            first_path.write_text("alpha\n")
+            second_path.write_text("alpha\n")
+            mutants = [
+                mutation_rust_smoke.Mutant(
+                    name="first_mutant",
+                    area="fixture",
+                    file=first_path,
+                    find="alpha",
+                    replace="omega",
+                    test_filter="first_test",
+                ),
+                mutation_rust_smoke.Mutant(
+                    name="second_mutant",
+                    area="fixture",
+                    file=second_path,
+                    find="alpha",
+                    replace="omega",
+                    test_filter="second_test",
+                ),
+            ]
+            calls = []
+            outcomes = iter(
+                [
+                    mutation_rust_smoke.TestOutcome("passed", 0, 0.5),
+                    mutation_rust_smoke.TestOutcome("passed", 0, 0.5),
+                    mutation_rust_smoke.TestOutcome("failed", 1, 1.0),
+                    mutation_rust_smoke.TestOutcome("failed", 1, 1.0),
+                ]
+            )
+
+            def run(test_filter, _timeout):
+                calls.append(test_filter)
+                return next(outcomes)
+
+            original_root = mutation_rust_smoke.REPO_ROOT
+            mutation_rust_smoke.REPO_ROOT = root
+            try:
+                report = mutation_rust_smoke.run_profile(
+                    mutants,
+                    head_sha="1" * 40,
+                    per_mutant_budget=5.0,
+                    total_budget=20.0,
+                    fail_on_survivors=True,
+                    test_runner=run,
+                    clock=lambda: 0.0,
+                )
+            finally:
+                mutation_rust_smoke.REPO_ROOT = original_root
+
+            self.assertEqual(
+                ["first_test", "second_test", "first_test", "second_test"],
+                calls,
+            )
+            self.assertEqual(
+                ["killed", "killed"],
+                [result["status"] for result in report["mutants"]],
+            )
+            self.assertEqual("alpha\n", first_path.read_text())
+            self.assertEqual("alpha\n", second_path.read_text())
 
     def test_missing_duplicate_and_stale_anchors_are_distinct(self) -> None:
         cases = [

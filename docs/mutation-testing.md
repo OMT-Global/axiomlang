@@ -26,11 +26,13 @@ python3 scripts/ci/run-mutation-rust-smoke.py \
   --output .axiom-build/reports/mutation-rust-smoke.json
 ```
 
-The per-mutant and total budgets keep the extended lane bounded. Each focused
-library test must pass against the unmodified checkout before its mutation is
-applied; a baseline failure is blocking and cannot be counted as a killed
-mutant. Cargo uses the locked workspace and a mutation is credited as killed
-only when the named focused test actually reports an assertion failure;
+The per-mutant and total budgets keep the extended lane bounded. Every focused
+library test first passes against the unmodified checkout during one baseline
+preflight, which also warms the shared Cargo target before any source file is
+changed. Baselines count against the total profile budget but not a mutant's
+own execution window. A baseline failure is blocking and cannot be counted as
+a killed mutant. Cargo uses the locked workspace and a mutation is credited as
+killed only when the named focused test actually reports an assertion failure;
 compiler, signal, harness, or zero-test failures block as execution errors
 instead. Any surviving mutant also fails qualification.
 

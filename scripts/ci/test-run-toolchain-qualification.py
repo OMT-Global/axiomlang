@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import importlib.util
 import json
+import shlex
 import shutil
 import subprocess
 import sys
@@ -98,6 +99,51 @@ class QualificationTests(unittest.TestCase):
             [".axiom-build/reports/mutation-rust-smoke.json"],
             check["artifactPaths"],
         )
+
+    def test_default_plan_isolates_generated_artifacts_and_requires_go(self):
+        direct_native = next(
+            check
+            for check in toolchain_qualification.DEFAULT_CHECKS
+            if check["id"] == "direct_native_abi"
+        )
+        self.assertIn(
+            "CARGO_TARGET_DIR=stage1/target/direct-native-runtime-abi",
+            direct_native["command"],
+        )
+
+        benchmark = next(
+            check
+            for check in toolchain_qualification.DEFAULT_CHECKS
+            if check["id"] == "benchmark_comparison"
+        )
+        self.assertEqual(["go"], benchmark["requiredTools"])
+
+    def test_default_plan_exercises_all_cargo_targets_without_include_only_helpers(self):
+        full_suite = next(
+            check
+            for check in toolchain_qualification.DEFAULT_CHECKS
+            if check["id"] == "full_crate_integration"
+        )
+        full_tokens = shlex.split(full_suite["command"])
+        self.assertIn("--all-targets", full_tokens)
+        self.assertNotIn("--test", full_tokens)
+        tests_dir = ROOT / "stage1/crates/axiomc/tests"
+        self.assertFalse((tests_dir / "hir_unit.rs").exists())
+        self.assertFalse((tests_dir / "lib_unit.rs").exists())
+        self.assertTrue((tests_dir / "support/hir_unit.rs").is_file())
+        self.assertTrue((tests_dir / "support/lib_unit.rs").is_file())
+
+        lsp = next(
+            check
+            for check in toolchain_qualification.DEFAULT_CHECKS
+            if check["id"] == "lsp_protocol_smoke"
+        )
+        lsp_tokens = shlex.split(lsp["command"].split("&&", 1)[0])
+        self.assertIn("--lib", lsp_tokens)
+        self.assertIn("--test", lsp_tokens)
+        self.assertEqual("lsp_stdio", lsp_tokens[lsp_tokens.index("--test") + 1])
+        self.assertNotIn("hir_unit", lsp_tokens)
+        self.assertNotIn("lib_unit", lsp_tokens)
 
     def test_declared_artifact_is_copied_and_listed_without_cargo(self):
         root = self.fixture_repo()

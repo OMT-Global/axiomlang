@@ -127,7 +127,7 @@ native backend attempts lowering or native execution.
 ## Current Status
 
 The checked-in contract is partial. Direct-native builds fail closed instead of
-executing unsupported program effects during compilation. Seven rows retain
+executing unsupported program effects during compilation. Nine rows retain
 compiler-side or denial evidence but no longer claim runtime-positive proof; their
 blocker issues track the native lowering required before the contract is ready.
 
@@ -156,7 +156,7 @@ _Generated from `stage1/runtime-abi/direct-native-v0.json`; run `make stage1-dir
 
 | Row | Status | Blockers | Evidence | Scope |
 | --- | --- | --- | --- | --- |
-| `async.runtime` | `implemented` | - | evidence:1, runtime:1, denial:2 | The Cranelift spike now has compiler-side evidence for std/async.ax ready, await, spawn, join, cancel, is_canceled, timeout, channel send/recv, sel... |
+| `async.runtime` | `partial` | #1445 | evidence:1, denial:2 | Async/task programs are not executed during build. |
 | `clock.now_sleep` | `implemented` | - | evidence:1, runtime:1, denial:2 | The Cranelift spike can build a std/time.ax package covering now_ms, now, elapsed_ms, and zero-duration sleep while the public clock smoke asserts... |
 | `crypto.aead` | `partial` | #1438 | evidence:1, denial:2 | AEAD seal and open operations are not executed during build. |
 | `crypto.hash` | `implemented` | - | evidence:1, runtime:1, denial:2 | The Cranelift spike covers std/crypto_hash.ax sha256 over strings while the public smoke asserts generated_rust is null. |
@@ -173,7 +173,7 @@ _Generated from `stage1/runtime-abi/direct-native-v0.json`; run `make stage1-dir
 | `network.http.async_server` | `partial` | #1445, #1449 | evidence:1, denial:2 | Async HTTP serving is not executed during build. |
 | `network.http.client` | `partial` | #1448 | evidence:1, denial:2 | HTTP client requests are not executed during build. |
 | `network.http.server` | `implemented` | - | evidence:1, runtime:1, denial:2 | The Cranelift spike builds and runs loopback HTTP server entrypoints while the public smoke asserts generated_rust is null: listen, local_port, acc... |
-| `network.tcp` | `implemented` | - | evidence:1, runtime:1, denial:2 | The Cranelift spike builds and runs std/net.ax tcp_listen_loopback_once over 127.0.0.1 while the public loopback smoke asserts generated_rust is nu... |
+| `network.tcp` | `partial` | #1447 | evidence:1, denial:2 | TCP operations are not executed during build. |
 | `network.udp` | `partial` | #1447 | evidence:1, denial:2 | UDP bind operations are not executed during build. |
 | `process.status` | `implemented` | - | evidence:2, runtime:4, denial:2 | The Cranelift spike records positive compiler-side evidence for std/process.ax run_status over literal, allowlisted deterministic commands and the... |
 | `regex.match_replace` | `implemented` | - | evidence:1, runtime:2 | The Cranelift spike covers std/regex.ax is_match, find, and replace_all for the stage1-safe NFA subset without generated Rust, and the public stdli... |

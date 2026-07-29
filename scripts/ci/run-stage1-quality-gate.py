@@ -27,7 +27,9 @@ DEFAULT_LCOV_OUTPUT = ".axiom-build/reports/stage1-coverage.lcov"
 DEFAULT_REPORT_OUTPUT = ".axiom-build/reports/stage1-quality-report.json"
 REQUIRED_TOOL_VERSION = "0.8.5"
 DEFAULT_BUDGET_SECONDS = 600.0
-SKIPPED_TEST = "tests::check_properties_runs_property_only_tests"
+SKIPPED_TEST = (
+    "tests::check_properties_runs_only_property_tests_and_fails_closed_without_runtime_lowering"
+)
 EXACT_COMMIT_RE = re.compile(r"[0-9a-f]{40}")
 GOVERNING_ISSUE = {
     "number": 1463,

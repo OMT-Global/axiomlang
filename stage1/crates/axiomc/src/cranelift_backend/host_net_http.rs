@@ -221,14 +221,15 @@ pub(crate) fn i64_net_resolve_text_for_bindings(
     static_bindings: &I64StaticBindings,
 ) -> Option<String> {
     i64_net_resolve_text(host).or_else(|| {
-        if !static_bindings.net_unrestricted && !static_bindings.net_allowed_hosts.contains(host) {
+        if !static_bindings.net_allowed_hosts.contains(host) {
             return None;
         }
-        (host, 0)
-            .to_socket_addrs()
+        if host == "localhost" {
+            return Some("127.0.0.1".to_string());
+        }
+        host.parse::<std::net::IpAddr>()
             .ok()
-            .and_then(|mut addrs| addrs.next())
-            .map(|addr| addr.ip().to_string())
+            .map(|addr| addr.to_string())
     })
 }
 
@@ -974,18 +975,11 @@ pub(crate) fn http_response(status: i64, body: &str) -> String {
 }
 
 pub(crate) fn i64_net_resolve_text(host: &str) -> Option<String> {
-    if host == "localhost" {
-        return Some("127.0.0.1".to_string());
-    }
-    let addrs: Vec<std::net::SocketAddr> = (host, 0).to_socket_addrs().ok()?.collect();
-    if addrs.is_empty()
-        || addrs
-            .iter()
-            .any(|addr| i64_is_blocked_network_ip(addr.ip()))
-    {
+    let address = host.parse::<std::net::IpAddr>().ok()?;
+    if i64_is_blocked_network_ip(address) {
         return None;
     }
-    addrs.into_iter().next().map(|addr| addr.ip().to_string())
+    Some(address.to_string())
 }
 
 pub(crate) fn i64_is_blocked_network_ip(ip: std::net::IpAddr) -> bool {
@@ -1017,6 +1011,27 @@ pub(crate) fn i64_is_blocked_network_ip(ip: std::net::IpAddr) -> bool {
                 || (segments[0] & 0xfe00) == 0xfc00
                 || (segments[0] & 0xffc0) == 0xfe80
                 || (segments[0] == 0x2001 && segments[1] == 0x0db8)
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn net_resolve_requires_explicit_allowlist_for_blocked_hosts() {
+        let mut bindings = I64StaticBindings {
+            net_unrestricted: true,
+            ..I64StaticBindings::default()
+        };
+        for host in ["localhost", "127.0.0.1", "169.254.169.254"] {
+            assert_eq!(i64_net_resolve_text_for_bindings(host, &bindings), None);
+            bindings.net_allowed_hosts.insert(String::from(host));
+            assert!(
+                i64_net_resolve_text_for_bindings(host, &bindings).is_some(),
+                "explicit allowlist should admit {host}"
+            );
         }
     }
 }

@@ -1,0 +1,26 @@
+{
+  "schema_version": "axiom.stage1.benchmark-workloads.v1",
+  "workloads": [
+    {
+      "name": "hello",
+      "kind": "compute",
+      "project": "stage1/examples/hello",
+      "reference": "stage1/benchmarks/reference/hello",
+      "expected_lowering_mode": "direct_native_runtime"
+    },
+    {
+      "name": "stdlib_time",
+      "kind": "io",
+      "project": "stage1/examples/stdlib_time",
+      "reference": "stage1/benchmarks/reference/stdlib_time",
+      "expected_lowering_mode": "direct_native_runtime"
+    },
+    {
+      "name": "stdlib_sync",
+      "kind": "concurrency",
+      "project": "stage1/examples/stdlib_sync",
+      "reference": "stage1/benchmarks/reference/stdlib_sync",
+      "expected_lowering_mode": "bounded_static_output"
+    }
+  ]
+}

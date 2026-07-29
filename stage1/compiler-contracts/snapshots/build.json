@@ -3,9 +3,9 @@
   "binary": "<project>/dist/contract-app",
   "cache_hits": 0,
   "cache_key": {
+    "backend_input_hash": "<hash>",
     "compiler": "axiomc-stage1-0.1.0-cranelift",
     "debug": false,
-    "generated_rust_hash": "<hash>",
     "lockfile_hash": "<hash>",
     "manifest_hash": "<hash>",
     "sources": [
@@ -16,7 +16,7 @@
       }
     ],
     "target": null,
-    "version": 1
+    "version": 2
   },
   "cache_misses": 1,
   "command": "build",
@@ -27,6 +27,14 @@
   "entry": "<project>/src/main.ax",
   "generated_rust": null,
   "locked": false,
+  "lowering": {
+    "direct_native_runtime": true,
+    "execution_mode": "direct_native_runtime",
+    "known_value_static_folds": false,
+    "legacy_fallback_attempted": false,
+    "lowering_mode": "direct_native_runtime",
+    "schema_version": "axiom.build-lowering-evidence.v1"
+  },
   "manifest": "<project>/axiom.toml",
   "metadata": {
     "debug": false,
@@ -42,9 +50,9 @@
       "backend": "cranelift",
       "binary": "<project>/dist/contract-app",
       "cache_key": {
+        "backend_input_hash": "<hash>",
         "compiler": "axiomc-stage1-0.1.0-cranelift",
         "debug": false,
-        "generated_rust_hash": "<hash>",
         "lockfile_hash": "<hash>",
         "manifest_hash": "<hash>",
         "sources": [
@@ -55,7 +63,7 @@
           }
         ],
         "target": null,
-        "version": 1
+        "version": 2
       },
       "cache_status": "miss",
       "compile_ms": 0,
@@ -64,6 +72,14 @@
       "debug_map": null,
       "entry": "<project>/src/main.ax",
       "generated_rust": null,
+      "lowering": {
+        "direct_native_runtime": true,
+        "execution_mode": "direct_native_runtime",
+        "known_value_static_folds": false,
+        "legacy_fallback_attempted": false,
+        "lowering_mode": "direct_native_runtime",
+        "schema_version": "axiom.build-lowering-evidence.v1"
+      },
       "manifest": "<project>/axiom.toml",
       "metadata": {
         "debug": false,

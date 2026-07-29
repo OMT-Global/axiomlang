@@ -107,6 +107,12 @@ if (
     )
 if "components: llvm-tools-preview" not in extended_job:
     errors.append("extended-checks must provision llvm-tools-preview")
+if "actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16" not in extended_job:
+    errors.append("extended-checks must provision Go with the pinned setup action")
+if "go-version: ${{ env.GO_VERSION }}" not in extended_job:
+    errors.append("extended-checks must use the repository-pinned Go version")
+if not re.search(r"^  GO_VERSION: '1\.26\.5'$", workflow, re.MULTILINE):
+    errors.append("extended validation must pin Go 1.26.5")
 if 'required_version="0.8.5"' not in extended_job:
     errors.append("extended-checks must pin cargo-llvm-cov 0.8.5")
 if 'cargo install cargo-llvm-cov --version "$required_version" --locked --force' not in extended_job:

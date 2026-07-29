@@ -35,6 +35,226 @@
       "type": "integer",
       "minimum": 0
     },
+    "diagnosticRepair": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "action"
+      ],
+      "properties": {
+        "action": {
+          "type": "string",
+          "minLength": 1
+        },
+        "edit": {
+          "type": "string"
+        },
+        "command": {
+          "type": "string"
+        }
+      }
+    },
+    "diagnostic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "message",
+        "path",
+        "line",
+        "column"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "minLength": 1
+        },
+        "code": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "message": {
+          "type": "string"
+        },
+        "help": {
+          "type": "string"
+        },
+        "path": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "line": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "column": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "end_line": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "end_column": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "related": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/diagnostic"
+          }
+        },
+        "repair": {
+          "$ref": "#/$defs/diagnosticRepair"
+        }
+      }
+    },
+    "expectedDiagnostic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "code",
+        "message",
+        "path",
+        "line",
+        "column"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "minLength": 1
+        },
+        "code": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "message": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "line": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "column": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "buildLoweringEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "execution_mode",
+        "lowering_mode",
+        "direct_native_runtime",
+        "known_value_static_folds",
+        "legacy_fallback_attempted"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": "axiom.build-lowering-evidence.v1"
+        },
+        "execution_mode": {
+          "enum": [
+            "direct_native_runtime",
+            "bounded_static_output",
+            "generated_rust_runtime",
+            "not_produced"
+          ]
+        },
+        "lowering_mode": {
+          "enum": [
+            "direct_native_runtime",
+            "direct_native_runtime_with_static_folds",
+            "generated_rust_compatibility",
+            "runtime_lowering_required",
+            "bounded_static_output"
+          ]
+        },
+        "direct_native_runtime": {
+          "type": "boolean"
+        },
+        "known_value_static_folds": {
+          "type": "boolean"
+        },
+        "legacy_fallback_attempted": {
+          "type": "boolean"
+        }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "execution_mode": { "const": "direct_native_runtime" },
+            "lowering_mode": { "const": "direct_native_runtime" },
+            "direct_native_runtime": { "const": true },
+            "known_value_static_folds": { "const": false },
+            "legacy_fallback_attempted": { "const": false }
+          }
+        },
+        {
+          "properties": {
+            "execution_mode": { "const": "direct_native_runtime" },
+            "lowering_mode": { "const": "direct_native_runtime_with_static_folds" },
+            "direct_native_runtime": { "const": true },
+            "known_value_static_folds": { "const": true },
+            "legacy_fallback_attempted": { "const": false }
+          }
+        },
+        {
+          "properties": {
+            "execution_mode": { "const": "generated_rust_runtime" },
+            "lowering_mode": { "const": "generated_rust_compatibility" },
+            "direct_native_runtime": { "const": false },
+            "known_value_static_folds": { "const": false },
+            "legacy_fallback_attempted": { "const": false }
+          }
+        },
+        {
+          "properties": {
+            "execution_mode": { "const": "not_produced" },
+            "lowering_mode": { "const": "runtime_lowering_required" },
+            "direct_native_runtime": { "const": false },
+            "known_value_static_folds": { "const": false },
+            "legacy_fallback_attempted": { "const": true }
+          }
+        },
+        {
+          "properties": {
+            "execution_mode": { "const": "bounded_static_output" },
+            "lowering_mode": { "const": "bounded_static_output" },
+            "direct_native_runtime": { "const": false },
+            "known_value_static_folds": { "const": true },
+            "legacy_fallback_attempted": { "const": false }
+          }
+        }
+      ]
+    },
     "statementCount": {
       "type": "integer",
       "minimum": 0
@@ -170,7 +390,8 @@
         "cache_status",
         "compile_ms",
         "metadata",
-        "cache_key"
+        "cache_key",
+        "lowering"
       ],
       "properties": {
         "manifest": {
@@ -237,6 +458,9 @@
         },
         "cache_key": {
           "$ref": "#/$defs/cacheKey"
+        },
+        "lowering": {
+          "$ref": "#/$defs/buildLoweringEvidence"
         }
       }
     },
@@ -272,7 +496,14 @@
           "$ref": "#/$defs/path"
         },
         "binary": {
-          "$ref": "#/$defs/path"
+          "oneOf": [
+            {
+              "$ref": "#/$defs/path"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "generated_rust": {
           "oneOf": [
@@ -288,7 +519,10 @@
           "type": "boolean"
         },
         "exit_code": {
-          "type": "integer"
+          "type": [
+            "integer",
+            "null"
+          ]
         },
         "stdout": {
           "type": "string"
@@ -297,15 +531,22 @@
           "type": "string"
         },
         "expected_stdout": {
-          "type": "string"
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "duration_ms": {
           "$ref": "#/$defs/durationMs"
         },
         "error": {
-          "type": [
-            "string",
-            "null"
+          "oneOf": [
+            {
+              "$ref": "#/$defs/diagnostic"
+            },
+            {
+              "type": "null"
+            }
           ]
         },
         "kind": {
@@ -317,6 +558,12 @@
             "string",
             "null"
           ]
+        },
+        "expected_error": {
+          "$ref": "#/$defs/expectedDiagnostic"
+        },
+        "lowering": {
+          "$ref": "#/$defs/buildLoweringEvidence"
         }
       }
     },
@@ -499,7 +746,8 @@
         "cache_misses",
         "duration_ms",
         "packages",
-        "cache_key"
+        "cache_key",
+        "lowering"
       ],
       "properties": {
         "schema_version": {
@@ -585,6 +833,9 @@
         },
         "cache_key": {
           "$ref": "#/$defs/cacheKey"
+        },
+        "lowering": {
+          "$ref": "#/$defs/buildLoweringEvidence"
         }
       }
     },
@@ -1066,7 +1317,7 @@
       "required": [
         "compiler",
         "debug",
-        "generated_rust_hash",
+        "backend_input_hash",
         "lockfile_hash",
         "manifest_hash",
         "sources",
@@ -1081,7 +1332,7 @@
         "debug": {
           "type": "boolean"
         },
-        "generated_rust_hash": {
+        "backend_input_hash": {
           "type": "string",
           "minLength": 1
         },
@@ -1106,8 +1357,7 @@
           ]
         },
         "version": {
-          "type": "integer",
-          "minimum": 1
+          "const": 2
         }
       }
     },

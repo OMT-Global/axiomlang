@@ -1,34 +1,34 @@
 {
   "schema_version": "axiom.stage1.benchmark-baseline.v1",
-  "updated": "2026-04-29",
+  "updated": "2026-07-29",
   "tolerance_pct": 0.35,
-  "notes": "Initial non-blocking calibration baseline for stage1 build medians. Values are intentionally conservative until repeated extended-validation runs establish stable runner-local medians.",
+  "notes": "Non-blocking local calibration baseline for executable stage1 build medians. Values remain conservative until repeated extended-validation runs establish stable runner-local medians.",
   "workloads": {
     "hello": {
       "kind": "compute",
       "medians_ms": {
-        "axiom_cold_build": 1200.0,
-        "axiom_warm_build": 500.0,
-        "go_build": 350.0,
-        "rust_build": 450.0
+        "axiom_cold_build": 57.899,
+        "axiom_warm_build": 5.308,
+        "go_build": 256.973,
+        "rust_build": 75.636
       }
     },
-    "capabilities": {
+    "stdlib_time": {
       "kind": "io",
       "medians_ms": {
-        "axiom_cold_build": 1400.0,
-        "axiom_warm_build": 650.0,
-        "go_build": 400.0,
-        "rust_build": 500.0
+        "axiom_cold_build": 78.929,
+        "axiom_warm_build": 5.359,
+        "go_build": 265.966,
+        "rust_build": 70.883
       }
     },
-    "stdlib_async": {
+    "stdlib_sync": {
       "kind": "concurrency",
       "medians_ms": {
-        "axiom_cold_build": 1600.0,
-        "axiom_warm_build": 750.0,
-        "go_build": 450.0,
-        "rust_build": 550.0
+        "axiom_cold_build": 34.586,
+        "axiom_warm_build": 6.723,
+        "go_build": 248.345,
+        "rust_build": 158.4
       }
     }
   }
