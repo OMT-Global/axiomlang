@@ -172,9 +172,9 @@ _Generated from `stage1/runtime-abi/direct-native-v0.json`; run `make stage1-dir
 | `network.dns.resolve` | `partial` | #1447 | evidence:1, denial:2 | DNS resolution is not executed during build. |
 | `network.http.async_server` | `partial` | #1445, #1449 | evidence:1, denial:2 | Async HTTP serving is not executed during build. |
 | `network.http.client` | `partial` | #1448 | evidence:1, denial:2 | HTTP client requests are not executed during build. |
-| `network.http.server` | `implemented` | - | evidence:1, runtime:1, denial:2 | The Cranelift spike builds and runs loopback HTTP server entrypoints while the public smoke asserts generated_rust is null: listen, local_port, acc... |
+| `network.http.server` | `implemented` | - | evidence:1, runtime:1, denial:2 | The direct-native path builds and runs native loopback http_serve_once, http_serve_route, and public std/http.ax serve_once entrypoints, including... |
 | `network.tcp` | `partial` | #1447 | evidence:1, denial:2 | TCP operations are not executed during build. |
-| `network.udp` | `partial` | #1447 | evidence:1, denial:2 | UDP bind operations are not executed during build. |
+| `network.udp` | `partial` | #1447 | evidence:1, denial:2 | UDP operations are not executed during build. |
 | `process.status` | `implemented` | - | evidence:2, runtime:4, denial:2 | The Cranelift spike records positive compiler-side evidence for std/process.ax run_status over literal, allowlisted deterministic commands and the... |
 | `regex.match_replace` | `implemented` | - | evidence:1, runtime:2 | The Cranelift spike covers std/regex.ax is_match, find, and replace_all for the stage1-safe NFA subset without generated Rust, and the public stdli... |
 | `sync.primitives` | `implemented` | - | evidence:1, runtime:1 | The Cranelift spike now builds and runs ownership-shaped std/sync mutex, once, and channel wrappers while the public sync smoke asserts generated_r... |
@@ -454,55 +454,26 @@ file contents beyond length projection, dynamic path binding beyond known string
 facts, write-side filesystem wrappers, manifest policy parity, and runtime
 filesystem binding remain open under #1124.
 
-The DNS row now has partial Cranelift evidence: the spike builds and runs a
-`std/net.ax` package resolving `localhost` through host DNS while the public
-smoke asserts `generated_rust` is null and returns the public `Option<string>`
-shape. The direct-native i64 path now also lowers known-host `net_resolve(...)`
-calls and the public `std/net.ax`
-`resolve(...)` wrapper into native process exit status by selecting
-`Option<string>` match arms at compile time for `localhost`; those known-host
-results can also be stored in local `Option<string>` values and matched later in
-supported length-projection expression and statement contexts without generated
-Rust. Literal numeric-address `net_resolve(...)` calls and imported public
-`resolve(...)` wrappers now also lower through a native runtime resolver success
-check backed by the object backend's `getaddrinfo` import, preserving the
-supported canonical resolved numeric address string length for direct matches, stored
-`Option<string>` values, and statement matches without generated Rust. Those
-numeric-address runtime resolver checks append host audit JSONL entries when
-`AXIOM_HOST_AUDIT_LOG` is set, recording only the host string length and
-ok/denied outcome without recording the host text. Packages without the `net`
-capability still fail before backend lowering. General DNS name resolution,
-address-string materialization beyond numeric-address length projection,
-resolver portability, and broader network audit parity remain open under #1124.
+The DNS row has partial direct-native evidence for numeric-address
+`net_resolve(...)` calls and the public `std/net.ax` `resolve(...)` wrapper.
+Public IPv4 and IPv6 literals lower through the object backend's native
+`getaddrinfo` import and preserve the canonical address-string length for
+direct and stored `Option<string>` matches. Unrestricted `net = true` does not
+override the sensitive-target guard: IPv4 and IPv6 loopback, RFC1918 or
+unique-local, link-local, metadata-style addresses, and `localhost` fail closed
+unless the exact target appears in the manifest host allowlist. Arbitrary
+hostnames also fail closed rather than triggering build-time DNS. Resolver
+audit entries contain only the host string length and outcome, never host text.
+General runtime DNS names, address-string materialization, and resolver
+portability remain open under #1124.
 
-The TCP row now has partial Cranelift evidence: the spike builds and runs
-`std/net.ax` `tcp_listen_loopback_once(...)` over `127.0.0.1` while the public
-smoke asserts `generated_rust` is null and returns a loopback port. The spike
-now also builds and runs `std/async_net.ax` loopback TCP `listen`, `local_port`,
-`accept`, `recv_text`, `send_text`, `close`, `close_listener`, and paired
-`tcp_dial` flows without generated Rust. The direct-native i64 path now also lowers known-response
-`net_tcp_listen_loopback_once(...)` and public `std/net.ax`
-`tcp_listen_loopback_once(...)` calls into native process exit status by
-selecting `Option<int>` match arms at compile time for successful loopback
-binds; public loopback results can also be stored in local `Option<int>` values
-and matched later in supported expression and statement contexts without
-generated Rust. Packages without the `net` capability still fail before backend
-lowering. General runtime-time TCP socket lifecycle APIs, non-loopback policy
-coverage, timeout parity, and audit parity remain open under #1124.
-
-The UDP row now has partial Cranelift evidence: the spike builds and runs
-`std/net.ax` `udp_bind_loopback_once(...)` over `127.0.0.1` while the same
-public loopback smoke asserts `generated_rust` is null and returns a loopback
-port. The direct-native i64 path now also lowers
-known-response `net_udp_bind_loopback_once(...)` and public `std/net.ax`
-`udp_bind_loopback_once(...)` calls into native process exit status by selecting
-`Option<int>` match arms at compile time for successful loopback binds; public
-loopback results can also be stored in local `Option<int>` values and matched
-later in supported expression and statement contexts without generated Rust.
-Packages without the `net` capability still fail before backend lowering.
-Paired dynamic-port send/recv coverage, full UDP socket lifecycle APIs,
-non-loopback policy coverage, timeout parity, and audit parity remain open under
-#1124.
+The TCP and UDP rows are partial. Their former loopback and async-net positive
+fixtures executed socket effects through the compiler-side evaluator, so those
+programs now fail closed with `backend.runtime_lowering_required` and produce
+neither a binary nor a generated-Rust fallback. Capability-denial fixtures
+still reject packages without `net` before backend lowering. True native TCP
+connect/listen lifecycles, UDP send/receive lifecycles, policy enforcement,
+timeouts, and audit parity remain open under #1124.
 
 The filesystem write row now has partial Cranelift evidence: the spike evaluates
 `std/fs.ax` write helpers over configured `fs_root`-scoped literal paths during
@@ -640,45 +611,26 @@ capability still fail before backend lowering. Runtime-integrated crypto
 provider selection, broader algorithm coverage, deterministic test hooks, audit
 parity, and non-Unix support remain open under #1124.
 
-The HTTP client row now has partial Cranelift evidence: the spike builds
-`std/http.ax` `get(...)` against a static allowlisted `http://127.0.0.1` URL
-and fetches a local one-shot HTTP response while the public smoke asserts
-`generated_rust` is null. The direct-native i64 path now also lowers known-url
-`http_get(...)` and public
-`std/http.ax` `get(...)` calls into native process exit status by selecting
-`Option<string>` match arms at compile time for local HTTP responses; public
-`get(...)` results can also be stored in local `Option<string>` values and
-matched later in supported length-projection expression and statement contexts
-without generated Rust. Packages without the `net` capability still fail before
-backend lowering. HTTPS, nonlocal HTTP policy coverage, redirects, richer
-response handling, timeout parity, and audit parity remain open under #1124.
+The HTTP client row is partial. Its former local-response fixtures performed
+requests through the compiler-side evaluator; they now fail closed with
+`backend.runtime_lowering_required` and produce no binary. Native client
+lowering, HTTPS, redirects, response handling, timeout behavior, and audit
+parity remain open under #1124.
 
-The HTTP server row now has partial Cranelift evidence: the spike builds and
-runs loopback HTTP server entrypoints while the public smoke asserts
-`generated_rust` is null, covering
-`http_server_listen`, `http_server_local_port`, `http_server_accept`,
-`http_request_method`, `http_request_path`, `http_request_body`,
-`http_response_write`, and `http_server_close` over a one-request HTTP/1.0
-fixture. The direct-native i64 path now also lowers known-bind
+The HTTP server row remains implemented for its evidenced native subset:
 `http_serve_once(...)`, `http_serve_route(...)`, and public `std/http.ax`
-`serve_once(...)` calls into native process exit status by selecting bool
-branches at compile time for local HTTP responses, including a two-request
-routed fixture; public `serve_once(...)` and primitive `http_serve_route(...)`
-results can also be stored in local bool values and used by later branch
-conditions without generated Rust. Packages without the `net` capability still
-fail before backend lowering. Non-loopback policy coverage, richer response
-metadata, timeout parity, and audit parity remain open under #1124.
+`serve_once(...)` build native loopback servers and pass one-request and routed
+two-request HTTP/1.0 probes. The broader precomputed-output server fixture used
+compiler-side evaluator effects and now fails closed instead of being counted
+as runtime evidence. Non-loopback policy coverage, richer response metadata,
+timeouts, and audit parity remain open under #1124.
 
-The async HTTP server row now has partial Cranelift evidence: the spike builds
-and runs `http_async_serve_route` over a loopback server handle while the public
-smoke asserts `generated_rust` is null, returns a `Task<bool>`, and serves a
-one-request HTTP/1.0 route fixture. The awaited serve result can be stored in a
-local bool value before later output without generated Rust. It also proves the
-async gate separately: with `net` present and `async` missing,
-`std/http_async.ax` `async_serve_route(...)` must fail through the public
-`async` capability denial before backend lowering. Real scheduler-backed
-serving, concurrent clients, cancellation, timeout parity, non-loopback policy
-coverage, and audit parity remain open under #1124.
+The async HTTP server row is partial. Its former loopback route fixture relied
+on compiler-side evaluator effects and now fails closed with
+`backend.runtime_lowering_required`. A package with `net` but without `async`
+still receives the public async capability denial before backend lowering.
+Scheduler-backed serving, concurrent clients, cancellation, timeouts, and
+audit parity remain open under #1124.
 
 The process status row now has partial direct-native evidence: the Cranelift
 spike builds and runs `std/process.ax` `run_status(...)` for literal,
@@ -812,11 +764,11 @@ Broader map ownership, runtime map storage, general payload lookup bindings,
 general `get(...)` Option payload selection for dynamic keys, key/value
 ownership, and host-boundary representation remain tracked by issue #1124.
 
-The `env.read` row now has partial Cranelift evidence for `std/env.ax`
-`get_env` on present and missing environment names while the public smoke
-asserts `generated_rust` is null, plus denial evidence that a package without the
-`env` capability fails before backend lowering. The direct-native i64 path now
-also lowers literal-, static-string-key, and known-concatenated-key
+The `env.read` row is implemented for its evidenced direct-native subset:
+`std/env.ax` `get_env` supports present and missing environment names while the
+public smoke asserts `generated_rust` is null, and a package without the `env`
+capability fails before backend lowering. The direct-native i64 path lowers
+literal-, static-string-key, and known-concatenated-key
 `env_get(...)` calls and the public `std/env.ax` `get_env(...)` wrapper into
 native runtime environment lookups through the object backend for direct
 `Option<string>` matches that use `len(value)`, returning the runtime string
@@ -832,9 +784,13 @@ and statement matches, including known-concatenated keys and helper-local
 lookups, without capturing the compiler process environment.
 Helper-local present and missing env lookups over static keys also lower through
 the same native runtime environment path and return through direct-native helper
-calls.
-Broader runtime environment binding, stored string value materialization beyond
-length projection, and dynamic-key allowlist handling remain open under #1124.
+calls. A narrow direct match-and-print shape also carries the `Some(value)`
+payload from a static allowlisted `env_get(...)` directly to native stdout and
+prints a fixed fallback for `None`; its regression builds with one sentinel,
+then proves missing and different runtime values are observed without embedding
+the build environment. Storing a runtime `Option<string>` and later
+materializing or printing its payload, broader runtime environment string
+binding, and dynamic-key allowlist handling remain open under #1124.
 
 The FFI call row now has partial direct-native evidence: the spike builds and
 runs a narrow C ABI `extern fn strlen(value: string): int from "c"` fixture
@@ -857,15 +813,14 @@ Cranelift-specific lowering diagnostic. Broad dynamic symbol loading, pointer
 and mutable-pointer ABI shapes, non-string arguments, ownership safety, platform
 library resolution, and broader FFI audit coverage remain open under #1124.
 
-The async runtime row now has partial Cranelift evidence for `std/async.ax`
-`ready`, `await`, `spawn`, `join`, `cancel`, `is_canceled`, `timeout`,
-single-slot channel `send`/`recv`, `select`, `selected`, and `selected_value`
-while the public smoke asserts `generated_rust` is null. The spike now also
-builds and runs the `std/async_net.ax` loopback TCP example through async `listen`, `accept`,
-`recv_text`, `send_text`, `tcp_dial`, and `join` flows without generated Rust. A
-package importing `std/async.ax` with no `async` capability must still receive
-the public manifest-policy denial before backend lowering. Full scheduler,
-timer, blocking, wakeup, cancellation, and audit parity remain open under #1124.
+The async runtime row is partial. The former `std/async.ax` and
+`std/async_net.ax` positive fixtures executed task and socket effects through
+the compiler-side evaluator; they now fail closed with
+`backend.runtime_lowering_required` and do not produce a binary. A package
+without the `async` capability still receives the public manifest-policy denial
+before backend lowering. Native task storage, scheduler wakeups, cancellation,
+timeouts, channels, blocking behavior, and audit parity remain open under
+#1124.
 
 The sync-primitives row has partial direct-native evidence: the Cranelift spike
 now evaluates ownership-shaped `std/sync.ax` mutex, once, and channel wrappers

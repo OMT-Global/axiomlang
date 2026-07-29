@@ -193,6 +193,12 @@ class SmokeReportValidatorTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("must pass", result.stderr)
 
+        exercised = {**empty, "cases": [direct_case("src/exercised_test")]}
+        result = self.validate(
+            exercised, command="test", expectation="direct-native"
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_rejects_contradictory_blocked_tuple_and_generated_rust(self):
         lowering = blocked_lowering()
         lowering["direct_native_runtime"] = True

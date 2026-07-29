@@ -373,6 +373,125 @@ fn command_schema_validates_all_build_lowering_evidence_tuples() {
 }
 
 #[test]
+fn command_schema_accepts_real_fail_closed_test_case_shapes() {
+    let contracts = contract_root();
+    let schema = read_json(&contracts.join("schemas/axiom.stage1.command.schema.json"));
+    let validator = jsonschema::validator_for(&schema).expect("compile JSON command schema");
+    let compile_fail_fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../conformance/fail/comparison_predictable_diagnostic")
+        .canonicalize()
+        .expect("compile-fail fixture");
+    let compile_fail = run_axiomc_json(&[
+        "test",
+        compile_fail_fixture
+            .to_str()
+            .expect("compile-fail fixture path"),
+        "--json",
+    ]);
+    let compile_fail_case = &compile_fail["cases"][0];
+    assert!(compile_fail_case["binary"].is_null());
+    assert!(compile_fail_case["exit_code"].is_null());
+    assert!(compile_fail_case["expected_stdout"].is_null());
+    assert!(compile_fail_case["expected_stderr"].is_null());
+    assert!(compile_fail_case["expected_error"].is_object());
+    let focused_test_schema = json!({
+        "$schema": schema["$schema"],
+        "$defs": schema["$defs"],
+        "$ref": "#/$defs/test",
+    });
+    let focused_test_validator =
+        jsonschema::validator_for(&focused_test_schema).expect("compile focused test schema");
+    assert_payload_matches_schema(
+        &focused_test_validator,
+        "compile-fail test branch",
+        &compile_fail,
+    );
+    assert_payload_matches_schema(&validator, "compile-fail test", &compile_fail);
+
+    let mut missing_nullable_field = compile_fail.clone();
+    missing_nullable_field["cases"][0]
+        .as_object_mut()
+        .expect("compile-fail case object")
+        .remove("binary");
+    assert!(
+        validator.validate(&missing_nullable_field).is_err(),
+        "required nullable test-case fields must not become optional"
+    );
+
+    let mut unexpected_expected_error_field = compile_fail.clone();
+    unexpected_expected_error_field["cases"][0]["expected_error"]["unexpected"] = json!(true);
+    assert!(
+        validator
+            .validate(&unexpected_expected_error_field)
+            .is_err(),
+        "expected diagnostic objects must remain closed"
+    );
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("failing-test-contract");
+    run_axiomc(&[
+        "new",
+        project.to_str().expect("project path"),
+        "--name",
+        "failing-test-contract",
+    ]);
+    fs::write(
+        project.join("src/main_test.ax"),
+        "let value: int = \"not an int\"\n",
+    )
+    .expect("write invalid test source");
+    let failed = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args(["test", project.to_str().expect("project path"), "--json"])
+        .output()
+        .expect("run failing test command");
+    assert!(
+        !failed.status.success(),
+        "invalid test source must fail closed"
+    );
+    assert!(
+        failed.stderr.is_empty(),
+        "JSON test failure should not use stderr: {}",
+        String::from_utf8_lossy(&failed.stderr)
+    );
+    let failed: Value = serde_json::from_slice(&failed.stdout).expect("parse failing test JSON");
+    let failed_case = &failed["cases"][0];
+    assert!(failed_case["binary"].is_null());
+    assert!(failed_case["exit_code"].is_null());
+    assert!(failed_case["error"].is_object());
+    assert_payload_matches_schema(&validator, "failed test", &failed);
+
+    let mut legacy_string_error = failed;
+    legacy_string_error["cases"][0]["error"] = json!("unstructured compiler failure");
+    assert!(
+        validator.validate(&legacy_string_error).is_err(),
+        "test-case errors must remain structured diagnostics"
+    );
+}
+
+#[test]
+fn public_schema_rejects_nested_only_case_lowering_contradictions() {
+    let schema = read_json(&public_v1_schema_path());
+    let validator = jsonschema::validator_for(&schema).expect("compile public v1 schema");
+    let valid_lowering = json!({
+        "schema_version": "axiom.build-lowering-evidence.v1",
+        "execution_mode": "direct_native_runtime",
+        "lowering_mode": "direct_native_runtime",
+        "direct_native_runtime": true,
+        "known_value_static_folds": false,
+        "legacy_fallback_attempted": false,
+    });
+    let valid = test_command_payload_with_lowering(valid_lowering);
+    assert_payload_matches_schema(&validator, "valid nested test lowering", &valid);
+
+    let mut contradiction = valid;
+    contradiction["cases"][0]["lowering"]["legacy_fallback_attempted"] = json!(true);
+    assert!(
+        validator.validate(&contradiction).is_err(),
+        "public stage1 schema must reject nested-only contradictory test-case evidence"
+    );
+}
+
+#[test]
 fn cli_json_outputs_validate_against_public_v1_schema() {
     let schema = read_json(&public_v1_schema_path());
     let validator = jsonschema::validator_for(&schema).expect("compile public v1 schema");
@@ -745,13 +864,13 @@ fn read_json(path: &Path) -> Value {
 }
 
 fn assert_payload_matches_schema(validator: &Validator, command: &str, payload: &Value) {
-    let errors = validator
+    let errors: Vec<_> = validator
         .iter_errors(payload)
         .map(|error| format!("{}: {error}", error.instance_path))
-        .collect::<Vec<_>>();
+        .collect();
     if !errors.is_empty() {
         panic!(
-            "{command} JSON payload failed schema validation:\n{}",
+            "{command} JSON payload failed schema validation:\n{}\n{payload:#}",
             errors.join("\n")
         );
     }

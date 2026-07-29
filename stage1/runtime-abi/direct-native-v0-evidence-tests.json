@@ -154,6 +154,8 @@
     ],
     "network.dns.resolve": [
       "cranelift_backend_lowers_numeric_net_resolve_to_runtime_exit_code",
+      "cranelift_backend_lowers_mixed_case_allowlisted_localhost_to_runtime_exit_code",
+      "cranelift_backend_unrestricted_net_rejects_sensitive_resolution_targets_without_allowlist",
       "cranelift_backend_rejects_net_resolve_without_runtime_lowering",
       "cranelift_backend_rejects_dynamic_net_targets_before_backend_lowering"
     ],

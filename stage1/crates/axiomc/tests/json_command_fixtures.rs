@@ -206,7 +206,7 @@ fn build_fixtures_cover_direct_native_target_and_no_fallback_failure() {
         build_payload["packages"][0]["lowering"] = evidence.clone();
         assert_matches_stage1_schema(&validator, &build_payload);
 
-        let mut contradiction = evidence;
+        let mut contradiction = evidence.clone();
         let legacy_fallback = contradiction["legacy_fallback_attempted"]
             .as_bool()
             .expect("legacy fallback boolean");
@@ -215,11 +215,18 @@ fn build_fixtures_cover_direct_native_target_and_no_fallback_failure() {
             lowering_validator.validate(&contradiction).is_err(),
             "{mode} must reject a contradictory lowering tuple"
         );
-        build_payload["lowering"] = contradiction.clone();
-        build_payload["packages"][0]["lowering"] = contradiction;
+
+        build_payload["packages"][0]["lowering"] = contradiction.clone();
         assert!(
             validator.validate(&build_payload).is_err(),
-            "stage1 command schema must reject contradictory {mode} evidence"
+            "public stage1 schema must reject nested-only contradictory {mode} evidence"
+        );
+
+        build_payload["packages"][0]["lowering"] = evidence.clone();
+        build_payload["lowering"] = contradiction;
+        assert!(
+            validator.validate(&build_payload).is_err(),
+            "public stage1 schema must reject top-level contradictory {mode} evidence"
         );
     }
 

@@ -218,7 +218,7 @@
         "stage1/conformance/fail/stdlib_net_dns_without_capability/expected-error.json",
         "stage1/crates/axiomc/tests/cranelift_backend.rs"
       ],
-      "notes": "DNS resolution is not executed during build. Syntactically numeric IPv4 literals, plus the localhost alias, lower to the native resolver with canonical result-length evidence; arbitrary hostnames fail closed with backend.runtime_lowering_required until the governed runtime resolver contract is available.",
+      "notes": "DNS resolution is not executed during build. Public numeric IPv4 and IPv6 literals can lower to the native resolver with canonical result-length evidence. Unrestricted networking still denies loopback, private or unique-local, link-local, metadata-style, and localhost targets unless the exact target is allowlisted; arbitrary hostnames fail closed with backend.runtime_lowering_required until the governed runtime resolver contract is available.",
       "blockers": [
         1447
       ]
@@ -250,7 +250,7 @@
         "stage1/conformance/fail/stdlib_net_udp_without_capability/expected-error.json",
         "stage1/crates/axiomc/tests/cranelift_backend.rs"
       ],
-      "notes": "UDP bind operations are not executed during build. Programs requiring UDP fail closed with backend.runtime_lowering_required until native socket lowering is available.",
+      "notes": "UDP operations are not executed during build. Earlier loopback fixtures relied on compiler-side evaluator effects and now fail closed with backend.runtime_lowering_required until native socket lowering is available.",
       "blockers": [
         1447
       ]
@@ -266,7 +266,7 @@
         "stage1/conformance/fail/stdlib_http_client_without_capability/expected-error.json",
         "stage1/crates/axiomc/tests/cranelift_backend.rs"
       ],
-      "notes": "HTTP client requests are not executed during build. Programs requiring HTTP fetches fail closed with backend.runtime_lowering_required until native client lowering is available.",
+      "notes": "HTTP client requests are not executed during build. Earlier local-response fixtures relied on compiler-side evaluator effects and now fail closed with backend.runtime_lowering_required until native client lowering is available.",
       "blockers": [
         1448
       ]
@@ -282,7 +282,7 @@
         "stage1/conformance/fail/stdlib_http_server_without_capability/expected-error.json",
         "stage1/crates/axiomc/tests/cranelift_backend.rs"
       ],
-      "notes": "The Cranelift spike builds and runs loopback HTTP server entrypoints while the public smoke asserts generated_rust is null: listen, local_port, accept, request method/path/body extraction, response write, and close over a one-request HTTP/1.0 fixture. The direct-native i64 path now also lowers known-bind http_serve_once, http_serve_route, and public std/http.ax serve_once calls into native process exit status by selecting bool branches at compile time for local HTTP responses, including a two-request routed fixture; public serve_once and primitive http_serve_route results can also be stored in local bool values and used by later branch conditions without generated Rust. Packages without the net capability still receive the public manifest-policy denial before backend lowering. Non-loopback policy coverage, richer response metadata, timeout parity, and audit parity remain blocked.",
+      "notes": "The direct-native path builds and runs native loopback http_serve_once, http_serve_route, and public std/http.ax serve_once entrypoints, including one-request and routed two-request HTTP/1.0 fixtures. The broader precomputed-output server fixture relied on compiler-side evaluator effects and now fails closed with backend.runtime_lowering_required. Packages without the net capability still receive the public manifest-policy denial before backend lowering. Non-loopback policy coverage, richer response metadata, timeout parity, and audit parity remain blocked.",
       "runtime_evidence": [
         "stage1/crates/axiomc/tests/cranelift_backend.rs"
       ]
@@ -298,7 +298,7 @@
         "stage1/conformance/fail/stdlib_http_async_without_capability/expected-error.json",
         "stage1/crates/axiomc/tests/cranelift_backend.rs"
       ],
-      "notes": "Async HTTP serving is not executed during build. Programs requiring it fail closed with backend.runtime_lowering_required until scheduler-backed native server lowering is available.",
+      "notes": "Async HTTP serving is not executed during build. The earlier loopback route fixture relied on compiler-side evaluator effects and now fails closed with backend.runtime_lowering_required until scheduler-backed native server lowering is available.",
       "blockers": [
         1445,
         1449
@@ -335,7 +335,7 @@
         "stage1/conformance/fail/stdlib_env_without_capability/expected-error.json",
         "stage1/crates/axiomc/tests/cranelift_backend.rs"
       ],
-      "notes": "The Cranelift spike can build a std/env.ax get_env package for present and missing environment reads while the public smoke asserts generated_rust is null, and rejects missing env capability before backend lowering. The direct-native i64 path now also lowers literal- and static-string-key env_get calls and the public std/env.ax get_env wrapper into native runtime environment lookups through the object backend for direct Option<string> matches that use len(value), returning the runtime string length or the None arm when absent. That direct-native path also appends host audit JSONL entries when AXIOM_HOST_AUDIT_LOG is set, recording only the environment key length and the ok/denied outcome without recording environment values. Literal- and static-key direct-native environment reads now also honor manifest env allowlists at runtime, returning the None arm for non-allowlisted keys even when those names exist in the host process. The same runtime env lookup can now be stored in a local Option<string> and matched later for supported len(value) expression and statement matches without capturing the compiler process environment. Helper-local present and missing env lookups over static keys also lower through the same native runtime environment path and return through direct-native helper calls. Broader runtime environment binding, stored string value materialization beyond length projection, and dynamic-key allowlist handling remain open.",
+      "notes": "The Cranelift spike can build a std/env.ax get_env package for present and missing environment reads while the public smoke asserts generated_rust is null, and rejects missing env capability before backend lowering. The direct-native i64 path now also lowers literal- and static-string-key env_get calls and the public std/env.ax get_env wrapper into native runtime environment lookups through the object backend for direct Option<string> matches that use len(value), returning the runtime string length or the None arm when absent. That direct-native path also appends host audit JSONL entries when AXIOM_HOST_AUDIT_LOG is set, recording only the environment key length and the ok/denied outcome without recording environment values. Literal- and static-key direct-native environment reads now also honor manifest env allowlists at runtime, returning the None arm for non-allowlisted keys even when those names exist in the host process. The same runtime env lookup can be stored in a local Option<string> and matched later for supported len(value) expression and statement matches without capturing the compiler process environment. Helper-local present and missing env lookups over static keys also lower through the same native runtime environment path and return through direct-native helper calls. A narrow direct match-and-print shape carries the Some string payload from a static allowlisted env_get directly to native stdout, selects a fixed None fallback when absent, and proves runtime values are not captured during build. Storing a runtime Option<string> and later materializing or printing its payload, broader runtime environment string binding, and dynamic-key allowlist handling remain open.",
       "runtime_evidence": [
         "stage1/crates/axiomc/tests/cranelift_backend.rs"
       ]

@@ -5222,7 +5222,7 @@ fn cranelift_backend_lowers_net_resolve_to_runtime_exit_code() {
 
     let temp = tempfile::tempdir().expect("tempdir");
     let project = temp.path().join("net-resolve-main-exit");
-    write_net_resolve_main_exit_project(&project);
+    write_net_resolve_main_exit_project(&project, "localhost");
 
     let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
         .args([
@@ -5248,6 +5248,46 @@ fn cranelift_backend_lowers_net_resolve_to_runtime_exit_code() {
     let run = Command::new(binary)
         .output()
         .expect("run cranelift net resolve main binary");
+    assert_eq!(run.status.code(), Some(48));
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "");
+}
+
+#[cfg(not(windows))]
+#[test]
+fn cranelift_backend_lowers_mixed_case_allowlisted_localhost_to_runtime_exit_code() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("net-resolve-mixed-case-main-exit");
+    write_net_resolve_main_exit_project(&project, "LOCALHOST");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "mixed-case allowlisted localhost build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run mixed-case allowlisted localhost binary");
     assert_eq!(run.status.code(), Some(48));
     assert_eq!(String::from_utf8_lossy(&run.stdout), "");
 }
@@ -5297,6 +5337,43 @@ fn cranelift_backend_lowers_numeric_net_resolve_to_runtime_exit_code() {
     assert!(audit.contains("\"intrinsic\":\"net_resolve\""));
     assert!(audit.contains("\"host\":\"string:9\""));
     assert!(!audit.contains("127.0.0.1"));
+}
+
+#[cfg(not(windows))]
+#[test]
+fn cranelift_backend_unrestricted_net_rejects_sensitive_resolution_targets_without_allowlist() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    for (index, host) in [
+        "localhost",
+        "127.0.0.1",
+        "10.0.0.1",
+        "172.16.0.1",
+        "192.168.0.1",
+        "169.254.1.1",
+        "169.254.169.254",
+        "::1",
+        "fc00::1",
+        "fe80::1",
+        "::ffff:127.0.0.1",
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let project = temp.path().join(format!("blocked-net-resolve-{index}"));
+        write_unrestricted_net_resolve_project(&project, host);
+
+        let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+            .args([
+                "build",
+                project.to_str().expect("project path"),
+                "--backend",
+                "cranelift",
+                "--json",
+            ])
+            .output()
+            .expect("run axiomc build --backend cranelift");
+        assert_runtime_lowering_required(&output, host);
+    }
 }
 
 #[cfg(not(windows))]
@@ -12063,7 +12140,7 @@ print false
     .expect("write net resolve source");
 }
 
-fn write_net_resolve_main_exit_project(project: &Path) {
+fn write_net_resolve_main_exit_project(project: &Path, requested_host: &str) {
     fs::create_dir_all(project.join("src")).expect("create net resolve main project src");
     fs::write(
         project.join("axiom.toml"),
@@ -12104,10 +12181,10 @@ source = "path"
         r#"import "std/net.ax"
 
 fn main(): int {
-let resolved_len: int = match resolve("localhost") { Some(address) => len(address), None => 0 }
-let stored_resolved: Option<string> = resolve("localhost")
-let stored_direct: Option<string> = net_resolve("localhost")
-let stored_statement: Option<string> = resolve("localhost")
+let resolved_len: int = match resolve("__HOST__") { Some(address) => len(address), None => 0 }
+let stored_resolved: Option<string> = resolve("__HOST__")
+let stored_direct: Option<string> = net_resolve("__HOST__")
+let stored_statement: Option<string> = resolve("__HOST__")
 let stored_resolved_len: int = match stored_resolved { Some(address) => len(address), None => 0 }
 let stored_direct_len: int = match stored_direct { Some(address) => len(address), None => 0 }
 let statement_len: int = 0
@@ -12125,7 +12202,8 @@ return 48
 return 1
 }
 }
-"#,
+"#
+        .replace("__HOST__", requested_host),
     )
     .expect("write net resolve main source");
 }
@@ -12195,6 +12273,55 @@ return 1
 "#,
     )
     .expect("write numeric net resolve main source");
+}
+
+fn write_unrestricted_net_resolve_project(project: &Path, host: &str) {
+    fs::create_dir_all(project.join("src")).expect("create unrestricted net resolve project src");
+    fs::write(
+        project.join("axiom.toml"),
+        r#"[package]
+name = "cranelift-unrestricted-net-resolve"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+fs = false
+net = true
+process = false
+env = false
+clock = false
+crypto = false
+
+[unsafe_rationale]
+net = "Regression proves unrestricted networking still denies sensitive targets."
+"#,
+    )
+    .expect("write unrestricted net resolve manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        r#"version = 1
+
+[[package]]
+name = "cranelift-unrestricted-net-resolve"
+version = "0.1.0"
+source = "path"
+"#,
+    )
+    .expect("write unrestricted net resolve lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        format!(
+            r#"fn main(): int {{
+let resolved: Option<string> = net_resolve("{host}")
+return match resolved {{ Some(address) => len(address), None => 0 }}
+}}
+"#
+        ),
+    )
+    .expect("write unrestricted net resolve source");
 }
 
 fn write_net_loopback_project(project: &Path) {

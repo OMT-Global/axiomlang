@@ -37,7 +37,22 @@
       "type": "array"
     },
     "packages": {
-      "type": "array"
+      "type": "array",
+      "items": {
+        "oneOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "lowering": {
+                "$ref": "#/$defs/build_lowering_evidence"
+              }
+            }
+          }
+        ]
+      }
     },
     "macro_expansions": {
       "type": "array",
