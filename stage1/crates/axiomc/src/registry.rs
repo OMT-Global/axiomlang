@@ -89,9 +89,9 @@ pub struct PublishOptions<'a, S: Ed25519Signer> {
     pub registry_identity: &'a str,
     pub source_identity: &'a str,
     pub publisher_identity: &'a str,
-    /// Package signatures are snapshot-bound. Advancing either coordinate,
-    /// including for a yank-only index update, requires re-signing every
-    /// retained release for the new snapshot.
+    /// Package signatures bind componentwise publication floors. A generated
+    /// index must meet or exceed both coordinates, while later index advances
+    /// and yank-only updates do not require re-signing retained releases.
     pub index_generation: u64,
     pub index_sequence: u64,
     pub provenance_statement: &'a Value,
