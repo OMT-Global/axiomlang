@@ -376,6 +376,26 @@ def extract(inventory_path: Path, policy_path: Path) -> dict[str, Any]:
     policy = load_object(policy_path)
     entries = inventory_entries(inventory)
     contract_version = require_semver(inventory.get("contract_version"), "contract_version")
+    version_policy = inventory.get("surface_versions")
+    if not isinstance(version_policy, dict):
+        raise ValueError("source inventory surface_versions must be an object")
+    default_surface_version = require_semver(
+        version_policy.get("default"), "surface_versions.default"
+    )
+    surface_version_overrides = version_policy.get("overrides")
+    if not isinstance(surface_version_overrides, dict) or not all(
+        isinstance(identifier, str) and isinstance(version, str)
+        for identifier, version in surface_version_overrides.items()
+    ):
+        raise ValueError("surface_versions.overrides must map surface IDs to SemVer strings")
+    for identifier, version in surface_version_overrides.items():
+        if not AXIOM_ID.fullmatch(identifier):
+            raise ValueError(f"invalid surface version override ID {identifier!r}")
+        require_semver(version, f"surface_versions.overrides[{identifier!r}]")
+
+    def public_surface_version(identifier: str) -> str:
+        return surface_version_overrides.get(identifier, default_surface_version)
+
     policy_version = require_semver(policy.get("policy_version"), "policy.policy_version")
 
     cargo_path = entry_path(entries, "cargo_workspace_version")
@@ -436,7 +456,7 @@ def extract(inventory_path: Path, policy_path: Path) -> dict[str, Any]:
         surface(
             f"axiom://language/edition/{edition_id}",
             "language",
-            contract_version,
+            public_surface_version(f"axiom://language/edition/{edition_id}"),
             (
                 f"edition {edition_id}; status={edition_row['status']}; "
                 f"selection={editions['selection']}; coverage=governed_partial; "
@@ -562,7 +582,7 @@ def extract(inventory_path: Path, policy_path: Path) -> dict[str, Any]:
         surface(
             "axiom://cli/axiomc",
             "cli",
-            contract_version,
+            public_surface_version("axiom://cli/axiomc"),
             (
                 f"commands={','.join(command_paths)}; "
                 f"command_semantic_digest={semantic_digest(cli_contract)}; "
@@ -611,7 +631,7 @@ def extract(inventory_path: Path, policy_path: Path) -> dict[str, Any]:
         surface(
             "axiom://package/manifest",
             "package",
-            contract_version,
+            public_surface_version("axiom://package/manifest"),
             (
                 f"axiom.toml schema={manifest_schema.get('$id')}; "
                 f"semantic_digest={semantic_digest(manifest_projection)}; "
@@ -638,7 +658,7 @@ def extract(inventory_path: Path, policy_path: Path) -> dict[str, Any]:
         surface(
             "axiom://package/lockfile",
             "package",
-            contract_version,
+            public_surface_version("axiom://package/lockfile"),
             f"axiom.lock format={lock_version}; records=package(name,version,source)",
             [source(lock_path, "lockfile_format", "version,package[*]")],
         )
@@ -657,7 +677,7 @@ def extract(inventory_path: Path, policy_path: Path) -> dict[str, Any]:
         surface(
             "axiom://abi/direct-native",
             "abi",
-            contract_version,
+            public_surface_version("axiom://abi/direct-native"),
             (
                 f"{abi.get('schema_version')}; abi_id={abi.get('abi_id')}; semantic_digest="
                 f"{semantic_digest(abi_projection)}; "
@@ -729,7 +749,7 @@ def extract(inventory_path: Path, policy_path: Path) -> dict[str, Any]:
             surface(
                 identifier,
                 "schema",
-                contract_version,
+                public_surface_version(identifier),
                 signature,
                 [source(schema_path, "published_schema", "$id,properties.schema_version.const")],
             )
@@ -745,7 +765,7 @@ def extract(inventory_path: Path, policy_path: Path) -> dict[str, Any]:
         surface(
             "axiom://artifact/envelope",
             "artifact",
-            contract_version,
+            public_surface_version("axiom://artifact/envelope"),
             (
                 f"schema={artifact_schema.get('$id')}; "
                 f"semantic_digest={semantic_digest(artifact_projection)}; "
@@ -764,6 +784,12 @@ def extract(inventory_path: Path, policy_path: Path) -> dict[str, Any]:
     ids = [item["id"] for item in surfaces]
     if len(ids) != len(set(ids)):
         raise ValueError("generated contract contains duplicate AxiOM surface identities")
+    unused_overrides = sorted(set(surface_version_overrides) - set(ids))
+    if unused_overrides:
+        raise ValueError(
+            "surface version overrides reference unknown surfaces: "
+            + ", ".join(unused_overrides)
+        )
 
     return {
         "compiler": {

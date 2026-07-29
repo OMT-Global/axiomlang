@@ -1,0 +1,847 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://axiom.omt.global/schemas/axiom-trust-roots-v1.schema.json",
+  "title": "Axiom Package Trust Roots v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "contract",
+    "contract_status",
+    "trusted_root",
+    "candidate_root",
+    "transition"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "axiom.package_trust_roots.v1"
+    },
+    "contract": {
+      "const": "package.trust_roots"
+    },
+    "contract_status": {
+      "const": "contract_only"
+    },
+    "trusted_root": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "signed",
+        "transcript",
+        "signatures"
+      ],
+      "properties": {
+        "signed": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "specification",
+            "root_version",
+            "sequence",
+            "issued_at",
+            "expires_at",
+            "consistent_snapshot",
+            "keys",
+            "publisher_identities",
+            "namespace_grants",
+            "roles",
+            "policy"
+          ],
+          "properties": {
+            "specification": {
+              "const": "axiom-package-trust-root-v1"
+            },
+            "root_version": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "sequence": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "issued_at": {
+              "type": "string",
+              "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+            },
+            "expires_at": {
+              "type": "string",
+              "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+            },
+            "consistent_snapshot": {
+              "const": true
+            },
+            "keys": {
+              "type": "array",
+              "minItems": 3,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "key_id",
+                  "key_material",
+                  "publisher_identity",
+                  "status",
+                  "valid_from_sequence",
+                  "supersedes_key_ids",
+                  "revocation"
+                ],
+                "properties": {
+                  "key_id": {
+                    "type": "string",
+                    "pattern": "^sha256:[0-9a-f]{64}$"
+                  },
+                  "key_material": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "algorithm",
+                      "public_key_encoding",
+                      "public_key"
+                    ],
+                    "properties": {
+                      "algorithm": {
+                        "const": "ed25519"
+                      },
+                      "public_key_encoding": {
+                        "const": "lowercase-hex"
+                      },
+                      "public_key": {
+                        "type": "string",
+                        "pattern": "^[0-9a-f]{64}$"
+                      }
+                    }
+                  },
+                  "publisher_identity": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "status": {
+                    "enum": [
+                      "active",
+                      "retired",
+                      "revoked"
+                    ]
+                  },
+                  "valid_from_sequence": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "supersedes_key_ids": {
+                    "type": "array",
+                    "minItems": 0,
+                    "items": {
+                      "type": "string",
+                      "pattern": "^sha256:[0-9a-f]{64}$"
+                    },
+                    "uniqueItems": true
+                  },
+                  "revocation": {
+                    "oneOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "effective_sequence",
+                          "effective_time",
+                          "reason"
+                        ],
+                        "properties": {
+                          "effective_sequence": {
+                            "type": "integer",
+                            "minimum": 1
+                          },
+                          "effective_time": {
+                            "type": "string",
+                            "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+                          },
+                          "reason": {
+                            "type": "string",
+                            "minLength": 1
+                          }
+                        }
+                      }
+                    ]
+                  }
+                }
+              },
+              "uniqueItems": true
+            },
+            "publisher_identities": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "publisher_identity",
+                  "display_name"
+                ],
+                "properties": {
+                  "publisher_identity": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "display_name": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              },
+              "uniqueItems": true
+            },
+            "namespace_grants": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "publisher_identity",
+                  "namespace",
+                  "package_names",
+                  "registry_identities",
+                  "source_identities",
+                  "role_id"
+                ],
+                "properties": {
+                  "publisher_identity": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "namespace": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "package_names": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "uniqueItems": true
+                  },
+                  "registry_identities": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "uniqueItems": true
+                  },
+                  "source_identities": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "uniqueItems": true
+                  },
+                  "role_id": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              },
+              "uniqueItems": true
+            },
+            "roles": {
+              "type": "array",
+              "minItems": 4,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "role_id",
+                  "threshold",
+                  "key_ids",
+                  "delegated_by"
+                ],
+                "properties": {
+                  "role_id": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "threshold": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "key_ids": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                      "type": "string",
+                      "pattern": "^sha256:[0-9a-f]{64}$"
+                    },
+                    "uniqueItems": true
+                  },
+                  "delegated_by": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "minLength": 1
+                  }
+                }
+              },
+              "uniqueItems": true
+            },
+            "policy": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "rollback_protection",
+                "freeze_protection",
+                "downgrade_protection",
+                "offline_locked",
+                "metadata_expiry_required",
+                "registry_index_equivalence"
+              ],
+              "properties": {
+                "rollback_protection": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "freeze_protection": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "downgrade_protection": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "offline_locked": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "metadata_expiry_required": {
+                  "const": true
+                },
+                "registry_index_equivalence": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            }
+          }
+        },
+        "transcript": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "encoding",
+            "domain",
+            "bytes_hex",
+            "sha256"
+          ],
+          "properties": {
+            "encoding": {
+              "const": "axiom-canonical-json-v1"
+            },
+            "domain": {
+              "const": "AXIOM-TRUST-ROOT-V1"
+            },
+            "bytes_hex": {
+              "type": "string",
+              "pattern": "^(?:[0-9a-f]{2})+$"
+            },
+            "sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            }
+          }
+        },
+        "signatures": {
+          "type": "array",
+          "minItems": 2,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "key_id",
+              "algorithm",
+              "encoding",
+              "value"
+            ],
+            "properties": {
+              "key_id": {
+                "type": "string",
+                "pattern": "^sha256:[0-9a-f]{64}$"
+              },
+              "algorithm": {
+                "const": "ed25519"
+              },
+              "encoding": {
+                "const": "lowercase-hex"
+              },
+              "value": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{128}$"
+              }
+            }
+          },
+          "uniqueItems": true
+        }
+      }
+    },
+    "candidate_root": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "signed",
+        "transcript",
+        "signatures"
+      ],
+      "properties": {
+        "signed": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "specification",
+            "root_version",
+            "sequence",
+            "issued_at",
+            "expires_at",
+            "consistent_snapshot",
+            "keys",
+            "publisher_identities",
+            "namespace_grants",
+            "roles",
+            "policy"
+          ],
+          "properties": {
+            "specification": {
+              "const": "axiom-package-trust-root-v1"
+            },
+            "root_version": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "sequence": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "issued_at": {
+              "type": "string",
+              "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+            },
+            "expires_at": {
+              "type": "string",
+              "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+            },
+            "consistent_snapshot": {
+              "const": true
+            },
+            "keys": {
+              "type": "array",
+              "minItems": 3,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "key_id",
+                  "key_material",
+                  "publisher_identity",
+                  "status",
+                  "valid_from_sequence",
+                  "supersedes_key_ids",
+                  "revocation"
+                ],
+                "properties": {
+                  "key_id": {
+                    "type": "string",
+                    "pattern": "^sha256:[0-9a-f]{64}$"
+                  },
+                  "key_material": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "algorithm",
+                      "public_key_encoding",
+                      "public_key"
+                    ],
+                    "properties": {
+                      "algorithm": {
+                        "const": "ed25519"
+                      },
+                      "public_key_encoding": {
+                        "const": "lowercase-hex"
+                      },
+                      "public_key": {
+                        "type": "string",
+                        "pattern": "^[0-9a-f]{64}$"
+                      }
+                    }
+                  },
+                  "publisher_identity": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "status": {
+                    "enum": [
+                      "active",
+                      "retired",
+                      "revoked"
+                    ]
+                  },
+                  "valid_from_sequence": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "supersedes_key_ids": {
+                    "type": "array",
+                    "minItems": 0,
+                    "items": {
+                      "type": "string",
+                      "pattern": "^sha256:[0-9a-f]{64}$"
+                    },
+                    "uniqueItems": true
+                  },
+                  "revocation": {
+                    "oneOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "effective_sequence",
+                          "effective_time",
+                          "reason"
+                        ],
+                        "properties": {
+                          "effective_sequence": {
+                            "type": "integer",
+                            "minimum": 1
+                          },
+                          "effective_time": {
+                            "type": "string",
+                            "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+                          },
+                          "reason": {
+                            "type": "string",
+                            "minLength": 1
+                          }
+                        }
+                      }
+                    ]
+                  }
+                }
+              },
+              "uniqueItems": true
+            },
+            "publisher_identities": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "publisher_identity",
+                  "display_name"
+                ],
+                "properties": {
+                  "publisher_identity": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "display_name": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              },
+              "uniqueItems": true
+            },
+            "namespace_grants": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "publisher_identity",
+                  "namespace",
+                  "package_names",
+                  "registry_identities",
+                  "source_identities",
+                  "role_id"
+                ],
+                "properties": {
+                  "publisher_identity": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "namespace": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "package_names": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "uniqueItems": true
+                  },
+                  "registry_identities": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "uniqueItems": true
+                  },
+                  "source_identities": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "uniqueItems": true
+                  },
+                  "role_id": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              },
+              "uniqueItems": true
+            },
+            "roles": {
+              "type": "array",
+              "minItems": 4,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "role_id",
+                  "threshold",
+                  "key_ids",
+                  "delegated_by"
+                ],
+                "properties": {
+                  "role_id": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "threshold": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "key_ids": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                      "type": "string",
+                      "pattern": "^sha256:[0-9a-f]{64}$"
+                    },
+                    "uniqueItems": true
+                  },
+                  "delegated_by": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "minLength": 1
+                  }
+                }
+              },
+              "uniqueItems": true
+            },
+            "policy": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "rollback_protection",
+                "freeze_protection",
+                "downgrade_protection",
+                "offline_locked",
+                "metadata_expiry_required",
+                "registry_index_equivalence"
+              ],
+              "properties": {
+                "rollback_protection": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "freeze_protection": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "downgrade_protection": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "offline_locked": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "metadata_expiry_required": {
+                  "const": true
+                },
+                "registry_index_equivalence": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            }
+          }
+        },
+        "transcript": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "encoding",
+            "domain",
+            "bytes_hex",
+            "sha256"
+          ],
+          "properties": {
+            "encoding": {
+              "const": "axiom-canonical-json-v1"
+            },
+            "domain": {
+              "const": "AXIOM-TRUST-ROOT-V1"
+            },
+            "bytes_hex": {
+              "type": "string",
+              "pattern": "^(?:[0-9a-f]{2})+$"
+            },
+            "sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            }
+          }
+        },
+        "signatures": {
+          "type": "array",
+          "minItems": 2,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "key_id",
+              "algorithm",
+              "encoding",
+              "value"
+            ],
+            "properties": {
+              "key_id": {
+                "type": "string",
+                "pattern": "^sha256:[0-9a-f]{64}$"
+              },
+              "algorithm": {
+                "const": "ed25519"
+              },
+              "encoding": {
+                "const": "lowercase-hex"
+              },
+              "value": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{128}$"
+              }
+            }
+          },
+          "uniqueItems": true
+        }
+      }
+    },
+    "transition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "transition_time",
+        "from_version",
+        "to_version",
+        "candidate_signatures_by_old_root",
+        "candidate_signatures_by_new_root"
+      ],
+      "properties": {
+        "transition_time": {
+          "type": "string",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+        },
+        "from_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "to_version": {
+          "type": "integer",
+          "minimum": 2
+        },
+        "candidate_signatures_by_old_root": {
+          "type": "array",
+          "minItems": 2,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "key_id",
+              "algorithm",
+              "encoding",
+              "value"
+            ],
+            "properties": {
+              "key_id": {
+                "type": "string",
+                "pattern": "^sha256:[0-9a-f]{64}$"
+              },
+              "algorithm": {
+                "const": "ed25519"
+              },
+              "encoding": {
+                "const": "lowercase-hex"
+              },
+              "value": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{128}$"
+              }
+            }
+          },
+          "uniqueItems": true
+        },
+        "candidate_signatures_by_new_root": {
+          "type": "array",
+          "minItems": 2,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "key_id",
+              "algorithm",
+              "encoding",
+              "value"
+            ],
+            "properties": {
+              "key_id": {
+                "type": "string",
+                "pattern": "^sha256:[0-9a-f]{64}$"
+              },
+              "algorithm": {
+                "const": "ed25519"
+              },
+              "encoding": {
+                "const": "lowercase-hex"
+              },
+              "value": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{128}$"
+              }
+            }
+          },
+          "uniqueItems": true
+        }
+      }
+    }
+  }
+}

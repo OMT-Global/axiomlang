@@ -70,6 +70,16 @@ Checked-in editor and agent metadata lives under `stage1/schemas/`:
 - `stage1/schemas/axiom-intent-ir-v0.schema.json` describes the first
   agent-facing Intent IR / semantic graph contract. See
   [intent-ir-v0.md](intent-ir-v0.md).
+- `stage1/schemas/axiom-package-signature-v1.schema.json` describes package
+  signing sidecar payloads.
+- `stage1/schemas/axiom-trust-roots-v1.schema.json` describes trusted signing
+  roots and root status.
+- `stage1/schemas/axiom-registry-index-v2.schema.json` describes static registry
+  index records and package provenance links.
+- `stage1/schemas/axiom-package-verification-expectation-v1.schema.json` describes
+  deterministic package verification expectations, including accepted key IDs.
+- `stage1/schemas/axiom-package-verification-v1.schema.json` describes package
+  verification decisions and trust statuses.
 - `stage1/compiler-contracts/schemas/axiom.compiler.package_graph.v1.schema.json`
   describes the self-hosting package graph contract used by
   `compiler.package_graph`. See
@@ -80,7 +90,20 @@ agent contract discovery. The compiler remains the source of truth for semantic
 checks such as dependency graph validity, capability enforcement, and source
 analysis.
 
-## Publish and Static Registry Groundwork
+## Package Trust Contract
+
+`make stage1-package-trust-contract` validates the contract-only Ed25519 +
+SHA-256 package trust fixture, including canonical transcript bytes, signed
+root/index thresholds, identity and provenance bindings, offline pins, and
+positive/negative verification vectors. The regression target is
+`make stage1-package-trust-contract-test`.
+
+See [Package Trust v1 Contract](package-trust-v1.md) for the binary transcript,
+trust-root and index model, stable reason codes, and official specifications.
+This contract does not change the current `axiomc` package implementation:
+`publish` and `registry-*` still use the local HMAC sidecars described below.
+
+## Current HMAC Publish and Static Registry Groundwork
 
 `axiomc publish` packs a checked stage1 package into a deterministic `package.axp`, writes an `axiom-hmac-sha256-v1` sidecar bound to a required `--signing-key`, and copies `axiom.toml` plus `axiom.lock` into a local registry tree at `<packages>/<name>/<version>/`. The command validates the lockfile first and refuses to replace an existing release unless `--allow-overwrite` is passed.
 

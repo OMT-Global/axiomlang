@@ -476,8 +476,8 @@
       "governingIssue": 1458,
       "blockerIssues": [1458],
       "dependencies": [1457],
-      "evidence": ["docs/package.md", "docs/supply-chain.md"],
-      "validatingCommand": "make supply-chain",
+      "evidence": ["docs/package.md", "docs/package-trust-v1.md", "docs/supply-chain.md", "stage1/package-trust/contract/package-trust.json"],
+      "validatingCommand": "make stage1-package-trust-contract stage1-package-trust-contract-test && make supply-chain",
       "rustCaptureRisk": "medium",
       "agentInspectionImpact": "Expose signer, digest, provenance, trust decision, and stable reason codes."
     },
