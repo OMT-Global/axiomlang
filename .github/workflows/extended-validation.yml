@@ -102,7 +102,6 @@ jobs:
     env:
       GITHUB_TOKEN: ${{ github.token }}
       AXIOM_QUALIFICATION_OUTPUT_DIR: artifacts/toolchain-qualification
-      AXIOM_QUALIFICATION_TARGET: ${{ runner.os }}-${{ runner.arch }}
       AXIOM_QUALIFICATION_TRIGGER: ${{ github.event_name }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4 pinned 2026-05-30
