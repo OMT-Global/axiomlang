@@ -1,0 +1,58 @@
+{
+  "schema_version": "axiom.runtime_lifecycle.v1",
+  "contract": "runtime.lifecycle",
+  "issue": 1438,
+  "semantic_mir_version": "axiom.semantic_mir.v1",
+  "features": ["aggregate_cleanup", "allocation", "allocation_failure", "backend_declaration", "borrow_extent", "capability_resource", "clone", "copy", "defer", "deterministic_cleanup", "diagnostic", "drop", "inspection", "move", "panic_unwind", "recursive_destroy", "resize"],
+  "operations": [
+    {"id": "axiom://lifecycle/operation/allocate", "kind": "allocate", "ownership": "creates", "effects": ["allocation"], "source": "axiom://semantic/lifecycle/allocate"},
+    {"id": "axiom://lifecycle/operation/resize", "kind": "resize", "ownership": "preserves_on_failure", "effects": ["allocation", "resize"], "source": "axiom://semantic/lifecycle/resize"},
+    {"id": "axiom://lifecycle/operation/allocation-failure", "kind": "allocation_failure", "ownership": "preserves_on_failure", "effects": ["allocation_failure"], "source": "axiom://semantic/lifecycle/allocation-failure"},
+    {"id": "axiom://lifecycle/operation/move", "kind": "move", "ownership": "transfers", "effects": ["ownership_transfer"], "source": "axiom://semantic/lifecycle/move"},
+    {"id": "axiom://lifecycle/operation/copy", "kind": "copy", "ownership": "duplicates_copyable", "effects": ["copy"], "source": "axiom://semantic/lifecycle/copy"},
+    {"id": "axiom://lifecycle/operation/clone", "kind": "clone", "ownership": "duplicates_cloned", "effects": ["clone", "cleanup_obligation"], "source": "axiom://semantic/lifecycle/clone"},
+    {"id": "axiom://lifecycle/operation/borrow", "kind": "borrow", "ownership": "borrows", "effects": ["borrow_extent"], "source": "axiom://semantic/lifecycle/borrow"},
+    {"id": "axiom://lifecycle/operation/borrow-end", "kind": "borrow_end", "ownership": "ends_borrow", "effects": ["borrow_extent"], "source": "axiom://semantic/lifecycle/borrow-end"},
+    {"id": "axiom://lifecycle/operation/drop", "kind": "drop", "ownership": "discharges", "effects": ["cleanup_obligation"], "source": "axiom://semantic/lifecycle/drop"},
+    {"id": "axiom://lifecycle/operation/recursive-destroy", "kind": "recursive_destroy", "ownership": "discharges", "effects": ["aggregate_cleanup"], "source": "axiom://semantic/lifecycle/recursive-destroy"},
+    {"id": "axiom://lifecycle/operation/defer", "kind": "defer", "ownership": "borrows", "effects": ["defer"], "source": "axiom://semantic/lifecycle/defer"},
+    {"id": "axiom://lifecycle/operation/scope-exit", "kind": "scope_exit", "ownership": "discharges", "effects": ["deterministic_cleanup", "panic_unwind"], "source": "axiom://semantic/lifecycle/scope-exit"},
+    {"id": "axiom://lifecycle/operation/resource-close", "kind": "resource_close", "ownership": "discharges", "effects": ["capability_resource"], "source": "axiom://semantic/lifecycle/resource-close"},
+    {"id": "axiom://lifecycle/operation/resource-use", "kind": "resource_use", "ownership": "rejects_escape", "effects": ["capability_resource", "diagnostic"], "source": "axiom://semantic/lifecycle/resource-use"}
+  ],
+  "cleanup": {
+    "exit_reasons": ["cancellation", "early_return", "error_return", "normal_return", "panic_unwind"],
+    "defer_order": "last_in_first_out_before_drop",
+    "drop_order": "reverse_introduction",
+    "aggregate_order": "reverse_declaration_or_insertion_then_release",
+    "exactly_once": true
+  },
+  "backend": {
+    "required_declarations": ["supported_lifecycle_features", "allocation_failure_model", "lifecycle_diagnostics"],
+    "unsupported_diagnostic": "backend.unsupported_lifecycle_feature",
+    "diagnostic_fields": ["backend_id", "feature_id", "operation_id", "source_span"],
+    "prohibited_fallbacks": ["implicit_host_ownership", "undocumented_allocator_behavior"]
+  },
+  "inspection_fields": ["allocation_effect", "borrow_extent", "cleanup_obligations", "ownership_transfer", "resource_authority", "source_provenance"],
+  "fixtures": [
+    {"id": "axiom://lifecycle/fixture/normal-return", "kind": "positive", "scenario": "owned local returns normally", "expected": "drop exactly once"},
+    {"id": "axiom://lifecycle/fixture/early-return", "kind": "positive", "scenario": "owned local exits through early return", "expected": "defer then drop"},
+    {"id": "axiom://lifecycle/fixture/error-return", "kind": "positive", "scenario": "owned local exits through error return", "expected": "defer then drop"},
+    {"id": "axiom://lifecycle/fixture/panic-defer", "kind": "positive", "scenario": "panic unwind crosses nested defer scopes", "expected": "last in first out defer then drop"},
+    {"id": "axiom://lifecycle/fixture/nested-aggregate", "kind": "positive", "scenario": "nested aggregate owns two children", "expected": "recursive reverse destruction"},
+    {"id": "axiom://lifecycle/fixture/allocation-failure", "kind": "positive", "scenario": "resize allocation fails", "expected": "original owner remains valid"},
+    {"id": "axiom://lifecycle/fixture/move-clone-copy", "kind": "positive", "scenario": "move clone and copy are selected by declared mode", "expected": "distinct cleanup obligations only for owned clone"},
+    {"id": "axiom://lifecycle/fixture/borrow-extent", "kind": "positive", "scenario": "mutable borrow ends before move", "expected": "move succeeds after borrow end"},
+    {"id": "axiom://lifecycle/fixture/resource-close", "kind": "positive", "scenario": "resource handle leaves scope", "expected": "registered close runs once"},
+    {"id": "axiom://lifecycle/fixture/leak", "kind": "negative", "scenario": "owned cleanup obligation escapes every deterministic scope", "expected": "lifecycle.leak diagnostic"},
+    {"id": "axiom://lifecycle/fixture/double-free", "kind": "negative", "scenario": "drop occurs twice", "expected": "lifecycle.double_free diagnostic"},
+    {"id": "axiom://lifecycle/fixture/use-after-free", "kind": "negative", "scenario": "moved or dropped value is used", "expected": "lifecycle.use_after_free diagnostic"},
+    {"id": "axiom://lifecycle/fixture/resource-escape", "kind": "negative", "scenario": "resource handle outlives capability authority", "expected": "lifecycle.resource_escape diagnostic"},
+    {"id": "axiom://lifecycle/fixture/double-close", "kind": "negative", "scenario": "resource handle closes twice", "expected": "lifecycle.double_close diagnostic"}
+  ],
+  "migration": {
+    "semantic_input": "Semantic MIR v1 operations and source provenance are the executable input for lifecycle analysis.",
+    "out_of_scope": ["aggregate layout", "backend storage representation", "allocator implementation", "ownership-analysis algorithm"],
+    "forbidden_terms": ["Cargo", "Rust enum", "Rust layout", "Cranelift instruction stream"]
+  }
+}
