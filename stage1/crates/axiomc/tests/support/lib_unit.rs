@@ -8271,10 +8271,10 @@ let _listener_closed: int = close_listener(listener)
     fs::write(project.join("src/main.ax"), source).expect("write source");
 
     let built = build_project(&project).expect("build project");
-    assert_eq!(built.backend, NativeBackendKind::Cranelift);
+    assert_eq!(built.backend, NativeBackendKind::GeneratedRust);
     assert!(
-        built.generated_rust.is_none(),
-        "default direct-native raw TCP builds must not emit generated Rust"
+        built.generated_rust.is_some(),
+        "semantic async TCP coverage uses the generated-Rust compatibility backend"
     );
     let output = compiled_binary_command(&built.binary)
         .output()
