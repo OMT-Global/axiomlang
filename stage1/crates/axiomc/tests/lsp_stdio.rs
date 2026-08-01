@@ -27,7 +27,7 @@ fn lsp_stdio_publishes_diagnostics_and_exits_cleanly() {
     assert_eq!(initialize["id"], json!(1));
     assert_eq!(
         initialize["result"]["capabilities"]["textDocumentSync"]["change"],
-        json!(1)
+        json!(2)
     );
 
     write_lsp_message(

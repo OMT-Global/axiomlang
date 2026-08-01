@@ -33,13 +33,17 @@ use std::os::unix::fs::MetadataExt;
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 
 mod expected_build_failure;
+mod lsp_analysis;
+mod module_parse_cache;
 use expected_build_failure::{expected_build_error_path, run_build_fail_case};
+pub use lsp_analysis::{LspResolvedModule, analyze_package_for_lsp};
+use module_parse_cache::{ModuleParseCache, module_parse_cache_key, parse_module_with_cache};
 
 const BUILD_CACHE_VERSION: u32 = 2;
 const BUILD_CACHE_COMPILER: &str = concat!("axiomc-stage1-", env!("CARGO_PKG_VERSION"));
@@ -779,7 +783,10 @@ pub fn run_project_report_with_limits(
     })?;
     command.current_dir(project_root).args(&options.args);
     let output = run_bounded_command(&mut command, limits).map_err(|err| {
-        Diagnostic::new("run", format!("bounded execution of {} failed: {err}", built.binary))
+        Diagnostic::new(
+            "run",
+            format!("bounded execution of {} failed: {err}", built.binary),
+        )
     })?;
     let exit_code = output.status.code().unwrap_or(1);
     Ok(RunOutput {
@@ -808,15 +815,29 @@ struct BoundedCommandOutput {
     stderr: Vec<u8>,
 }
 
-fn run_bounded_command(command: &mut Command, limits: RunLimits) -> io::Result<BoundedCommandOutput> {
-    command.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+fn run_bounded_command(
+    command: &mut Command,
+    limits: RunLimits,
+) -> io::Result<BoundedCommandOutput> {
+    command
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
     configure_bounded_command(command, limits);
     let mut child = command.spawn()?;
-    let stdout = child.stdout.take().ok_or_else(|| io::Error::other("bounded command stdout pipe unavailable"))?;
-    let stderr = child.stderr.take().ok_or_else(|| io::Error::other("bounded command stderr pipe unavailable"))?;
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| io::Error::other("bounded command stdout pipe unavailable"))?;
+    let stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| io::Error::other("bounded command stderr pipe unavailable"))?;
     let output_bytes = Arc::new(AtomicUsize::new(0));
-    let stdout_reader = capture_bounded_stream(stdout, limits.max_output_bytes, Arc::clone(&output_bytes));
-    let stderr_reader = capture_bounded_stream(stderr, limits.max_output_bytes, Arc::clone(&output_bytes));
+    let stdout_reader =
+        capture_bounded_stream(stdout, limits.max_output_bytes, Arc::clone(&output_bytes));
+    let stderr_reader =
+        capture_bounded_stream(stderr, limits.max_output_bytes, Arc::clone(&output_bytes));
     let deadline = Instant::now() + limits.timeout;
     let status = loop {
         if output_bytes.load(Ordering::Relaxed) > limits.max_output_bytes {
@@ -850,10 +871,18 @@ fn run_bounded_command(command: &mut Command, limits: RunLimits) -> io::Result<B
             limits.max_output_bytes
         )));
     }
-    Ok(BoundedCommandOutput { status, stdout, stderr })
+    Ok(BoundedCommandOutput {
+        status,
+        stdout,
+        stderr,
+    })
 }
 
-fn capture_bounded_stream<R>(mut stream: R, limit: usize, output_bytes: Arc<AtomicUsize>) -> thread::JoinHandle<io::Result<Vec<u8>>>
+fn capture_bounded_stream<R>(
+    mut stream: R,
+    limit: usize,
+    output_bytes: Arc<AtomicUsize>,
+) -> thread::JoinHandle<io::Result<Vec<u8>>>
 where
     R: Read + Send + 'static,
 {
@@ -889,8 +918,12 @@ fn configure_bounded_command(command: &mut Command, limits: RunLimits) {
             if libc::setsid() < 0 {
                 return Err(io::Error::last_os_error());
             }
-            set_bounded_rlimit(limits.max_cpu_seconds, |rlimit| unsafe { libc::setrlimit(libc::RLIMIT_CPU, rlimit) })?;
-            set_bounded_rlimit(limits.max_file_bytes, |rlimit| unsafe { libc::setrlimit(libc::RLIMIT_FSIZE, rlimit) })?;
+            set_bounded_rlimit(limits.max_cpu_seconds, |rlimit| unsafe {
+                libc::setrlimit(libc::RLIMIT_CPU, rlimit)
+            })?;
+            set_bounded_rlimit(limits.max_file_bytes, |rlimit| unsafe {
+                libc::setrlimit(libc::RLIMIT_FSIZE, rlimit)
+            })?;
             Ok(())
         });
     }
@@ -1825,11 +1858,6 @@ struct LoadedModule {
     package_name: String,
 }
 
-#[derive(Default)]
-struct ModuleParseCache {
-    programs: HashMap<(PathBuf, usize), syntax::Program>,
-}
-
 #[derive(Debug, Clone)]
 struct ResolvedImport {
     import: syntax::Import,
@@ -2600,12 +2628,20 @@ fn build_artifacts(
     // A cache miss means the prior outputs no longer describe this source.
     // Invalidate them before compilation so a fail-closed backend rejection
     // cannot leave a stale runnable binary or trusted metadata behind.
-    let mut stale_outputs = vec![binary.to_path_buf(), cache_path.clone(), provenance_path(package_root, &analyzed.manifest)];
+    let mut stale_outputs = vec![
+        binary.to_path_buf(),
+        cache_path.clone(),
+        provenance_path(package_root, &analyzed.manifest),
+    ];
     if matches!(options.backend, NativeBackendKind::Cranelift) {
         stale_outputs.push(binary.with_extension("cranelift.o"));
     }
     if options.debug {
-        stale_outputs.push(debug_source_map_path(options.backend, generated_rust, binary));
+        stale_outputs.push(debug_source_map_path(
+            options.backend,
+            generated_rust,
+            binary,
+        ));
         stale_outputs.push(debug_manifest_path(options.backend, generated_rust, binary));
     }
     for path in stale_outputs {
@@ -2615,7 +2651,10 @@ fn build_artifacts(
             Err(error) => {
                 return Err(Diagnostic::new(
                     "build",
-                    format!("failed to invalidate stale build output {}: {error}", path.display()),
+                    format!(
+                        "failed to invalidate stale build output {}: {error}",
+                        path.display()
+                    ),
                 ));
             }
         }
@@ -4825,64 +4864,6 @@ fn load_module_recursive(
         package_name,
     });
     Ok(())
-}
-
-fn parse_module_with_cache(
-    module_path: &Path,
-    macro_recursion_limit: usize,
-    parse_cache: &mut ModuleParseCache,
-) -> Result<syntax::Program, Diagnostic> {
-    let cache_key = module_parse_cache_key(module_path, macro_recursion_limit)?;
-    if let Some(program) = parse_cache.programs.get(&cache_key) {
-        return Ok(program.clone());
-    }
-    let source = if stdlib::is_stdlib_path(module_path) {
-        stdlib::stdlib_source_for(module_path)
-            .map(str::to_string)
-            .ok_or_else(|| {
-                Diagnostic::new(
-                    "source",
-                    format!(
-                        "internal error: missing stdlib source for {}",
-                        module_path.display()
-                    ),
-                )
-                .with_path(module_path.display().to_string())
-            })?
-    } else {
-        fs::read_to_string(module_path).map_err(|err| {
-            Diagnostic::new(
-                "source",
-                format!("failed to read {}: {err}", module_path.display()),
-            )
-            .with_path(module_path.display().to_string())
-        })?
-    };
-    let program = syntax::parse_program_with_options(
-        &source,
-        module_path,
-        &syntax::ParseOptions {
-            macro_recursion_limit,
-            ..syntax::ParseOptions::default()
-        },
-    )?;
-    parse_cache.programs.insert(cache_key, program.clone());
-    Ok(program)
-}
-
-// The parse result depends on the macro recursion limit, so the limit is part
-// of the key: a cache hit must never return a program parsed under a
-// different limit than the caller requested.
-fn module_parse_cache_key(
-    module_path: &Path,
-    macro_recursion_limit: usize,
-) -> Result<(PathBuf, usize), Diagnostic> {
-    let path = if stdlib::is_stdlib_path(module_path) {
-        normalize_path(module_path)
-    } else {
-        canonicalize_existing_path(module_path, "module path")?
-    };
-    Ok((path, macro_recursion_limit))
 }
 
 fn package_section<'a>(
