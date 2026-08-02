@@ -1,14 +1,19 @@
 use crate::diagnostics::Diagnostic;
 use crate::lockfile::validate_lockfile;
-use crate::manifest::{LOCK_FILENAME, MANIFEST_FILENAME, load_manifest, manifest_path};
+use crate::manifest::{
+    DEFAULT_PACKAGE_CACHE_DIR, DEFAULT_PACKAGE_VENDOR_DIR, LOCK_FILENAME, MANIFEST_FILENAME,
+    load_manifest, manifest_path,
+};
 use crate::package_trust::{
     Ed25519Signer, INDEX_DOMAIN, MAX_SIGNATURES, PACKAGE_FIELDS, PackageArtifacts,
     PackageSignatureEnvelope, PackageTrustInput, RegistryIndexEnvelope,
-    RegistryIndexTrustPreflight, TrustRootsEnvelope, VerificationExpectation, canonical_json,
-    metadata_transcript, package_index_floor_is_satisfied, package_transcript,
-    parse_package_signature_json, parse_registry_index_json, preflight_package_release_trust,
-    preflight_registry_index_trust, sign_package_transcript, validate_package_provenance_semantics,
-    verify_package_with_artifacts,
+    RegistryIndexTrustPreflight, TrustRootsEnvelope, VerificationExpectation,
+    authenticate_registry_catalog, canonical_json, metadata_transcript,
+    package_index_floor_is_satisfied, package_transcript, parse_package_signature_json,
+    parse_registry_index_json, preflight_package_release_trust, preflight_registry_index_trust,
+    sign_package_transcript, validate_package_provenance_semantics,
+    verification_expectation_for_authenticated_release,
+    verification_expectation_for_unindexed_release, verify_package_with_artifacts,
 };
 use serde::Serialize;
 use serde_json::{Value, json};
@@ -1040,8 +1045,29 @@ fn publish_release_transaction(
  */
 
 fn render_package_archive(project_root: &Path) -> Result<RenderedPackage, Diagnostic> {
+    let manifest = load_manifest(project_root)?;
+    let mut excluded_roots = BTreeSet::from([
+        normalized_project_relative_root(project_root, DEFAULT_PACKAGE_CACHE_DIR)?,
+        normalized_project_relative_root(project_root, DEFAULT_PACKAGE_VENDOR_DIR)?,
+    ]);
+    if let Some(registry) = manifest.registry.as_ref() {
+        excluded_roots.insert(normalized_project_relative_root(
+            project_root,
+            registry.cache_root(),
+        )?);
+        excluded_roots.insert(normalized_project_relative_root(
+            project_root,
+            registry.vendor_root(),
+        )?);
+    }
+    if excluded_roots.contains(project_root) {
+        return Err(publish_error(
+            Some(&manifest_path(project_root)),
+            "registry cache and vendor roots must not name the project root",
+        ));
+    }
     let mut files = Vec::new();
-    collect_publishable_files(project_root, project_root, &mut files)?;
+    collect_publishable_files(project_root, project_root, &excluded_roots, &mut files)?;
     files.sort();
     let mut archive = Vec::new();
     let mut captured = BTreeMap::new();
@@ -1090,6 +1116,7 @@ fn render_package_archive(project_root: &Path) -> Result<RenderedPackage, Diagno
 fn collect_publishable_files(
     project_root: &Path,
     dir: &Path,
+    excluded_roots: &BTreeSet<PathBuf>,
     files: &mut Vec<PathBuf>,
 ) -> Result<(), Diagnostic> {
     for entry in fs::read_dir(dir)
@@ -1107,13 +1134,16 @@ fn collect_publishable_files(
             ));
         }
         if metadata.is_dir() {
+            if excluded_roots.contains(&path) {
+                continue;
+            }
             if matches!(
                 entry.file_name().to_string_lossy().as_ref(),
                 ".git" | "target" | "dist"
             ) {
                 continue;
             }
-            collect_publishable_files(project_root, &path, files)?;
+            collect_publishable_files(project_root, &path, excluded_roots, files)?;
         } else if metadata.is_file() && should_publish_file(&path) {
             let canonical = fs::canonicalize(&path).map_err(|error| {
                 publish_error(Some(&path), format!("failed to resolve path: {error}"))
@@ -1128,6 +1158,26 @@ fn collect_publishable_files(
         }
     }
     Ok(())
+}
+
+fn normalized_project_relative_root(
+    project_root: &Path,
+    relative: &str,
+) -> Result<PathBuf, Diagnostic> {
+    let mut output = project_root.to_path_buf();
+    for component in Path::new(relative).components() {
+        match component {
+            Component::Normal(component) => output.push(component),
+            Component::CurDir => {}
+            Component::Prefix(_) | Component::RootDir | Component::ParentDir => {
+                return Err(publish_error(
+                    Some(&manifest_path(project_root)),
+                    "registry cache and vendor roots must be project-relative without parent traversal",
+                ));
+            }
+        }
+    }
+    Ok(output)
 }
 
 fn should_publish_file(path: &Path) -> bool {
@@ -1484,12 +1534,25 @@ fn verify_registry_index_and_capture(
             "retained index bytes do not match parsed index envelope",
         ));
     }
+    let catalog =
+        authenticate_registry_catalog(&index.bytes, trust_roots, expectation).map_err(|error| {
+            registry_error(
+                None,
+                format!("Package Trust rejected registry catalog: {error}"),
+            )
+        })?;
     validate_registry_index(&index.envelope, None)?;
     let releases = index.envelope["signed"]["releases"]
         .as_array()
         .ok_or_else(|| registry_error(None, "registry index releases are invalid"))?;
     let mut captured = Vec::with_capacity(releases.len());
-    for release in releases {
+    for (release_index, release) in releases.iter().enumerate() {
+        let authenticated_release = catalog.releases().get(release_index).ok_or_else(|| {
+            registry_error(
+                None,
+                "authenticated registry catalog release projection is incomplete",
+            )
+        })?;
         let target = required_value_text(release, "target_path", None)?;
         let archive = read_registry_relative(packages_root, &target, MAX_ARCHIVE_BYTES)?;
         let release_dir = Path::new(&target)
@@ -1514,7 +1577,12 @@ fn verify_registry_index_and_capture(
                     format!("invalid package signature envelope: {error}"),
                 )
             })?;
-        let exact_expectation = expectation_for_release(expectation, release)?;
+        let exact_expectation = verification_expectation_for_authenticated_release(
+            expectation,
+            &catalog,
+            authenticated_release,
+        )
+        .map_err(|error| registry_error(None, error.to_string()))?;
         let verification = verify_package_with_artifacts(
             &PackageTrustInput {
                 package_signature,
@@ -1839,7 +1907,9 @@ where
             "package signature omits an expectation-required key",
         ));
     }
-    let exact_expectation = expectation_for_release(options.verification_expectation, release)?;
+    let exact_expectation =
+        verification_expectation_for_unindexed_release(options.verification_expectation, release)
+            .map_err(|error| registry_error(None, error.to_string()))?;
     preflight_package_release_trust(
         signature,
         options.trust_roots,
@@ -1871,42 +1941,6 @@ fn decode_lower_hex(value: &str) -> Result<Vec<u8>, Diagnostic> {
                 .map_err(|_| registry_error(None, "invalid lowercase hexadecimal value"))
         })
         .collect()
-}
-
-fn expectation_for_release(
-    template: &VerificationExpectation,
-    release: &Value,
-) -> Result<VerificationExpectation, Diagnostic> {
-    let mut value = template.0.clone();
-    let request = json!({
-        "registry_identity": release["registry_identity"],
-        "source_identity": release["source_identity"],
-        "namespace": release["namespace"],
-        "name": release["name"],
-        "version": release["version"],
-        "target_path": release["target_path"],
-        "publisher_identity": release["publisher_identity"],
-        "archive": release["archive"],
-        "manifest": release["manifest"],
-        "provenance": release["provenance"]
-    });
-    value["request"] = request;
-    value["offline_lock"]["release"] = json!({
-        "registry_identity": release["registry_identity"],
-        "source_identity": release["source_identity"],
-        "namespace": release["namespace"],
-        "name": release["name"],
-        "version": release["version"],
-        "target_path": release["target_path"],
-        "publisher_identity": release["publisher_identity"],
-        "archive": release["archive"],
-        "manifest": release["manifest"],
-        "provenance_statement_sha256": release["provenance"]["statement"]["digest"]["value"],
-        "provenance_predicate_type": release["provenance"]["statement"]["value"]["predicateType"],
-        "provenance_subject": release["provenance"]["selected_subject"],
-        "package_signature_sha256": release["package_signature_sha256"]
-    });
-    Ok(VerificationExpectation(value))
 }
 
 #[cfg(test)]
@@ -2812,6 +2846,8 @@ mod tests {
         let mut expectation = VerificationExpectation(contract["verification_expectation"].clone());
         expectation.0["contract_status"] = json!("implemented");
         expectation.0["verification_time"] = json!("2026-07-29T12:00:00Z");
+        expectation.0["request"]["registry_identity"] = json!("registry:test");
+        expectation.0["request"]["source_identity"] = json!("registry:test-source");
         expectation.0["required_signers"]["index_role_id"] = json!("registry-index");
         expectation.0["required_signers"]["index_threshold"] = json!(2);
         expectation.0["required_signers"]["package_role_id"] = json!("targets:axiom");
@@ -3172,6 +3208,55 @@ mod tests {
         ] {
             assert!(normalize_archive_path(Path::new(path)).is_err(), "{path}");
         }
+    }
+
+    #[test]
+    fn package_archive_excludes_default_and_configured_materialization_roots() {
+        let dir = tempdir().unwrap();
+        let project = write_project(dir.path());
+        fs::write(
+            project.join(MANIFEST_FILENAME),
+            r#"[package]
+name = "core"
+version = "1.2.3"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[registry]
+name = "local"
+index = "http://127.0.0.1:8787/index.v2.json"
+trust_roots = "trust-roots.json"
+expectation = "expectation.json"
+cache = "cache-packages"
+vendor = "vendor-packages"
+"#,
+        )
+        .unwrap();
+        for excluded in [
+            ".axiom/cache/default/src",
+            "vendor/default/src",
+            "cache-packages/custom/src",
+            "vendor-packages/custom/src",
+        ] {
+            let root = project.join(excluded);
+            fs::create_dir_all(&root).unwrap();
+            fs::write(root.join("must-not-publish.ax"), "print \"secret\"\n").unwrap();
+        }
+
+        let rendered = render_package_archive(&fs::canonicalize(&project).unwrap()).unwrap();
+
+        assert!(rendered.files.contains_key(MANIFEST_FILENAME));
+        assert!(rendered.files.contains_key(LOCK_FILENAME));
+        assert!(rendered.files.contains_key("src/main.ax"));
+        assert_eq!(rendered.files.len(), 3);
+        assert!(
+            rendered
+                .files
+                .keys()
+                .all(|path| !path.contains("must-not-publish"))
+        );
     }
 
     #[cfg(unix)]

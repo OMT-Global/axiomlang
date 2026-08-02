@@ -3,8 +3,8 @@ use axiomc::dap;
 use axiomc::diagnostic_catalog::{DiagnosticCodeInfo, diagnostic_code_info};
 use axiomc::diagnostics::Diagnostic;
 use axiomc::doctor::{doctor_report, doctor_text};
-use axiomc::json_contract;
 use axiomc::intent_ir::{IntentIrDocument, emit_intent_ir};
+use axiomc::json_contract;
 use axiomc::lockfile::{expected_lockfile_for_project, validate_lockfile};
 use axiomc::lsp;
 use axiomc::manifest::{
@@ -14,6 +14,9 @@ use axiomc::manifest::{
 #[cfg(test)]
 use axiomc::new_project::create_project;
 use axiomc::new_project::{WorkloadTemplate, create_project_with_template};
+use axiomc::package_manager::{
+    PackageManagerError, fetch_packages, update_packages, vendor_packages,
+};
 use axiomc::package_trust::{
     Ed25519Signer, PackageArtifacts, PackageInputFailure, PackageTrustInput, PackageVerification,
     RegistryIndexEnvelope, TrustRootsEnvelope, VerificationExpectation, input_failure_verification,
@@ -24,9 +27,9 @@ use axiomc::package_trust::{
 use axiomc::project::{
     BuildOptions, BuildOutput, CheckOptions, RunLimits, RunOptions, TestOptions, TestOutput,
     build_project_with_options, capability_sbom, check_project_with_options,
-    documentation_packages, list_project_tests_with_options, package_graph_metadata, project_capabilities,
-    run_project_report_with_limits, run_project_report_with_options, run_project_tests_with_options, run_project_with_options,
-    trace_provenance,
+    documentation_packages, list_project_tests_with_options, package_graph_metadata,
+    project_capabilities, run_project_report_with_limits, run_project_report_with_options,
+    run_project_tests_with_options, run_project_with_options, trace_provenance,
 };
 use axiomc::registry::{
     PublishOptions, RegistryIndexOptions, RegistryServeOptions, load_registry_index,
@@ -48,12 +51,13 @@ use std::os::unix::ffi::OsStrExt;
 use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
+mod agent_task_cli;
 mod benchmark;
 mod formatter;
-mod intent_ir_cli; mod migration_plan_cli;
-mod agent_task_cli;
-mod verification_planner_cli;
 mod formatter_cli;
+mod intent_ir_cli;
+mod migration_plan_cli;
+mod verification_planner_cli;
 use formatter::FormatRange;
 #[derive(Debug, Parser)]
 #[command(name = "axiomc", about = "Axiom stage1 bootstrap compiler")]
@@ -196,7 +200,13 @@ enum Command {
         json: bool,
     },
     /// Compile an approved specification into a bounded, read-only task contract.
-    TaskContract { spec: PathBuf, #[arg(long, default_value = ".")] project: PathBuf, #[arg(long)] json: bool },
+    TaskContract {
+        spec: PathBuf,
+        #[arg(long, default_value = ".")]
+        project: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
     /// Emit semantic evidence requirements and observed test evidence.
     Evidence {
         path: PathBuf,
@@ -220,7 +230,22 @@ enum Command {
         json: bool,
     },
     /// Map semantic impact to exact-head evidence, or evaluate a result set.
-    VerificationPlan { before: PathBuf, after: PathBuf, #[arg(long)] diff: PathBuf, #[arg(long, default_value = ".")] project: PathBuf, #[arg(long)] source_head: String, #[arg(long)] delivered_head: String, #[arg(long)] results: Option<PathBuf>, #[arg(long)] json: bool },
+    VerificationPlan {
+        before: PathBuf,
+        after: PathBuf,
+        #[arg(long)]
+        diff: PathBuf,
+        #[arg(long, default_value = ".")]
+        project: PathBuf,
+        #[arg(long)]
+        source_head: String,
+        #[arg(long)]
+        delivered_head: String,
+        #[arg(long)]
+        results: Option<PathBuf>,
+        #[arg(long)]
+        json: bool,
+    },
     /// Inspect project metadata for agent tooling.
     Inspect {
         #[command(subcommand)]
@@ -305,7 +330,12 @@ enum Command {
         json: bool,
     },
     /// Build a deterministic, plan-only edition migration from a Compatibility v1 report.
-    Migrate { #[arg(long)] report: PathBuf, #[arg(long)] json: bool },
+    Migrate {
+        #[arg(long)]
+        report: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
     /// Start a small stage1 scratch REPL backed by axiomc check/run.
     Repl {
         /// Emit an axiom.stage1.v1 JSON envelope for agent/tool consumption.
@@ -511,6 +541,33 @@ enum PkgCommand {
         #[arg(long)]
         json: bool,
     },
+    /// Authenticate and cache exact locked packages, creating axiom.lock v2 on first resolution.
+    Fetch {
+        path: PathBuf,
+        /// Emit an axiom.stage1.v1 JSON envelope for agent/tool consumption.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Re-resolve authenticated registry packages and update axiom.lock v2.
+    Update {
+        path: PathBuf,
+        /// Update only the named direct dependency.
+        #[arg(long)]
+        package: Option<String>,
+        /// Emit an axiom.stage1.v1 JSON envelope for agent/tool consumption.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Materialize the locked registry graph into a deterministic vendor tree.
+    Vendor {
+        path: PathBuf,
+        /// Override the manifest-configured vendor directory.
+        #[arg(long)]
+        out: Option<PathBuf>,
+        /// Emit an axiom.stage1.v1 JSON envelope for agent/tool consumption.
+        #[arg(long)]
+        json: bool,
+    },
     /// Verify a delivered package against Package Trust v1 metadata and exact artifact bytes.
     Verify {
         /// Exact package archive bytes to authenticate.
@@ -704,13 +761,11 @@ fn main() {
             };
             if json {
                 match run_project_report_with_options(&path, &options) {
-                    Ok(output) => {
-                        print_json_output_or_error(
-                            "run",
-                            &json_contract::run_success(&path, &output),
-                            output.exit_code,
-                        )
-                    }
+                    Ok(output) => print_json_output_or_error(
+                        "run",
+                        &json_contract::run_success(&path, &output),
+                        output.exit_code,
+                    ),
                     Err(error) => print_error("run", error, true),
                 }
             } else {
@@ -946,7 +1001,11 @@ fn main() {
             }
             Err(error) => print_error("repair-plan", error, json),
         },
-        Command::TaskContract { spec, project, json } => agent_task_cli::run(&project, &spec, json),
+        Command::TaskContract {
+            spec,
+            project,
+            json,
+        } => agent_task_cli::run(&project, &spec, json),
         Command::Evidence { path, json } => match evidence_report(&path) {
             Ok(report) => {
                 if json {
@@ -1008,7 +1067,25 @@ fn main() {
             }
             Err(error) => print_error("semantic-diff", error, json),
         },
-        Command::VerificationPlan { before, after, diff, project, source_head, delivered_head, results, json } => verification_planner_cli::run(&before, &after, &diff, &project, &source_head, &delivered_head, results.as_deref(), json),
+        Command::VerificationPlan {
+            before,
+            after,
+            diff,
+            project,
+            source_head,
+            delivered_head,
+            results,
+            json,
+        } => verification_planner_cli::run(
+            &before,
+            &after,
+            &diff,
+            &project,
+            &source_head,
+            &delivered_head,
+            results.as_deref(),
+            json,
+        ),
         Command::Inspect { command } => match command {
             InspectCommand::Intent { path, json } => intent_ir_cli::run(&path, json),
             InspectCommand::Symbols { path, json } => match inspect_symbols(&path) {
@@ -1173,6 +1250,45 @@ fn main() {
                 }
                 Err(error) => print_error("pkg graph", error, json),
             },
+            PkgCommand::Fetch { path, json } => match fetch_packages(&path) {
+                Ok(report) => {
+                    if json {
+                        print_json("pkg fetch", &report)
+                    } else {
+                        eprintln!("{}", report.summary);
+                        0
+                    }
+                }
+                Err(error) => print_package_manager_error("pkg fetch", error, json),
+            },
+            PkgCommand::Update {
+                path,
+                package,
+                json,
+            } => match update_packages(&path, package.as_deref()) {
+                Ok(report) => {
+                    if json {
+                        print_json("pkg update", &report)
+                    } else {
+                        eprintln!("{}", report.summary);
+                        0
+                    }
+                }
+                Err(error) => print_package_manager_error("pkg update", error, json),
+            },
+            PkgCommand::Vendor { path, out, json } => {
+                match vendor_packages(&path, out.as_deref()) {
+                    Ok(report) => {
+                        if json {
+                            print_json("pkg vendor", &report)
+                        } else {
+                            eprintln!("{}", report.summary);
+                            0
+                        }
+                    }
+                    Err(error) => print_package_manager_error("pkg vendor", error, json),
+                }
+            }
             PkgCommand::Verify {
                 archive,
                 manifest,
@@ -1787,6 +1903,33 @@ fn print_error(command: &str, error: Diagnostic, json: bool) -> i32 {
             eprintln!("{related}");
         }
     }
+    1
+}
+
+fn package_manager_diagnostic(error: PackageManagerError) -> Diagnostic {
+    Diagnostic::new("package", error.message)
+        .with_code(error.code)
+        .with_package_resolution(error.trace, error.resolver)
+}
+
+fn print_package_manager_error(command: &str, error: PackageManagerError, json: bool) -> i32 {
+    if !json {
+        return print_error(command, package_manager_diagnostic(error), false);
+    }
+
+    let PackageManagerError {
+        code,
+        message,
+        trace,
+        resolver,
+    } = error;
+    let diagnostic = Diagnostic::new("package", message)
+        .with_code(code)
+        .with_package_resolution(trace.clone(), resolver.clone());
+    let mut payload = json_contract::error(command, &diagnostic);
+    payload["trace"] = serde_json::json!(trace);
+    payload["resolver"] = resolver.unwrap_or(serde_json::Value::Null);
+    println!("{payload}");
     1
 }
 
@@ -2808,12 +2951,14 @@ fn collect_semantic_declarations(
             .with_path(file.display().to_string())
         })?;
         let program = parse_program(&source, &file)?;
-        axioms.extend(program.axioms.iter().map(|axiom| DeclaredAxiom {
-            id: intent
-                .node_id("Axiom", &axiom.name)
-                .unwrap_or(&intent.package)
-                .to_owned(),
-            name: axiom.name.clone(),
+        axioms.extend(program.axioms.iter().map(|axiom| {
+            DeclaredAxiom {
+                id: intent
+                    .node_id("Axiom", &axiom.name)
+                    .unwrap_or(&intent.package)
+                    .to_owned(),
+                name: axiom.name.clone(),
+            }
         }));
         capabilities.extend(program.semantic_capabilities.iter().map(|capability| {
             DeclaredSemanticCapability {
@@ -7324,13 +7469,8 @@ fn run_doc_tests_with_limits(
             .map_err(|err| Diagnostic::new("doctest", format!("failed to write lockfile: {err}")))?;
         fs::write(temp.path().join("src/main.ax"), &test.code)
             .map_err(|err| Diagnostic::new("doctest", format!("failed to write source: {err}")))?;
-        let output = run_project_report_with_limits(
-            temp.path(),
-            &RunOptions::default(),
-            limits,
-        )
-        .map_err(
-            |err| {
+        let output = run_project_report_with_limits(temp.path(), &RunOptions::default(), limits)
+            .map_err(|err| {
                 Diagnostic::new(
                     "doctest",
                     format!("doctest `{}` failed: {}", test.id, err.message),
@@ -7338,8 +7478,7 @@ fn run_doc_tests_with_limits(
                 .with_code("doctest_failed")
                 .with_path(test.source.clone())
                 .with_span(test.line, 1)
-            },
-        )?;
+            })?;
         if output.exit_code != 0 {
             return Err(Diagnostic::new(
                 "doctest",
@@ -7406,9 +7545,12 @@ fn render_markdown_docs(items: &[DocItem]) -> String {
 }
 
 fn render_doc_markdown_line(line: &str, links: &[DocLink]) -> String {
-    render_doc_links(line, links, |text| text.to_string(), |link| {
-        format!("[{}](#{})", link.target, link.resolved_id)
-    })
+    render_doc_links(
+        line,
+        links,
+        |text| text.to_string(),
+        |link| format!("[{}](#{})", link.target, link.resolved_id),
+    )
 }
 
 fn render_doc_html_line(line: &str, links: &[DocLink]) -> String {
@@ -7945,7 +8087,21 @@ fn inspect_package_nodes(
         .iter()
         .map(|(name, spec)| PackageEdge {
             name: name.clone(),
-            path: project.join(&spec.path).display().to_string(),
+            path: spec.path_source().map_or_else(
+                || {
+                    let registry = spec
+                        .registry_source()
+                        .expect("manifest dependencies have exactly one source");
+                    format!(
+                        "registry:{}/{}/{}@{}",
+                        registry.registry,
+                        registry.namespace,
+                        registry.package,
+                        spec.version.as_deref().unwrap_or("<missing>")
+                    )
+                },
+                |path| project.join(path).display().to_string(),
+            ),
         })
         .collect::<Vec<_>>();
     let workspace_members = manifest
@@ -7983,7 +8139,10 @@ fn inspect_module_nodes(
     let dependencies = manifest
         .dependencies
         .iter()
-        .map(|(name, spec)| (name.as_str(), project.join(&spec.path).join("src")))
+        .filter_map(|(name, spec)| {
+            spec.path_source()
+                .map(|path| (name.as_str(), project.join(path).join("src")))
+        })
         .collect::<HashMap<_, _>>();
     let stdlib = inspect_stdlib_module_set();
     let mut modules = Vec::new();
@@ -8752,14 +8911,37 @@ mod tests {
     #[test]
     fn json_flags_describe_agent_envelope_in_help() {
         for path in [
-            &["parse"][..], &["check"], &["build"], &["run"], &["trace"], &["test"],
-            &["caps"], &["repair-plan"], &["evidence"], &["verify"], &["semantic-diff"],
-            &["explain"], &["doctor"], &["fmt"], &["doc"], &["bench"],
-            &["mutation-report"], &["repl"], &["inspect", "symbols"], &["inspect", "graph"],
-            &["inspect", "effects"], &["inspect", "artifacts"], &["generate", "openapi"],
-            &["generate", "policy"], &["generate", "sql"], &["generate", "terraform"],
+            &["parse"][..],
+            &["check"],
+            &["build"],
+            &["run"],
+            &["trace"],
+            &["test"],
+            &["caps"],
+            &["repair-plan"],
+            &["evidence"],
+            &["verify"],
+            &["semantic-diff"],
+            &["explain"],
+            &["doctor"],
+            &["fmt"],
+            &["doc"],
+            &["bench"],
+            &["mutation-report"],
+            &["repl"],
+            &["inspect", "symbols"],
+            &["inspect", "graph"],
+            &["inspect", "effects"],
+            &["inspect", "artifacts"],
+            &["generate", "openapi"],
+            &["generate", "policy"],
+            &["generate", "sql"],
+            &["generate", "terraform"],
             &["generate", "runbook"],
             &["pkg", "graph"],
+            &["pkg", "fetch"],
+            &["pkg", "update"],
+            &["pkg", "vendor"],
         ] {
             let help = subcommand_help(path);
             assert!(help.contains("--json"), "{path:?} should list --json");
@@ -9150,8 +9332,7 @@ return "ok"
         fs::write(&path, br#"{"_type":"first","_type":"duplicate"}"#)
             .expect("write duplicate-key provenance");
 
-        let error =
-            load_registry_json_value(&path, "publish", "provenance statement").unwrap_err();
+        let error = load_registry_json_value(&path, "publish", "provenance statement").unwrap_err();
 
         assert!(
             error.message.contains("duplicate"),
@@ -9161,8 +9342,7 @@ return "ok"
 
     #[test]
     fn package_verification_writer_rejects_schema_invalid_result_before_output() {
-        let mut verdict =
-            input_failure_verification(PackageInputFailure::MissingOrUnreadable);
+        let mut verdict = input_failure_verification(PackageInputFailure::MissingOrUnreadable);
         verdict.decision = "unknown".to_owned();
         let mut output = Vec::new();
 
@@ -9187,8 +9367,7 @@ return "ok"
             }
         }
 
-        let verdict =
-            input_failure_verification(PackageInputFailure::MissingOrUnreadable);
+        let verdict = input_failure_verification(PackageInputFailure::MissingOrUnreadable);
 
         assert_eq!(
             write_package_verification_to(&verdict, &mut FailingWriter),
@@ -9208,6 +9387,57 @@ return "ok"
             }
             other => panic!("expected pkg graph command, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn package_resolution_commands_parse_explicit_project_and_options() {
+        let fetch = Cli::parse_from(["axiomc", "pkg", "fetch", "demo", "--json"]);
+        assert!(matches!(
+            fetch.command,
+            Command::Pkg {
+                command: PkgCommand::Fetch { path, json: true },
+            } if path == PathBuf::from("demo")
+        ));
+
+        let update = Cli::parse_from([
+            "axiomc",
+            "pkg",
+            "update",
+            "demo",
+            "--package",
+            "parser",
+            "--json",
+        ]);
+        assert!(matches!(
+            update.command,
+            Command::Pkg {
+                command: PkgCommand::Update {
+                    path,
+                    package: Some(package),
+                    json: true,
+                },
+            } if path == PathBuf::from("demo") && package == "parser"
+        ));
+
+        let vendor = Cli::parse_from([
+            "axiomc",
+            "pkg",
+            "vendor",
+            "demo",
+            "--out",
+            "third-party",
+            "--json",
+        ]);
+        assert!(matches!(
+            vendor.command,
+            Command::Pkg {
+                command: PkgCommand::Vendor {
+                    path,
+                    out: Some(out),
+                    json: true,
+                },
+            } if path == PathBuf::from("demo") && out == PathBuf::from("third-party")
+        ));
     }
 
     #[test]
@@ -11304,8 +11534,11 @@ print serve("127.0.0.1:0", selected_route, 1)
         let dir = tempfile::tempdir().expect("tempdir");
         let project = dir.path().join("doc-contained");
         fs::create_dir_all(project.join("src")).expect("mkdir");
-        fs::write(project.join("src/main.ax"), "/// Main.\npub fn main(): int {\nreturn 0\n}\n")
-            .expect("write source");
+        fs::write(
+            project.join("src/main.ax"),
+            "/// Main.\npub fn main(): int {\nreturn 0\n}\n",
+        )
+        .expect("write source");
 
         let outside = dir.path().join("outside-docs");
         let error = generate_docs(&project, &outside, true).expect_err("reject outside output");
@@ -11318,8 +11551,11 @@ print serve("127.0.0.1:0", selected_route, 1)
         let dir = tempfile::tempdir().expect("tempdir");
         let project = dir.path().join("doc-relative-escape");
         fs::create_dir_all(project.join("src")).expect("mkdir");
-        fs::write(project.join("src/main.ax"), "/// Main.\npub fn main(): int {\nreturn 0\n}\n")
-            .expect("write source");
+        fs::write(
+            project.join("src/main.ax"),
+            "/// Main.\npub fn main(): int {\nreturn 0\n}\n",
+        )
+        .expect("write source");
 
         let outside = project.join("../outside-docs");
         let error = generate_docs(&project, &outside, true).expect_err("reject outside output");
@@ -11341,8 +11577,11 @@ print serve("127.0.0.1:0", selected_route, 1)
         let outside = dir.path().join("outside-docs");
         fs::create_dir_all(project.join("src")).expect("mkdir project src");
         fs::create_dir_all(&outside).expect("mkdir outside");
-        fs::write(project.join("src/main.ax"), "/// Main.\npub fn main(): int {\nreturn 0\n}\n")
-            .expect("write source");
+        fs::write(
+            project.join("src/main.ax"),
+            "/// Main.\npub fn main(): int {\nreturn 0\n}\n",
+        )
+        .expect("write source");
         std::os::unix::fs::symlink(&outside, project.join("docs")).expect("symlink docs");
         let canonical_project = project.canonicalize().expect("canonical project");
 
@@ -11371,8 +11610,11 @@ print serve("127.0.0.1:0", selected_route, 1)
         let outside = dir.path().join("outside.md");
         fs::create_dir_all(project.join("src")).expect("mkdir project src");
         fs::create_dir_all(project.join("docs/axiom")).expect("mkdir docs");
-        fs::write(project.join("src/main.ax"), "/// Main.\npub fn main(): int {\nreturn 0\n}\n")
-            .expect("write source");
+        fs::write(
+            project.join("src/main.ax"),
+            "/// Main.\npub fn main(): int {\nreturn 0\n}\n",
+        )
+        .expect("write source");
         write_doc_test_manifest(&project, "doc-file-symlink");
         fs::write(&outside, "do not overwrite").expect("write outside");
         std::os::unix::fs::symlink(&outside, project.join("docs/axiom/index.md"))
@@ -11407,8 +11649,11 @@ print serve("127.0.0.1:0", selected_route, 1)
         let outside = dir.path().join("outside.html");
         fs::create_dir_all(project.join("src")).expect("mkdir project src");
         fs::create_dir_all(project.join("dist/docs")).expect("mkdir docs");
-        fs::write(project.join("src/main.ax"), "/// Main.\npub fn main(): int {\nreturn 0\n}\n")
-            .expect("write source");
+        fs::write(
+            project.join("src/main.ax"),
+            "/// Main.\npub fn main(): int {\nreturn 0\n}\n",
+        )
+        .expect("write source");
         write_doc_test_manifest(&project, "doc-md-stale-html-symlink");
         fs::write(&outside, "do not overwrite").expect("write outside");
         std::os::unix::fs::symlink(&outside, project.join("dist/docs/index.html"))
@@ -11434,8 +11679,11 @@ print serve("127.0.0.1:0", selected_route, 1)
         let outside = dir.path().join("missing.html");
         fs::create_dir_all(project.join("src")).expect("mkdir project src");
         fs::create_dir_all(project.join("dist/docs")).expect("mkdir docs");
-        fs::write(project.join("src/main.ax"), "/// Main.\npub fn main(): int {\nreturn 0\n}\n")
-            .expect("write source");
+        fs::write(
+            project.join("src/main.ax"),
+            "/// Main.\npub fn main(): int {\nreturn 0\n}\n",
+        )
+        .expect("write source");
         write_doc_test_manifest(&project, "doc-md-broken-html-symlink");
         std::os::unix::fs::symlink(&outside, project.join("dist/docs/index.html"))
             .expect("symlink index html");

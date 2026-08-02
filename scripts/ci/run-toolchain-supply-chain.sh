@@ -18,6 +18,15 @@ bash "$repo_root/scripts/ci/test-check-package-trust-contract.sh"
 cargo test --manifest-path "$manifest_path" -p axiomc --locked --lib package_trust::tests
 cargo test --manifest-path "$manifest_path" -p axiomc --locked --lib registry::tests
 cargo test --manifest-path "$manifest_path" -p axiomc --locked --test package_trust_cli
+cargo test --manifest-path "$manifest_path" -p axiomc --locked --lib package_version::tests
+cargo test --manifest-path "$manifest_path" -p axiomc --locked --lib package_resolver::tests
+cargo test --manifest-path "$manifest_path" -p axiomc --locked --lib registry_client::tests
+cargo test --manifest-path "$manifest_path" -p axiomc --locked --lib package_archive::tests
+cargo test --manifest-path "$manifest_path" -p axiomc --locked --lib package_store::tests
+cargo test --manifest-path "$manifest_path" -p axiomc --locked --lib package_manager::tests
+cargo test --manifest-path "$manifest_path" -p axiomc --locked --test package_resolver_cli
+python3 "$repo_root/scripts/ci/check-package-graph-boundary.py" --json
+bash "$repo_root/scripts/ci/test-check-package-graph-boundary.sh"
 
 if [[ -f "$repo_root/package-lock.json" ]]; then
   if ! command -v npm >/dev/null 2>&1; then

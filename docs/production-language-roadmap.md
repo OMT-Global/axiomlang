@@ -104,8 +104,11 @@ make production-language-readiness-github
   MIR control-flow/resource pass.
 - The async, synchronization, network, HTTP, JSON, FFI, formatter, LSP, DAP,
   documentation, benchmark, package, and release surfaces are bootstrap-grade.
-- No executable persistence package, public dependency resolver, installable
-  release, or production workload qualification gate exists.
+- No executable persistence package, public hosted dependency resolver,
+  installable release, or production workload qualification gate exists.
+  Package Resolver v1 is a local static/file and loopback-fixture spike until
+  its fetch, locked-offline, vendor, graph, and supply-chain round trips pass
+  `make stage1-package-resolver`.
 
 ## Dependency-Ordered Execution
 
@@ -207,6 +210,13 @@ The safe first queue is:
 Do not dispatch #1427, #1468 children, snapshot, release publication, external
 network authority, provider ABI, structured-concurrency policy, or final
 production qualification past their human and dependency gates.
+
+Package Resolver v1 (#1459) is intentionally bounded to signed static registry
+metadata, regular local files, and numeric-loopback HTTP fixtures. It must
+record deterministic exact/caret/transitive selection, conflict/yank
+disposition, trust pins, content-addressed cache/vendor evidence, and package
+graph decisions. Public HTTPS/hosted registry operation and edition selection
+are separate work and must not be inferred from this row.
 
 ## Agent Execution Contract
 

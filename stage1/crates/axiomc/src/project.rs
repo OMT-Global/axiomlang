@@ -5,17 +5,24 @@ use crate::codegen::{
 use crate::cranelift_backend::compile_cranelift_hello_spike;
 use crate::diagnostics::Diagnostic;
 use crate::hir;
-use crate::json_contract;
-use crate::lockfile::validate_lockfile;
+use crate::lockfile::{ParsedLockfile, load_lockfile, validate_lockfile};
 use crate::manifest::{
     BuildSection, CapabilityConfig, CapabilityDescriptor, CapabilityKind, Manifest, PackageSection,
     ProcessCommandPolicy, RuntimeConfig, TestKind, binary_path_for_target, capability_descriptors,
     entry_path, generated_rust_path, load_manifest, manifest_path, out_dir_path,
+    parse_manifest_exact,
 };
 use crate::mir;
+use crate::package_archive::{ArchiveLimits, parse_archive};
+use crate::package_manager::{
+    MATERIALIZED_PACKAGE_GRAPH_SCHEMA, MaterializationEvidence, MaterializeOptions,
+    MaterializedDependencyEdge, MaterializedPackage, MaterializedPackageGraph, PackageManager,
+    PackageManagerError, PackageTrustEvidence,
+};
 use crate::stdlib;
 use crate::syntax;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::env;
 #[cfg(unix)]
@@ -38,18 +45,22 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 
+const PACKAGE_GRAPH_RUNTIME_SCHEMA_VERSION: &str = "axiom.compiler.package_graph.runtime.v1";
+const PACKAGE_GRAPH_RUNTIME_CONTRACT: &str = "compiler.package_graph.runtime";
+
 mod expected_build_failure;
 mod lsp_analysis;
 mod module_parse_cache;
 use expected_build_failure::{expected_build_error_path, run_build_fail_case};
 pub use lsp_analysis::{LspResolvedModule, analyze_package_for_lsp};
-use module_parse_cache::{ModuleParseCache, module_parse_cache_key, parse_module_with_cache};
+use module_parse_cache::ModuleParseCache;
 mod test_case_result;
 pub use test_case_result::{ExpectedDiagnostic, TestCaseResult};
 
 const BUILD_CACHE_VERSION: u32 = 2;
 const BUILD_CACHE_COMPILER: &str = concat!("axiomc-stage1-", env!("CARGO_PKG_VERSION"));
 const MAX_TEST_EXPECTED_STREAM_BYTES: u64 = 1024 * 1024;
+const MAX_RESOLUTION_LOCKFILE_BYTES: u64 = 4 * 1024 * 1024;
 
 #[derive(Debug, Clone, Copy)]
 pub struct RunLimits {
@@ -355,16 +366,25 @@ pub struct TestOutput {
 #[derive(Debug, Clone, Serialize)]
 pub struct PackageGraphOutput {
     pub schema_version: &'static str,
+    pub contract: &'static str,
     pub manifest: String,
     pub packages: Vec<PackageGraphPackage>,
 }
 
 #[derive(Debug, Clone, Serialize)]
 pub struct PackageGraphPackage {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
     pub root: String,
     pub manifest: String,
     pub name: Option<String>,
     pub version: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub trust: Option<PackageTrustEvidence>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub materialization: Option<MaterializationEvidence>,
     pub workspace_only: bool,
     pub entrypoint: Option<String>,
     pub capabilities: Vec<CapabilityDescriptor>,
@@ -378,6 +398,14 @@ pub struct PackageGraphDependency {
     pub name: String,
     pub path: String,
     pub package: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub package_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_kind: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub requested: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -391,6 +419,10 @@ pub struct PackageGraphLockfile {
     pub path: String,
     pub status: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub version: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hash: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
 }
 
@@ -401,10 +433,18 @@ pub struct CapabilitySbomOutput {
 }
 #[derive(Debug, Clone, Serialize)]
 pub struct CapabilitySbomPackage {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
     pub root: String,
     pub manifest: String,
     pub name: Option<String>,
     pub version: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub trust: Option<PackageTrustEvidence>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub materialization: Option<MaterializationEvidence>,
     pub workspace_only: bool,
     pub entrypoint: Option<String>,
     pub package_graph: CapabilitySbomPackageGraph,
@@ -495,12 +535,19 @@ pub fn check_project_with_options(
 ) -> Result<CheckOutput, Diagnostic> {
     let project_root = canonicalize_existing_path(&normalize_path(project_root), "project root")?;
     let graph = load_package_graph(&project_root)?;
-    validate_workspace_root_lockfile(&graph, &project_root)?;
+    check_project_with_graph(&project_root, &graph, options)
+}
+
+fn check_project_with_graph(
+    project_root: &Path,
+    graph: &PackageGraph,
+    options: &CheckOptions,
+) -> Result<CheckOutput, Diagnostic> {
+    validate_workspace_root_lockfile(graph, project_root)?;
     let mut packages = Vec::new();
-    for package_root in workspace_package_roots(&graph, &project_root, options.package.as_deref())?
-    {
+    for package_root in workspace_package_roots(graph, project_root, options.package.as_deref())? {
         let analyzed =
-            analyze_package_with_macro_limit(&graph, &package_root, options.macro_recursion_limit)?;
+            analyze_package_with_macro_limit(graph, &package_root, options.macro_recursion_limit)?;
         let exports = if options.include_exports {
             public_api_exports(&analyzed.modules, &package_root)
         } else {
@@ -658,8 +705,8 @@ fn build_project_with_graph(
     let cache_misses = packages.len().saturating_sub(cache_hits);
     Ok(BuildOutput {
         backend: options.backend,
-        locked: options.locked,
-        offline: options.offline,
+        locked: options.locked || graph.resolution_lockfile.is_some(),
+        offline: options.offline || graph.resolution_lockfile.is_some(),
         manifest: root.manifest,
         entry: root.entry,
         binary: root.binary,
@@ -890,10 +937,10 @@ fn configure_bounded_command(command: &mut Command, limits: RunLimits) {
             if libc::setsid() < 0 {
                 return Err(io::Error::last_os_error());
             }
-            set_bounded_rlimit(limits.max_cpu_seconds, |rlimit| unsafe {
+            set_bounded_rlimit(limits.max_cpu_seconds, |rlimit| {
                 libc::setrlimit(libc::RLIMIT_CPU, rlimit)
             })?;
-            set_bounded_rlimit(limits.max_file_bytes, |rlimit| unsafe {
+            set_bounded_rlimit(limits.max_file_bytes, |rlimit| {
                 libc::setrlimit(libc::RLIMIT_FSIZE, rlimit)
             })?;
             Ok(())
@@ -948,8 +995,16 @@ fn prepare_run_project(
 ) -> Result<(PathBuf, BuildOutput, PathBuf), Diagnostic> {
     let project_root = canonicalize_existing_path(&normalize_path(project_root), "project root")?;
     let graph = load_package_graph(&project_root)?;
-    if options.package.is_none() && graph.context(&project_root)?.manifest.is_workspace_only() {
-        let packages = workspace_package_names(&graph, &project_root)?;
+    prepare_run_project_with_graph(&project_root, &graph, options)
+}
+
+fn prepare_run_project_with_graph(
+    project_root: &Path,
+    graph: &PackageGraph,
+    options: &RunOptions,
+) -> Result<(PathBuf, BuildOutput, PathBuf), Diagnostic> {
+    if options.package.is_none() && graph.context(project_root)?.manifest.is_workspace_only() {
+        let packages = workspace_package_names(graph, project_root)?;
         return Err(Diagnostic::new(
             "run",
             format!(
@@ -960,8 +1015,8 @@ fn prepare_run_project(
         .with_path(manifest_path(&project_root).display().to_string()));
     }
     let built = build_project_with_graph(
-        &project_root,
-        &graph,
+        project_root,
+        graph,
         &BuildOptions {
             backend: options.backend,
             target: None,
@@ -981,7 +1036,7 @@ fn prepare_run_project(
         )
     })?;
     let build_output_dir = build_output_dir.to_path_buf();
-    Ok((project_root, built, build_output_dir))
+    Ok((project_root.to_path_buf(), built, build_output_dir))
 }
 
 pub fn run_project_tests(project_root: &Path) -> Result<TestOutput, Diagnostic> {
@@ -1001,7 +1056,7 @@ pub fn list_project_tests_with_options(
     for package_root in workspace_package_roots(&graph, &project_root, options.package.as_deref())?
     {
         let manifest = &graph.context(&package_root)?.manifest;
-        validate_lockfile(&package_root, manifest)?;
+        validate_package_lockfile(&graph, &package_root, manifest)?;
         let package_root_text = package_root.display().to_string();
         let expected_error = expected_error_path(&package_root);
         let expected_build_error = expected_build_error_path(&package_root);
@@ -1060,16 +1115,23 @@ pub fn run_project_tests_with_options(
 ) -> Result<TestOutput, Diagnostic> {
     let project_root = canonicalize_existing_path(&normalize_path(project_root), "project root")?;
     let graph = load_package_graph(&project_root)?;
-    validate_workspace_root_lockfile(&graph, &project_root)?;
+    run_project_tests_with_graph(&project_root, &graph, options)
+}
+
+fn run_project_tests_with_graph(
+    project_root: &Path,
+    graph: &PackageGraph,
+    options: &TestOptions,
+) -> Result<TestOutput, Diagnostic> {
+    validate_workspace_root_lockfile(graph, project_root)?;
     let manifest_path_text = manifest_path(&project_root).display().to_string();
     let mut packages = Vec::new();
     let mut cases = Vec::new();
     let mut parse_cache = ModuleParseCache::default();
     let started = Instant::now();
-    for package_root in workspace_package_roots(&graph, &project_root, options.package.as_deref())?
-    {
+    for package_root in workspace_package_roots(graph, project_root, options.package.as_deref())? {
         let manifest = &graph.context(&package_root)?.manifest;
-        validate_lockfile(&package_root, manifest)?;
+        validate_package_lockfile(graph, &package_root, manifest)?;
         let package_root_text = package_root.display().to_string();
         let expected_error = expected_error_path(&package_root);
         let expected_build_error = expected_build_error_path(&package_root);
@@ -1084,11 +1146,11 @@ pub fn run_project_tests_with_options(
             ) {
                 packages.push(package_root_text.clone());
                 cases.push(if expected_build_error.exists() {
-                    run_build_fail_case(&package_root, &graph, manifest, &test.name, test.kind)
+                    run_build_fail_case(&package_root, graph, manifest, &test.name, test.kind)
                 } else {
                     run_compile_fail_case(
                         &package_root,
-                        &graph,
+                        graph,
                         manifest,
                         &test.name,
                         test.kind,
@@ -1113,7 +1175,7 @@ pub fn run_project_tests_with_options(
         for test in &tests {
             cases.push(run_test_case(
                 &package_root,
-                &graph,
+                graph,
                 manifest,
                 test,
                 options.backend,
@@ -1622,6 +1684,13 @@ pub fn project_capabilities(project_root: &Path) -> Result<Vec<CapabilityDescrip
 pub fn capability_sbom(project_root: &Path) -> Result<CapabilitySbomOutput, Diagnostic> {
     let project_root = canonicalize_existing_path(&normalize_path(project_root), "project root")?;
     let graph = load_package_graph(&project_root)?;
+    capability_sbom_with_graph(&project_root, &graph)
+}
+
+fn capability_sbom_with_graph(
+    project_root: &Path,
+    graph: &PackageGraph,
+) -> Result<CapabilitySbomOutput, Diagnostic> {
     let graph_output = package_graph_metadata_with_graph(&project_root, &graph)?;
     let mut packages = Vec::new();
     for graph_package in graph_output.packages {
@@ -1662,10 +1731,14 @@ pub fn capability_sbom(project_root: &Path) -> Result<CapabilitySbomOutput, Diag
             })
             .collect();
         packages.push(CapabilitySbomPackage {
+            id: graph_package.id,
             root: graph_package.root,
             manifest: graph_package.manifest,
             name: graph_package.name,
             version: graph_package.version,
+            source: graph_package.source,
+            trust: graph_package.trust,
+            materialization: graph_package.materialization,
             workspace_only: graph_package.workspace_only,
             entrypoint: graph_package.entrypoint,
             package_graph: CapabilitySbomPackageGraph {
@@ -1701,7 +1774,37 @@ fn package_graph_metadata_with_graph(
         .filter(|root| **root != stdlib::stdlib_root())
         .cloned()
         .collect::<Vec<_>>();
-    roots.sort();
+    roots.sort_by(|left, right| {
+        let left_root_rank = usize::from(left != project_root);
+        let right_root_rank = usize::from(right != project_root);
+        left_root_rank
+            .cmp(&right_root_rank)
+            .then_with(|| {
+                graph
+                    .materialized_package(left)
+                    .map(|package| package.source.as_str())
+                    .cmp(
+                        &graph
+                            .materialized_package(right)
+                            .map(|package| package.source.as_str()),
+                    )
+            })
+            .then_with(|| {
+                graph
+                    .context(left)
+                    .ok()
+                    .and_then(|context| context.manifest.package.as_ref())
+                    .map(|package| package.name.as_str())
+                    .cmp(
+                        &graph
+                            .context(right)
+                            .ok()
+                            .and_then(|context| context.manifest.package.as_ref())
+                            .map(|package| package.name.as_str()),
+                    )
+            })
+            .then(left.cmp(right))
+    });
     let mut packages = Vec::new();
     for root in roots {
         let package = graph.context(&root)?;
@@ -1720,11 +1823,13 @@ fn package_graph_metadata_with_graph(
             .package
             .as_ref()
             .map(|_| entry_path(&root, &package.manifest).display().to_string());
+        let materialized_package = graph.materialized_package(&root);
         let dependencies = package
             .dependencies
             .iter()
             .map(|(name, dependency_root)| {
                 let dependency = graph.context(dependency_root)?;
+                let edge = graph.materialized_edge(&root, name, dependency_root);
                 Ok(PackageGraphDependency {
                     name: name.clone(),
                     path: dependency_root.display().to_string(),
@@ -1733,6 +1838,10 @@ fn package_graph_metadata_with_graph(
                         .package
                         .as_ref()
                         .map(|package| package.name.clone()),
+                    package_id: graph.package_id(dependency_root).map(str::to_owned),
+                    source_kind: edge.map(|edge| edge.source_kind.clone()),
+                    requested: edge.map(|edge| edge.requested.clone()),
+                    reason: edge.map(|edge| edge.reason.clone()),
                 })
             })
             .collect::<Result<Vec<_>, Diagnostic>>()?;
@@ -1751,23 +1860,32 @@ fn package_graph_metadata_with_graph(
                 })
             })
             .collect::<Result<Vec<_>, Diagnostic>>()?;
-        let lockfile = match validate_lockfile(&root, &package.manifest) {
+        let graph_lockfile_path = graph.lockfile_path_for(&root);
+        let lockfile = match validate_package_lockfile(graph, &root, &package.manifest) {
             Ok(()) => PackageGraphLockfile {
-                path: crate::manifest::lockfile_path(&root).display().to_string(),
+                path: graph_lockfile_path.display().to_string(),
                 status: String::from("current"),
+                version: graph.lockfile_version_for(&root),
+                hash: graph.lockfile_hash_for(&root).ok(),
                 message: None,
             },
             Err(error) => PackageGraphLockfile {
-                path: crate::manifest::lockfile_path(&root).display().to_string(),
+                path: graph_lockfile_path.display().to_string(),
                 status: String::from("stale"),
+                version: graph.lockfile_version_for(&root),
+                hash: graph.lockfile_hash_for(&root).ok(),
                 message: Some(error.message),
             },
         };
         packages.push(PackageGraphPackage {
+            id: graph.package_id(&root).map(str::to_owned),
             root: root.display().to_string(),
             manifest: manifest_path(&root).display().to_string(),
             name,
             version,
+            source: materialized_package.map(|package| package.source.clone()),
+            trust: materialized_package.and_then(|package| package.trust.clone()),
+            materialization: materialized_package.map(|package| package.materialization.clone()),
             workspace_only: package.manifest.is_workspace_only(),
             entrypoint,
             capabilities: capability_descriptors(&package.manifest.capabilities),
@@ -1777,7 +1895,8 @@ fn package_graph_metadata_with_graph(
         });
     }
     Ok(PackageGraphOutput {
-        schema_version: json_contract::JSON_SCHEMA_VERSION,
+        schema_version: PACKAGE_GRAPH_RUNTIME_SCHEMA_VERSION,
+        contract: PACKAGE_GRAPH_RUNTIME_CONTRACT,
         manifest: manifest_path(&project_root).display().to_string(),
         packages,
     })
@@ -1790,11 +1909,22 @@ struct PackageContext {
     source_root: PathBuf,
     dependencies: BTreeMap<String, PathBuf>,
     workspace_members: Vec<PathBuf>,
+    verified_sources: Option<VerifiedPackageSources>,
+}
+
+#[derive(Debug, Clone)]
+struct VerifiedPackageSources {
+    archive_sha256: String,
+    sources: BTreeMap<PathBuf, Arc<str>>,
 }
 
 #[derive(Debug, Clone, Default)]
 struct PackageGraph {
     packages: HashMap<PathBuf, PackageContext>,
+    package_ids: HashMap<PathBuf, String>,
+    materialized: Option<MaterializedPackageGraph>,
+    resolution_lockfile: Option<PathBuf>,
+    resolution_lockfile_hash: Option<String>,
 }
 
 impl PackageGraph {
@@ -1809,6 +1939,79 @@ impl PackageGraph {
             )
         })
     }
+
+    fn package_id(&self, package_root: &Path) -> Option<&str> {
+        self.package_ids.get(package_root).map(String::as_str)
+    }
+
+    fn materialized_package(&self, package_root: &Path) -> Option<&MaterializedPackage> {
+        let id = self.package_id(package_root)?;
+        self.materialized
+            .as_ref()?
+            .packages
+            .iter()
+            .find(|package| package.id == id)
+    }
+
+    fn materialized_edge(
+        &self,
+        package_root: &Path,
+        alias: &str,
+        dependency_root: &Path,
+    ) -> Option<&MaterializedDependencyEdge> {
+        let from = self.package_id(package_root)?;
+        let to = self.package_id(dependency_root)?;
+        self.materialized
+            .as_ref()?
+            .edges
+            .iter()
+            .find(|edge| edge.from == from && edge.to == to && edge.alias == alias)
+    }
+
+    fn lockfile_path_for(&self, package_root: &Path) -> PathBuf {
+        self.resolution_lockfile
+            .clone()
+            .unwrap_or_else(|| crate::manifest::lockfile_path(package_root))
+    }
+
+    fn lockfile_version_for(&self, package_root: &Path) -> Option<u32> {
+        if self.resolution_lockfile.is_some() {
+            return Some(2);
+        }
+        load_lockfile(package_root)
+            .ok()
+            .map(|lockfile| lockfile.version())
+    }
+
+    fn lockfile_hash_for(&self, package_root: &Path) -> Result<String, Diagnostic> {
+        self.resolution_lockfile_hash
+            .clone()
+            .map(Ok)
+            .unwrap_or_else(|| hash_file(&crate::manifest::lockfile_path(package_root)))
+    }
+
+    fn package_root(&self, package_root: &Path) -> Result<PathBuf, Diagnostic> {
+        let normalized = normalize_path(package_root);
+        if self.packages.contains_key(&normalized) {
+            return Ok(normalized);
+        }
+        canonicalize_existing_path(&normalized, "package root")
+    }
+
+    fn verified_source(&self, package_root: &Path, module_path: &Path) -> Option<Arc<str>> {
+        self.packages
+            .get(package_root)?
+            .verified_sources
+            .as_ref()?
+            .sources
+            .get(&normalize_path(module_path))
+            .cloned()
+    }
+
+    fn has_verified_source(&self, package_root: &Path, module_path: &Path) -> Option<bool> {
+        let sources = self.packages.get(package_root)?.verified_sources.as_ref()?;
+        Some(sources.sources.contains_key(&normalize_path(module_path)))
+    }
 }
 
 struct AnalyzedProject {
@@ -1822,6 +2025,7 @@ struct AnalyzedProject {
 #[derive(Debug, Clone)]
 struct LoadedModule {
     path: PathBuf,
+    source: Arc<str>,
     program: syntax::Program,
     resolved_imports: Vec<ResolvedImport>,
     is_entry: bool,
@@ -1906,14 +2110,14 @@ fn analyze_package_for_capability_sbom(
     graph: &PackageGraph,
     package_root: &Path,
 ) -> Result<AnalyzedProject, Diagnostic> {
-    let package_root = normalize_path(package_root);
-    let package_root = canonicalize_existing_path(&package_root, "package root")?;
+    let package_root = graph.package_root(package_root)?;
     let mut manifest = buildable_package_manifest(graph, &package_root)?;
-    validate_lockfile(&package_root, &manifest)?;
+    validate_package_lockfile(graph, &package_root, &manifest)?;
     let entry = entry_path(&package_root, &manifest);
-    let entry = canonicalize_package_path(
-        &entry,
+    let entry = validate_compiler_source_path(
+        graph,
         &package_root,
+        &entry,
         "manifest",
         "build.entry resolves outside the package",
     )?;
@@ -1949,14 +2153,14 @@ fn analyze_package_with_macro_limit(
     package_root: &Path,
     macro_recursion_limit: usize,
 ) -> Result<AnalyzedProject, Diagnostic> {
-    let package_root = normalize_path(package_root);
-    let package_root = canonicalize_existing_path(&package_root, "package root")?;
+    let package_root = graph.package_root(package_root)?;
     let manifest = buildable_package_manifest(graph, &package_root)?;
-    validate_lockfile(&package_root, &manifest)?;
+    validate_package_lockfile(graph, &package_root, &manifest)?;
     let entry = entry_path(&package_root, &manifest);
-    let entry = canonicalize_package_path(
-        &entry,
+    let entry = validate_compiler_source_path(
+        graph,
         &package_root,
+        &entry,
         "manifest",
         "build.entry resolves outside the package",
     )?;
@@ -2017,9 +2221,10 @@ fn analyze_entry_with_parse_cache(
     // Axiom source and echoed back through diagnostics. We only gate access
     // here and keep using `entry` for loading, so module paths and diagnostics
     // are unchanged for legitimate (non-symlinked) entries.
-    canonicalize_package_path(
-        &entry,
+    validate_compiler_source_path(
+        graph,
         package_root,
+        &entry,
         "manifest",
         "build.entry resolves outside the package",
     )?;
@@ -2173,17 +2378,614 @@ fn validate_workspace_root_lockfile(
 ) -> Result<(), Diagnostic> {
     let manifest = &graph.context(project_root)?.manifest;
     if manifest.is_workspace_only() {
-        validate_lockfile(project_root, manifest)?;
+        validate_package_lockfile(graph, project_root, manifest)?;
     }
     Ok(())
 }
 
+fn validate_package_lockfile(
+    graph: &PackageGraph,
+    package_root: &Path,
+    manifest: &Manifest,
+) -> Result<(), Diagnostic> {
+    if let Some(lockfile) = graph.resolution_lockfile.as_deref() {
+        // Registry graphs reach this point only after PackageManager has
+        // validated lockfile v2, the local path graph, exact trust pins, and
+        // every cache or vendor tree. Registry package roots intentionally do
+        // not carry independent lockfiles: the root v2 lock is the identity
+        // and integrity source for the complete graph.
+        let expected = graph
+            .resolution_lockfile_hash
+            .as_deref()
+            .expect("materialized graph has a lockfile identity");
+        let actual = sha256_lockfile(lockfile)?;
+        if actual != expected {
+            return Err(Diagnostic::new(
+                "lockfile",
+                "root axiom.lock changed after the registry package graph was materialized",
+            )
+            .with_code("lockfile_changed")
+            .with_path(lockfile.display().to_string()));
+        }
+        return Ok(());
+    }
+    validate_lockfile(package_root, manifest)
+}
+
 fn load_package_graph(project_root: &Path) -> Result<PackageGraph, Diagnostic> {
-    let mut graph = PackageGraph::default();
-    let mut visiting = Vec::new();
-    load_package_graph_recursive(project_root, &mut graph, &mut visiting, &BTreeSet::new())?;
+    let project_root = canonicalize_existing_path(&normalize_path(project_root), "project root")?;
+    let manifest = load_manifest(&project_root)?;
+    let has_direct_registry_dependency = manifest
+        .dependencies
+        .values()
+        .any(crate::manifest::DependencySpec::is_registry);
+    let has_v2_lockfile = matches!(load_lockfile(&project_root), Ok(ParsedLockfile::V2(_)));
+    let mut graph = if has_direct_registry_dependency || has_v2_lockfile {
+        load_materialized_package_graph(&project_root)?
+    } else {
+        let mut graph = PackageGraph::default();
+        let mut visiting = Vec::new();
+        load_package_graph_recursive(&project_root, &mut graph, &mut visiting, &BTreeSet::new())?;
+        graph
+    };
     register_stdlib_package(&mut graph);
     Ok(graph)
+}
+
+fn load_materialized_package_graph(project_root: &Path) -> Result<PackageGraph, Diagnostic> {
+    let manager = PackageManager::open(project_root).map_err(package_manager_diagnostic)?;
+    let materialized = manager
+        .materialize_locked(MaterializeOptions::default())
+        .map_err(package_manager_diagnostic)?;
+    package_graph_from_materialized(project_root, materialized)
+}
+
+fn package_graph_from_materialized(
+    project_root: &Path,
+    mut materialized: MaterializedPackageGraph,
+) -> Result<PackageGraph, Diagnostic> {
+    let resolution_lockfile = crate::manifest::lockfile_path(project_root);
+    let current_lockfile_hash = sha256_lockfile(&resolution_lockfile)?;
+    if current_lockfile_hash != materialized.lockfile_sha256 {
+        return Err(Diagnostic::new(
+            "lockfile",
+            "root axiom.lock changed while the registry package graph was being materialized",
+        )
+        .with_code("lockfile_changed")
+        .with_path(resolution_lockfile.display().to_string()));
+    }
+    let resolution_lockfile_hash = materialized.lockfile_sha256.clone();
+    if materialized.schema_version != MATERIALIZED_PACKAGE_GRAPH_SCHEMA {
+        return Err(package_graph_diagnostic(
+            &resolution_lockfile,
+            format!(
+                "unsupported materialized package graph schema {:?}",
+                materialized.schema_version
+            ),
+        ));
+    }
+    if materialized.roots.is_empty() {
+        return Err(package_graph_diagnostic(
+            &resolution_lockfile,
+            "materialized package graph has no roots",
+        ));
+    }
+    let package_id_set = materialized
+        .packages
+        .iter()
+        .map(|package| package.id.as_str())
+        .collect::<BTreeSet<_>>();
+    let mut reachable = materialized
+        .roots
+        .iter()
+        .map(String::as_str)
+        .collect::<BTreeSet<_>>();
+    loop {
+        let before = reachable.len();
+        for edge in &materialized.edges {
+            if reachable.contains(edge.from.as_str()) {
+                reachable.insert(edge.to.as_str());
+            }
+        }
+        if reachable.len() == before {
+            break;
+        }
+    }
+    if reachable != package_id_set {
+        return Err(package_graph_diagnostic(
+            &resolution_lockfile,
+            "materialized package graph is disconnected or names an unknown root",
+        ));
+    }
+    let mut roots_by_id = BTreeMap::<String, PathBuf>::new();
+    let mut package_ids = HashMap::<PathBuf, String>::new();
+    let mut contexts = HashMap::<PathBuf, PackageContext>::new();
+
+    for package in &mut materialized.packages {
+        // Raw authenticated artifacts are compiler-conversion inputs, not
+        // graph/report state. Taking them here keeps Arc-backed manager
+        // handoff shallow and ensures the retained materialized graph cannot
+        // pin complete package archives after the bounded source map exists.
+        let verified_archive = package.verified_archive.take();
+        let verified_manifest = package.verified_manifest.take();
+        let is_registry = package.source.starts_with("registry:");
+        let root = if is_registry {
+            normalize_path(Path::new(&package.root))
+        } else {
+            canonicalize_existing_path(
+                &normalize_path(Path::new(&package.root)),
+                "materialized package root",
+            )?
+        };
+        if roots_by_id
+            .insert(package.id.clone(), root.clone())
+            .is_some()
+        {
+            return Err(package_graph_diagnostic(
+                &resolution_lockfile,
+                format!(
+                    "materialized package id {:?} appears more than once",
+                    package.id
+                ),
+            ));
+        }
+        if let Some(existing) = package_ids.insert(root.clone(), package.id.clone()) {
+            return Err(package_graph_diagnostic(
+                &resolution_lockfile,
+                format!(
+                    "materialized package root {} is shared by {:?} and {:?}",
+                    root.display(),
+                    existing,
+                    package.id
+                ),
+            ));
+        }
+        if package.trust.is_some() != is_registry
+            || (package.trust.is_some()
+                && (!package.materialization.package_trust_verified
+                    || package.materialization.content_key.is_none()))
+        {
+            return Err(package_graph_diagnostic(
+                &resolution_lockfile,
+                format!(
+                    "materialized registry package {} lacks exact Package Trust evidence",
+                    package.id
+                ),
+            ));
+        }
+        let (manifest, source_root, workspace_members, verified_sources) = if is_registry {
+            let (manifest, source_root, verified_sources) = authenticated_registry_package(
+                package,
+                verified_archive.as_deref(),
+                verified_manifest.as_deref(),
+                &root,
+                &resolution_lockfile,
+            )?;
+            (manifest, source_root, Vec::new(), Some(verified_sources))
+        } else {
+            let manifest = load_manifest(&root)?;
+            let source_root = package_source_root(&root, &manifest)?;
+            let workspace_members = resolve_workspace_members(&root, &manifest)?;
+            (manifest, source_root, workspace_members, None)
+        };
+        let section = manifest.package.as_ref().ok_or_else(|| {
+            package_graph_diagnostic(
+                &resolution_lockfile,
+                format!(
+                    "materialized package {} has no [package] identity in {}",
+                    package.id,
+                    manifest_path(&root).display()
+                ),
+            )
+        })?;
+        if section.name != package.name || section.version != package.version {
+            return Err(package_graph_diagnostic(
+                &resolution_lockfile,
+                format!(
+                    "materialized package {} identity differs from its authenticated manifest",
+                    package.id
+                ),
+            ));
+        }
+        contexts.insert(
+            root.clone(),
+            PackageContext {
+                root,
+                manifest,
+                source_root,
+                dependencies: BTreeMap::new(),
+                workspace_members,
+                verified_sources,
+            },
+        );
+    }
+
+    // Virtual workspace roots do not have a package identity and therefore do
+    // not appear in lockfile v2's package array. Preserve the existing
+    // workspace selection surface while still requiring all buildable members
+    // to be represented by the authenticated graph.
+    if !contexts.contains_key(project_root) {
+        let manifest = load_manifest(project_root)?;
+        if !manifest.is_workspace_only() {
+            return Err(package_graph_diagnostic(
+                &resolution_lockfile,
+                "the root package is absent from the materialized lockfile graph",
+            ));
+        }
+        if !manifest.dependencies.is_empty() {
+            return Err(package_graph_diagnostic(
+                &resolution_lockfile,
+                "workspace-only roots with dependencies cannot be represented by lockfile v2",
+            ));
+        }
+        let workspace_members = resolve_workspace_members(project_root, &manifest)?;
+        contexts.insert(
+            project_root.to_path_buf(),
+            PackageContext {
+                root: project_root.to_path_buf(),
+                source_root: package_source_root(project_root, &manifest)?,
+                manifest,
+                dependencies: BTreeMap::new(),
+                workspace_members,
+                verified_sources: None,
+            },
+        );
+    }
+
+    let declared_roots = materialized
+        .roots
+        .iter()
+        .map(String::as_str)
+        .collect::<BTreeSet<_>>();
+    if let Some(root_id) = package_ids.get(project_root) {
+        if !declared_roots.contains(root_id.as_str()) {
+            return Err(package_graph_diagnostic(
+                &resolution_lockfile,
+                "the root package is not a materialized graph root",
+            ));
+        }
+    } else {
+        let virtual_root = contexts
+            .get(project_root)
+            .expect("virtual root context was inserted");
+        for member in &virtual_root.workspace_members {
+            let member_id = package_ids.get(member).ok_or_else(|| {
+                package_graph_diagnostic(
+                    &resolution_lockfile,
+                    format!(
+                        "workspace member {} has no materialized package identity",
+                        member.display()
+                    ),
+                )
+            })?;
+            if !declared_roots.contains(member_id.as_str()) {
+                return Err(package_graph_diagnostic(
+                    &resolution_lockfile,
+                    format!(
+                        "workspace member {} is not a materialized graph root",
+                        member.display()
+                    ),
+                ));
+            }
+        }
+    }
+
+    for context in contexts.values() {
+        for member in &context.workspace_members {
+            if !contexts.contains_key(member) {
+                return Err(package_graph_diagnostic(
+                    &resolution_lockfile,
+                    format!(
+                        "workspace member {} is absent from the materialized lockfile graph",
+                        member.display()
+                    ),
+                ));
+            }
+        }
+    }
+
+    let mut dependencies_by_root =
+        HashMap::<PathBuf, BTreeMap<String, PathBuf>>::with_capacity(contexts.len());
+    for edge in &materialized.edges {
+        let from_root = roots_by_id.get(&edge.from).ok_or_else(|| {
+            package_graph_diagnostic(
+                &resolution_lockfile,
+                format!(
+                    "dependency edge references unknown source package {}",
+                    edge.from
+                ),
+            )
+        })?;
+        let to_root = roots_by_id.get(&edge.to).ok_or_else(|| {
+            package_graph_diagnostic(
+                &resolution_lockfile,
+                format!(
+                    "dependency edge references unknown target package {}",
+                    edge.to
+                ),
+            )
+        })?;
+        let from = contexts.get(from_root).ok_or_else(|| {
+            package_graph_diagnostic(
+                &resolution_lockfile,
+                format!(
+                    "dependency edge source {} has no compiler package context",
+                    edge.from
+                ),
+            )
+        })?;
+        let spec = from.manifest.dependencies.get(&edge.alias).ok_or_else(|| {
+            package_graph_diagnostic(
+                &resolution_lockfile,
+                format!(
+                    "locked edge {:?} from {} is absent from its authenticated manifest",
+                    edge.alias, edge.from
+                ),
+            )
+        })?;
+        let source_matches = match edge.source_kind.as_str() {
+            "path" => spec.is_path(),
+            "registry" => spec.is_registry(),
+            _ => false,
+        };
+        if !source_matches {
+            return Err(package_graph_diagnostic(
+                &resolution_lockfile,
+                format!(
+                    "locked edge {:?} from {} has source kind {:?} inconsistent with its manifest",
+                    edge.alias, edge.from, edge.source_kind
+                ),
+            ));
+        }
+        let requested = spec.version.as_deref().unwrap_or("*");
+        if requested != edge.requested {
+            return Err(package_graph_diagnostic(
+                &resolution_lockfile,
+                format!(
+                    "locked edge {:?} from {} requests {:?}, but its manifest requests {:?}",
+                    edge.alias, edge.from, edge.requested, requested
+                ),
+            ));
+        }
+        let dependencies = dependencies_by_root.entry(from_root.clone()).or_default();
+        if dependencies
+            .insert(edge.alias.clone(), to_root.clone())
+            .is_some()
+        {
+            return Err(package_graph_diagnostic(
+                &resolution_lockfile,
+                format!(
+                    "materialized package {} has duplicate dependency alias {:?}",
+                    edge.from, edge.alias
+                ),
+            ));
+        }
+    }
+
+    for (root, dependencies) in dependencies_by_root {
+        contexts
+            .get_mut(&root)
+            .expect("materialized edge source was validated")
+            .dependencies = dependencies;
+    }
+
+    for root_id in &materialized.roots {
+        if !roots_by_id.contains_key(root_id) {
+            return Err(package_graph_diagnostic(
+                &resolution_lockfile,
+                format!("materialized graph root {root_id:?} has no package root"),
+            ));
+        }
+    }
+
+    let graph = PackageGraph {
+        packages: contexts,
+        package_ids,
+        materialized: Some(materialized),
+        resolution_lockfile: Some(resolution_lockfile),
+        resolution_lockfile_hash: Some(resolution_lockfile_hash),
+    };
+    for (root, context) in &graph.packages {
+        for (alias, spec) in &context.manifest.dependencies {
+            let Some(target) = context.dependencies.get(alias) else {
+                return Err(package_graph_diagnostic(
+                    graph
+                        .resolution_lockfile
+                        .as_deref()
+                        .expect("materialized graph has a resolution lockfile"),
+                    format!(
+                        "manifest dependency {alias:?} from {} is absent from axiom.lock v2",
+                        root.display()
+                    ),
+                ));
+            };
+            validate_dependency_version(&manifest_path(root), alias, spec, &graph, target)?;
+        }
+    }
+    Ok(graph)
+}
+
+fn authenticated_registry_package(
+    package: &MaterializedPackage,
+    verified_archive: Option<&[u8]>,
+    verified_manifest: Option<&[u8]>,
+    root: &Path,
+    resolution_lockfile: &Path,
+) -> Result<(Manifest, PathBuf, VerifiedPackageSources), Diagnostic> {
+    let trust = package.trust.as_ref().ok_or_else(|| {
+        package_graph_diagnostic(
+            resolution_lockfile,
+            format!(
+                "materialized registry package {} has no Package Trust evidence",
+                package.id
+            ),
+        )
+    })?;
+    let archive_bytes = verified_archive.ok_or_else(|| {
+        package_graph_diagnostic(
+            resolution_lockfile,
+            format!(
+                "materialized registry package {} has no authenticated archive bytes",
+                package.id
+            ),
+        )
+    })?;
+    let authenticated_manifest = verified_manifest.ok_or_else(|| {
+        package_graph_diagnostic(
+            resolution_lockfile,
+            format!(
+                "materialized registry package {} has no authenticated manifest bytes",
+                package.id
+            ),
+        )
+    })?;
+    if sha256_bytes(authenticated_manifest) != trust.manifest_sha256 {
+        return Err(package_graph_diagnostic(
+            resolution_lockfile,
+            format!(
+                "materialized registry package {} manifest bytes do not match Package Trust",
+                package.id
+            ),
+        ));
+    }
+    let archive = parse_archive(
+        archive_bytes,
+        &trust.archive_sha256,
+        ArchiveLimits::default(),
+    )
+    .map_err(|error| {
+        package_graph_diagnostic(
+            resolution_lockfile,
+            format!(
+                "materialized registry package {} archive is invalid: {}",
+                package.id, error
+            ),
+        )
+    })?;
+    let archive_manifest = archive
+        .entries
+        .iter()
+        .find(|entry| entry.path == crate::manifest::MANIFEST_FILENAME)
+        .ok_or_else(|| {
+            package_graph_diagnostic(
+                resolution_lockfile,
+                format!(
+                    "materialized registry package {} archive has no axiom.toml",
+                    package.id
+                ),
+            )
+        })?;
+    if archive_manifest.bytes != authenticated_manifest {
+        return Err(package_graph_diagnostic(
+            resolution_lockfile,
+            format!(
+                "materialized registry package {} archive manifest differs from its separately authenticated manifest",
+                package.id
+            ),
+        ));
+    }
+    let manifest = parse_manifest_exact(authenticated_manifest, &manifest_path(root))?;
+    if manifest.workspace.is_some() {
+        return Err(package_graph_diagnostic(
+            resolution_lockfile,
+            format!(
+                "materialized registry package {} may not define workspace members",
+                package.id
+            ),
+        ));
+    }
+
+    let mut sources = BTreeMap::new();
+    for entry in &archive.entries {
+        if Path::new(&entry.path)
+            .extension()
+            .and_then(|value| value.to_str())
+            != Some("ax")
+        {
+            continue;
+        }
+        let logical_path = normalize_path(root.join(&entry.path));
+        if !logical_path.starts_with(root) {
+            return Err(package_graph_diagnostic(
+                resolution_lockfile,
+                format!(
+                    "materialized registry package {} source path {:?} escapes its package root",
+                    package.id, entry.path
+                ),
+            ));
+        }
+        let source = std::str::from_utf8(&entry.bytes).map_err(|error| {
+            package_graph_diagnostic(
+                resolution_lockfile,
+                format!(
+                    "materialized registry package {} source {:?} is not UTF-8: {error}",
+                    package.id, entry.path
+                ),
+            )
+        })?;
+        sources.insert(logical_path, Arc::<str>::from(source));
+    }
+
+    let entry = normalize_path(entry_path(root, &manifest));
+    if !entry.starts_with(root) || !sources.contains_key(&entry) {
+        return Err(package_graph_diagnostic(
+            resolution_lockfile,
+            format!(
+                "materialized registry package {} build.entry is absent from its authenticated archive",
+                package.id
+            ),
+        ));
+    }
+    let source_root = entry
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| root.to_path_buf());
+    Ok((
+        manifest,
+        source_root,
+        VerifiedPackageSources {
+            archive_sha256: archive.archive_sha256,
+            sources,
+        },
+    ))
+}
+
+fn package_manager_diagnostic(error: PackageManagerError) -> Diagnostic {
+    Diagnostic::new("package", error.message)
+        .with_code(error.code)
+        .with_package_resolution(error.trace, error.resolver)
+}
+
+fn package_graph_diagnostic(lockfile: &Path, message: impl Into<String>) -> Diagnostic {
+    Diagnostic::new("package", message)
+        .with_code("package_graph_invalid")
+        .with_path(lockfile.display().to_string())
+}
+
+fn package_source_root(project_root: &Path, manifest: &Manifest) -> Result<PathBuf, Diagnostic> {
+    let source_root = if manifest.package.is_some() {
+        entry_path(project_root, manifest)
+            .parent()
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| project_root.to_path_buf())
+    } else {
+        let src_root = project_root.join("src");
+        if src_root.exists() {
+            src_root
+        } else {
+            project_root.to_path_buf()
+        }
+    };
+    if source_root.exists() {
+        canonicalize_package_path(
+            &source_root,
+            project_root,
+            "manifest",
+            "build.entry source root resolves outside the package",
+        )
+    } else {
+        Ok(source_root)
+    }
 }
 
 /// Registers the synthetic `<stdlib>` package in the graph. The synthetic
@@ -2205,6 +3007,7 @@ fn register_stdlib_package(graph: &mut PackageGraph) {
             version: stdlib::STDLIB_PACKAGE_VERSION.to_string(),
         }),
         publish: None,
+        registry: None,
         dependencies: BTreeMap::new(),
         workspace: None,
         build: BuildSection {
@@ -2245,6 +3048,7 @@ fn register_stdlib_package(graph: &mut PackageGraph) {
             source_root: root,
             dependencies: BTreeMap::new(),
             workspace_members: Vec::new(),
+            verified_sources: None,
         },
     );
 }
@@ -2271,33 +3075,21 @@ fn load_package_graph_recursive(
     let workspace_members = resolve_workspace_members(&project_root, &manifest)?;
     let mut dependency_allowed_members = allowed_workspace_members.clone();
     dependency_allowed_members.extend(workspace_members.iter().cloned());
-    let source_root = if manifest.package.is_some() {
-        entry_path(&project_root, &manifest)
-            .parent()
-            .map(Path::to_path_buf)
-            .unwrap_or_else(|| project_root.clone())
-    } else {
-        let src_root = project_root.join("src");
-        if src_root.exists() {
-            src_root
-        } else {
-            project_root.clone()
-        }
-    };
-    let source_root = if source_root.exists() {
-        canonicalize_package_path(
-            &source_root,
-            &project_root,
-            "manifest",
-            "build.entry source root resolves outside the package",
-        )?
-    } else {
-        source_root
-    };
+    let source_root = package_source_root(&project_root, &manifest)?;
     visiting.push(project_root.clone());
     let mut dependencies = BTreeMap::new();
     for (name, spec) in &manifest.dependencies {
-        let dependency_root = normalize_path(project_root.join(&spec.path));
+        let Some(path) = spec.path_source() else {
+            return Err(Diagnostic::new(
+                "package",
+                format!(
+                    "registry dependency {name:?} requires an exact axiom.lock v2 graph and authenticated cache or vendor material"
+                ),
+            )
+            .with_code("lockfile_v2_required")
+            .with_path(manifest_path(&project_root).display().to_string()));
+        };
+        let dependency_root = normalize_path(project_root.join(path));
         if !dependency_root.exists() {
             return Err(Diagnostic::new(
                 "manifest",
@@ -2341,6 +3133,7 @@ fn load_package_graph_recursive(
             source_root,
             dependencies,
             workspace_members,
+            verified_sources: None,
         },
     );
     Ok(())
@@ -2590,7 +3383,7 @@ fn build_artifacts(
             options.backend,
         )?;
         return Ok(BuildArtifactReport {
-            metadata: build_metadata(package_root, &cache),
+            metadata: build_metadata(graph, package_root, &cache),
             cache_status: BuildCacheStatus::Hit,
             cache_key: build_cache_metadata(&cache),
             compile_ms: 0,
@@ -2681,7 +3474,7 @@ fn build_artifacts(
         options.backend,
     )?;
     Ok(BuildArtifactReport {
-        metadata: build_metadata(package_root, &cache),
+        metadata: build_metadata(graph, package_root, &cache),
         cache_status: BuildCacheStatus::Miss,
         cache_key: build_cache_metadata(&cache),
         compile_ms,
@@ -3291,13 +4084,15 @@ fn build_cache_metadata(cache: &BuildCacheFile) -> BuildCacheMetadata {
     }
 }
 
-fn build_metadata(package_root: &Path, cache: &BuildCacheFile) -> BuildMetadata {
+fn build_metadata(
+    graph: &PackageGraph,
+    package_root: &Path,
+    cache: &BuildCacheFile,
+) -> BuildMetadata {
     BuildMetadata {
         target: cache.target.clone(),
         debug: cache.debug,
-        lockfile: crate::manifest::lockfile_path(package_root)
-            .display()
-            .to_string(),
+        lockfile: graph.lockfile_path_for(package_root).display().to_string(),
         lockfile_hash: cache.lockfile_hash.clone(),
         source_hash: source_hash_for_cache(cache),
     }
@@ -3616,12 +4411,12 @@ fn debug_source_files(
         .modules
         .iter()
         .map(|module| {
-            let source = module_source(&module.path)?;
+            let source = &module.source;
             let path = module.path.display().to_string();
             Ok(DebugSourceFile {
                 mapping_count: mapping_counts.get(&path).copied().unwrap_or(0),
                 path,
-                source_hash: hash_text(&source),
+                source_hash: hash_text(source),
                 line_count: source.lines().count(),
             })
         })
@@ -3639,12 +4434,12 @@ fn direct_native_debug_source_files(
         .modules
         .iter()
         .map(|module| {
-            let source = module_source(&module.path)?;
+            let source = &module.source;
             let path = module.path.display().to_string();
             Ok(DebugSourceFile {
                 mapping_count: span_counts.get(&path).copied().unwrap_or(0),
                 path,
-                source_hash: hash_text(&source),
+                source_hash: hash_text(source),
                 line_count: source.lines().count(),
             })
         })
@@ -3860,7 +4655,7 @@ fn build_cache_file(
         target,
         debug,
         manifest_hash: hash_file(&manifest_path(package_root))?,
-        lockfile_hash: hash_file(&crate::manifest::lockfile_path(package_root))?,
+        lockfile_hash: graph.lockfile_hash_for(package_root)?,
         backend_input_hash: backend_input_hash.to_string(),
         lowering,
         binary_hash: None,
@@ -3875,7 +4670,7 @@ fn cached_modules(
     modules
         .iter()
         .map(|module| {
-            let source = module_source(&module.path)?;
+            let source = &module.source;
             let mut imports = module
                 .program
                 .imports
@@ -3888,17 +4683,34 @@ fn cached_modules(
             imports.sort();
             Ok(CachedModule {
                 path: module.path.display().to_string(),
-                source_hash: hash_text(&source),
+                source_hash: hash_text(source),
                 imports,
             })
         })
         .collect()
 }
 
-fn module_source(module_path: &Path) -> Result<String, Diagnostic> {
+fn compiler_module_source(
+    graph: &PackageGraph,
+    package_root: &Path,
+    module_path: &Path,
+) -> Result<Arc<str>, Diagnostic> {
+    if let Some(source) = graph.verified_source(package_root, module_path) {
+        return Ok(source);
+    }
+    if graph.has_verified_source(package_root, module_path) == Some(false) {
+        return Err(Diagnostic::new(
+            "source",
+            format!(
+                "authenticated package source {} is absent",
+                module_path.display()
+            ),
+        )
+        .with_path(module_path.display().to_string()));
+    }
     if stdlib::is_stdlib_path(module_path) {
         return stdlib::stdlib_source_for(module_path)
-            .map(str::to_string)
+            .map(Arc::<str>::from)
             .ok_or_else(|| {
                 Diagnostic::new(
                     "source",
@@ -3910,13 +4722,15 @@ fn module_source(module_path: &Path) -> Result<String, Diagnostic> {
                 .with_path(module_path.display().to_string())
             });
     }
-    fs::read_to_string(module_path).map_err(|err| {
-        Diagnostic::new(
-            "source",
-            format!("failed to read {}: {err}", module_path.display()),
-        )
-        .with_path(module_path.display().to_string())
-    })
+    fs::read_to_string(module_path)
+        .map(Arc::<str>::from)
+        .map_err(|err| {
+            Diagnostic::new(
+                "source",
+                format!("failed to read {}: {err}", module_path.display()),
+            )
+            .with_path(module_path.display().to_string())
+        })
 }
 
 fn hash_file(path: &Path) -> Result<String, Diagnostic> {
@@ -3933,6 +4747,84 @@ fn hash_file_bytes(path: &Path) -> Result<String, Diagnostic> {
             .with_path(path.display().to_string())
     })?;
     Ok(hash_bytes(&content))
+}
+
+fn sha256_lockfile(path: &Path) -> Result<String, Diagnostic> {
+    let metadata = fs::symlink_metadata(path).map_err(|err| {
+        Diagnostic::new(
+            "lockfile",
+            format!("failed to inspect {}: {err}", path.display()),
+        )
+        .with_path(path.display().to_string())
+    })?;
+    if !metadata.file_type().is_file() || metadata.file_type().is_symlink() {
+        return Err(Diagnostic::new(
+            "lockfile",
+            "axiom.lock must be a regular file, not a symlink",
+        )
+        .with_path(path.display().to_string()));
+    }
+    if metadata.len() > MAX_RESOLUTION_LOCKFILE_BYTES {
+        return Err(Diagnostic::new(
+            "lockfile",
+            format!(
+                "axiom.lock is {} bytes; limit is {}",
+                metadata.len(),
+                MAX_RESOLUTION_LOCKFILE_BYTES
+            ),
+        )
+        .with_path(path.display().to_string()));
+    }
+    let mut options = OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    options.custom_flags(libc::O_NOFOLLOW);
+    let file = options.open(path).map_err(|err| {
+        Diagnostic::new(
+            "lockfile",
+            format!("failed to open {}: {err}", path.display()),
+        )
+        .with_path(path.display().to_string())
+    })?;
+    let opened = file.metadata().map_err(|err| {
+        Diagnostic::new(
+            "lockfile",
+            format!("failed to inspect opened {}: {err}", path.display()),
+        )
+        .with_path(path.display().to_string())
+    })?;
+    if !opened_expected_stream_matches(&metadata, &opened) || !opened.file_type().is_file() {
+        return Err(
+            Diagnostic::new("lockfile", "axiom.lock changed while being opened")
+                .with_code("lockfile_changed")
+                .with_path(path.display().to_string()),
+        );
+    }
+    let mut content = Vec::new();
+    file.take(MAX_RESOLUTION_LOCKFILE_BYTES + 1)
+        .read_to_end(&mut content)
+        .map_err(|err| {
+            Diagnostic::new(
+                "lockfile",
+                format!("failed to read {}: {err}", path.display()),
+            )
+            .with_path(path.display().to_string())
+        })?;
+    if content.len() as u64 > MAX_RESOLUTION_LOCKFILE_BYTES {
+        return Err(Diagnostic::new(
+            "lockfile",
+            format!(
+                "axiom.lock exceeds the {} byte limit",
+                MAX_RESOLUTION_LOCKFILE_BYTES
+            ),
+        )
+        .with_path(path.display().to_string()));
+    }
+    Ok(sha256_bytes(&content))
+}
+
+fn sha256_bytes(value: &[u8]) -> String {
+    format!("{:x}", Sha256::digest(value))
 }
 
 fn hash_text(value: &str) -> String {
@@ -4789,7 +5681,13 @@ fn load_module_recursive(
         return Ok(());
     }
 
-    let program = parse_module_with_cache(&module_path, macro_recursion_limit, parse_cache)?;
+    let (program, source) = parse_module_with_cache(
+        graph,
+        package_root,
+        &module_path,
+        macro_recursion_limit,
+        parse_cache,
+    )?;
     if !is_entry && !program.stmts.is_empty() {
         let stmt = &program.stmts[0];
         return Err(Diagnostic::new(
@@ -4834,6 +5732,7 @@ fn load_module_recursive(
     .clone();
     ordered.push(LoadedModule {
         path: module_path,
+        source,
         program,
         resolved_imports,
         is_entry,
@@ -4844,6 +5743,63 @@ fn load_module_recursive(
     Ok(())
 }
 
+fn parse_module_with_cache(
+    graph: &PackageGraph,
+    package_root: &Path,
+    module_path: &Path,
+    macro_recursion_limit: usize,
+    parse_cache: &mut ModuleParseCache,
+) -> Result<(syntax::Program, Arc<str>), Diagnostic> {
+    if let Some(source) = parse_cache.overlay_source(module_path) {
+        let source = Arc::<str>::from(source.to_owned());
+        let program = syntax::parse_program_with_options(
+            source.as_ref(),
+            module_path,
+            &syntax::ParseOptions {
+                macro_recursion_limit,
+                ..syntax::ParseOptions::default()
+            },
+        )?;
+        return Ok((program, source));
+    }
+    let cache_key = if graph
+        .has_verified_source(package_root, module_path)
+        .is_some()
+    {
+        (normalize_path(module_path), macro_recursion_limit)
+    } else {
+        module_parse_cache_key(module_path, macro_recursion_limit)?
+    };
+    let source = compiler_module_source(graph, package_root, module_path)?;
+    if let Some(program) = parse_cache.programs.get(&cache_key) {
+        return Ok((program.clone(), source));
+    }
+    let program = syntax::parse_program_with_options(
+        source.as_ref(),
+        module_path,
+        &syntax::ParseOptions {
+            macro_recursion_limit,
+            ..syntax::ParseOptions::default()
+        },
+    )?;
+    parse_cache.programs.insert(cache_key, program.clone());
+    Ok((program, source))
+}
+
+// The parse result depends on the macro recursion limit, so the limit is part
+// of the key: a cache hit must never return a program parsed under a
+// different limit than the caller requested.
+fn module_parse_cache_key(
+    module_path: &Path,
+    macro_recursion_limit: usize,
+) -> Result<(PathBuf, usize), Diagnostic> {
+    let path = if stdlib::is_stdlib_path(module_path) {
+        normalize_path(module_path)
+    } else {
+        canonicalize_existing_path(module_path, "module path")?
+    };
+    Ok((path, macro_recursion_limit))
+}
 fn package_section<'a>(
     manifest: &'a Manifest,
     message: &'static str,
@@ -9525,6 +10481,20 @@ fn resolve_import_path(
                 .with_path(module_path.display().to_string())
                 .with_span(import.line, import.column));
             }
+            if let Some(verified) = &dependency.verified_sources {
+                if !verified.sources.contains_key(&candidate) {
+                    return Err(Diagnostic::new(
+                        "import",
+                        format!(
+                            "missing authenticated import {}",
+                            import_diagnostic_path(&dependency.root, &candidate)
+                        ),
+                    )
+                    .with_path(module_path.display().to_string())
+                    .with_span(import.line, import.column));
+                }
+                return Ok((dependency.root.clone(), candidate));
+            }
             if !candidate.exists() {
                 return Err(Diagnostic::new(
                     "import",
@@ -9556,6 +10526,20 @@ fn resolve_import_path(
                 .with_path(module_path.display().to_string())
                 .with_span(import.line, import.column),
         );
+    }
+    if let Some(verified) = &package.verified_sources {
+        if !verified.sources.contains_key(&candidate) {
+            return Err(Diagnostic::new(
+                "import",
+                format!(
+                    "missing authenticated import {}",
+                    import_diagnostic_path(&package.root, &candidate)
+                ),
+            )
+            .with_path(module_path.display().to_string())
+            .with_span(import.line, import.column));
+        }
+        return Ok((package.root.clone(), candidate));
     }
     if !candidate.exists() {
         return Err(Diagnostic::new(
@@ -9594,6 +10578,37 @@ fn canonicalize_existing_path(path: &Path, label: &str) -> Result<PathBuf, Diagn
         )
         .with_path(path.display().to_string())
     })
+}
+
+fn validate_compiler_source_path(
+    graph: &PackageGraph,
+    package_root: &Path,
+    path: &Path,
+    kind: &'static str,
+    outside_message: &'static str,
+) -> Result<PathBuf, Diagnostic> {
+    let package = graph.context(package_root)?;
+    if let Some(verified) = &package.verified_sources {
+        let path = normalize_path(path);
+        if !path.starts_with(package_root) {
+            return Err(
+                Diagnostic::new(kind, outside_message).with_path(path.display().to_string())
+            );
+        }
+        if !verified.sources.contains_key(&path) {
+            return Err(Diagnostic::new(
+                kind,
+                format!(
+                    "authenticated compiler source {} is absent from package archive {}",
+                    path.display(),
+                    verified.archive_sha256
+                ),
+            )
+            .with_path(path.display().to_string()));
+        }
+        return Ok(path);
+    }
+    canonicalize_package_path(path, package_root, kind, outside_message)
 }
 
 fn canonicalize_package_path(
@@ -9804,6 +10819,7 @@ mod tests {
         Manifest {
             package: None,
             publish: None,
+            registry: None,
             dependencies: BTreeMap::new(),
             workspace: None,
             build: BuildSection {
@@ -9823,6 +10839,7 @@ mod tests {
                 version: "0.1.0".to_string(),
             }),
             publish: None,
+            registry: None,
             dependencies: BTreeMap::new(),
             workspace: None,
             build: BuildSection {
@@ -9877,6 +10894,433 @@ out_dir = "dist"
             direct.packages[0].lockfile.status,
             public.packages[0].lockfile.status
         );
+    }
+
+    fn write_test_package(root: &Path, name: &str, version: &str) {
+        fs::create_dir_all(root.join("src")).expect("create package source");
+        fs::write(
+            root.join("axiom.toml"),
+            format!(
+                "[package]\nname = {name:?}\nversion = {version:?}\n\n[build]\nentry = \"src/lib.ax\"\nout_dir = \"dist\"\n"
+            ),
+        )
+        .expect("write package manifest");
+        fs::write(
+            root.join("src/lib.ax"),
+            "pub fn value(): int {\nreturn 1\n}\n",
+        )
+        .expect("write package source");
+    }
+
+    fn materialized_path_package(id: &str, root: &Path, name: &str) -> MaterializedPackage {
+        MaterializedPackage {
+            id: id.to_owned(),
+            name: name.to_owned(),
+            version: "0.1.0".to_owned(),
+            source: "path".to_owned(),
+            root: root.display().to_string(),
+            verified_archive: None,
+            verified_manifest: None,
+            trust: None,
+            materialization: MaterializationEvidence {
+                source: "path".to_owned(),
+                content_key: None,
+                package_trust_verified: true,
+            },
+        }
+    }
+
+    fn materialized_registry_package(id: &str, root: &Path, trusted: bool) -> MaterializedPackage {
+        let manifest = fs::read(root.join("axiom.toml")).expect("read registry test manifest");
+        let source = fs::read(root.join("src/lib.ax")).expect("read registry test source");
+        let nested = fs::read(root.join("src/nested.ax")).ok();
+        let mut archive = crate::package_archive::ARCHIVE_MAGIC.to_vec();
+        let mut entries = vec![
+            ("axiom.toml", manifest.as_slice()),
+            ("src/lib.ax", source.as_slice()),
+        ];
+        if let Some(nested) = nested.as_deref() {
+            entries.push(("src/nested.ax", nested));
+        }
+        for (path, bytes) in entries {
+            archive.extend_from_slice(format!("--- file {path} {} ---\n", bytes.len()).as_bytes());
+            archive.extend_from_slice(bytes);
+            if !bytes.ends_with(b"\n") {
+                archive.push(b'\n');
+            }
+        }
+        let archive_sha256 = sha256_bytes(&archive);
+        let manifest_sha256 = sha256_bytes(&manifest);
+        MaterializedPackage {
+            id: id.to_owned(),
+            name: "dep".to_owned(),
+            version: "1.2.3".to_owned(),
+            source: "registry:default/acme/dep".to_owned(),
+            root: root.display().to_string(),
+            verified_archive: trusted.then_some(archive.into()),
+            verified_manifest: trusted.then_some(manifest.into()),
+            trust: trusted.then(|| PackageTrustEvidence {
+                registry: "default".to_owned(),
+                registry_identity: "registry.test".to_owned(),
+                source_identity: "registry-source.test".to_owned(),
+                publisher_identity: "publisher.test".to_owned(),
+                archive_sha256: archive_sha256.clone(),
+                manifest_sha256,
+                provenance_sha256: "c".repeat(64),
+                package_signature_sha256: "d".repeat(64),
+                signer_key_ids: vec![format!("sha256:{}", "e".repeat(64))],
+                index_sha256: "0".repeat(64),
+                index_generation: 1,
+                index_sequence: 2,
+                index_transcript_sha256: "f".repeat(64),
+                verification_sha256: "1".repeat(64),
+            }),
+            materialization: MaterializationEvidence {
+                source: "cache".to_owned(),
+                content_key: Some(format!("sha256:{archive_sha256}")),
+                package_trust_verified: trusted,
+            },
+        }
+    }
+
+    #[test]
+    fn materialized_registry_graph_maps_exact_identity_trust_and_decision_evidence() {
+        let dir = tempdir().expect("tempdir");
+        let root = dir.path().join("app");
+        let dep = dir.path().join("cache/dep");
+        fs::create_dir_all(root.join("src")).expect("create root source");
+        fs::write(
+            root.join("axiom.toml"),
+            r#"[package]
+name = "app"
+version = "0.1.0"
+
+[registry]
+name = "default"
+index = "file:///registry/index.json"
+trust_roots = "registry/trust-roots.json"
+expectation = "registry/expectation.json"
+
+[dependencies.dep]
+registry = "default"
+namespace = "acme"
+package = "dep"
+version = "^1.2.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+"#,
+        )
+        .expect("write root manifest");
+        fs::write(
+            root.join("src/main.ax"),
+            "import \"dep/lib.ax\"\nprint \"registry run\"\n",
+        )
+        .expect("write root source");
+        fs::write(
+            root.join("src/main_test.ax"),
+            "import \"dep/lib.ax\"\nprint \"registry test\"\n",
+        )
+        .expect("write root test");
+        fs::write(root.join("src/main_test.stdout"), "registry test\n")
+            .expect("write root test golden");
+        write_test_package(&dep, "dep", "1.2.3");
+        fs::write(
+            dep.join("src/lib.ax"),
+            "import \"nested.ax\"\npub fn value(): int {\nreturn nested()\n}\n",
+        )
+        .expect("write registry package entry");
+        fs::write(
+            dep.join("src/nested.ax"),
+            "pub fn nested(): int {\nreturn 7\n}\n",
+        )
+        .expect("write nested registry source");
+        fs::write(root.join("axiom.lock"), "version = 2\n").expect("write lock identity");
+        let root = root.canonicalize().expect("canonical root");
+        let dep = dep.canonicalize().expect("canonical dependency");
+        let root_id = "path:.#app@0.1.0";
+        let dep_id = "registry:default/acme/dep@1.2.3";
+        let materialized = MaterializedPackageGraph {
+            schema_version: "axiom.materialized_package_graph.v1".to_owned(),
+            lockfile_sha256: sha256_lockfile(&root.join("axiom.lock")).expect("lockfile digest"),
+            roots: vec![root_id.to_owned()],
+            packages: vec![
+                materialized_path_package(root_id, &root, "app"),
+                materialized_registry_package(dep_id, &dep, true),
+            ],
+            edges: vec![MaterializedDependencyEdge {
+                from: root_id.to_owned(),
+                to: dep_id.to_owned(),
+                alias: "dep".to_owned(),
+                requested: "^1.2.0".to_owned(),
+                source_kind: "registry".to_owned(),
+                reason: "highest_compatible".to_owned(),
+            }],
+        };
+
+        let mut split_brain = materialized.clone();
+        let split_manifest = br#"[package]
+name = "dep"
+version = "1.2.3"
+
+[build]
+entry = "src/other.ax"
+out_dir = "dist"
+"#
+        .to_vec();
+        let split_package = split_brain
+            .packages
+            .iter_mut()
+            .find(|package| package.id == dep_id)
+            .expect("registry package");
+        split_package.verified_manifest = Some(split_manifest.clone().into());
+        split_package
+            .trust
+            .as_mut()
+            .expect("registry trust")
+            .manifest_sha256 = sha256_bytes(&split_manifest);
+        let split_error = package_graph_from_materialized(&root, split_brain)
+            .expect_err("split-brain archive and authenticated manifest must fail");
+        assert!(
+            split_error.message.contains("archive manifest differs"),
+            "unexpected split-brain diagnostic: {split_error:?}"
+        );
+
+        fs::write(root.join("axiom.lock"), "version = 2\n# replaced\n")
+            .expect("replace lock before graph conversion");
+        let replacement_error = package_graph_from_materialized(&root, materialized.clone())
+            .expect_err("lock replacement during graph conversion must fail");
+        assert_eq!(replacement_error.code.as_deref(), Some("lockfile_changed"));
+        fs::write(root.join("axiom.lock"), "version = 2\n").expect("restore lock identity");
+
+        let graph =
+            package_graph_from_materialized(&root, materialized).expect("materialized graph");
+        assert!(
+            graph
+                .materialized
+                .as_ref()
+                .expect("retained materialized graph")
+                .packages
+                .iter()
+                .all(|package| package.verified_archive.is_none()
+                    && package.verified_manifest.is_none()),
+            "compiler graph must release raw authenticated artifacts after source extraction"
+        );
+        fs::write(dep.join("axiom.toml"), "not authenticated")
+            .expect("mutate materialized manifest");
+        fs::write(dep.join("src/lib.ax"), "not authenticated").expect("mutate materialized source");
+        let entry = root.join("src/main.ax");
+        let modules_after_mutation =
+            load_modules(&graph, &root, &entry, syntax::DEFAULT_MACRO_RECURSION_LIMIT)
+                .expect("load authenticated sources after cache mutation");
+        assert!(modules_after_mutation.iter().any(|module| {
+            module.path == dep.join("src/nested.ax") && module.source.contains("return 7")
+        }));
+        fs::remove_dir_all(&dep).expect("remove materialized cache tree");
+        let modules_after_deletion =
+            load_modules(&graph, &root, &entry, syntax::DEFAULT_MACRO_RECURSION_LIMIT)
+                .expect("load authenticated sources after cache deletion");
+        assert!(modules_after_deletion.iter().any(|module| {
+            module.path == dep.join("src/lib.ax") && module.source.contains("return nested()")
+        }));
+        let output = package_graph_metadata_with_graph(&root, &graph).expect("graph metadata");
+        assert_eq!(
+            output.schema_version,
+            "axiom.compiler.package_graph.runtime.v1"
+        );
+        assert_eq!(output.contract, "compiler.package_graph.runtime");
+        let app = output
+            .packages
+            .iter()
+            .find(|package| package.name.as_deref() == Some("app"))
+            .expect("root package");
+        let dependency = app.dependencies.first().expect("registry dependency");
+        assert_eq!(app.id.as_deref(), Some(root_id));
+        assert_eq!(app.lockfile.version, Some(2));
+        assert!(app.lockfile.hash.is_some());
+        assert_eq!(dependency.package_id.as_deref(), Some(dep_id));
+        assert_eq!(dependency.source_kind.as_deref(), Some("registry"));
+        assert_eq!(dependency.requested.as_deref(), Some("^1.2.0"));
+        assert_eq!(dependency.reason.as_deref(), Some("highest_compatible"));
+        let dep = output
+            .packages
+            .iter()
+            .find(|package| package.id.as_deref() == Some(dep_id))
+            .expect("registry package");
+        assert_eq!(dep.source.as_deref(), Some("registry:default/acme/dep"));
+        assert!(dep.trust.is_some());
+        assert!(
+            dep.materialization
+                .as_ref()
+                .is_some_and(|evidence| evidence.package_trust_verified)
+        );
+
+        let schema_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .join("compiler-contracts/schemas/axiom.compiler.package_graph.runtime.v1.schema.json");
+        let schema: serde_json::Value = serde_json::from_str(
+            &fs::read_to_string(schema_path).expect("read runtime package graph schema"),
+        )
+        .expect("parse runtime package graph schema");
+        let serialized = serde_json::to_value(&output).expect("serialize runtime package graph");
+        let validator =
+            jsonschema::validator_for(&schema).expect("compile runtime package graph schema");
+        let errors = validator
+            .iter_errors(&serialized)
+            .map(|error| error.to_string())
+            .collect::<Vec<_>>();
+        assert!(
+            errors.is_empty(),
+            "runtime package graph must satisfy its published schema: {errors:?}"
+        );
+
+        let checked = check_project_with_graph(&root, &graph, &CheckOptions::default())
+            .expect("check materialized registry graph");
+        assert_eq!(checked.packages.len(), 1);
+        assert_eq!(checked.packages[0].package_root, root.display().to_string());
+
+        let sbom =
+            capability_sbom_with_graph(&root, &graph).expect("SBOM materialized registry graph");
+        let sbom_dep = sbom
+            .packages
+            .iter()
+            .find(|package| package.id.as_deref() == Some(dep_id))
+            .expect("registry package SBOM row");
+        assert_eq!(
+            sbom_dep.source.as_deref(),
+            Some("registry:default/acme/dep")
+        );
+        let expected_signer = format!("sha256:{}", "e".repeat(64));
+        assert_eq!(
+            sbom_dep
+                .trust
+                .as_ref()
+                .map(|trust| trust.signer_key_ids.as_slice()),
+            Some([expected_signer].as_slice())
+        );
+        let expected_content_key = dep
+            .trust
+            .as_ref()
+            .map(|trust| format!("sha256:{}", trust.archive_sha256))
+            .expect("registry trust");
+        assert_eq!(
+            sbom_dep
+                .materialization
+                .as_ref()
+                .and_then(|evidence| evidence.content_key.as_deref()),
+            Some(expected_content_key.as_str())
+        );
+
+        #[cfg(not(windows))]
+        if which::which("cc").is_ok() {
+            let (_, built, _) =
+                prepare_run_project_with_graph(&root, &graph, &RunOptions::default())
+                    .expect("prepare run from materialized registry graph");
+            assert_eq!(built.packages.len(), 1);
+            assert_eq!(built.packages[0].package_root, root.display().to_string());
+
+            let tests = run_project_tests_with_graph(&root, &graph, &TestOptions::default())
+                .expect("test materialized registry graph");
+            assert_eq!(tests.passed, 1);
+            assert_eq!(tests.failed, 0);
+            assert_eq!(tests.cases[0].stdout, "registry test\n");
+        }
+
+        fs::write(root.join("axiom.lock"), "version = 2\n# altered\n")
+            .expect("alter lock identity");
+        let error = validate_package_lockfile(
+            &graph,
+            &root,
+            &graph.context(&root).expect("root context").manifest,
+        )
+        .expect_err("post-materialization lock mutation must fail");
+        assert_eq!(error.code.as_deref(), Some("lockfile_changed"));
+    }
+
+    #[test]
+    fn materialized_graph_preserves_virtual_workspace_and_multiple_roots() {
+        let dir = tempdir().expect("tempdir");
+        let root = dir.path().join("workspace");
+        let alpha = root.join("alpha");
+        let beta = root.join("beta");
+        fs::create_dir_all(&root).expect("create workspace");
+        fs::write(
+            root.join("axiom.toml"),
+            "[workspace]\nmembers = [\"alpha\", \"beta\"]\n",
+        )
+        .expect("write workspace manifest");
+        write_test_package(&alpha, "alpha", "0.1.0");
+        write_test_package(&beta, "beta", "0.1.0");
+        fs::write(root.join("axiom.lock"), "version = 2\n").expect("write lock identity");
+        let root = root.canonicalize().expect("canonical workspace");
+        let alpha = alpha.canonicalize().expect("canonical alpha");
+        let beta = beta.canonicalize().expect("canonical beta");
+        let alpha_id = "path:alpha#alpha@0.1.0";
+        let beta_id = "path:beta#beta@0.1.0";
+        let graph = package_graph_from_materialized(
+            &root,
+            MaterializedPackageGraph {
+                schema_version: "axiom.materialized_package_graph.v1".to_owned(),
+                lockfile_sha256: sha256_lockfile(&root.join("axiom.lock"))
+                    .expect("lockfile digest"),
+                roots: vec![beta_id.to_owned(), alpha_id.to_owned()],
+                packages: vec![
+                    materialized_path_package(alpha_id, &alpha, "alpha"),
+                    materialized_path_package(beta_id, &beta, "beta"),
+                ],
+                edges: Vec::new(),
+            },
+        )
+        .expect("workspace graph");
+
+        let packages = workspace_package_roots(&graph, &root, None).expect("workspace packages");
+        assert_eq!(packages, vec![alpha, beta]);
+        assert_eq!(
+            graph
+                .context(&root)
+                .expect("virtual root")
+                .workspace_members,
+            packages
+        );
+    }
+
+    #[test]
+    fn materialized_graph_and_manager_failures_keep_stable_diagnostic_codes() {
+        let dir = tempdir().expect("tempdir");
+        let root = dir.path().join("app");
+        let dep = dir.path().join("cache/dep");
+        write_test_package(&root, "app", "0.1.0");
+        write_test_package(&dep, "dep", "1.2.3");
+        fs::write(root.join("axiom.lock"), "version = 2\n").expect("write lock identity");
+        let root = root.canonicalize().expect("canonical root");
+        let dep = dep.canonicalize().expect("canonical dependency");
+        let error = package_graph_from_materialized(
+            &root,
+            MaterializedPackageGraph {
+                schema_version: "axiom.materialized_package_graph.v1".to_owned(),
+                lockfile_sha256: sha256_lockfile(&root.join("axiom.lock"))
+                    .expect("lockfile digest"),
+                roots: vec!["path:.#app@0.1.0".to_owned()],
+                packages: vec![
+                    materialized_path_package("path:.#app@0.1.0", &root, "app"),
+                    materialized_registry_package("registry:default/acme/dep@1.2.3", &dep, false),
+                ],
+                edges: Vec::new(),
+            },
+        )
+        .expect_err("untrusted registry root must fail");
+        assert_eq!(error.code.as_deref(), Some("package_graph_invalid"));
+
+        let mapped = package_manager_diagnostic(PackageManagerError {
+            code: "cache_tampered".to_owned(),
+            message: "cached tree differs from its integrity manifest".to_owned(),
+            trace: Vec::new(),
+            resolver: None,
+        });
+        assert_eq!(mapped.kind, "package");
+        assert_eq!(mapped.code.as_deref(), Some("cache_tampered"));
+        assert!(mapped.message.contains("integrity manifest"));
     }
 
     #[test]
@@ -11088,6 +12532,7 @@ return async_serve_route(1, "/", "ok", 1)
                 source_root,
                 dependencies: BTreeMap::new(),
                 workspace_members: Vec::new(),
+                verified_sources: None,
             },
         );
 
@@ -11137,6 +12582,7 @@ return async_serve_route(1, "/", "ok", 1)
                 source_root,
                 dependencies: BTreeMap::new(),
                 workspace_members: Vec::new(),
+                verified_sources: None,
             },
         );
         let mut parse_cache = ModuleParseCache::default();
@@ -11202,6 +12648,7 @@ return async_serve_route(1, "/", "ok", 1)
                 source_root,
                 dependencies: BTreeMap::new(),
                 workspace_members: Vec::new(),
+                verified_sources: None,
             },
         );
 
@@ -11796,6 +13243,7 @@ out_dir = "dist"
                     .unwrap_or_else(|err| panic!("canonical source root: {err}")),
                 dependencies: BTreeMap::new(),
                 workspace_members: Vec::new(),
+                verified_sources: None,
             },
         );
         let mut parse_cache = ModuleParseCache::default();
@@ -11842,6 +13290,7 @@ out_dir = "dist"
                 source_root: source_root.clone(),
                 dependencies: BTreeMap::new(),
                 workspace_members: Vec::new(),
+                verified_sources: None,
             },
         );
 
@@ -11947,6 +13396,7 @@ out_dir = "dist"
                     .unwrap_or_else(|err| panic!("canonical source root: {err}")),
                 dependencies: BTreeMap::new(),
                 workspace_members: Vec::new(),
+                verified_sources: None,
             },
         );
 

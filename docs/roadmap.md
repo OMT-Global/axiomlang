@@ -61,6 +61,11 @@ implementation surfaces; see
 - Use complete Intent IR emission for real packages and workspaces (#1418) so
   semantic APIs share one canonical graph rather than partial,
   command-specific views.
+- Qualify Package Resolver v1 (#1459) as a local static/loopback registry
+  surface: deterministic registry dependency selection, lockfile v2,
+  Package-Trust-gated content-addressed cache, strict locked-offline replay,
+  vendoring, and inspectable resolver/package-graph decisions. Do not treat
+  this slice as a public hosted registry or edition-selection service.
 - Advance the [Autonomous Agent Execution Roadmap](autonomous-agent-roadmap.md)
   (#1417 and #1419-#1424) from typed authority through transactional execution,
   impact-aware evidence, independent review, delivery, and recovery.
@@ -70,8 +75,9 @@ implementation surfaces; see
 ## Longer-Term Work
 
 - Additional native targets beyond Linux x86-64 and macOS arm64 after #1455.
-- Hosted registry service ergonomics after trusted resolution, signatures,
-  lockfiles, and vendoring are qualified by #1458 and #1459.
+- Public HTTPS transport and hosted registry service ergonomics after trusted
+  local resolution, signatures, lockfiles, and vendoring are qualified by
+  #1458 and #1459.
 - Richer semantic generators and verifiers driven from complete Intent IR.
 - Policy-scoped unattended maintenance across multiple packages and
   repositories after the single-repository autonomy evaluation gate is green.

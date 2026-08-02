@@ -10,7 +10,7 @@
       "sha256": "0a7df662030a201d7953255a50ad4a5355758bc0626faa44ba879cd1d4eee00f"
     }
   },
-  "contract_version": "0.3.0",
+  "contract_version": "0.4.0",
   "edition": {
     "id": "2026",
     "source": {
@@ -72,15 +72,15 @@
       "id": "axiom://cli/axiomc",
       "kind": "cli",
       "migration": {
-        "action": "Existing command invocations require no changes. To adopt Package Trust v1 verification, invoke axiomc pkg verify with the exact artifact and trust metadata paths plus --json, then handle exit 0 as trusted, exit 1 as rejected, and exit 2 as an operational failure."
+        "action": "Existing command invocations require no changes. To adopt registry dependencies, run axiomc pkg fetch to create the v2 lock and verified cache, use axiomc pkg update for explicit re-resolution, and run axiomc pkg vendor before cache-independent locked offline builds. Package Trust v1 remains available through axiomc pkg verify with exact artifact and trust metadata paths plus --json."
       },
-      "signature": "commands=bench,build,caps,caps diff,check,dap,doc,doctor,evidence,explain,fmt,generate,generate openapi,generate policy,generate runbook,generate sql,generate terraform,inspect,inspect artifacts,inspect effects,inspect graph,inspect intent,inspect symbols,lsp,migrate,mutation-report,new,parse,pkg,pkg graph,pkg verify,publish,registry-index,registry-serve,registry-validate,repair-plan,repl,run,semantic-diff,task-contract,test,trace,verification-plan,verify; command_semantic_digest=eb9bfe7d1fdd4d572ec7f0d33aa8c5e455c1cc8b13507daf52b634791bf6a98b; flags_status=experimental_partial; flags=--json is the versioned machine envelope opt-in where the command publishes JSON; command-specific optional flags remain additive.; exit=0 means the requested operation completed successfully; nonzero means diagnostics or an operational failure.; json=axiom.stage1.v1 for governed stage1 command payloads; command-specific schemas retain their own AxiOM schema IDs.",
+      "signature": "commands=bench,build,caps,caps diff,check,dap,doc,doctor,evidence,explain,fmt,generate,generate openapi,generate policy,generate runbook,generate sql,generate terraform,inspect,inspect artifacts,inspect effects,inspect graph,inspect intent,inspect symbols,lsp,migrate,mutation-report,new,parse,pkg,pkg fetch,pkg graph,pkg update,pkg vendor,pkg verify,publish,registry-index,registry-serve,registry-validate,repair-plan,repl,run,semantic-diff,task-contract,test,trace,verification-plan,verify; command_semantic_digest=af506b3fccca2c0b539655a6966fe364eaf25c9d486d30f3930ed5be963754ed; flags_status=experimental_partial; flags=--json is the versioned machine envelope opt-in where the command publishes JSON; command-specific optional flags remain additive.; exit=0 means the requested operation completed successfully; nonzero means diagnostics or an operational failure.; json=axiom.stage1.v1 for governed stage1 command payloads; command-specific schemas retain their own AxiOM schema IDs.",
       "sources": [
         {
           "path": "stage1/compatibility/cli-surface-v1.json",
           "role": "cli_public_surface",
           "selector": "command_paths,flags,exit_status,migration",
-          "sha256": "8972e6b09446133fefd800feae3214f26fd79766886e8232056f9dea473978e6"
+          "sha256": "07bbb71adee957f8137ffa45e8a76ed13cfb06e5bbe26d7e5bd245b414bd6409"
         },
         {
           "path": "stage1/compiler-contracts/schemas/axiom.stage1.command.schema.json",
@@ -92,37 +92,61 @@
           "path": "stage1/compiler-contracts/snapshots/capability-ledger.json",
           "role": "cli_top_level_parity",
           "selector": "commands[*].name",
-          "sha256": "d2e2a51a4874447b20d6bf5908f74b4c9cde2c8703c1d7fa2239483446a2c1e5"
+          "sha256": "b19f222c3fc1c4835cbc661b57cb430e1beaa7a4e1cabb7d356b9b4207e16178"
         },
         {
           "path": "stage1/crates/axiomc/src/main.rs",
           "role": "cli_command_graph_parity",
           "selector": "Command and nested command variant names",
-          "sha256": "f91ec6858dfea119ba89031989665237c0c6f9b4c1c36a75665c7c678ab06ef1"
+          "sha256": "af28b41a8db43be2b8df05259edbe800da349a895347754f240fda64af4494e9"
+        }
+      ],
+      "stability": "experimental",
+      "version": "0.3.0"
+    },
+    {
+      "id": "axiom://package/lockfile",
+      "kind": "package",
+      "migration": {
+        "action": "Path-only axiom.lock version 1 files remain supported. Before using registry dependencies, run axiomc pkg fetch without --locked to authenticate the registry graph and atomically replace the valid v1 file with axiom.lock version 2; thereafter use --locked --offline for exact cache or vendor replay."
+      },
+      "signature": "axiom.lock formats=1,2; v1_records=package(name,version,source); v2_fields=compatibility,edge,package,registry,roots,version; v2_semantic_digest=b67c3004db840786b81e1fe1fdc7fe63759b02fe4d3403f98029d4c7ce032875",
+      "sources": [
+        {
+          "path": "stage1/compatibility/fixtures/current/axiom.lock",
+          "role": "lockfile_v1_format",
+          "selector": "version,package[*]",
+          "sha256": "b84320f39f44d45319d8efd29d612922227bb8ed30111c2291df1f2ec98e1ea1"
+        },
+        {
+          "path": "stage1/crates/axiomc/src/lockfile.rs",
+          "role": "lockfile_runtime_parity",
+          "selector": "LockfileV2 and validate_lockfile_v2",
+          "sha256": "5d8d4422b12408dac5d4711948522d39e95863b51c538e1fd8d5777f1de28606"
+        },
+        {
+          "path": "stage1/package-resolver/fixtures/lockfile-v2.json",
+          "role": "lockfile_v2_fixture",
+          "selector": "version,compatibility,roots,registry,package,edge",
+          "sha256": "14ccb2579de4fc15e85dd2aa3217f068508fc32984de90dfab76ad8a20431d25"
+        },
+        {
+          "path": "stage1/schemas/axiom-lockfile-v2.schema.json",
+          "role": "lockfile_v2_schema",
+          "selector": "$id,required,properties,$defs",
+          "sha256": "d44a9455abdad5481647ca1fc17e23749b8f3930791b74d074622ad69a7ce821"
         }
       ],
       "stability": "experimental",
       "version": "0.2.0"
     },
     {
-      "id": "axiom://package/lockfile",
-      "kind": "package",
-      "signature": "axiom.lock format=1; records=package(name,version,source)",
-      "sources": [
-        {
-          "path": "stage1/compatibility/fixtures/current/axiom.lock",
-          "role": "lockfile_format",
-          "selector": "version,package[*]",
-          "sha256": "b84320f39f44d45319d8efd29d612922227bb8ed30111c2291df1f2ec98e1ea1"
-        }
-      ],
-      "stability": "experimental",
-      "version": "0.1.0"
-    },
-    {
       "id": "axiom://package/manifest",
       "kind": "package",
-      "signature": "axiom.toml schema=https://axiom.omt.global/schemas/axiom.toml.schema.json; semantic_digest=4887c917589982835dbecc5c3ef80657151df795384e7f3d3296f0028ad7da44; fields=build,capabilities,dependencies,package,publish,runtime,tests,workspace; edition_selector=unavailable",
+      "migration": {
+        "action": "Existing path dependencies remain valid. Registry consumers add one root [registry] table with index, trust_roots, and expectation paths, then use the closed registry dependency form with registry, namespace, package, and an exact or caret version requirement before running axiomc pkg fetch."
+      },
+      "signature": "axiom.toml schema=https://axiom.omt.global/schemas/axiom.toml.schema.json; semantic_digest=fe45690ed5f1217eb0a3461e106573f13d1159d2d694843f9be3c08ba0099b6d; fields=build,capabilities,dependencies,package,publish,registry,runtime,tests,workspace; edition_selector=unavailable",
       "sources": [
         {
           "path": "stage1/compatibility/manifest-parser-contract-v1.json",
@@ -134,17 +158,17 @@
           "path": "stage1/crates/axiomc/src/manifest.rs",
           "role": "package_manifest_parser_parity",
           "selector": "RawManifest and closed nested manifest structures",
-          "sha256": "42a7342967a349740ab926cda964573918bfb81a953576070def305b7cbf4f5d"
+          "sha256": "f32ccf07ed766e9882418d311252b9c959725f37145723f6c9aeab2e46e09bef"
         },
         {
           "path": "stage1/schemas/axiom.toml.schema.json",
           "role": "package_manifest_schema",
           "selector": "$id,properties",
-          "sha256": "8fb6c6060461c8209bb2153382f17333b390f8ba4468027c7d395bf7f59cce36"
+          "sha256": "de567ce7d89ae36558c21922ea61d661f9f372ccd194365bfba5d7d4b756147f"
         }
       ],
       "stability": "experimental",
-      "version": "0.1.0"
+      "version": "0.2.0"
     },
     {
       "id": "axiom://abi/direct-native",
@@ -471,6 +495,21 @@
       "version": "0.1.0"
     },
     {
+      "id": "axiom://schema/axiom-lockfile-v2",
+      "kind": "schema",
+      "signature": "published schema id=https://axiom.omt.global/schemas/axiom-lockfile-v2.schema.json; semantic_digest=3424594f8680260992489db04b9c6c8b33b9481405fe7b57f642d61de8d7ebe0",
+      "sources": [
+        {
+          "path": "stage1/schemas/axiom-lockfile-v2.schema.json",
+          "role": "published_schema",
+          "selector": "$id,properties.schema_version.const",
+          "sha256": "d44a9455abdad5481647ca1fc17e23749b8f3930791b74d074622ad69a7ce821"
+        }
+      ],
+      "stability": "experimental",
+      "version": "0.1.0"
+    },
+    {
       "id": "axiom://schema/axiom-migration-plan-v1",
       "kind": "schema",
       "signature": "published schema id=https://axiom.omt.global/schemas/axiom-migration-plan-v1.schema.json; semantic_digest=1518655714913cf15ebb972a5c75ac44d58e1d8b218e62960e4c7444160b3692; envelope=axiom.migration_plan.v1",
@@ -480,6 +519,21 @@
           "role": "published_schema",
           "selector": "$id,properties.schema_version.const",
           "sha256": "04743eba1c1fce01897584889ccb3be27d25663a9d61c62a182b26407d30bb1d"
+        }
+      ],
+      "stability": "experimental",
+      "version": "0.1.0"
+    },
+    {
+      "id": "axiom://schema/axiom-package-resolution-v1",
+      "kind": "schema",
+      "signature": "published schema id=https://axiom.omt.global/schemas/axiom-package-resolution-v1.schema.json; semantic_digest=9c24007cb13342afdade9ad9476dc8a61f751821c71875eea806664cc0055484; envelope=axiom.package_resolution.v1",
+      "sources": [
+        {
+          "path": "stage1/schemas/axiom-package-resolution-v1.schema.json",
+          "role": "published_schema",
+          "selector": "$id,properties.schema_version.const",
+          "sha256": "8dc630ab260a6afd397ca0d0aab70f985f6b6de8ec6ebe701577154db90db233"
         }
       ],
       "stability": "experimental",
@@ -861,6 +915,21 @@
       "version": "0.1.0"
     },
     {
+      "id": "axiom://schema/axiom.compiler.package_graph.runtime.v1",
+      "kind": "schema",
+      "signature": "published schema id=https://omt-global.github.io/axiom/schemas/axiom.compiler.package_graph.runtime.v1.schema.json; semantic_digest=dc2b6a6aceaf28537fb85c72c76bbf6a805e78f6abe9dd43a20f561152d7ecd3; envelope=axiom.compiler.package_graph.runtime.v1",
+      "sources": [
+        {
+          "path": "stage1/compiler-contracts/schemas/axiom.compiler.package_graph.runtime.v1.schema.json",
+          "role": "published_schema",
+          "selector": "$id,properties.schema_version.const",
+          "sha256": "707ee3a51df91c3aefee6f56400c9396b4a20f94b59b73c6d8920201847e54ef"
+        }
+      ],
+      "stability": "experimental",
+      "version": "0.1.0"
+    },
+    {
       "id": "axiom://schema/axiom.compiler.package_graph.v1",
       "kind": "schema",
       "signature": "published schema id=https://omt-global.github.io/axiom/schemas/axiom.compiler.package_graph.v1.schema.json; semantic_digest=95e1b46d56ad3b842a9280c2e4fdf6044db220bd99442f1fe7df40a819ca7f5e; envelope=axiom.compiler.package_graph.v1",
@@ -987,15 +1056,15 @@
       "id": "axiom://schema/axiom.stage1.v1",
       "kind": "schema",
       "migration": {
-        "action": "Update consumers to understand the new diagnostic and lowering fields before consuming axiom.stage1.v1 envelopes."
+        "action": "Update consumers to understand the new diagnostic and lowering fields plus the optional structured trace and resolver fields before consuming axiom.stage1.v1 envelopes."
       },
-      "signature": "published schema id=https://axiom.omt.global/schemas/axiom.stage1.v1.schema.json; semantic_digest=a86e98c6693d21c7d4613a5f77930a82beaa41c3e1e8f4b566f70c52ff117326; envelope=axiom.stage1.v1",
+      "signature": "published schema id=https://axiom.omt.global/schemas/axiom.stage1.v1.schema.json; semantic_digest=417176c8832c77f390d1487dd84afe16b1ee04175ed612a64e62ee32378cdf93; envelope=axiom.stage1.v1",
       "sources": [
         {
           "path": "stage1/schemas/axiom.stage1.v1.schema.json",
           "role": "published_schema",
           "selector": "$id,properties.schema_version.const",
-          "sha256": "717476ad335ddc4243ec1d747ffe041cc1b30372758e819a4bbb29873e831a67"
+          "sha256": "9970368648e147e199942df3c0202be397e5e3284241bb1f670938004fb96c78"
         }
       ],
       "stability": "experimental",
@@ -1004,17 +1073,20 @@
     {
       "id": "axiom://schema/axiom.toml",
       "kind": "schema",
-      "signature": "published schema id=https://axiom.omt.global/schemas/axiom.toml.schema.json; semantic_digest=4b082a2037f1d1579235773ed158f67c05b151f737c9bdf72e55b76f2be425cb",
+      "migration": {
+        "action": "Existing path-only manifests remain valid. To adopt registry dependencies, add the root registry configuration and use the closed registry dependency object documented by the 0.2 schema, then run axiomc pkg fetch to create axiom.lock version 2."
+      },
+      "signature": "published schema id=https://axiom.omt.global/schemas/axiom.toml.schema.json; semantic_digest=e0d385251a6ba1c8aae6ff2641e89cb5e29d8ceba0d724f07bf7ba2f7a621e8a",
       "sources": [
         {
           "path": "stage1/schemas/axiom.toml.schema.json",
           "role": "published_schema",
           "selector": "$id,properties.schema_version.const",
-          "sha256": "8fb6c6060461c8209bb2153382f17333b390f8ba4468027c7d395bf7f59cce36"
+          "sha256": "de567ce7d89ae36558c21922ea61d661f9f372ccd194365bfba5d7d4b756147f"
         }
       ],
       "stability": "experimental",
-      "version": "0.1.0"
+      "version": "0.2.0"
     },
     {
       "id": "axiom://artifact/envelope",

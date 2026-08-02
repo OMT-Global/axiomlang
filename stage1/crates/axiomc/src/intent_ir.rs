@@ -31,7 +31,9 @@ pub struct IntentIrDocument {
 
 impl IntentIrDocument {
     pub fn contains_node(&self, id: &str) -> bool {
-        self.nodes.binary_search_by(|node| node.id.as_str().cmp(id)).is_ok()
+        self.nodes
+            .binary_search_by(|node| node.id.as_str().cmp(id))
+            .is_ok()
     }
 
     pub fn node_id(&self, kind: &str, name: &str) -> Option<&str> {
@@ -241,16 +243,18 @@ fn emit_package(
 
     for (alias, dependency) in &manifest.dependencies {
         let id = child_id(&package, "dependency", alias);
-        graph.node(node(
-            &id,
-            "Dependency",
-            alias,
-            None,
-            object([
-                ("path", json!(normalize_text_path(&dependency.path))),
-                ("version", json!(dependency.version)),
-            ]),
-        ));
+        let mut metadata = object([("version", json!(dependency.version))]);
+        if let Some(path) = dependency.path_source() {
+            metadata.insert("source".into(), json!("path"));
+            metadata.insert("path".into(), json!(normalize_text_path(path)));
+        }
+        if let Some(registry) = dependency.registry_source() {
+            metadata.insert("source".into(), json!("registry"));
+            metadata.insert("registry".into(), json!(registry.registry));
+            metadata.insert("namespace".into(), json!(registry.namespace));
+            metadata.insert("package".into(), json!(registry.package));
+        }
+        graph.node(node(&id, "Dependency", alias, None, metadata));
         graph.edge(&package, "depends_on", &id);
     }
 
@@ -624,7 +628,10 @@ fn emit_decisions(
     graph: &mut Graph,
 ) -> Result<(), Diagnostic> {
     let mut paths = Vec::new();
-    for directory in [package_root.join("decisions"), package_root.join(".axiom/decisions")] {
+    for directory in [
+        package_root.join("decisions"),
+        package_root.join(".axiom/decisions"),
+    ] {
         if directory.is_dir() {
             paths.extend(regular_files(&directory)?);
         }
@@ -763,16 +770,15 @@ fn axiom_files(root: &Path) -> Result<Vec<PathBuf>, Diagnostic> {
         let entries = fs::read_dir(&directory)
             .map_err(|error| io_error("intent_ir_read_dir", &directory, error))?;
         for entry in entries {
-            let entry = entry
-                .map_err(|error| io_error("intent_ir_read_dir", &directory, error))?;
+            let entry = entry.map_err(|error| io_error("intent_ir_read_dir", &directory, error))?;
             let path = entry.path();
             if path.is_dir() {
                 let skipped = matches!(
                     path.file_name().and_then(|value| value.to_str()),
                     Some(".git" | "target")
                 );
-                let nested_package = path != root
-                    && path.join(crate::manifest::MANIFEST_FILENAME).is_file();
+                let nested_package =
+                    path != root && path.join(crate::manifest::MANIFEST_FILENAME).is_file();
                 if !skipped && !nested_package {
                     pending.push(path);
                 }
@@ -848,6 +854,7 @@ fn io_error(code: &'static str, path: &Path, error: std::io::Error) -> Diagnosti
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tempfile::tempdir;
 
     #[test]
     fn segments_are_stable_and_schema_safe() {
@@ -864,5 +871,60 @@ mod tests {
             normalize_text_path(r"src\\nested\\main.ax"),
             "src/nested/main.ax"
         );
+    }
+
+    #[test]
+    fn dependency_nodes_distinguish_path_and_registry_sources() {
+        let dir = tempdir().expect("tempdir");
+        let root = dir.path();
+        fs::create_dir_all(root.join("src")).expect("create source");
+        fs::write(
+            root.join(crate::manifest::MANIFEST_FILENAME),
+            r#"[package]
+name = "intent-dependencies"
+version = "0.1.0"
+
+[registry]
+name = "default"
+index = "file:///registry/index.json"
+trust_roots = "registry/trust-roots.json"
+expectation = "registry/expectation.json"
+
+[dependencies.local]
+path = "deps/local"
+version = "*"
+
+[dependencies.remote]
+registry = "default"
+namespace = "acme"
+package = "remote-core"
+version = "^1.2.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+"#,
+        )
+        .expect("write manifest");
+        fs::write(root.join("src/main.ax"), "print \"intent\"\n").expect("write source");
+
+        let document = emit_intent_ir(root).expect("emit intent IR");
+        let local = document
+            .nodes
+            .iter()
+            .find(|node| node.kind == "Dependency" && node.name == "local")
+            .expect("path dependency node");
+        assert_eq!(local.metadata.get("source"), Some(&json!("path")));
+        assert_eq!(local.metadata.get("path"), Some(&json!("deps/local")));
+        let remote = document
+            .nodes
+            .iter()
+            .find(|node| node.kind == "Dependency" && node.name == "remote")
+            .expect("registry dependency node");
+        assert_eq!(remote.metadata.get("source"), Some(&json!("registry")));
+        assert_eq!(remote.metadata.get("registry"), Some(&json!("default")));
+        assert_eq!(remote.metadata.get("namespace"), Some(&json!("acme")));
+        assert_eq!(remote.metadata.get("package"), Some(&json!("remote-core")));
+        assert!(!remote.metadata.contains_key("path"));
     }
 }

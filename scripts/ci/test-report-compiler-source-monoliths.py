@@ -42,6 +42,7 @@ class CompilerSourceMonolithTests(unittest.TestCase):
             write_lines(source_root / "cranelift_backend.rs", 5)
             write_lines(source_root / "diagnostics.rs", 1)
             write_lines(source_root / "hir.rs", 3)
+            write_lines(source_root / "package_trust.rs", 2)
             hir_dir = source_root / "hir"
             hir_dir.mkdir()
             write_lines(hir_dir / "generics.rs", 2)
@@ -57,14 +58,14 @@ class CompilerSourceMonolithTests(unittest.TestCase):
             write_lines(hir_dir / "symbols.rs", 1)
             write_lines(hir_dir / "types.rs", 1)
 
-            report = compiler_source_monoliths.build_report(source_root, top=15)
+            report = compiler_source_monoliths.build_report(source_root, top=16)
 
         self.assertEqual(report["schema_version"], "axiom.compiler_source.monoliths.v0")
         self.assertEqual(report["collected_at"], "2026-06-21T10:00:00Z")
-        self.assertEqual(report["summary"]["total_files"], 15)
-        self.assertEqual(report["summary"]["total_lines"], 22)
+        self.assertEqual(report["summary"]["total_files"], 16)
+        self.assertEqual(report["summary"]["total_lines"], 24)
         self.assertEqual(report["summary"]["largest_file_lines"], 5)
-        self.assertEqual(report["summary"]["top_file_lines"], 22)
+        self.assertEqual(report["summary"]["top_file_lines"], 24)
         self.assertEqual(report["summary"]["top_file_line_share"], 1.0)
         boundaries_by_suffix = {
             Path(item["path"]).as_posix().removeprefix(source_root.as_posix() + "/"): item[
@@ -76,6 +77,9 @@ class CompilerSourceMonolithTests(unittest.TestCase):
             boundaries_by_suffix["cranelift_backend.rs"], ["compiler.backend.native"]
         )
         self.assertEqual(boundaries_by_suffix["diagnostics.rs"], ["compiler.diagnostics"])
+        self.assertEqual(
+            boundaries_by_suffix["package_trust.rs"], ["compiler.package_trust"]
+        )
         for path in [
             "hir.rs",
             "hir/capabilities.rs",

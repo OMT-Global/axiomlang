@@ -26,7 +26,7 @@ define completion.
   declared rows, but the backend can execute unsupported programs in the
   compiler process and emit replay binaries. #1434 therefore blocks any broad
   runtime-complete, production, or self-hosting claim.
-- The production-language ledger currently has 52 capability rows: 2 of 39
+- The production-language ledger currently has 52 capability rows: 3 of 39
   production-required rows meet their target evidence tier. The remaining
   rows are intentionally `partial` or `blocked`, not missing from the plan.
 - The compiler itself is not self-hosting. It remains predominantly Rust,
@@ -36,6 +36,12 @@ define completion.
   semantic diff, decisions, target contracts, and artifact generators are
   shipped foundations. Real-package and workspace Intent IR emission is
   available through `axiomc inspect intent <path> --json`.
+- Package Trust v1 is the resolver trust boundary. Package Resolver v1 (#1459)
+  is currently a local static/file and loopback-fixture spike covering registry
+  manifests, lockfile v2, authenticated catalog candidates, bounded transport,
+  content-addressed cache/vendor contracts, and deterministic decision
+  evidence. It remains `partial` until the CLI round trips and
+  `make stage1-package-resolver` prove the integrated runtime.
 
 ## Active Roadmap Families
 
@@ -52,12 +58,14 @@ define completion.
 | Snapshot bootstrap | #1428 | Human-gated release work | Pin the genesis snapshot and prove offline build/test, no Cargo after genesis, and fixpoint evidence. |
 | Unattended agent coding | #1417-#1424 | Ready for staged planning | Follow `docs/autonomous-agent-roadmap.md`; do not skip semantic authority, containment, evidence, or independent review. |
 | Repeatable autonomy validation | #1430 | Ready for implementation | Make the compiler-property fast check portable, repeatable, parallel-safe, and self-cleaning on macOS/BSD `mktemp`. |
+| Trusted package resolution | #1458-#1459 | Local resolver qualification active | Require signed static catalog authentication, full per-release verification, lockfile v2, atomic content-addressed storage, locked-offline/vendor round trips, deterministic traces, and package-graph inspection. Do not claim public hosted transport or edition selection. |
 | Repository branch hygiene | #1164 | Narrow maintenance remainder | Preserve protected/historical branches while reducing the remaining remote-branch inventory. |
 
 ## Readiness Commands
 
 ```bash
 make stage1-direct-native-runtime-abi
+make stage1-package-resolver
 make production-language-readiness-validate
 make production-language-readiness
 make production-language-readiness-github
@@ -70,8 +78,11 @@ make stage1-compiler-source-monoliths
 
 Expected current outcomes:
 
-- production-language ledger validation: green; readiness: red with 2 of 39
+- production-language ledger validation: green; readiness: red with 3 of 39
   required rows at target;
+- package resolver: partial until the local static/loopback fetch, update,
+  locked-offline, vendor, trust-tamper/replay, and graph-inspection fixtures pass
+  the resolver target;
 - direct-native ABI, command surface, Rust exit, and monolith ratchet:
   structurally green, but not a substitute for #1434 runtime truth;
 - self-hosting language entry readiness: red until the runtime foundation,

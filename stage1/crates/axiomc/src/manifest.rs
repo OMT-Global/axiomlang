@@ -5,6 +5,8 @@ use std::path::{Path, PathBuf};
 
 pub const MANIFEST_FILENAME: &str = "axiom.toml";
 pub const LOCK_FILENAME: &str = "axiom.lock";
+pub const DEFAULT_PACKAGE_CACHE_DIR: &str = ".axiom/cache";
+pub const DEFAULT_PACKAGE_VENDOR_DIR: &str = "vendor";
 pub const KNOWN_CAPABILITIES: [CapabilityKind; 9] = [
     CapabilityKind::Fs,
     CapabilityKind::FsWrite,
@@ -21,6 +23,7 @@ pub const KNOWN_CAPABILITIES: [CapabilityKind; 9] = [
 pub struct Manifest {
     pub package: Option<PackageSection>,
     pub publish: Option<PublishSection>,
+    pub registry: Option<RegistryConfig>,
     pub dependencies: BTreeMap<String, DependencySpec>,
     pub workspace: Option<WorkspaceSection>,
     pub build: BuildSection,
@@ -44,6 +47,34 @@ pub struct PublishSection {
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct RegistryConfig {
+    /// Stable manifest-local name used by dependency selectors and lockfiles.
+    pub name: String,
+    /// Exact registry-index endpoint.
+    pub index: String,
+    /// Project-relative Package Trust root metadata.
+    pub trust_roots: String,
+    /// Project-relative Package Trust verification expectation.
+    pub expectation: String,
+    /// Optional project-relative content-addressed cache root.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache: Option<String>,
+    /// Optional project-relative vendored package root.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub vendor: Option<String>,
+}
+
+impl RegistryConfig {
+    pub fn cache_root(&self) -> &str {
+        self.cache.as_deref().unwrap_or(DEFAULT_PACKAGE_CACHE_DIR)
+    }
+
+    pub fn vendor_root(&self) -> &str {
+        self.vendor.as_deref().unwrap_or(DEFAULT_PACKAGE_VENDOR_DIR)
+    }
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct WorkspaceSection {
     pub members: Vec<String>,
 }
@@ -62,9 +93,39 @@ pub struct RuntimeConfig {
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct DependencySpec {
-    pub path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub registry: Option<RegistryDependencySpec>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub version: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct RegistryDependencySpec {
+    /// Stable name of the root `[registry]` entry.
+    pub registry: String,
+    pub namespace: String,
+    /// Published package name. Defaults to the dependency alias.
+    pub package: String,
+}
+
+impl DependencySpec {
+    pub fn is_path(&self) -> bool {
+        self.path.is_some()
+    }
+
+    pub fn is_registry(&self) -> bool {
+        self.registry.is_some()
+    }
+
+    pub fn path_source(&self) -> Option<&str> {
+        self.path.as_deref()
+    }
+
+    pub fn registry_source(&self) -> Option<&RegistryDependencySpec> {
+        self.registry.as_ref()
+    }
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -248,7 +309,7 @@ struct RawManifest {
     runtime: Option<RawRuntimeConfig>,
     tests: Option<Vec<RawTestTarget>>,
     capabilities: Option<RawCapabilityConfig>,
-    registry: Option<toml::Value>,
+    registry: Option<RawRegistryConfig>,
     publish: Option<RawPublishSection>,
 }
 
@@ -294,8 +355,21 @@ struct RawDependencyDetail {
     path: Option<String>,
     version: Option<String>,
     checksum: Option<toml::Value>,
-    registry: Option<toml::Value>,
+    registry: Option<String>,
+    namespace: Option<String>,
+    package: Option<String>,
     source: Option<toml::Value>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawRegistryConfig {
+    name: Option<String>,
+    index: Option<String>,
+    trust_roots: Option<String>,
+    expectation: Option<String>,
+    cache: Option<String>,
+    vendor: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -379,18 +453,34 @@ fn is_false(value: &bool) -> bool {
 
 pub fn load_manifest(project_root: &Path) -> Result<Manifest, Diagnostic> {
     let path = manifest_path(project_root);
-    let content = std::fs::read_to_string(&path).map_err(|err| {
+    let content = std::fs::read(&path).map_err(|err| {
         Diagnostic::new(
             "manifest",
             format!("failed to read {}: {err}", MANIFEST_FILENAME),
         )
         .with_path(path.display().to_string())
     })?;
-    let raw: RawManifest = toml::from_str(&content).map_err(|err| {
-        Diagnostic::new("manifest", format!("invalid {MANIFEST_FILENAME}: {err}"))
-            .with_path(path.display().to_string())
+    parse_manifest_exact(&content, &path)
+}
+
+/// Parse a manifest from the exact authenticated bytes supplied by a caller.
+///
+/// Registry resolution must use this entrypoint only after Package Trust has
+/// authenticated the containing release. It deliberately does not reread a
+/// filesystem path, closing the authenticate-then-reread gap.
+pub fn parse_manifest_exact(content: &[u8], source_path: &Path) -> Result<Manifest, Diagnostic> {
+    let content = std::str::from_utf8(content).map_err(|err| {
+        Diagnostic::new(
+            "manifest",
+            format!("invalid {MANIFEST_FILENAME}: manifest is not UTF-8: {err}"),
+        )
+        .with_path(source_path.display().to_string())
     })?;
-    normalize_manifest(raw, &path)
+    let raw: RawManifest = toml::from_str(content).map_err(|err| {
+        Diagnostic::new("manifest", format!("invalid {MANIFEST_FILENAME}: {err}"))
+            .with_path(source_path.display().to_string())
+    })?;
+    normalize_manifest(raw, source_path)
 }
 
 pub fn manifest_path(project_root: &Path) -> PathBuf {
@@ -575,8 +665,8 @@ impl CapabilityKind {
 }
 
 fn normalize_manifest(raw: RawManifest, path: &Path) -> Result<Manifest, Diagnostic> {
-    validate_reserved_root_publish_fields(&raw, path)?;
     let publish = normalize_publish(raw.publish, path)?;
+    let registry = normalize_registry(raw.registry, path)?;
     let workspace = normalize_workspace(raw.workspace, path)?;
     let package = normalize_package(raw.package, workspace.is_some(), path)?;
     let raw_build = raw.build;
@@ -595,7 +685,11 @@ fn normalize_manifest(raw: RawManifest, path: &Path) -> Result<Manifest, Diagnos
     validate_relative_path(path, "build.entry", &entry)?;
     validate_relative_path(path, "build.out_dir", &out_dir)?;
     let runtime = normalize_runtime(raw.runtime, path)?;
-    let dependencies = normalize_dependencies(raw.dependencies.unwrap_or_default(), path)?;
+    let dependencies = normalize_dependencies(
+        raw.dependencies.unwrap_or_default(),
+        registry.as_ref(),
+        path,
+    )?;
     let tests = normalize_tests(raw.tests.unwrap_or_default(), path)?;
     let capabilities = raw.capabilities.unwrap_or_default();
     let fs_root =
@@ -630,6 +724,7 @@ fn normalize_manifest(raw: RawManifest, path: &Path) -> Result<Manifest, Diagnos
     Ok(Manifest {
         package,
         publish,
+        registry,
         dependencies,
         workspace,
         build: BuildSection { entry, out_dir },
@@ -677,13 +772,6 @@ fn normalize_runtime(
     })
 }
 
-fn validate_reserved_root_publish_fields(raw: &RawManifest, path: &Path) -> Result<(), Diagnostic> {
-    if raw.registry.is_some() {
-        return Err(reserved_manifest_field(path, "[registry]"));
-    }
-    Ok(())
-}
-
 fn normalize_publish(
     raw_publish: Option<RawPublishSection>,
     path: &Path,
@@ -719,13 +807,69 @@ fn normalize_publish(
     }))
 }
 
+fn normalize_registry(
+    raw_registry: Option<RawRegistryConfig>,
+    path: &Path,
+) -> Result<Option<RegistryConfig>, Diagnostic> {
+    let Some(raw_registry) = raw_registry else {
+        return Ok(None);
+    };
+    let name = required_field(raw_registry.name, path, "registry.name")?;
+    validate_stable_registry_name(path, "registry.name", &name)?;
+    let index = required_field(raw_registry.index, path, "registry.index")?;
+    validate_registry_source(path, "registry.index", &index)?;
+    let trust_roots = required_field(raw_registry.trust_roots, path, "registry.trust_roots")?;
+    validate_relative_path(path, "registry.trust_roots", &trust_roots)?;
+    let expectation = required_field(raw_registry.expectation, path, "registry.expectation")?;
+    validate_relative_path(path, "registry.expectation", &expectation)?;
+    let cache =
+        normalize_optional_materialization_root(path, "registry.cache", raw_registry.cache)?;
+    let vendor =
+        normalize_optional_materialization_root(path, "registry.vendor", raw_registry.vendor)?;
+    let effective_cache = cache.as_deref().unwrap_or(DEFAULT_PACKAGE_CACHE_DIR);
+    let effective_vendor = vendor.as_deref().unwrap_or(DEFAULT_PACKAGE_VENDOR_DIR);
+    validate_distinct_materialization_roots(path, effective_cache, effective_vendor)?;
+    Ok(Some(RegistryConfig {
+        name,
+        index,
+        trust_roots,
+        expectation,
+        cache,
+        vendor,
+    }))
+}
+
+fn validate_stable_registry_name(
+    path: &Path,
+    field_name: &str,
+    value: &str,
+) -> Result<(), Diagnostic> {
+    let mut chars = value.chars();
+    let valid = value.len() <= 64
+        && chars
+            .next()
+            .is_some_and(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit())
+        && chars.all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit() || ch == '-' || ch == '_');
+    if valid {
+        Ok(())
+    } else {
+        Err(Diagnostic::new(
+            "manifest",
+            format!("{field_name} must be a stable lowercase ASCII name of at most 64 characters"),
+        )
+        .with_path(path.display().to_string()))
+    }
+}
+
 fn validate_registry_source(path: &Path, field_name: &str, value: &str) -> Result<(), Diagnostic> {
-    if is_valid_registry_url(value) {
+    if is_supported_registry_index_url(value) {
         return Ok(());
     }
     Err(Diagnostic::new(
         "manifest",
-        format!("{field_name} must be a valid https:// or file:// registry source"),
+        format!(
+            "{field_name} must be a valid https:// or file:// registry source (or an http:// loopback fixture source)"
+        ),
     )
     .with_path(path.display().to_string()))
 }
@@ -1137,6 +1281,7 @@ fn required_field(
 
 fn normalize_dependencies(
     raw_dependencies: BTreeMap<String, RawDependencySpec>,
+    registry_config: Option<&RegistryConfig>,
     path: &Path,
 ) -> Result<BTreeMap<String, DependencySpec>, Diagnostic> {
     let mut dependencies = BTreeMap::new();
@@ -1149,11 +1294,14 @@ fn normalize_dependencies(
         }
         match raw_spec {
             RawDependencySpec::Path(value) => {
+                let value =
+                    required_field(Some(value), path, &format!("dependencies.{name}.path"))?;
                 validate_dependency_path(path, &format!("dependencies.{name}.path"), &value)?;
                 dependencies.insert(
                     name,
                     DependencySpec {
-                        path: value,
+                        path: Some(value),
+                        registry: None,
                         version: None,
                     },
                 );
@@ -1166,39 +1314,139 @@ fn normalize_dependencies(
                         &format!("dependencies.{name}.checksum"),
                     ));
                 }
-                if detail.registry.is_some() {
-                    return Err(reserved_manifest_field(
-                        path,
-                        &format!("dependencies.{name}.registry"),
-                    ));
-                }
                 if detail.source.is_some() {
                     return Err(reserved_manifest_field(
                         path,
                         &format!("dependencies.{name}.source"),
                     ));
                 }
-                if detail.path.is_none() && detail.version.is_some() {
-                    return Err(reserved_manifest_field(
-                        path,
-                        &format!("dependencies.{name}.version"),
-                    ));
+                let source_prefix = format!("dependencies.{name}");
+                match (detail.path, detail.registry) {
+                    (Some(raw_path), None) => {
+                        if detail.namespace.is_some() || detail.package.is_some() {
+                            return Err(Diagnostic::new(
+                                "manifest",
+                                format!(
+                                    "{source_prefix} path dependencies must not declare namespace or package"
+                                ),
+                            )
+                            .with_path(path.display().to_string()));
+                        }
+                        let raw_path =
+                            required_field(Some(raw_path), path, &format!("{source_prefix}.path"))?;
+                        validate_dependency_path(
+                            path,
+                            &format!("{source_prefix}.path"),
+                            &raw_path,
+                        )?;
+                        let version = normalize_dependency_version(
+                            path,
+                            &format!("{source_prefix}.version"),
+                            detail.version,
+                            true,
+                        )?;
+                        dependencies.insert(
+                            name,
+                            DependencySpec {
+                                path: Some(raw_path),
+                                registry: None,
+                                version,
+                            },
+                        );
+                    }
+                    (None, Some(registry_name)) => {
+                        let registry_name = required_field(
+                            Some(registry_name),
+                            path,
+                            &format!("{source_prefix}.registry"),
+                        )?;
+                        let Some(registry_config) = registry_config else {
+                            return Err(Diagnostic::new(
+                                "manifest",
+                                format!(
+                                    "{source_prefix}.registry requires a root [registry] configuration"
+                                ),
+                            )
+                            .with_path(path.display().to_string()));
+                        };
+                        if registry_name != registry_config.name {
+                            return Err(Diagnostic::new(
+                                "manifest",
+                                format!(
+                                    "{source_prefix}.registry names {registry_name:?}, but the configured registry is {:?}",
+                                    registry_config.name
+                                ),
+                            )
+                            .with_path(path.display().to_string()));
+                        }
+                        let namespace = required_field(
+                            detail.namespace,
+                            path,
+                            &format!("{source_prefix}.namespace"),
+                        )?;
+                        validate_registry_coordinate_segment(
+                            path,
+                            &format!("{source_prefix}.namespace"),
+                            &namespace,
+                        )?;
+                        let package = detail.package.unwrap_or_else(|| name.clone());
+                        let package = required_field(
+                            Some(package),
+                            path,
+                            &format!("{source_prefix}.package"),
+                        )?;
+                        validate_registry_coordinate_segment(
+                            path,
+                            &format!("{source_prefix}.package"),
+                            &package,
+                        )?;
+                        let version = normalize_dependency_version(
+                            path,
+                            &format!("{source_prefix}.version"),
+                            detail.version,
+                            false,
+                        )?
+                        .ok_or_else(|| {
+                            Diagnostic::new(
+                                "manifest",
+                                format!(
+                                    "missing or empty {source_prefix}.version; registry dependencies require an exact or caret version"
+                                ),
+                            )
+                            .with_path(path.display().to_string())
+                        })?;
+                        dependencies.insert(
+                            name,
+                            DependencySpec {
+                                path: None,
+                                registry: Some(RegistryDependencySpec {
+                                    registry: registry_name,
+                                    namespace,
+                                    package,
+                                }),
+                                version: Some(version),
+                            },
+                        );
+                    }
+                    (Some(_), Some(_)) => {
+                        return Err(Diagnostic::new(
+                            "manifest",
+                            format!(
+                                "{source_prefix} must declare exactly one source kind: path or registry"
+                            ),
+                        )
+                        .with_path(path.display().to_string()));
+                    }
+                    (None, None) => {
+                        return Err(Diagnostic::new(
+                            "manifest",
+                            format!(
+                                "{source_prefix} must declare exactly one source kind: path or registry"
+                            ),
+                        )
+                        .with_path(path.display().to_string()));
+                    }
                 }
-                let raw_path =
-                    required_field(detail.path, path, &format!("dependencies.{name}.path"))?;
-                validate_dependency_path(path, &format!("dependencies.{name}.path"), &raw_path)?;
-                let version = normalize_dependency_version(
-                    path,
-                    &format!("dependencies.{name}.version"),
-                    detail.version,
-                )?;
-                dependencies.insert(
-                    name,
-                    DependencySpec {
-                        path: raw_path,
-                        version,
-                    },
-                );
             }
         };
     }
@@ -1209,13 +1457,47 @@ fn normalize_dependency_version(
     path: &Path,
     field_name: &str,
     version: Option<String>,
+    allow_wildcard: bool,
 ) -> Result<Option<String>, Diagnostic> {
     let Some(version) = version else {
         return Ok(None);
     };
     let version = required_field(Some(version), path, field_name)?;
     validate_version_constraint(path, field_name, &version)?;
+    if !allow_wildcard && version == "*" {
+        return Err(Diagnostic::new(
+            "manifest",
+            format!(
+                "{field_name} must be an exact MAJOR.MINOR.PATCH version or a caret constraint"
+            ),
+        )
+        .with_path(path.display().to_string()));
+    }
     Ok(Some(version))
+}
+
+fn validate_registry_coordinate_segment(
+    path: &Path,
+    field_name: &str,
+    value: &str,
+) -> Result<(), Diagnostic> {
+    let mut chars = value.chars();
+    let valid = value.len() <= 128
+        && chars
+            .next()
+            .is_some_and(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit())
+        && chars.all(|ch| {
+            ch.is_ascii_lowercase() || ch.is_ascii_digit() || matches!(ch, '-' | '_' | '.')
+        });
+    if valid {
+        Ok(())
+    } else {
+        Err(Diagnostic::new(
+            "manifest",
+            format!("{field_name} must be a portable lowercase package coordinate"),
+        )
+        .with_path(path.display().to_string()))
+    }
 }
 
 fn validate_version_constraint(
@@ -1357,9 +1639,12 @@ fn normalize_test_kind(
     }
 }
 
-fn is_valid_registry_url(registry: &str) -> bool {
+pub fn is_supported_registry_index_url(registry: &str) -> bool {
     if let Some(rest) = registry.strip_prefix("https://") {
-        return is_valid_https_registry_url(rest);
+        return is_valid_network_registry_url(rest, false);
+    }
+    if let Some(rest) = registry.strip_prefix("http://") {
+        return is_valid_network_registry_url(rest, true);
     }
     if let Some(path) = registry.strip_prefix("file://") {
         return is_valid_file_registry_url(path);
@@ -1367,7 +1652,7 @@ fn is_valid_registry_url(registry: &str) -> bool {
     false
 }
 
-fn is_valid_https_registry_url(rest: &str) -> bool {
+fn is_valid_network_registry_url(rest: &str, require_loopback: bool) -> bool {
     let authority_end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
     let authority = &rest[..authority_end];
     let suffix = &rest[authority_end..];
@@ -1390,13 +1675,24 @@ fn is_valid_https_registry_url(rest: &str) -> bool {
         }
     }
 
-    if host.starts_with('[') || host.ends_with(']') {
-        return is_valid_ipv6_authority_host(host);
+    let valid_host = if host.starts_with('[') || host.ends_with(']') {
+        is_valid_ipv6_authority_host(host)
+    } else if host.parse::<std::net::Ipv4Addr>().is_ok() {
+        true
+    } else {
+        is_valid_registry_host(host)
+    };
+    valid_host && (!require_loopback || is_loopback_registry_host(host))
+}
+
+fn is_loopback_registry_host(host: &str) -> bool {
+    if let Ok(address) = host.parse::<std::net::Ipv4Addr>() {
+        return address.is_loopback();
     }
-    if host.parse::<std::net::Ipv4Addr>().is_ok() {
-        return true;
-    }
-    is_valid_registry_host(host)
+    host.strip_prefix('[')
+        .and_then(|value| value.strip_suffix(']'))
+        .and_then(|value| value.parse::<std::net::Ipv6Addr>().ok())
+        .is_some_and(|address| address.is_loopback())
 }
 
 fn split_registry_authority(authority: &str) -> (Option<&str>, Option<&str>) {
@@ -1466,6 +1762,69 @@ fn normalize_optional_relative_path(
     let value = required_field(Some(value), path, field_name)?;
     validate_relative_path(path, field_name, &value)?;
     Ok(Some(value))
+}
+
+fn normalize_optional_materialization_root(
+    path: &Path,
+    field_name: &str,
+    value: Option<String>,
+) -> Result<Option<String>, Diagnostic> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    normalize_project_relative_materialization_root(path, field_name, &value).map(Some)
+}
+
+/// Normalize a portable materialization root without touching the filesystem.
+///
+/// Package-manager overrides use this helper to share the manifest's lexical
+/// safety policy before resolving the returned path against the project root.
+pub(crate) fn normalize_project_relative_materialization_root(
+    path: &Path,
+    field_name: &str,
+    value: &str,
+) -> Result<String, Diagnostic> {
+    let value = required_field(Some(value.to_owned()), path, field_name)?;
+    validate_relative_path(path, field_name, &value)?;
+    if value.contains('\\') {
+        return Err(Diagnostic::new(
+            "manifest",
+            format!("{field_name} must use portable '/' path separators"),
+        )
+        .with_path(path.display().to_string()));
+    }
+
+    let normalized = value
+        .split('/')
+        .filter(|component| !component.is_empty() && *component != ".")
+        .collect::<Vec<_>>()
+        .join("/");
+    if normalized.is_empty() {
+        return Err(Diagnostic::new(
+            "manifest",
+            format!("{field_name} must identify a path below the project root"),
+        )
+        .with_path(path.display().to_string()));
+    }
+    Ok(normalized)
+}
+
+/// Reject cache/vendor aliases after both roots have been lexically normalized
+/// and any omitted manifest values have been replaced by their defaults.
+pub(crate) fn validate_distinct_materialization_roots(
+    path: &Path,
+    effective_cache: &str,
+    effective_vendor: &str,
+) -> Result<(), Diagnostic> {
+    if effective_cache == effective_vendor {
+        Err(Diagnostic::new(
+            "manifest",
+            "registry.cache and registry.vendor must use different paths",
+        )
+        .with_path(path.display().to_string()))
+    } else {
+        Ok(())
+    }
 }
 
 fn validate_relative_path(path: &Path, field_name: &str, value: &str) -> Result<(), Diagnostic> {
@@ -1626,12 +1985,10 @@ entry = "src/integration.ax"
 kind = "integration"
 "#,
         );
-        assert!(
-            load_manifest(unknown_kind.path())
-                .expect_err("unpublished test kind must fail")
-                .message
-                .contains("tests[0].kind must be one of")
-        );
+        assert!(load_manifest(unknown_kind.path())
+            .expect_err("unpublished test kind must fail")
+            .message
+            .contains("tests[0].kind must be one of"));
 
         for capability in KNOWN_CAPABILITIES {
             let unsupported_capability = write_manifest(&format!(
@@ -1685,12 +2042,10 @@ path = "../dep"
 version = "^01.2.3"
 "#,
         );
-        assert!(
-            load_manifest(noncanonical_dependency.path())
-                .expect_err("leading-zero dependency version must fail")
-                .message
-                .contains("MAJOR.MINOR.PATCH")
-        );
+        assert!(load_manifest(noncanonical_dependency.path())
+            .expect_err("leading-zero dependency version must fail")
+            .message
+            .contains("MAJOR.MINOR.PATCH"));
     }
 
     #[test]
@@ -1944,23 +2299,269 @@ checksum = "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abc
     }
 
     #[test]
-    fn still_reserves_dependency_registry_resolution_fields() {
+    fn accepts_registry_configuration_and_dependency_alias_default() {
         let dir = write_manifest(
             r#"
 [package]
 name = "demo"
 version = "0.1.0"
 
+[registry]
+name = "primary"
+index = "https://registry.example.test/index.json"
+trust_roots = "trust/roots.json"
+expectation = "trust/expectation.json"
+cache = ".axiom/cache"
+vendor = "vendor"
+
 [dependencies.dep]
-path = "dep"
-registry = "https://registry.example.test/index"
+registry = "primary"
+namespace = "acme"
+version = "^1.2.3"
 "#,
         );
-        let error = load_manifest(dir.path()).expect_err("dependency registry should be reserved");
-        assert!(
-            error
-                .message
-                .contains("dependencies.dep.registry is reserved")
+        let manifest = load_manifest(dir.path()).expect("registry dependency should parse");
+        let registry = manifest.registry.expect("root registry");
+        assert_eq!(registry.name, "primary");
+        assert_eq!(registry.cache.as_deref(), Some(".axiom/cache"));
+        let dependency = &manifest.dependencies["dep"];
+        assert!(dependency.is_registry());
+        assert!(!dependency.is_path());
+        assert_eq!(
+            dependency.registry_source().expect("registry").package,
+            "dep"
         );
+        assert_eq!(dependency.version.as_deref(), Some("^1.2.3"));
+    }
+
+    #[test]
+    fn rejects_registry_materialization_roots_equal_to_effective_defaults() {
+        for (label, roots) in [
+            ("explicit cache versus default vendor", "cache = \"vendor\""),
+            (
+                "default cache versus explicit vendor",
+                "vendor = \".axiom/cache\"",
+            ),
+        ] {
+            let dir = write_manifest(&format!(
+                r#"
+[package]
+name = "demo"
+version = "0.1.0"
+
+[registry]
+name = "primary"
+index = "https://registry.example.test/index.json"
+trust_roots = "trust/roots.json"
+expectation = "trust/expectation.json"
+{roots}
+"#
+            ));
+            let error = load_manifest(dir.path()).expect_err(label);
+            assert!(
+                error
+                    .message
+                    .contains("registry.cache and registry.vendor must use different paths"),
+                "unexpected {label} error: {}",
+                error.message
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_lexical_aliases_for_registry_materialization_roots() {
+        for (label, cache, vendor) in [
+            ("leading current directory", "./vendor", "vendor"),
+            (
+                "redundant separators and suffix",
+                "packages//materialized",
+                "packages/materialized/.",
+            ),
+        ] {
+            let dir = write_manifest(&format!(
+                r#"
+[package]
+name = "demo"
+version = "0.1.0"
+
+[registry]
+name = "primary"
+index = "https://registry.example.test/index.json"
+trust_roots = "trust/roots.json"
+expectation = "trust/expectation.json"
+cache = "{cache}"
+vendor = "{vendor}"
+"#
+            ));
+            let error = load_manifest(dir.path()).expect_err(label);
+            assert!(
+                error
+                    .message
+                    .contains("registry.cache and registry.vendor must use different paths"),
+                "unexpected {label} error: {}",
+                error.message
+            );
+        }
+    }
+
+    #[test]
+    fn normalizes_valid_distinct_registry_materialization_roots() {
+        let dir = write_manifest(
+            r#"
+[package]
+name = "demo"
+version = "0.1.0"
+
+[registry]
+name = "primary"
+index = "https://registry.example.test/index.json"
+trust_roots = "trust/roots.json"
+expectation = "trust/expectation.json"
+cache = "./.axiom//cache/."
+vendor = "./vendor//packages/."
+"#,
+        );
+        let manifest = load_manifest(dir.path()).expect("distinct roots should parse");
+        let registry = manifest.registry.expect("root registry");
+        assert_eq!(registry.cache.as_deref(), Some(".axiom/cache"));
+        assert_eq!(registry.vendor.as_deref(), Some("vendor/packages"));
+        assert_eq!(registry.cache_root(), ".axiom/cache");
+        assert_eq!(registry.vendor_root(), "vendor/packages");
+    }
+
+    #[test]
+    fn rejects_nonportable_registry_materialization_roots() {
+        for (label, cache, expected) in [
+            ("parent traversal", "../cache", "parent traversal"),
+            ("absolute path", "/tmp/cache", "must be relative"),
+            (
+                "backslash separator",
+                r"nested\cache",
+                "portable '/' path separators",
+            ),
+        ] {
+            let dir = write_manifest(&format!(
+                r#"
+[package]
+name = "demo"
+version = "0.1.0"
+
+[registry]
+name = "primary"
+index = "https://registry.example.test/index.json"
+trust_roots = "trust/roots.json"
+expectation = "trust/expectation.json"
+cache = '{cache}'
+"#
+            ));
+            let error = load_manifest(dir.path()).expect_err(label);
+            assert!(
+                error.message.contains(expected),
+                "unexpected {label} error: {}",
+                error.message
+            );
+        }
+    }
+
+    #[test]
+    fn registry_dependency_requires_exactly_one_source_kind() {
+        for (label, dependency) in [
+            (
+                "both",
+                "path = \"dep\"\nregistry = \"primary\"\nnamespace = \"acme\"\nversion = \"1.2.3\"",
+            ),
+            ("neither", "version = \"1.2.3\""),
+        ] {
+            let dir = write_manifest(&format!(
+                r#"
+[package]
+name = "demo"
+version = "0.1.0"
+
+[registry]
+name = "primary"
+index = "https://registry.example.test/index.json"
+trust_roots = "trust/roots.json"
+expectation = "trust/expectation.json"
+
+[dependencies.dep]
+{dependency}
+"#
+            ));
+            let error = load_manifest(dir.path()).expect_err(label);
+            assert!(
+                error.message.contains("exactly one source kind"),
+                "unexpected {label} error: {}",
+                error.message
+            );
+        }
+    }
+
+    #[test]
+    fn registry_http_is_limited_to_loopback_fixtures() {
+        for accepted in [
+            "http://127.0.0.42:8080/index.json",
+            "http://[::1]:8080/index.json",
+            "https://registry.example.test/index.json",
+            "file:///tmp/axiom-registry/index.json",
+        ] {
+            let dir = write_manifest(&format!(
+                r#"
+[package]
+name = "demo"
+version = "0.1.0"
+
+[registry]
+name = "fixture"
+index = "{accepted}"
+trust_roots = "roots.json"
+expectation = "expectation.json"
+"#
+            ));
+            load_manifest(dir.path())
+                .unwrap_or_else(|error| panic!("{accepted} should parse: {error:?}"));
+        }
+
+        for rejected in [
+            "http://localhost:8080/index.json",
+            "http://registry.example.test/index.json",
+            "http://192.0.2.10/index.json",
+            "http://localhost@example.test/index.json",
+        ] {
+            let dir = write_manifest(&format!(
+                r#"
+[package]
+name = "demo"
+version = "0.1.0"
+
+[registry]
+name = "fixture"
+index = "{rejected}"
+trust_roots = "roots.json"
+expectation = "expectation.json"
+"#
+            ));
+            let error = load_manifest(dir.path()).expect_err(rejected);
+            assert!(error.message.contains("loopback fixture source"));
+        }
+    }
+
+    #[test]
+    fn exact_byte_parser_never_rereads_source_path() {
+        let source = Path::new("/authenticated/release/axiom.toml");
+        let manifest = parse_manifest_exact(
+            b"[package]\nname = \"trusted\"\nversion = \"1.2.3\"\n",
+            source,
+        )
+        .expect("exact bytes should parse");
+        assert_eq!(manifest.package.expect("package").name, "trusted");
+
+        let error = parse_manifest_exact(&[0xff, 0xfe], source)
+            .expect_err("non-UTF-8 authenticated bytes must fail closed");
+        assert_eq!(
+            error.path.as_deref(),
+            Some(source.to_string_lossy().as_ref())
+        );
+        assert!(error.message.contains("not UTF-8"));
     }
 }

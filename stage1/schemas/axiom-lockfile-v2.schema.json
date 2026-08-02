@@ -1,0 +1,438 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://axiom.omt.global/schemas/axiom-lockfile-v2.schema.json",
+  "title": "Axiom lockfile v2",
+  "description": "Strict TOML-to-JSON contract for deterministic path and trusted registry resolution.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "compatibility",
+    "roots",
+    "package",
+    "edge"
+  ],
+  "properties": {
+    "version": {
+      "const": 2
+    },
+    "compatibility": {
+      "$ref": "#/$defs/compatibility"
+    },
+    "roots": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 2048
+      }
+    },
+    "registry": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/registry"
+      }
+    },
+    "package": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/package"
+      }
+    },
+    "edge": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/edge"
+      }
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "keyId": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "releaseVersion": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
+    },
+    "pathSource": {
+      "type": "string",
+      "maxLength": 4096,
+      "pattern": "^path(?::(?!/)(?!\\.{1,2}(?:/|$))(?!.*?/\\.{1,2}(?:/|$))(?!.*//)(?!.*\\\\)[^/\\\\\\r\\n]+(?:/[^/\\\\\\r\\n]+)*)?$"
+    },
+    "compatibility": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contract",
+        "compiler",
+        "edition_policy"
+      ],
+      "properties": {
+        "contract": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "compiler": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "edition_policy": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        }
+      }
+    },
+    "registry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "source",
+        "registry_identity",
+        "source_identity",
+        "trust_roots_sha256",
+        "expectation_sha256",
+        "current_root_version",
+        "current_root_sequence",
+        "current_root_transcript_sha256",
+        "index_sha256",
+        "index_transcript_sha256",
+        "index_generation",
+        "index_sequence",
+        "index_snapshot_id",
+        "index_signer_key_ids"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$"
+        },
+        "source": {
+          "type": "string",
+          "maxLength": 4096,
+          "pattern": "^(https://[^/?#@]+(?:/[^?#]*)?|file:///[^?#]+|http://(?:127(?:\\.(?:0|[1-9][0-9]?|1[0-9]{2}|2[0-4][0-9]|25[0-5])){3}|\\[::1\\])(?::(?:0|[1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5]))?(?:/[^?#]*)?)$"
+        },
+        "registry_identity": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "source_identity": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "trust_roots_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "expectation_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "current_root_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "current_root_sequence": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "current_root_transcript_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "index_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "index_transcript_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "index_generation": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "index_sequence": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "index_snapshot_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "index_signer_key_ids": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/keyId"
+          },
+          "uniqueItems": true
+        }
+      }
+    },
+    "package": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "name",
+        "version",
+        "source",
+        "compatibility"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "version": {
+          "$ref": "#/$defs/releaseVersion"
+        },
+        "source": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/pathSource"
+            },
+            {
+              "type": "string",
+              "maxLength": 4096,
+              "pattern": "^registry:[a-z0-9][a-z0-9_-]{0,63}/[a-z0-9][a-z0-9._-]{0,127}/[a-z0-9][a-z0-9._-]{0,127}$"
+            }
+          ]
+        },
+        "registry": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$"
+        },
+        "namespace": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"
+        },
+        "archive_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "archive_length": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 67108864
+        },
+        "manifest_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "provenance_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "package_signature_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "verification_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "publisher_identity": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "signer_key_ids": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/keyId"
+          },
+          "uniqueItems": true
+        },
+        "cache_key": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "yanked_at_resolution": {
+          "type": "boolean"
+        },
+        "compatibility": {
+          "$ref": "#/$defs/compatibility"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "source": {
+                "pattern": "^registry:"
+              }
+            },
+            "required": [
+              "source"
+            ]
+          },
+          "then": {
+            "required": [
+              "registry",
+              "namespace",
+              "archive_sha256",
+              "archive_length",
+              "manifest_sha256",
+              "provenance_sha256",
+              "package_signature_sha256",
+              "verification_sha256",
+              "publisher_identity",
+              "signer_key_ids",
+              "cache_key",
+              "yanked_at_resolution"
+            ]
+          },
+          "else": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "registry"
+                  ]
+                },
+                {
+                  "required": [
+                    "namespace"
+                  ]
+                },
+                {
+                  "required": [
+                    "archive_sha256"
+                  ]
+                },
+                {
+                  "required": [
+                    "archive_length"
+                  ]
+                },
+                {
+                  "required": [
+                    "manifest_sha256"
+                  ]
+                },
+                {
+                  "required": [
+                    "provenance_sha256"
+                  ]
+                },
+                {
+                  "required": [
+                    "package_signature_sha256"
+                  ]
+                },
+                {
+                  "required": [
+                    "verification_sha256"
+                  ]
+                },
+                {
+                  "required": [
+                    "publisher_identity"
+                  ]
+                },
+                {
+                  "required": [
+                    "signer_key_ids"
+                  ]
+                },
+                {
+                  "required": [
+                    "cache_key"
+                  ]
+                },
+                {
+                  "required": [
+                    "yanked_at_resolution"
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "edge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "from",
+        "to",
+        "alias",
+        "requested",
+        "source_kind",
+        "reason"
+      ],
+      "properties": {
+        "from": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "to": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "alias": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "requested": {
+          "type": "string",
+          "maxLength": 256,
+          "pattern": "^(\\*|\\^?(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*))$"
+        },
+        "source_kind": {
+          "enum": [
+            "path",
+            "registry"
+          ]
+        },
+        "reason": {
+          "enum": [
+            "root_path_constraint",
+            "transitive_path_constraint",
+            "highest_compatible",
+            "exact_locked_replay",
+            "trusted_yanked_locked_replay"
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "source_kind": {
+                "const": "registry"
+              }
+            },
+            "required": [
+              "source_kind"
+            ]
+          },
+          "then": {
+            "properties": {
+              "requested": {
+                "pattern": "^\\^?(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

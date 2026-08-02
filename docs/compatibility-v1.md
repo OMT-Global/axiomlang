@@ -80,25 +80,23 @@ release history or a previous compiler.
 `previous-contract-fixture/` remains sparse synthetic checker input and is not
 used as the canonical ratchet.
 
-The current source contract is version `0.3.0` with 61 surfaces. Its changes
-from the byte-frozen 52-surface `0.1.0` accepted baseline are the five additive
-Package Trust v1 schemas, the four additive base-contract schemas (Provider
-ABI, Semantic MIR, runtime lifecycle, and persistent LSP), and the additive
-`pkg verify` command path. Per-surface
-versions remain `0.1.0` for unchanged surfaces and are `0.2.0` for the five
-schema additions and the CLI surface, so a contract-level version bump does not
-fabricate semantic drift across the existing inventory.
+The current source contract is version `0.4.0` with 66 surfaces. Its changes
+from the byte-frozen 52-surface `0.1.0` accepted baseline include the five
+Package Trust v1 schemas, four additive base-contract schemas (Provider ABI,
+Semantic MIR, runtime lifecycle, and persistent LSP), two quality schemas
+(quality policy and quality report), and three package-resolver schemas. The existing CLI, manifest, lockfile, `axiom.toml` schema, and stage1
+JSON-envelope schema surfaces also carry their governed package-resolver
+changes. Per-surface versions remain `0.1.0` for unchanged surfaces and are
+`0.2.0` for the schema additions and the CLI surface, so a contract-level
+version bump does not fabricate semantic drift across the existing inventory.
+The CLI surface is version `0.3.0`.
 
-Existing command invocations require no changes. Because Compatibility v1
-conservatively treats any aggregate CLI signature change as breaking, the CLI
-surface carries explicit migration guidance: operators opting into offline
-Package Trust verification provide the exact archive, manifest, provenance,
-package-signature, trust-roots, registry-index, and expectation files and
-select the required `--json` output. The command emits an
-`axiom.package_verification.v1` result, exits `0` for a trusted decision, exits
-`1` for a schema-compatible rejected decision (including missing or malformed
-package inputs), and reserves exit `2` for an operational or output-I/O
-failure.
+Existing command invocations require no changes. Operators adopting registry
+dependencies run `axiomc pkg fetch` to create the v2 lockfile and verified
+cache, use `axiomc pkg update` for explicit re-resolution, and run
+`axiomc pkg vendor` before cache-independent locked offline builds. Standalone
+Package Trust verification remains available through `axiomc pkg verify` with
+the exact artifact and trust metadata paths plus `--json`.
 
 Verify source derivation and the corpus with:
 

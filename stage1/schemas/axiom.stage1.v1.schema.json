@@ -266,6 +266,19 @@
     "error": {
       "$ref": "#/$defs/diagnostic"
     },
+    "trace": {
+      "$ref": "#/$defs/resolverTrace"
+    },
+    "resolver": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/resolverError"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
     "requested": {
       "type": "array",
       "items": {
@@ -832,9 +845,64 @@
         },
         "repair": {
           "$ref": "#/$defs/diagnostic_repair"
+        },
+        "trace": {
+          "$ref": "#/$defs/resolverTrace"
+        },
+        "resolver": {
+          "$ref": "#/$defs/resolverError"
         }
       },
       "additionalProperties": false
+    },
+    "resolverTrace": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/resolverTraceEvent"
+      }
+    },
+    "resolverTraceEvent": {
+      "type": "object",
+      "required": [
+        "event"
+      ],
+      "properties": {
+        "event": {
+          "enum": [
+            "path_preserved",
+            "constraint_added",
+            "catalog_authenticated",
+            "candidate_considered",
+            "candidate_rejected",
+            "candidate_verified",
+            "selected",
+            "backtracked",
+            "conflict"
+          ]
+        }
+      },
+      "additionalProperties": true
+    },
+    "resolverError": {
+      "type": "object",
+      "required": [
+        "kind"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "invalid_request",
+            "invalid_catalog",
+            "source",
+            "conflict",
+            "budget_exceeded"
+          ]
+        },
+        "trace": {
+          "$ref": "#/$defs/resolverTrace"
+        }
+      },
+      "additionalProperties": true
     },
     "docItem": {
       "type": "object",

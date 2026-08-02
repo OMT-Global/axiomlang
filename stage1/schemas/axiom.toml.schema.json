@@ -64,6 +64,42 @@
       },
       "additionalProperties": false
     },
+    "registry": {
+      "type": "object",
+      "required": [
+        "name",
+        "index",
+        "trust_roots",
+        "expectation"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$"
+        },
+        "index": {
+          "type": "string",
+          "pattern": "^(https://[^/?#@]+(?:/[^?#]*)?|file:///[^?#]+|http://(?:127(?:\\.(?:0|[1-9][0-9]?|1[0-9]{2}|2[0-4][0-9]|25[0-5])){3}|\\[::1\\])(?::(?:0|[1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5]))?(?:/[^?#]*)?)$"
+        },
+        "trust_roots": {
+          "type": "string",
+          "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+$"
+        },
+        "expectation": {
+          "type": "string",
+          "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+$"
+        },
+        "cache": {
+          "type": "string",
+          "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+$"
+        },
+        "vendor": {
+          "type": "string",
+          "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+$"
+        }
+      },
+      "additionalProperties": false
+    },
     "dependencies": {
       "type": "object",
       "additionalProperties": {
@@ -77,14 +113,41 @@
               "path"
             ],
             "properties": {
-          "path": {
-            "type": "string",
-            "minLength": 1
+              "path": {
+                "type": "string",
+                "minLength": 1
+              },
+              "version": {
+                "type": "string",
+                "pattern": "^(\\*|\\^?(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*))$"
+              }
+            },
+            "additionalProperties": false
           },
-          "version": {
-            "type": "string",
-            "pattern": "^(\\*|\\^?(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*))$"
-          }
+          {
+            "type": "object",
+            "required": [
+              "registry",
+              "namespace",
+              "version"
+            ],
+            "properties": {
+              "registry": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$"
+              },
+              "namespace": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"
+              },
+              "package": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"
+              },
+              "version": {
+                "type": "string",
+                "pattern": "^\\^?(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
+              }
             },
             "additionalProperties": false
           }

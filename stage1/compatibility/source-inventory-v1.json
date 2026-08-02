@@ -1,10 +1,12 @@
 {
   "schema_version": "axiom.compatibility_source_inventory.v1",
-  "contract_version": "0.3.0",
+  "contract_version": "0.4.0",
   "surface_versions": {
     "default": "0.1.0",
     "overrides": {
-      "axiom://cli/axiomc": "0.2.0",
+      "axiom://cli/axiomc": "0.3.0",
+      "axiom://package/lockfile": "0.2.0",
+      "axiom://package/manifest": "0.2.0",
       "axiom://schema/axiom-build-lowering-evidence-v1": "0.2.0",
       "axiom://schema/axiom-package-signature-v1": "0.2.0",
       "axiom://schema/axiom-package-verification-expectation-v1": "0.2.0",
@@ -12,7 +14,8 @@
       "axiom://schema/axiom-registry-index-v2": "0.2.0",
       "axiom://schema/axiom.stage1.command": "0.2.0",
       "axiom://schema/axiom.stage1.v1": "0.2.0",
-      "axiom://schema/axiom-trust-roots-v1": "0.2.0"
+      "axiom://schema/axiom-trust-roots-v1": "0.2.0",
+      "axiom://schema/axiom.toml": "0.2.0"
     }
   },
   "surface_migrations": {
@@ -23,7 +26,10 @@
       "action": "Update consumers to understand the new diagnostic and lowering fields before consuming axiom.stage1.command envelopes."
     },
     "axiom://schema/axiom.stage1.v1": {
-      "action": "Update consumers to understand the new diagnostic and lowering fields before consuming axiom.stage1.v1 envelopes."
+      "action": "Update consumers to understand the new diagnostic and lowering fields plus the optional structured trace and resolver fields before consuming axiom.stage1.v1 envelopes."
+    },
+    "axiom://schema/axiom.toml": {
+      "action": "Existing path-only manifests remain valid. To adopt registry dependencies, add the root registry configuration and use the closed registry dependency object documented by the 0.2 schema, then run axiomc pkg fetch to create axiom.lock version 2."
     }
   },
   "snapshot_id": "axiom://compatibility/current-source-contract",
@@ -60,12 +66,21 @@
       "path": "stage1/schemas/axiom.toml.schema.json",
       "extractor": "package_manifest",
       "implementation": "stage1/crates/axiomc/src/manifest.rs",
-      "parser_contract": "stage1/compatibility/manifest-parser-contract-v1.json"
+      "parser_contract": "stage1/compatibility/manifest-parser-contract-v1.json",
+      "migration": {
+        "action": "Existing path dependencies remain valid. Registry consumers add one root [registry] table with index, trust_roots, and expectation paths, then use the closed registry dependency form with registry, namespace, package, and an exact or caret version requirement before running axiomc pkg fetch."
+      }
     },
     {
       "kind": "package",
       "path": "stage1/compatibility/fixtures/current/axiom.lock",
-      "extractor": "lockfile"
+      "extractor": "lockfile",
+      "schema_v2": "stage1/schemas/axiom-lockfile-v2.schema.json",
+      "fixture_v2": "stage1/package-resolver/fixtures/lockfile-v2.json",
+      "implementation": "stage1/crates/axiomc/src/lockfile.rs",
+      "migration": {
+        "action": "Path-only axiom.lock version 1 files remain supported. Before using registry dependencies, run axiomc pkg fetch without --locked to authenticate the registry graph and atomically replace the valid v1 file with axiom.lock version 2; thereafter use --locked --offline for exact cache or vendor replay."
+      }
     },
     {
       "kind": "abi",

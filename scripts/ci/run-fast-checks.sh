@@ -88,6 +88,7 @@ python3 "$script_repo_root/scripts/ci/check-production-language-readiness.py" \
   --json --validate-only >/dev/null
 bash "$script_repo_root/scripts/ci/test-check-production-language-readiness.sh"
 bash "$script_repo_root/scripts/ci/test-check-direct-native-runtime-abi.sh"
+python3 "$script_repo_root/scripts/ci/check-package-graph-boundary.py" --json >/dev/null
 bash "$script_repo_root/scripts/ci/test-check-package-graph-boundary.sh"
 bash "$script_repo_root/scripts/ci/test-check-diagnostics-syntax-boundary.sh"
 bash "$script_repo_root/scripts/ci/test-check-command-lsp-boundary.sh"
