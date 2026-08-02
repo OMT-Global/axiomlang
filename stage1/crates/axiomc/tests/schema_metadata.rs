@@ -1,4 +1,10 @@
-use axiomc::{json_contract, manifest::KNOWN_CAPABILITIES};
+use axiomc::{
+    json_contract,
+    manifest::{
+        DEPENDENCY_VERSION_PATTERN, KNOWN_CAPABILITIES, PER_TEST_CAPABILITIES_SUPPORTED,
+        TEST_KIND_NAMES,
+    },
+};
 use jsonschema::Validator;
 use serde_json::Value;
 use std::fs;
@@ -426,7 +432,6 @@ fn formatter_edit_v1_schema_metadata_is_current() {
             "formatter edit schema requires {field}"
         );
     }
-
     let validator = compile_validator(&schema);
     let valid_edit = serde_json::json!({
         "schema_version": json_contract::JSON_SCHEMA_VERSION,
@@ -592,10 +597,21 @@ fn editor_metadata_schemas_are_parseable_and_current() {
     assert!(manifest_schema["properties"]["capabilities"]["properties"]["env"]["oneOf"].is_array());
 
     let test_target = &manifest_schema["properties"]["tests"]["items"]["properties"];
+    let parser_contract: Value = serde_json::from_str(
+        &fs::read_to_string(
+            schema_dir()
+                .parent()
+                .expect("stage1 root")
+                .join("compatibility/manifest-parser-contract-v1.json"),
+        )
+        .expect("read manifest parser contract"),
+    )
+    .expect("manifest parser contract is valid JSON");
     for field in [
         "kind",
         "stderr",
         "expected_error",
+        "http",
         "capabilities",
         "package",
     ] {
@@ -604,14 +620,136 @@ fn editor_metadata_schemas_are_parseable_and_current() {
             "manifest schema includes tests[].{field}"
         );
     }
+    assert_eq!(
+        test_target["kind"]["enum"],
+        serde_json::json!(TEST_KIND_NAMES),
+        "manifest schema test kinds must exactly match the parser contract"
+    );
+    assert_eq!(
+        parser_contract["test_kinds"],
+        serde_json::json!(TEST_KIND_NAMES),
+        "governed parser contract must match parser test kinds"
+    );
+    assert!(
+        !PER_TEST_CAPABILITIES_SUPPORTED,
+        "update schema parity when per-test capabilities become enforceable"
+    );
+    assert_eq!(
+        test_target["capabilities"]["maxItems"], 0,
+        "schema must reject non-empty per-test capabilities while the parser does"
+    );
+    assert_eq!(
+        parser_contract["test_capabilities"]["names"],
+        serde_json::json!(
+            KNOWN_CAPABILITIES
+                .iter()
+                .map(|capability| capability.name())
+                .collect::<Vec<_>>()
+        ),
+        "governed parser contract must match parser capability names"
+    );
+    assert_eq!(
+        test_target["capabilities"]["items"]["enum"], parser_contract["test_capabilities"]["names"],
+        "manifest schema capability names must match the governed parser contract"
+    );
+    assert_eq!(
+        parser_contract["dependency_version_pattern"], DEPENDENCY_VERSION_PATTERN,
+        "governed parser contract must match canonical dependency version syntax"
+    );
+    assert_eq!(
+        manifest_schema["properties"]["dependencies"]["additionalProperties"]["oneOf"][1]["properties"]
+            ["version"]["pattern"],
+        parser_contract["dependency_version_pattern"],
+        "manifest schema dependency versions must match the governed parser contract"
+    );
 
     let manifest_capabilities = &manifest_schema["properties"]["capabilities"]["properties"];
-    for field in ["deny_by_default", "unsafe_opt_ins", "owners", "rationale"] {
+    for field in [
+        "deny_by_default",
+        "unsafe_opt_ins",
+        "unsafe_rationale",
+        "owners",
+        "rationale",
+    ] {
         assert!(
             manifest_capabilities[field].is_object(),
             "manifest schema includes capabilities.{field}"
         );
     }
+
+    let manifest_validator = compile_validator(&manifest_schema);
+    let parser_parity_manifest = serde_json::json!({
+        "package": {"name": "parity", "version": "0.1.0"},
+        "dependencies": {
+            "dep": {"path": "../dep", "version": "^1.2.3"}
+        },
+        "tests": [{
+            "name": "http",
+            "entry": "src/http_test.ax",
+            "http": {
+                "bind": "127.0.0.1:0",
+                "path": "/health",
+                "expected_body": "ok"
+            }
+        }],
+        "capabilities": {
+            "env": true,
+            "env_unrestricted": true,
+            "unsafe_rationale": "This test intentionally reads the inherited environment."
+        }
+    });
+    manifest_validator
+        .validate(&parser_parity_manifest)
+        .expect("manifest schema accepts fields supported by the parser");
+    for registry in [
+        "https://registry.example.test/index",
+        "file:///tmp/axiom-registry",
+    ] {
+        let mut with_registry = parser_parity_manifest.clone();
+        with_registry["publish"] = serde_json::json!({"registry": registry});
+        manifest_validator
+            .validate(&with_registry)
+            .unwrap_or_else(|error| {
+                panic!("schema must accept parser registry {registry}: {error}")
+            });
+    }
+    for registry in [
+        "https://registry.example.test/index?mirror=1",
+        "https://registry.example.test/index#fragment",
+        "file:///tmp/registry?mirror=1",
+    ] {
+        let mut with_registry = parser_parity_manifest.clone();
+        with_registry["publish"] = serde_json::json!({"registry": registry});
+        assert!(
+            !manifest_validator.is_valid(&with_registry),
+            "schema must reject parser-invalid registry {registry}"
+        );
+    }
+    for kind in TEST_KIND_NAMES {
+        let mut with_kind = parser_parity_manifest.clone();
+        with_kind["tests"][0]["kind"] = serde_json::json!(kind);
+        manifest_validator
+            .validate(&with_kind)
+            .unwrap_or_else(|error| panic!("schema must accept parser test kind {kind}: {error}"));
+    }
+    let mut unknown_kind = parser_parity_manifest.clone();
+    unknown_kind["tests"][0]["kind"] = serde_json::json!("integration");
+    assert!(
+        !manifest_validator.is_valid(&unknown_kind),
+        "schema must reject a test kind rejected by the parser"
+    );
+    let mut unsupported_capability = parser_parity_manifest.clone();
+    unsupported_capability["tests"][0]["capabilities"] = serde_json::json!(["net"]);
+    assert!(
+        !manifest_validator.is_valid(&unsupported_capability),
+        "schema must reject non-empty per-test capabilities while the parser does"
+    );
+    let mut invalid_dependency_version = parser_parity_manifest;
+    invalid_dependency_version["dependencies"]["dep"]["version"] = serde_json::json!("^01.2.3");
+    assert!(
+        !manifest_validator.is_valid(&invalid_dependency_version),
+        "manifest schema and parser both reject noncanonical dependency versions"
+    );
 
     let known_capability_names: Vec<&str> = KNOWN_CAPABILITIES
         .iter()
@@ -1014,4 +1152,243 @@ fn semantic_verification_schemas_and_fixtures_are_well_formed() {
             ]
         }))
         .expect("semantic diff sample validates");
+}
+
+#[test]
+fn package_trust_v1_schemas_compile_and_validate_contract_sections() {
+    let fixtures = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join("package-trust")
+        .join("contract")
+        .join("package-trust.json");
+    let contract: Value = serde_json::from_str(
+        &fs::read_to_string(fixtures).expect("read package trust contract fixture"),
+    )
+    .expect("package trust fixture is valid JSON");
+    let schemas = [
+        (
+            "package_signature",
+            "axiom-package-signature-v1.schema.json",
+            "https://axiom.omt.global/schemas/axiom-package-signature-v1.schema.json",
+            "axiom.package_signature.v1",
+        ),
+        (
+            "trust_roots",
+            "axiom-trust-roots-v1.schema.json",
+            "https://axiom.omt.global/schemas/axiom-trust-roots-v1.schema.json",
+            "axiom.package_trust_roots.v1",
+        ),
+        (
+            "registry_index",
+            "axiom-registry-index-v2.schema.json",
+            "https://axiom.omt.global/schemas/axiom-registry-index-v2.schema.json",
+            "axiom.registry_index.v2",
+        ),
+        (
+            "verification_expectation",
+            "axiom-package-verification-expectation-v1.schema.json",
+            "https://axiom.omt.global/schemas/axiom-package-verification-expectation-v1.schema.json",
+            "axiom.package_verification_expectation.v1",
+        ),
+        (
+            "verification",
+            "axiom-package-verification-v1.schema.json",
+            "https://axiom.omt.global/schemas/axiom-package-verification-v1.schema.json",
+            "axiom.package_verification.v1",
+        ),
+    ];
+    for (section, file, id, version) in schemas {
+        let schema: Value = serde_json::from_str(
+            &fs::read_to_string(schema_dir().join(file)).expect("read package trust schema"),
+        )
+        .expect("package trust schema is valid JSON");
+        assert_eq!(schema["$id"], id);
+        assert_eq!(schema["properties"]["schema_version"]["const"], version);
+        assert_eq!(
+            schema["properties"]["contract_status"]["enum"],
+            serde_json::json!(["contract_only", "implemented"])
+        );
+        assert_eq!(schema["additionalProperties"], false);
+        let validator = compile_validator(&schema);
+        assert_eq!(contract[section]["contract_status"], "contract_only");
+        validator
+            .validate(&contract[section])
+            .unwrap_or_else(|error| panic!("{section} fixture must match {file}: {error}"));
+
+        let mut implemented = contract[section].clone();
+        implemented["contract_status"] = serde_json::json!("implemented");
+        validator.validate(&implemented).unwrap_or_else(|error| {
+            panic!("{section} implemented shape must match {file}: {error}")
+        });
+
+        let mut unknown = contract[section].clone();
+        unknown["legacy_hmac"] = serde_json::json!("forbidden");
+        assert!(
+            !validator.is_valid(&unknown),
+            "{section} root must reject unknown fields"
+        );
+    }
+
+    let expectation_schema: Value = serde_json::from_str(
+        &fs::read_to_string(
+            schema_dir().join("axiom-package-verification-expectation-v1.schema.json"),
+        )
+        .expect("read package verification expectation schema"),
+    )
+    .expect("package verification expectation schema is valid JSON");
+    let mut production_expectation = contract["verification_expectation"].clone();
+    production_expectation["contract_status"] = serde_json::json!("implemented");
+    production_expectation
+        .as_object_mut()
+        .expect("expectation is an object")
+        .remove("expected");
+    compile_validator(&expectation_schema)
+        .validate(&production_expectation)
+        .expect("production expectation does not require a fixture oracle");
+
+    let package_schema: Value = serde_json::from_str(
+        &fs::read_to_string(schema_dir().join("axiom-package-signature-v1.schema.json"))
+            .expect("read package signature schema"),
+    )
+    .expect("package signature schema is valid JSON");
+    let package_validator = compile_validator(&package_schema);
+    let mut observed_non_slsa = contract["package_signature"].clone();
+    observed_non_slsa["provenance"]["statement"]["value"]["predicateType"] =
+        serde_json::json!("https://example.test/other");
+    package_validator
+        .validate(&observed_non_slsa)
+        .expect("package input accepts a bounded absolute non-SLSA predicate URI");
+    observed_non_slsa["provenance"]["statement"]["value"]["predicateType"] =
+        serde_json::json!("not-an-absolute-uri");
+    assert!(
+        !package_validator.is_valid(&observed_non_slsa),
+        "package input rejects a relative predicate identifier"
+    );
+
+    let verification_schema: Value = serde_json::from_str(
+        &fs::read_to_string(schema_dir().join("axiom-package-verification-v1.schema.json"))
+            .expect("read package verification result schema"),
+    )
+    .expect("package verification result schema is valid JSON");
+    let validator = compile_validator(&verification_schema);
+    let mut implemented_trusted = contract["verification"].clone();
+    implemented_trusted["contract_status"] = serde_json::json!("implemented");
+    validator
+        .validate(&implemented_trusted)
+        .expect("implemented trusted result retains complete evidence");
+
+    let rejected_partial = serde_json::json!({
+        "schema_version": "axiom.package_verification.v1",
+        "contract": "package.verification",
+        "contract_status": "implemented",
+        "decision": "rejected",
+        "primary_reason_code": "OFFLINE_INPUT_MISSING",
+        "reason_codes": ["OFFLINE_INPUT_MISSING"],
+        "observed": {
+            "registry_identity": "axiom-registry-production"
+        },
+        "signers": [],
+        "archive": null,
+        "manifest_digest": null,
+        "provenance": null,
+        "trust": {
+            "package_threshold": 0,
+            "package_valid_signers": 0,
+            "index_threshold": 0,
+            "index_valid_signers": 0
+        }
+    });
+    validator
+        .validate(&rejected_partial)
+        .expect("rejected result may expose only the evidence available");
+
+    let rejected_unavailable = serde_json::json!({
+        "schema_version": "axiom.package_verification.v1",
+        "contract": "package.verification",
+        "contract_status": "implemented",
+        "decision": "rejected",
+        "primary_reason_code": "OFFLINE_INPUT_MISSING",
+        "reason_codes": ["OFFLINE_INPUT_MISSING"],
+        "observed": {
+            "registry_identity": null,
+            "source_identity": null,
+            "namespace": null,
+            "name": null,
+            "version": null,
+            "target_path": null,
+            "publisher_identity": null
+        },
+        "signers": [],
+        "archive": {},
+        "manifest_digest": {},
+        "provenance": {},
+        "trust": {
+            "root_version": null,
+            "root_sequence": null,
+            "root_transition_from": null,
+            "index_generation": 0,
+            "index_sequence": 0,
+            "package_threshold": 0,
+            "package_valid_signers": 0,
+            "index_threshold": null,
+            "index_valid_signers": 0,
+            "offline_mode": null,
+            "network_fallback": null,
+            "consistent_snapshot": null
+        }
+    });
+    validator
+        .validate(&rejected_unavailable)
+        .expect("rejected result may mark all unavailable evidence explicitly");
+
+    let mut trusted_missing = implemented_trusted.clone();
+    trusted_missing
+        .as_object_mut()
+        .expect("verification is an object")
+        .remove("archive");
+    assert!(
+        !validator.is_valid(&trusted_missing),
+        "trusted results cannot omit evidence"
+    );
+
+    let mut trusted_zero_signers = implemented_trusted.clone();
+    trusted_zero_signers["signers"] = serde_json::json!([]);
+    assert!(
+        !validator.is_valid(&trusted_zero_signers),
+        "trusted results require at least one signer"
+    );
+
+    let mut trusted_zero_counts = implemented_trusted.clone();
+    trusted_zero_counts["trust"]["package_threshold"] = serde_json::json!(0);
+    trusted_zero_counts["trust"]["package_valid_signers"] = serde_json::json!(0);
+    assert!(
+        !validator.is_valid(&trusted_zero_counts),
+        "trusted results require nonzero thresholds and valid signer counts"
+    );
+
+    let mut rejected_non_slsa = implemented_trusted.clone();
+    rejected_non_slsa["decision"] = serde_json::json!("rejected");
+    rejected_non_slsa["primary_reason_code"] = serde_json::json!("PROVENANCE_PREDICATE_MISMATCH");
+    rejected_non_slsa["reason_codes"] = serde_json::json!(["PROVENANCE_PREDICATE_MISMATCH"]);
+    rejected_non_slsa["provenance"]["statement"]["value"]["predicateType"] =
+        serde_json::json!("https://example.test/other");
+    validator
+        .validate(&rejected_non_slsa)
+        .expect("rejected results preserve a bounded observed predicate URI");
+
+    let mut trusted_non_slsa = implemented_trusted;
+    trusted_non_slsa["provenance"]["statement"]["value"]["predicateType"] =
+        serde_json::json!("https://example.test/other");
+    assert!(
+        !validator.is_valid(&trusted_non_slsa),
+        "trusted results retain the expected SLSA v1 predicate"
+    );
+
+    let mut rejected_unknown = rejected_partial;
+    rejected_unknown["observed"]["legacy_hmac"] = serde_json::json!("forbidden");
+    assert!(
+        !validator.is_valid(&rejected_unknown),
+        "partial rejected evidence remains closed to unknown fields"
+    );
 }

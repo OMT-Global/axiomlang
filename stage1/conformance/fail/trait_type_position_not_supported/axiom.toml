@@ -13,10 +13,3 @@ process = false
 env = false
 clock = false
 crypto = false
-
-[expected_error]
-kind = "type"
-message = "trait dispatch is not yet implemented for trait \"Display\""
-path = "src/main.ax"
-line = 4
-column = 1

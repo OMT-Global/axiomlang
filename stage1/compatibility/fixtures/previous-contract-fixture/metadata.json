@@ -1,0 +1,17 @@
+{
+  "schema_version": "axiom.compatibility_corpus.v1",
+  "role": "previous_contract_fixture",
+  "compiler": {
+    "status": "no_compiler_association",
+    "version": null,
+    "released": false,
+    "qualified_previous": false
+  },
+  "edition": {
+    "id": "2026",
+    "policy_status": "experimental",
+    "manifest_selection": "unavailable"
+  },
+  "contract": "contract.json",
+  "qualification": "Synthetic prior contract input for deterministic semantic diff tests only; it is not a released or previously supported AxiOM compiler."
+}

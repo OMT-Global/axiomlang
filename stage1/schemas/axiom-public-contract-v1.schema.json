@@ -1,77 +1,160 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://axiom.omt.global/schemas/axiom-public-contract-v1.schema.json",
-  "title": "Axiom Public Contract v1",
+  "title": "AxiOM Public Contract v1",
   "type": "object",
-  "required": ["schema_version", "edition", "compiler", "surfaces"],
   "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "policy_version",
+    "contract_version",
+    "snapshot_id",
+    "edition",
+    "compiler",
+    "surfaces",
+    "migrations"
+  ],
   "properties": {
     "schema_version": {"const": "axiom.public_contract.v1"},
+    "policy_version": {"$ref": "#/$defs/semver"},
+    "contract_version": {"$ref": "#/$defs/semver"},
+    "snapshot_id": {"$ref": "#/$defs/axiomId"},
     "edition": {"$ref": "#/$defs/edition"},
     "compiler": {"$ref": "#/$defs/compilerRange"},
-    "surfaces": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/surface"}},
-    "migrations": {"$ref": "#/$defs/migrations"}
-  },
-  "$defs": {
-    "edition": {
-      "type": "object",
-      "required": ["id", "status"],
-      "additionalProperties": false,
+    "surfaces": {
+      "type": "array",
+      "minItems": 7,
+      "items": {"$ref": "#/$defs/surface"},
       "allOf": [
-        {
-          "if": {
-            "properties": {"status": {"const": "deprecated"}},
-            "required": ["status"]
-          },
-          "then": {"required": ["migration", "replacement"]},
-          "else": {"not": {"required": ["replacement"]}}
-        }
-      ],
-      "properties": {
-        "id": {"type": "string", "pattern": "^[0-9]{4}$"},
-        "status": {"enum": ["experimental", "supported", "deprecated"]},
-        "migration": {"type": "string", "minLength": 1},
-        "replacement": {"type": "string", "pattern": "^[0-9]{4}$"}
-      }
-    },
-    "compilerRange": {
-      "type": "object",
-      "required": ["minimum", "maximum"],
-      "additionalProperties": false,
-      "properties": {
-        "minimum": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"},
-        "maximum": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"},
-        "migration": {"type": "string", "minLength": 1}
-      }
-    },
-    "surface": {
-      "type": "object",
-      "required": ["id", "kind", "version", "stability", "signature"],
-      "additionalProperties": false,
-      "allOf": [
-        {
-          "if": {
-            "properties": {"stability": {"const": "deprecated"}},
-            "required": ["stability"]
-          },
-          "then": {"required": ["migration", "replacement"]},
-          "else": {"not": {"required": ["replacement"]}}
-        }
-      ],
-      "properties": {
-        "id": {"type": "string", "pattern": "^axiom://[A-Za-z0-9._~:/#@!$&'()*+,;=%-]+$"},
-        "kind": {"enum": ["compiler", "language", "stdlib", "cli", "package", "abi", "schema", "artifact"]},
-        "version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"},
-        "stability": {"enum": ["experimental", "stable", "deprecated"]},
-        "signature": {"type": "string", "minLength": 1},
-        "migration": {"type": "string", "minLength": 1},
-        "replacement": {"type": "string", "pattern": "^axiom://[A-Za-z0-9._~:/#@!$&'()*+,;=%-]+$"}
-      }
+        {"contains": {"properties": {"kind": {"const": "language"}}, "required": ["kind"]}},
+        {"contains": {"properties": {"kind": {"const": "stdlib"}}, "required": ["kind"]}},
+        {"contains": {"properties": {"kind": {"const": "cli"}}, "required": ["kind"]}},
+        {"contains": {"properties": {"kind": {"const": "package"}}, "required": ["kind"]}},
+        {"contains": {"properties": {"kind": {"const": "abi"}}, "required": ["kind"]}},
+        {"contains": {"properties": {"kind": {"const": "schema"}}, "required": ["kind"]}},
+        {"contains": {"properties": {"kind": {"const": "artifact"}}, "required": ["kind"]}}
+      ]
     },
     "migrations": {
       "type": "object",
       "propertyNames": {"pattern": "^axiom://[A-Za-z0-9._~:/#@!$&'()*+,;=%-]+$"},
-      "additionalProperties": {"type": "string", "minLength": 1}
+      "additionalProperties": {"$ref": "#/$defs/removalMigration"}
+    }
+  },
+  "$defs": {
+    "semver": {"type": "string", "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"},
+    "axiomId": {
+      "type": "string",
+      "pattern": "^axiom://[A-Za-z0-9._~:/#@!$&'()*+,;=%-]+$"
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "role", "selector", "sha256"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1, "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+$"},
+        "role": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
+        "selector": {"type": "string", "minLength": 1},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
+    "edition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "status", "source"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[0-9]{4}$"},
+        "status": {"enum": ["experimental", "supported", "deprecated"]},
+        "source": {"$ref": "#/$defs/source"},
+        "migration": {"$ref": "#/$defs/actionMigration"},
+        "replacement": {"type": "string", "pattern": "^[0-9]{4}$"}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"status": {"const": "deprecated"}}, "required": ["status"]},
+          "then": {"required": ["migration", "replacement"]},
+          "else": {"not": {"required": ["replacement"]}}
+        }
+      ]
+    },
+    "compilerRange": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["current", "minimum", "maximum", "source"],
+      "properties": {
+        "current": {"$ref": "#/$defs/semver"},
+        "minimum": {"$ref": "#/$defs/semver"},
+        "maximum": {"$ref": "#/$defs/semver"},
+        "source": {"$ref": "#/$defs/source"},
+        "migration": {"$ref": "#/$defs/actionMigration"}
+      }
+    },
+    "surface": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "version", "stability", "signature", "sources"],
+      "properties": {
+        "id": {"$ref": "#/$defs/axiomId"},
+        "kind": {"enum": ["language", "stdlib", "cli", "package", "abi", "schema", "artifact"]},
+        "version": {"$ref": "#/$defs/semver"},
+        "stability": {"enum": ["experimental", "stable", "deprecated"]},
+        "signature": {"type": "string", "minLength": 1},
+        "sources": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/source"}
+        },
+        "migration": {"$ref": "#/$defs/actionMigration"},
+        "replacement": {"$ref": "#/$defs/axiomId"},
+        "deprecation": {"$ref": "#/$defs/deprecation"}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"stability": {"const": "deprecated"}}, "required": ["stability"]},
+          "then": {"required": ["migration", "replacement", "deprecation"]},
+          "else": {
+            "allOf": [
+              {"not": {"required": ["replacement"]}},
+              {"not": {"required": ["deprecation"]}}
+            ]
+          }
+        }
+      ]
+    },
+    "actionMigration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["action"],
+      "properties": {
+        "action": {"type": "string", "minLength": 1},
+        "replacement": {"$ref": "#/$defs/axiomId"}
+      }
+    },
+    "removalMigration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["action", "removed_in", "removed_on", "replacement"],
+      "properties": {
+        "action": {"type": "string", "minLength": 1},
+        "removed_in": {"$ref": "#/$defs/semver"},
+        "removed_on": {"type": "string", "format": "date"},
+        "replacement": {"$ref": "#/$defs/axiomId"}
+      }
+    },
+    "deprecation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["announced_on", "remove_after", "supported_editions"],
+      "properties": {
+        "announced_on": {"type": "string", "format": "date"},
+        "remove_after": {"type": "string", "format": "date"},
+        "supported_editions": {
+          "type": "array",
+          "minItems": 2,
+          "items": {"type": "string", "pattern": "^[0-9]{4}$"},
+          "uniqueItems": true
+        }
+      }
     }
   }
 }

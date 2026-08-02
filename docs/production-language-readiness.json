@@ -460,10 +460,10 @@
       "governingIssue": 1457,
       "blockerIssues": [1457],
       "dependencies": [1418, 1433],
-      "evidence": ["docs/bootstrap/versioning.md", "docs/semantic-diff-v0.md", "docs/compatibility-v1.md", "stage1/examples/compatibility_v1/current.json", "stage1/schemas/axiom-migration-plan-v1.schema.json", "stage1/json-fixtures/migration-plan/success.plan.json"],
+      "evidence": ["docs/bootstrap/versioning.md", "docs/semantic-diff-v0.md", "docs/compatibility-v1.md", "stage1/compatibility/policy-v1.json", "stage1/compatibility/source-inventory-v1.json", "stage1/compatibility/manifest-parser-contract-v1.json", "stage1/compatibility/abi-surface-v1.json", "stage1/compatibility/fixtures/current/metadata.json", "stage1/compatibility/fixtures/current/contract.json", "stage1/compatibility/fixtures/accepted-baseline/metadata.json", "stage1/compatibility/fixtures/accepted-baseline/policy.json", "stage1/compatibility/fixtures/accepted-baseline/contract.json", "stage1/compatibility/fixtures/previous-contract-fixture/metadata.json", "stage1/compatibility/fixtures/previous-contract-fixture/contract.json", "stage1/schemas/axiom-public-contract-v1.schema.json", "stage1/schemas/axiom-compatibility-policy-v1.schema.json", "stage1/schemas/axiom-compatibility-report-v1.schema.json", "stage1/schemas/axiom-migration-plan-v1.schema.json", "stage1/json-fixtures/migration-plan/success.plan.json"],
       "validatingCommand": "make compatibility-v1 compatibility-v1-test && cargo test --manifest-path stage1/Cargo.toml -p axiomc --test compatibility_v1 --test migration_plan_cli",
       "rustCaptureRisk": "critical",
-      "agentInspectionImpact": "Classify changed public nodes, severity, deprecation, replacement, and deterministic plan-only migration actions."
+      "agentInspectionImpact": "Classify source-derived public nodes, exact compiler and contract ranges, severity, deprecation, replacement, and deterministic plan-only migration actions; do not infer a previous released compiler until immutable dual-compiler qualification exists."
     },
     {
       "id": "package_trust_v1",
@@ -471,13 +471,13 @@
       "requirement": "Consumers verify asymmetric publisher identity, archive integrity, provenance, rotation, and revocation.",
       "requiredForProduction": true,
       "targetTier": "production_qualified",
-      "currentTier": "syntax_only",
-      "status": "partial",
+      "currentTier": "production_qualified",
+      "status": "implemented",
       "governingIssue": 1458,
-      "blockerIssues": [1458],
+      "blockerIssues": [],
       "dependencies": [1457],
-      "evidence": ["docs/package.md", "docs/supply-chain.md"],
-      "validatingCommand": "make supply-chain",
+      "evidence": ["docs/package.md", "docs/package-trust-v1.md", "docs/supply-chain.md", "stage1/package-trust/contract/package-trust.json", "stage1/crates/axiomc/src/package_trust.rs", "stage1/crates/axiomc/src/registry.rs", "stage1/crates/axiomc/tests/package_trust_cli.rs", "stage1/schemas/axiom-package-signature-v1.schema.json", "stage1/schemas/axiom-trust-roots-v1.schema.json", "stage1/schemas/axiom-registry-index-v2.schema.json", "stage1/schemas/axiom-package-verification-expectation-v1.schema.json", "stage1/schemas/axiom-package-verification-v1.schema.json"],
+      "validatingCommand": "make stage1-package-trust-contract stage1-package-trust-contract-test && cargo test --manifest-path stage1/Cargo.toml -p axiomc --locked --lib package_trust::tests && cargo test --manifest-path stage1/Cargo.toml -p axiomc --locked --lib registry::tests && cargo test --manifest-path stage1/Cargo.toml -p axiomc --locked --test package_trust_cli && make supply-chain",
       "rustCaptureRisk": "medium",
       "agentInspectionImpact": "Expose signer, digest, provenance, trust decision, and stable reason codes."
     },

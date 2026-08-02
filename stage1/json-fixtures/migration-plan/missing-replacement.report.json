@@ -2,8 +2,16 @@
   "schema_version": "axiom.compatibility_report.v1",
   "ok": true,
   "command": "compatibility-report",
-  "old": "old.json",
-  "new": "new.json",
+  "policies": {"old": "1.0.0", "new": "1.0.0", "severity": "compatible", "migration": null},
+  "contracts": {"old": "1.0.0", "new": "1.1.0"},
+  "old": "axiom://compatibility/fixture/old",
+  "new": "axiom://compatibility/fixture/new",
+  "compiler": {
+    "old": {"current": "0.1.0", "minimum": "0.1.0", "maximum": "0.1.0"},
+    "new": {"current": "0.1.0", "minimum": "0.1.0", "maximum": "0.1.0"},
+    "severity": "compatible",
+    "migration": null
+  },
   "edition": {
     "old": "2026",
     "new": "2026",

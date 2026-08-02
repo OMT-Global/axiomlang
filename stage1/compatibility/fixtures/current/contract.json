@@ -1,0 +1,996 @@
+{
+  "compiler": {
+    "current": "0.1.0",
+    "maximum": "0.1.0",
+    "minimum": "0.1.0",
+    "source": {
+      "path": "stage1/Cargo.toml",
+      "role": "compiler_version",
+      "selector": "workspace.package.version",
+      "sha256": "0a7df662030a201d7953255a50ad4a5355758bc0626faa44ba879cd1d4eee00f"
+    }
+  },
+  "contract_version": "0.3.0",
+  "edition": {
+    "id": "2026",
+    "source": {
+      "path": "stage1/compatibility/policy-v1.json",
+      "role": "edition_policy",
+      "selector": "editions.current",
+      "sha256": "d3e0f5950eb78df0a6c626a29761491194b57fe4a53a8ec755b7b9b69aea2312"
+    },
+    "status": "experimental"
+  },
+  "migrations": {},
+  "policy_version": "1.0.0",
+  "schema_version": "axiom.public_contract.v1",
+  "snapshot_id": "axiom://compatibility/current-source-contract",
+  "surfaces": [
+    {
+      "id": "axiom://language/edition/2026",
+      "kind": "language",
+      "signature": "edition 2026; status=experimental; selection=not_implemented; coverage=governed_partial; language_semantic_digest=af0632c1bb5bf939d3877901576ba1c97957163ea3c513a9f63df0c85a6c6f9f",
+      "sources": [
+        {
+          "path": "stage1/compatibility/policy-v1.json",
+          "role": "edition_policy",
+          "selector": "editions.current",
+          "sha256": "d3e0f5950eb78df0a6c626a29761491194b57fe4a53a8ec755b7b9b69aea2312"
+        },
+        {
+          "path": "stage1/compiler-contracts/snapshots/diagnostics-syntax.json",
+          "role": "language_semantic_contract",
+          "selector": "schema_version,contract and semantic fields",
+          "sha256": "1c34f1fd84747f200649257fc826aa69a6378ca8bd6282df2f8655d0d8729687"
+        },
+        {
+          "path": "stage1/compiler-contracts/snapshots/hir-ownership-capability.json",
+          "role": "language_semantic_contract",
+          "selector": "schema_version,contract and semantic fields",
+          "sha256": "37602348826c25bd253cfb84e4f7c0882af0ec3fcbf8defbd90e8f63ce07e4a9"
+        }
+      ],
+      "stability": "experimental",
+      "version": "0.1.0"
+    },
+    {
+      "id": "axiom://stdlib/catalog",
+      "kind": "stdlib",
+      "signature": "axiom.compiler.stdlib_catalog.v1; catalog_semantic_digest=18f84b3d7b2aa9f004b4f0a3cd72e1b26f9ad954d22db1673ed073d633b19edd; modules=34; symbols=299",
+      "sources": [
+        {
+          "path": "stage1/compiler-contracts/snapshots/stdlib-catalog.json",
+          "role": "stdlib_catalog",
+          "selector": "modules[*].name,symbols[*].signature",
+          "sha256": "c6c06b27315b8ea273909e0a3e5525c3e35122d7213fb7b1b7e84e085c2a4cd7"
+        }
+      ],
+      "stability": "experimental",
+      "version": "1.0.0"
+    },
+    {
+      "id": "axiom://cli/axiomc",
+      "kind": "cli",
+      "migration": {
+        "action": "Existing command invocations require no changes. To adopt Package Trust v1 verification, invoke axiomc pkg verify with the exact artifact and trust metadata paths plus --json, then handle exit 0 as trusted, exit 1 as rejected, and exit 2 as an operational failure."
+      },
+      "signature": "commands=bench,build,caps,caps diff,check,dap,doc,doctor,evidence,explain,fmt,generate,generate openapi,generate policy,generate runbook,generate sql,generate terraform,inspect,inspect artifacts,inspect effects,inspect graph,inspect intent,inspect symbols,lsp,migrate,mutation-report,new,parse,pkg,pkg graph,pkg verify,publish,registry-index,registry-serve,registry-validate,repair-plan,repl,run,semantic-diff,task-contract,test,trace,verification-plan,verify; command_semantic_digest=eb9bfe7d1fdd4d572ec7f0d33aa8c5e455c1cc8b13507daf52b634791bf6a98b; flags_status=experimental_partial; flags=--json is the versioned machine envelope opt-in where the command publishes JSON; command-specific optional flags remain additive.; exit=0 means the requested operation completed successfully; nonzero means diagnostics or an operational failure.; json=axiom.stage1.v1 for governed stage1 command payloads; command-specific schemas retain their own AxiOM schema IDs.",
+      "sources": [
+        {
+          "path": "stage1/compatibility/cli-surface-v1.json",
+          "role": "cli_public_surface",
+          "selector": "command_paths,flags,exit_status,migration",
+          "sha256": "8972e6b09446133fefd800feae3214f26fd79766886e8232056f9dea473978e6"
+        },
+        {
+          "path": "stage1/compiler-contracts/schemas/axiom.stage1.command.schema.json",
+          "role": "cli_json_envelope",
+          "selector": "$id,oneOf",
+          "sha256": "ddc64d122d59925ec93391d86781b8d4f76adf01e846f7120d312f32ce71421c"
+        },
+        {
+          "path": "stage1/compiler-contracts/snapshots/capability-ledger.json",
+          "role": "cli_top_level_parity",
+          "selector": "commands[*].name",
+          "sha256": "4f26106e3bea22f2aec9ddd1979e3b6f075692e5a40cf19c2ab93c56566d26dc"
+        },
+        {
+          "path": "stage1/crates/axiomc/src/main.rs",
+          "role": "cli_command_graph_parity",
+          "selector": "Command and nested command variant names",
+          "sha256": "919f1e405f07896ae4f8b369501f791d95d0cb9096268f21765aa9335851b954"
+        }
+      ],
+      "stability": "experimental",
+      "version": "0.2.0"
+    },
+    {
+      "id": "axiom://package/lockfile",
+      "kind": "package",
+      "signature": "axiom.lock format=1; records=package(name,version,source)",
+      "sources": [
+        {
+          "path": "stage1/compatibility/fixtures/current/axiom.lock",
+          "role": "lockfile_format",
+          "selector": "version,package[*]",
+          "sha256": "b84320f39f44d45319d8efd29d612922227bb8ed30111c2291df1f2ec98e1ea1"
+        }
+      ],
+      "stability": "experimental",
+      "version": "0.1.0"
+    },
+    {
+      "id": "axiom://package/manifest",
+      "kind": "package",
+      "signature": "axiom.toml schema=https://axiom.omt.global/schemas/axiom.toml.schema.json; semantic_digest=4887c917589982835dbecc5c3ef80657151df795384e7f3d3296f0028ad7da44; fields=build,capabilities,dependencies,package,publish,runtime,tests,workspace; edition_selector=unavailable",
+      "sources": [
+        {
+          "path": "stage1/compatibility/manifest-parser-contract-v1.json",
+          "role": "package_manifest_parser_contract",
+          "selector": "dependency_version_pattern,test_kinds,test_capabilities",
+          "sha256": "fa27ff0a44167a9f2ec5b07e7ec3ef75e8dc19e36096a4d64fd03dee0778aeec"
+        },
+        {
+          "path": "stage1/crates/axiomc/src/manifest.rs",
+          "role": "package_manifest_parser_parity",
+          "selector": "RawManifest and closed nested manifest structures",
+          "sha256": "42a7342967a349740ab926cda964573918bfb81a953576070def305b7cbf4f5d"
+        },
+        {
+          "path": "stage1/schemas/axiom.toml.schema.json",
+          "role": "package_manifest_schema",
+          "selector": "$id,properties",
+          "sha256": "8fb6c6060461c8209bb2153382f17333b390f8ba4468027c7d395bf7f59cce36"
+        }
+      ],
+      "stability": "experimental",
+      "version": "0.1.0"
+    },
+    {
+      "id": "axiom://abi/direct-native",
+      "kind": "abi",
+      "signature": "axiom.compatibility_abi_surface.v1; abi_id=axiom://abi/logical-runtime-v1; semantic_digest=8e7c072ea3c4576f0f4dfdb4c5db0f5f7c44e942b1b6c99340db6a7441886229; semantic_rows=array.fixed,async.runtime,boolean,clock.now_sleep,crypto.aead,crypto.hash,crypto.mac,crypto.random,crypto.signature,enum.payload,env.read,ffi.call,fs.read,fs.write,io.logging_stdio,json.serdes,map.lookup,network.dns.resolve,network.http.async_server,network.http.client,network.http.server,network.tcp,network.udp,numeric.scalars,option,owned.move_state,process.status,regex.match_replace,result,slice.borrowed,string,struct.field,sync.primitives,tuple",
+      "sources": [
+        {
+          "path": "stage1/compatibility/abi-surface-v1.json",
+          "role": "logical_runtime_abi",
+          "selector": "abi_id,value_features[*].(id,logical_semantics),capability_shims[*].(id,capability,logical_semantics)",
+          "sha256": "0378387b30d8d9e8a68723be95541227644f1baf9961a996886fedd007ec489f"
+        },
+        {
+          "path": "stage1/runtime-abi/direct-native-v0.json",
+          "role": "runtime_abi_readiness_parity",
+          "selector": "value_features[*].id,capability_shims[*].(id,capability)",
+          "sha256": "6e54b6b2f2b4d89c6a8b53a1cbcee6393037993ad02245bbb01d86f1e33e87ba"
+        }
+      ],
+      "stability": "experimental",
+      "version": "0.1.0"
+    },
+    {
+      "id": "axiom://schema/axiom-agent-task-spec-v0",
+      "kind": "schema",
+      "signature": "published schema id=https://axiom.omt.global/schemas/axiom-agent-task-spec-v0.schema.json; semantic_digest=3acd9248b35adca28f836deed5d29e72fd363d11949672b50ec34a0b1d8a2ee7; envelope=axiom.agent_task.spec.v0",
+      "sources": [
+        {
+          "path": "stage1/schemas/axiom-agent-task-spec-v0.schema.json",
+          "role": "published_schema",
+          "selector": "$id,properties.schema_version.const",
+          "sha256": "eb23def010213b1459a5920a5d49b7e0ab15d605ec7fb9ea7146e52fc7e77ca2"
+        }
+      ],
+      "stability": "experimental",
+      "version": "0.1.0"
+    },
+    {
+      "id": "axiom://schema/axiom-agent-task-v0",
+      "kind": "schema",
+      "signature": "published schema id=https://axiom.omt.global/schemas/axiom-agent-task-v0.schema.json; semantic_digest=b7c47a9c9c28c0858422e9a61663fe15f590b3402bd9c3da7fa4bfc8db0e13d5; envelope=axiom.agent_task.v0",
+      "sources": [
+        {
+          "path": "stage1/schemas/axiom-agent-task-v0.schema.json",
+          "role": "published_schema",
+          "selector": "$id,properties.schema_version.const",
+          "sha256": "a083ba0af56797f971409828065fc9e6fb484e7b93326a11c3096fae0f18f67f"
+        }
+      ],
+      "stability": "experimental",
+      "version": "0.1.0"
+    },
+    {
+      "id": "axiom://schema/axiom-artifacts-v0",
+      "kind": "schema",
+      "signature": "published schema id=https://axiomlang.dev/schemas/axiom-artifacts-v0.schema.json; semantic_digest=cb94abafd35bd85cc649fd5989e2e4cc46574046e28a1a029f4ae964bd9634af; envelope=axiom.artifacts.v0",
+      "sources": [
+        {
+          "path": "stage1/schemas/axiom-artifacts-v0.schema.json",
+          "role": "published_schema",
+          "selector": "$id,properties.schema_version.const",
+          "sha256": "777f24f3c7e7414c4850c3cfa309ad267d82c1587d535748d8dd0f323614e64d"
+        }
+      ],
+      "stability": "experimental",
+      "version": "0.1.0"
+    },
+    {
+      "id": "axiom://schema/axiom-benchmark-baseline-v1",
+      "kind": "schema",
+      "signature": "published schema id=https://omt-global.github.io/axiom/schemas/axiom-benchmark-baseline-v1.schema.json; semantic_digest=1ba192d00e164232c51b6769e1a8c5e9bd26fa82ce353a9e4c774e479ab6133f; envelope=axiom.stage1.bench.baseline.v1",
+      "sources": [
+        {
+          "path": "stage1/schemas/axiom-benchmark-baseline-v1.schema.json",
+          "role": "published_schema",
+          "selector": "$id,properties.schema_version.const",
+          "sha256": "e976d2b506f7235d71a49d96462bc748c36087b520b31500a5d8f771bc0c35c7"
+        }
+      ],
+      "stability": "experimental",
+      "version": "0.1.0"
+    },
+    {
+      "id": "axiom://schema/axiom-build-lowering-evidence-v1",
+      "kind": "schema",
+      "signature": "published schema id=https://axiom.omt.global/schemas/axiom-build-lowering-evidence-v1.schema.json; semantic_digest=380e0fa597a2bd485c3a2376c7e3862e60309c4a783a033d0875be4f5d135f57; envelope=axiom.build-lowering-evidence.v1",
+      "sources": [
+        {
+          "path": "stage1/schemas/axiom-build-lowering-evidence-v1.schema.json",
+          "role": "published_schema",
+          "selector": "$id,properties.schema_version.const",
+          "sha256": "b7de2bc8f713785a9bc454cc4612e1cce449f3f00567cb2ce73b21108a8c4adb"
+        }
+      ],
+      "stability": "experimental",
+      "version": "0.1.0"
+    },
+    {
+      "id": "axiom://schema/axiom-capability-ledger-v1",
+      "kind": "schema",
+      "signature": "published schema id=axiom.capability_ledger.v1; semantic_digest=f416ced3fc9c7f9a4bd4e4974a0822af1e5e54350c259f08e3c833905daa5620",
+      "sources": [
+        {
+          "path": "stage1/schemas/axiom-capability-ledger-v1.schema.json",
+          "role": "published_schema",
+          "selector": "$id,properties.schema_version.const",
+          "sha256": "7fa68b75c1568804a92f97dc3a7e0997d780b226afe2e9a0fa60b2fec81a5d31"
+        }
+      ],
+      "stability": "experimental",
+      "version": "0.1.0"
+    },
+    {
+      "id": "axiom://schema/axiom-compatibility-policy-v1",
+      "kind": "schema",
+      "signature": "published schema id=https://axiom.omt.global/schemas/axiom-compatibility-policy-v1.schema.json; semantic_digest=3430d1fd4198ecd6e72078ca4292caaf5c9fa7091e587e497a738f5d7b668c7e; envelope=axiom.compatibility_policy.v1",
+      "sources": [
+        {
+          "path": "stage1/schemas/axiom-compatibility-policy-v1.schema.json",
+          "role": "published_schema",
+          "selector": "$id,properties.schema_version.const",
+          "sha256": "18850fbfcef6c46a2f241fd1d85bbedcde660eeecab35909466e8fad0942f3e1"
+        }
+      ],
+      "stability": "experimental",
+      "version": "0.1.0"
+    },
+    {
+      "id": "axiom://schema/axiom-compatibility-report-v1",
+      "kind": "schema",
+      "signature": "published schema id=https://axiom.omt.global/schemas/axiom-compatibility-report-v1.schema.json; semantic_digest=2edc18aa27386ddf90a2a1895ec0f6515c85c9e6dd95f8c237a9950f5392d509",
+      "sources": [
+        {
+          "path": "stage1/schemas/axiom-compatibility-report-v1.schema.json",
+          "role": "published_schema",
+          "selector": "$id,properties.schema_version.const",
+          "sha256": "92895767d747bc0c0245a6ec4d0a4de8752bddd8972369c66e53415c49ab2672"
+        }
+      ],
+      "stability": "experimental",
+      "version": "0.1.0"
+    },
+    {
+      "id": "axiom://schema/axiom-decision-record-v0",
+      "kind": "schema",
+      "signature": "published schema id=https://axiom.omt.global/schemas/axiom-decision-record-v0.schema.json; semantic_digest=37b71008f2e51076a448bb8c388a1376106c772aa6cdff2e2fc05e48805b309e; envelope=axiom.decision_record.v0",
+      "sources": [
+        {
+          "path": "stage1/schemas/axiom-decision-record-v0.schema.json",
+          "role": "published_schema",
+          "selector": "$id,properties.schema_version.const",
+          "sha256": "5c4c38e120db1b7ee735fa605da75e23ab59c92891059b607f0671bc1291f83f"
+        }
+      ],
+      "stability": "experimental",
+      "version": "0.1.0"
+    },
+    {
+      "id": "axiom://schema/axiom-doc-v0",
+      "kind": "schema",
+      "signature": "published schema id=https://axiom.omt.global/schemas/axiom-doc-v0.schema.json; semantic_digest=0bb24a476d32ec76af64b5f5479aac2c1512caaf6288c092bf380e86a044e2be; envelope=axiom.stage1.v1",
+      "sources": [
+        {
+          "path": "stage1/schemas/axiom-doc-v0.schema.json",
+          "role": "published_schema",
+          "selector": "$id,properties.schema_version.const",
+          "sha256": "7dc7677d79780c07abccf011e7460bf6958f1d5d291d7fb054d3d005680f2421"
+        }
+      ],
+      "stability": "experimental",
+      "version": "0.1.0"
+    },
+    {
+      "id": "axiom://schema/axiom-effects-v0",
+      "kind": "schema",
+      "signature": "published schema id=https://axiomlang.dev/schemas/axiom-effects-v0.schema.json; semantic_digest=01e21608701812dfd3236ccf229b769bbd2e215af3ca8050f407000df723a81e; envelope=axiom.effects.v0",
+      "sources": [
+        {
+          "path": "stage1/schemas/axiom-effects-v0.schema.json",
+          "role": "published_schema",
+          "selector": "$id,properties.schema_version.const",
+          "sha256": "1b669c92349ed5476d3f0961e593bc3b1fc8a6863e30f0bfaeb4aea4940fd085"
+        }
+      ],
+      "stability": "experimental",
+      "version": "0.1.0"
+    },
+    {
+      "id": "axiom://schema/axiom-evidence-v0",
+      "kind": "schema",
+      "signature": "published schema id=https://axiomlang.dev/schemas/axiom-evidence-v0.schema.json; semantic_digest=b6d5c3eeb2a245a5ba4883ec8eeffd165f9cd20b8ddd6cc2e686741909c8827a; envelope=axiom.evidence.v0",
+      "sources": [
+        {
+          "path": "stage1/schemas/axiom-evidence-v0.schema.json",
+          "role": "published_schema",
+          "selector": "$id,properties.schema_version.const",
+          "sha256": "8ae7492fde04c20c4c2618e8e2df4feaa2a7ac7dba437d89977e3f3610adf081"
+        }
+      ],
+      "stability": "experimental",
+      "version": "0.1.0"
+    },
+    {
+      "id": "axiom://schema/axiom-execution-policy-v0",
+      "kind": "schema",
+      "signature": "published schema id=https://axiom.omt.global/schemas/axiom-execution-policy-v0.schema.json; semantic_digest=1cc6f445cb9a91763b9f493614a60145a7e4d3cab86ed0e3e9562881def425bd; envelope=axiom.execution_policy.v0",
+      "sources": [
+        {
+          "path": "stage1/schemas/axiom-execution-policy-v0.schema.json",
+          "role": "published_schema",
+          "selector": "$id,properties.schema_version.const",
+          "sha256": "b2f117b846472964d38d7ed9dd0edacb2bb30dc2c23f533dddd9c9e6cf8a30bd"
+        }
+      ],
+      "stability": "experimental",
+      "version": "0.1.0"
+    },
+    {
+      "id": "axiom://schema/axiom-execution-transaction-v0",
+      "kind": "schema",
+      "signature": "published schema id=https://axiom.omt.global/schemas/axiom-execution-transaction-v0.schema.json; semantic_digest=e2200ba9a91fe5237529f76e7fe85454ff73f5d2e3dcf92434a43b16d5a5cd2f; envelope=axiom.execution_transaction.v0",
+      "sources": [
+        {
+          "path": "stage1/schemas/axiom-execution-transaction-v0.schema.json",
+          "role": "published_schema",
+          "selector": "$id,properties.schema_version.const",
+          "sha256": "301e0d4245b40280e38ee239e0a6850b09d2a5809a79f594b0e26efa22770769"
+        }
+      ],
+      "stability": "experimental",
+      "version": "0.1.0"
+    },
+    {
+      "id": "axiom://schema/axiom-executor-report-v0",
+      "kind": "schema",
+      "signature": "published schema id=https://axiom.omt.global/schemas/axiom-executor-report-v0.schema.json; semantic_digest=4d0a1f6a30f190bbc8fb534db3b9877063b79469be72164ced93eda251dab308; envelope=axiom.bounded_executor.v0",
+      "sources": [
+        {
+          "path": "stage1/schemas/axiom-executor-report-v0.schema.json",
+          "role": "published_schema",
+          "selector": "$id,properties.schema_version.const",
+          "sha256": "d10a968b979c8e80d563f9434a54d350ec250b2c100d8804c2b432ea0c29e1b0"
+        }
+      ],
+      "stability": "experimental",
+      "version": "0.1.0"
+    },
+    {
+      "id": "axiom://schema/axiom-executor-request-v0",
+      "kind": "schema",
+      "signature": "published schema id=https://axiom.omt.global/schemas/axiom-executor-request-v0.schema.json; semantic_digest=163da23f5b44c406ccfb26ea803027ace5354988b65776500bfc7e525226f7d4; envelope=axiom.executor_request.v0",
+      "sources": [
+        {
+          "path": "stage1/schemas/axiom-executor-request-v0.schema.json",
+          "role": "published_schema",
+          "selector": "$id,properties.schema_version.const",
+          "sha256": "6c74050a885601ededb55a84f48ab1c1881bd43eff9b7d7facd52d1c1c337900"
+        }
+      ],
+      "stability": "experimental",
+      "version": "0.1.0"
+    },
+    {
+      "id": "axiom://schema/axiom-executor-resume-v0",
+      "kind": "schema",
+      "signature": "published schema id=https://axiom.omt.global/schemas/axiom-executor-resume-v0.schema.json; semantic_digest=20882e66c44a8af34d466b2029c6e06ccc6d30649db7cbfbb2bbee0121fea206; envelope=axiom.executor_resume.v0",
+      "sources": [
+        {
+          "path": "stage1/schemas/axiom-executor-resume-v0.schema.json",
+          "role": "published_schema",
+          "selector": "$id,properties.schema_version.const",
+          "sha256": "555de886c1f37c72afd7739cc5a130a6d32eafc95bb848ccc0750564f1d4b44f"
+        }
+      ],
+      "stability": "experimental",
+      "version": "0.1.0"
+    },
+    {
+      "id": "axiom://schema/axiom-format-edit-v1",
+      "kind": "schema",
+      "signature": "published schema id=https://axiom.omt.global/schemas/axiom-format-edit-v1.schema.json; semantic_digest=c4736c87893ccbe130889c9de6efbfb01abf95ddaaaead8ac78453aac8847575; envelope=axiom.stage1.v1",
+      "sources": [
+        {
+          "path": "stage1/schemas/axiom-format-edit-v1.schema.json",
+          "role": "published_schema",
+          "selector": "$id,properties.schema_version.const",
+          "sha256": "75ecc8b083bc2476ebabdd74338b281e01c61f4e078680a6e62ea1417389ea29"
+        }
+      ],
+      "stability": "experimental",
+      "version": "0.1.0"
+    },
+    {
+      "id": "axiom://schema/axiom-inspect-v0",
+      "kind": "schema",
+      "signature": "published schema id=https://axiom.omt.global/schemas/axiom-inspect-v0.schema.json; semantic_digest=01239145fb3233d259127c1d4cd32c26d27a8f50a58e4560c6a85c214399093b; envelope=axiom.stage1.v1",
+      "sources": [
+        {
+          "path": "stage1/schemas/axiom-inspect-v0.schema.json",
+          "role": "published_schema",
+          "selector": "$id,properties.schema_version.const",
+          "sha256": "705e7a43435b1bc1c6edb2d7c5246d3ced1a7b7dfb7525d1379c589f23692374"
+        }
+      ],
+      "stability": "experimental",
+      "version": "0.1.0"
+    },
+    {
+      "id": "axiom://schema/axiom-intent-ir-v0",
+      "kind": "schema",
+      "signature": "published schema id=https://axiom-lang.dev/schemas/axiom-intent-ir-v0.schema.json; semantic_digest=2f2eb20cfc4b1e02c10d7c88a8c0e5112f0beb125bde19d26267cde19fbb5937; envelope=axiom.intent_ir.v0",
+      "sources": [
+        {
+          "path": "stage1/schemas/axiom-intent-ir-v0.schema.json",
+          "role": "published_schema",
+          "selector": "$id,properties.schema_version.const",
+          "sha256": "23786e8e67f3fe67280ddbe57dffa8325cb3df54a222f302bf645f631ed88157"
+        }
+      ],
+      "stability": "experimental",
+      "version": "0.1.0"
+    },
+    {
+      "id": "axiom://schema/axiom-migration-plan-v1",
+      "kind": "schema",
+      "signature": "published schema id=https://axiom.omt.global/schemas/axiom-migration-plan-v1.schema.json; semantic_digest=1518655714913cf15ebb972a5c75ac44d58e1d8b218e62960e4c7444160b3692; envelope=axiom.migration_plan.v1",
+      "sources": [
+        {
+          "path": "stage1/schemas/axiom-migration-plan-v1.schema.json",
+          "role": "published_schema",
+          "selector": "$id,properties.schema_version.const",
+          "sha256": "04743eba1c1fce01897584889ccb3be27d25663a9d61c62a182b26407d30bb1d"
+        }
+      ],
+      "stability": "experimental",
+      "version": "0.1.0"
+    },
+    {
+      "id": "axiom://schema/axiom-package-signature-v1",
+      "kind": "schema",
+      "signature": "published schema id=https://axiom.omt.global/schemas/axiom-package-signature-v1.schema.json; semantic_digest=a3da16733a4ed9ce27fa38d89caa028a84cb09439d3b50d7a2bc5f6fcb5a91ad; envelope=axiom.package_signature.v1",
+      "sources": [
+        {
+          "path": "stage1/schemas/axiom-package-signature-v1.schema.json",
+          "role": "published_schema",
+          "selector": "$id,properties.schema_version.const",
+          "sha256": "2ecb8bc544afe134a8c4e4a6ee9a38b8950069a3ed31a655e4cb4b9bf5951960"
+        }
+      ],
+      "stability": "experimental",
+      "version": "0.2.0"
+    },
+    {
+      "id": "axiom://schema/axiom-package-verification-expectation-v1",
+      "kind": "schema",
+      "signature": "published schema id=https://axiom.omt.global/schemas/axiom-package-verification-expectation-v1.schema.json; semantic_digest=a886e7eb71d59e19e8b4b42fc2b58c7cb1672bce95a2925012c3c7cd81a6a97c; envelope=axiom.package_verification_expectation.v1",
+      "sources": [
+        {
+          "path": "stage1/schemas/axiom-package-verification-expectation-v1.schema.json",
+          "role": "published_schema",
+          "selector": "$id,properties.schema_version.const",
+          "sha256": "7674c4878554454a1e227e99f87fa74cab5e479c973907c7f0f506b0cd5781eb"
+        }
+      ],
+      "stability": "experimental",
+      "version": "0.2.0"
+    },
+    {
+      "id": "axiom://schema/axiom-package-verification-v1",
+      "kind": "schema",
+      "signature": "published schema id=https://axiom.omt.global/schemas/axiom-package-verification-v1.schema.json; semantic_digest=7275102d0f7368c26bd973e46b4bb32cbbb0fa022ed1562d2f1edf8b35888d89; envelope=axiom.package_verification.v1",
+      "sources": [
+        {
+          "path": "stage1/schemas/axiom-package-verification-v1.schema.json",
+          "role": "published_schema",
+          "selector": "$id,properties.schema_version.const",
+          "sha256": "39a7180e9a97a2f21657f97cb5a59ac941865ec3a359c6b838e5df5e35800fc8"
+        }
+      ],
+      "stability": "experimental",
+      "version": "0.2.0"
+    },
+    {
+      "id": "axiom://schema/axiom-production-language-readiness-v1",
+      "kind": "schema",
+      "signature": "published schema id=https://axiomlang.dev/schemas/axiom-production-language-readiness-v1.schema.json; semantic_digest=7ed9150c6382d82f93ef2017435ef64a1802285f22e35082d51fd59b58f7edee",
+      "sources": [
+        {
+          "path": "stage1/schemas/axiom-production-language-readiness-v1.schema.json",
+          "role": "published_schema",
+          "selector": "$id,properties.schema_version.const",
+          "sha256": "76d5db13df61bc08088c203733f713a17c64b60d776bd8db0cf925e8d414ea41"
+        }
+      ],
+      "stability": "experimental",
+      "version": "0.1.0"
+    },
+    {
+      "id": "axiom://schema/axiom-provenance-v0",
+      "kind": "schema",
+      "signature": "published schema id=https://axiom-lang.dev/schemas/axiom-provenance-v0.schema.json; semantic_digest=80e0afd12f94a825cf5c33ea243c93618fca51e1d64a5406ff340013fe37426a; envelope=axiom.provenance.v0",
+      "sources": [
+        {
+          "path": "stage1/schemas/axiom-provenance-v0.schema.json",
+          "role": "published_schema",
+          "selector": "$id,properties.schema_version.const",
+          "sha256": "af780f131d925e8b677039ae5dfc495908673dc5814ac7743d65cdbc0054a412"
+        }
+      ],
+      "stability": "experimental",
+      "version": "0.1.0"
+    },
+    {
+      "id": "axiom://schema/axiom-public-contract-v1",
+      "kind": "schema",
+      "signature": "published schema id=https://axiom.omt.global/schemas/axiom-public-contract-v1.schema.json; semantic_digest=bffde5fa04a6875824af1a3a5549618eb5ab53d932728ee918563f8a426a7be3; envelope=axiom.public_contract.v1",
+      "sources": [
+        {
+          "path": "stage1/schemas/axiom-public-contract-v1.schema.json",
+          "role": "published_schema",
+          "selector": "$id,properties.schema_version.const",
+          "sha256": "4882172369caea2c4b808a9d0b8d6bee8ff56dbb17b1292a691fa04470355f8a"
+        }
+      ],
+      "stability": "experimental",
+      "version": "0.1.0"
+    },
+    {
+      "id": "axiom://schema/axiom-registry-index-v2",
+      "kind": "schema",
+      "signature": "published schema id=https://axiom.omt.global/schemas/axiom-registry-index-v2.schema.json; semantic_digest=bc11418a3b935458b2377365596b9b2f5c14c8093f805e317afe8a9856cf7dbb; envelope=axiom.registry_index.v2",
+      "sources": [
+        {
+          "path": "stage1/schemas/axiom-registry-index-v2.schema.json",
+          "role": "published_schema",
+          "selector": "$id,properties.schema_version.const",
+          "sha256": "a2402122a95a34eebc39b85bc11de44e08273b4db943f8f53bf3aa5649d9ea5b"
+        }
+      ],
+      "stability": "experimental",
+      "version": "0.2.0"
+    },
+    {
+      "id": "axiom://schema/axiom-repair-v0",
+      "kind": "schema",
+      "signature": "published schema id=https://axiomlang.dev/schemas/axiom-repair-v0.schema.json; semantic_digest=83f9ba9fe62472b6cb124664ea51d498a4464da0ea49112c87d94a9f42b883a1; envelope=axiom.repair.v0",
+      "sources": [
+        {
+          "path": "stage1/schemas/axiom-repair-v0.schema.json",
+          "role": "published_schema",
+          "selector": "$id,properties.schema_version.const",
+          "sha256": "73232a0518e6e9881f9d22ca3dd37e1ba22e654b521ecd459dc3b688b4b79b81"
+        }
+      ],
+      "stability": "experimental",
+      "version": "0.1.0"
+    },
+    {
+      "id": "axiom://schema/axiom-selfhost-snapshot-manifest-v0",
+      "kind": "schema",
+      "signature": "published schema id=https://axiom.omt.global/schemas/axiom-selfhost-snapshot-manifest-v0.schema.json; semantic_digest=2ed12243a6718bf19a4a8cbecba85bd8361525d574521886aea412d0ca62bf31; envelope=axiom.selfhost.snapshot_manifest.v0",
+      "sources": [
+        {
+          "path": "stage1/schemas/axiom-selfhost-snapshot-manifest-v0.schema.json",
+          "role": "published_schema",
+          "selector": "$id,properties.schema_version.const",
+          "sha256": "13f8fa57d0b45059e8a9e545022f2acce808e04485cb0ed0dee9dacf602ab0b6"
+        }
+      ],
+      "stability": "experimental",
+      "version": "0.1.0"
+    },
+    {
+      "id": "axiom://schema/axiom-semantic-diff-v0",
+      "kind": "schema",
+      "signature": "published schema id=https://axiom.omt.global/schemas/axiom-semantic-diff-v0.schema.json; semantic_digest=5a17030c2eebf2e307250fd7ffe035eb757d7053fa95aca55798744259db621e; envelope=axiom.semantic_diff.v0",
+      "sources": [
+        {
+          "path": "stage1/schemas/axiom-semantic-diff-v0.schema.json",
+          "role": "published_schema",
+          "selector": "$id,properties.schema_version.const",
+          "sha256": "3461cefe385038b270d55e5432c874166922e7b8ce667789e44e6cc17fda321e"
+        }
+      ],
+      "stability": "experimental",
+      "version": "0.1.0"
+    },
+    {
+      "id": "axiom://schema/axiom-semantic-graph-v0",
+      "kind": "schema",
+      "signature": "published schema id=https://axiom-lang.dev/schemas/axiom-semantic-graph-v0.schema.json; semantic_digest=4171ce277fdd49cf51b912da1f9b885ce7301c2d851cbbf0ad48279a18a429e1; envelope=axiom.stage1.v1",
+      "sources": [
+        {
+          "path": "stage1/schemas/axiom-semantic-graph-v0.schema.json",
+          "role": "published_schema",
+          "selector": "$id,properties.schema_version.const",
+          "sha256": "520148cc501f65d0be2c9d588d8aaec52f7a8e01465edfcd545fb0a22355a471"
+        }
+      ],
+      "stability": "experimental",
+      "version": "0.1.0"
+    },
+    {
+      "id": "axiom://schema/axiom-target-v0",
+      "kind": "schema",
+      "signature": "published schema id=https://axiom.omt.global/schemas/axiom-target-v0.schema.json; semantic_digest=7441081cfc5507fc1ef7316c31542ac9542c818e86c1c30dd5bf4723ebbd0f89",
+      "sources": [
+        {
+          "path": "stage1/schemas/axiom-target-v0.schema.json",
+          "role": "published_schema",
+          "selector": "$id,properties.schema_version.const",
+          "sha256": "7056bf9f33c1c240d29762e8135cbb4c5e84ec0c1e4a21f4fb604951603db44f"
+        }
+      ],
+      "stability": "experimental",
+      "version": "0.1.0"
+    },
+    {
+      "id": "axiom://schema/axiom-toolchain-qualification-v0",
+      "kind": "schema",
+      "signature": "published schema id=https://axiomlang.dev/schemas/axiom-toolchain-qualification-v0.schema.json; semantic_digest=1e97e7b1321e3b7f3d0f07887a96b0f16797b05be93884ad02dda43ccd608f03",
+      "sources": [
+        {
+          "path": "stage1/schemas/axiom-toolchain-qualification-v0.schema.json",
+          "role": "published_schema",
+          "selector": "$id,properties.schema_version.const",
+          "sha256": "d9dbd5f614fcc83518789f96b58d7aa9ee7183f2df889ec28c042ec2342c2d11"
+        }
+      ],
+      "stability": "experimental",
+      "version": "0.1.0"
+    },
+    {
+      "id": "axiom://schema/axiom-trace-v0",
+      "kind": "schema",
+      "signature": "published schema id=https://axiom-lang.dev/schemas/axiom-trace-v0.schema.json; semantic_digest=36b28d93c7657cdc30c5786d545b6e5c68b30057e7fabd417314b2e784f9b607; envelope=axiom.trace.v0",
+      "sources": [
+        {
+          "path": "stage1/schemas/axiom-trace-v0.schema.json",
+          "role": "published_schema",
+          "selector": "$id,properties.schema_version.const",
+          "sha256": "94f13723e11857d0f95aec09a548c8c945054097a1e8d2629ed50339e81b41fe"
+        }
+      ],
+      "stability": "experimental",
+      "version": "0.1.0"
+    },
+    {
+      "id": "axiom://schema/axiom-trust-roots-v1",
+      "kind": "schema",
+      "signature": "published schema id=https://axiom.omt.global/schemas/axiom-trust-roots-v1.schema.json; semantic_digest=0f431c92053875157ace3f8372f0d6c0bcd3c2404669f12b84f8a6573a330846; envelope=axiom.package_trust_roots.v1",
+      "sources": [
+        {
+          "path": "stage1/schemas/axiom-trust-roots-v1.schema.json",
+          "role": "published_schema",
+          "selector": "$id,properties.schema_version.const",
+          "sha256": "16f6d8356ebf9452aedebb308f45d9e05708c22e6953d4803da8ceff3355d41c"
+        }
+      ],
+      "stability": "experimental",
+      "version": "0.2.0"
+    },
+    {
+      "id": "axiom://schema/axiom-verification-plan-v0",
+      "kind": "schema",
+      "signature": "published schema id=https://axiom.omt.global/schemas/axiom-verification-plan-v0.schema.json; semantic_digest=9083957cddb88ebc9ec410ab142b3fee51b7261ea08ced703be1cc8b302995ff; envelope=axiom.verification_plan.v0",
+      "sources": [
+        {
+          "path": "stage1/schemas/axiom-verification-plan-v0.schema.json",
+          "role": "published_schema",
+          "selector": "$id,properties.schema_version.const",
+          "sha256": "20bb29f5df4ada006c226e4ace95780bd509ea6de144d28910e09de74b3f9830"
+        }
+      ],
+      "stability": "experimental",
+      "version": "0.1.0"
+    },
+    {
+      "id": "axiom://schema/axiom-verification-results-v0",
+      "kind": "schema",
+      "signature": "published schema id=https://axiom.omt.global/schemas/axiom-verification-results-v0.schema.json; semantic_digest=48807efd24c8a665121a393c305d0e0a01c75002bae86dd08f7d1e1a41485878; envelope=axiom.verification_results.v0",
+      "sources": [
+        {
+          "path": "stage1/schemas/axiom-verification-results-v0.schema.json",
+          "role": "published_schema",
+          "selector": "$id,properties.schema_version.const",
+          "sha256": "a10a070b7171f5b19febc157a06f0e11c4dce8817271b37a616046bbb99fd204"
+        }
+      ],
+      "stability": "experimental",
+      "version": "0.1.0"
+    },
+    {
+      "id": "axiom://schema/axiom-verification-verdict-v0",
+      "kind": "schema",
+      "signature": "published schema id=https://axiom.omt.global/schemas/axiom-verification-verdict-v0.schema.json; semantic_digest=fafa1e3d15a14dd822830c3b9958a7bfdedb4f27797e3bcf41f6063e3dbdbb11; envelope=axiom.verification_verdict.v0",
+      "sources": [
+        {
+          "path": "stage1/schemas/axiom-verification-verdict-v0.schema.json",
+          "role": "published_schema",
+          "selector": "$id,properties.schema_version.const",
+          "sha256": "c737c49650ff29062692a9afcb1d42995199f6a503e94b7cfc6d9a3d976e3b1c"
+        }
+      ],
+      "stability": "experimental",
+      "version": "0.1.0"
+    },
+    {
+      "id": "axiom://schema/axiom-verify-v0",
+      "kind": "schema",
+      "signature": "published schema id=https://axiom.omt.global/schemas/axiom-verify-v0.schema.json; semantic_digest=9c2354f8554588b3d4a012a30a60dfc44811200da17d8f310275bf1c0458dacf; envelope=axiom.verify.v0",
+      "sources": [
+        {
+          "path": "stage1/schemas/axiom-verify-v0.schema.json",
+          "role": "published_schema",
+          "selector": "$id,properties.schema_version.const",
+          "sha256": "7b2f7e83e6f8b5a5b00838aaadf990c87dd63ed148e26c68624687bb31fbfdfe"
+        }
+      ],
+      "stability": "experimental",
+      "version": "0.1.0"
+    },
+    {
+      "id": "axiom://schema/axiom.compiler.command_lsp.v1",
+      "kind": "schema",
+      "signature": "published schema id=https://omt-global.github.io/axiom/schemas/axiom.compiler.command_lsp.v1.schema.json; semantic_digest=b8178084e6f1feb15a1dac9904051a7f7aa2e92e94300cac61d2e364f697503a; envelope=axiom.compiler.command_lsp.v1",
+      "sources": [
+        {
+          "path": "stage1/compiler-contracts/schemas/axiom.compiler.command_lsp.v1.schema.json",
+          "role": "published_schema",
+          "selector": "$id,properties.schema_version.const",
+          "sha256": "0a63f19ad813f41a44cd2068f7f4ada5e02b60edd7a86c078409f0f8913115a7"
+        }
+      ],
+      "stability": "experimental",
+      "version": "0.1.0"
+    },
+    {
+      "id": "axiom://schema/axiom.compiler.diagnostics_syntax.v1",
+      "kind": "schema",
+      "signature": "published schema id=https://omt-global.github.io/axiom/schemas/axiom.compiler.diagnostics_syntax.v1.schema.json; semantic_digest=cab60ac5eba00f067ffde4c763e4112339171d749282234ae233a6c35c2f5ce7; envelope=axiom.compiler.diagnostics_syntax.v1",
+      "sources": [
+        {
+          "path": "stage1/compiler-contracts/schemas/axiom.compiler.diagnostics_syntax.v1.schema.json",
+          "role": "published_schema",
+          "selector": "$id,properties.schema_version.const",
+          "sha256": "2e74f2cbe38e70f0f026dc25c2d6bda706bce611e71e6c56530aba9578ca1dd0"
+        }
+      ],
+      "stability": "experimental",
+      "version": "0.1.0"
+    },
+    {
+      "id": "axiom://schema/axiom.compiler.hir_ownership_capability.v1",
+      "kind": "schema",
+      "signature": "published schema id=https://omt-global.github.io/axiom/schemas/axiom.compiler.hir_ownership_capability.v1.schema.json; semantic_digest=e42e242a45e3d2eacecf2076c94428a87aa85d195601ee691bbbdc02e121824c; envelope=axiom.compiler.hir_ownership_capability.v1",
+      "sources": [
+        {
+          "path": "stage1/compiler-contracts/schemas/axiom.compiler.hir_ownership_capability.v1.schema.json",
+          "role": "published_schema",
+          "selector": "$id,properties.schema_version.const",
+          "sha256": "b4461aaa38c84190fd8663428f95c7af27c5f0645ef737a2f764d041787de5dc"
+        }
+      ],
+      "stability": "experimental",
+      "version": "0.1.0"
+    },
+    {
+      "id": "axiom://schema/axiom.compiler.mir_backend.v1",
+      "kind": "schema",
+      "signature": "published schema id=https://omt-global.github.io/axiom/schemas/axiom.compiler.mir_backend.v1.schema.json; semantic_digest=77e7d9d947ea390558ae59803fb82ebd78d75a02e4f79d4571eee4efb784a2b3; envelope=axiom.compiler.mir_backend.v1",
+      "sources": [
+        {
+          "path": "stage1/compiler-contracts/schemas/axiom.compiler.mir_backend.v1.schema.json",
+          "role": "published_schema",
+          "selector": "$id,properties.schema_version.const",
+          "sha256": "17799e28edcc9c8385b5496d9aea4176b45ec9995bdd9591939b0ba049528513"
+        }
+      ],
+      "stability": "experimental",
+      "version": "0.1.0"
+    },
+    {
+      "id": "axiom://schema/axiom.compiler.package_graph.v1",
+      "kind": "schema",
+      "signature": "published schema id=https://omt-global.github.io/axiom/schemas/axiom.compiler.package_graph.v1.schema.json; semantic_digest=95e1b46d56ad3b842a9280c2e4fdf6044db220bd99442f1fe7df40a819ca7f5e; envelope=axiom.compiler.package_graph.v1",
+      "sources": [
+        {
+          "path": "stage1/compiler-contracts/schemas/axiom.compiler.package_graph.v1.schema.json",
+          "role": "published_schema",
+          "selector": "$id,properties.schema_version.const",
+          "sha256": "a566fdbaef6f89a5c993ca7a6366583fdf0d4888516bbf06754fd0ade37430ff"
+        }
+      ],
+      "stability": "experimental",
+      "version": "0.1.0"
+    },
+    {
+      "id": "axiom://schema/axiom.compiler.stdlib_catalog.v1",
+      "kind": "schema",
+      "signature": "published schema id=https://omt-global.github.io/axiom/schemas/axiom.compiler.stdlib_catalog.v1.schema.json; semantic_digest=b54970e5dae12e2a9475a5511c64683f11eb005ed40b4db8a58f2a0edcdfc121; envelope=axiom.compiler.stdlib_catalog.v1",
+      "sources": [
+        {
+          "path": "stage1/compiler-contracts/schemas/axiom.compiler.stdlib_catalog.v1.schema.json",
+          "role": "published_schema",
+          "selector": "$id,properties.schema_version.const",
+          "sha256": "02cebcbb57be97e3efb6d5f09baa891ab6e278f3feeaef4a6e72e3d042687005"
+        }
+      ],
+      "stability": "experimental",
+      "version": "0.1.0"
+    },
+    {
+      "id": "axiom://schema/axiom.docs.v1",
+      "kind": "schema",
+      "signature": "published schema id=https://axiom.omt.global/schemas/axiom.docs.v1.schema.json; semantic_digest=d7e17791a519e763755dcddd1fe7a4edb6db5dd029774ff80c3296c5d30b84b2; envelope=axiom.stage1.v1",
+      "sources": [
+        {
+          "path": "stage1/schemas/axiom.docs.v1.schema.json",
+          "role": "published_schema",
+          "selector": "$id,properties.schema_version.const",
+          "sha256": "3e413b5e985a9ae243d9bc9b12a71c2ced87457cf84c2a10114b06750789d25e"
+        }
+      ],
+      "stability": "experimental",
+      "version": "0.1.0"
+    },
+    {
+      "id": "axiom://schema/axiom.lsp.v1",
+      "kind": "schema",
+      "signature": "published schema id=https://axiom.omt.global/schemas/axiom.lsp.v1.schema.json; semantic_digest=39232f66240a5952d8de4b32f6f66506491612cc9a5923c26c43822f77d7fbf0",
+      "sources": [
+        {
+          "path": "stage1/schemas/axiom.lsp.v1.schema.json",
+          "role": "published_schema",
+          "selector": "$id,properties.schema_version.const",
+          "sha256": "8b4aa2afff3020c87f6d9be72dd796479d198a755f8d6a20b660f29ddb1b7c5d"
+        }
+      ],
+      "stability": "experimental",
+      "version": "0.1.0"
+    },
+    {
+      "id": "axiom://schema/axiom.provider-abi.v1",
+      "kind": "schema",
+      "signature": "published schema id=https://omt-global.github.io/axiom/schemas/axiom.provider-abi.v1.schema.json; semantic_digest=2f5e45d0b088167ae43a12e520109d5d5c297f67b911c0799da469dc500fa7eb; envelope=axiom.provider-abi.v1",
+      "sources": [
+        {
+          "path": "stage1/compiler-contracts/schemas/axiom.provider-abi.v1.schema.json",
+          "role": "published_schema",
+          "selector": "$id,properties.schema_version.const",
+          "sha256": "d5ae5f985f29f744e026e599c4f5af7da8b658f605fe38b26b3c7874a53ee5fa"
+        }
+      ],
+      "stability": "experimental",
+      "version": "0.1.0"
+    },
+    {
+      "id": "axiom://schema/axiom.runtime_lifecycle.v1",
+      "kind": "schema",
+      "signature": "published schema id=https://omt-global.github.io/axiom/schemas/axiom.runtime_lifecycle.v1.schema.json; semantic_digest=67e7c80a1bb8e7a9331ae311dd616608188bc86db87eff015798c73961a10af6; envelope=axiom.runtime_lifecycle.v1",
+      "sources": [
+        {
+          "path": "stage1/compiler-contracts/schemas/axiom.runtime_lifecycle.v1.schema.json",
+          "role": "published_schema",
+          "selector": "$id,properties.schema_version.const",
+          "sha256": "4c0a9942c4d636ec842fa1753c2d604c72b9f8f8fa0a01b7ce9dd6be9f3d258d"
+        }
+      ],
+      "stability": "experimental",
+      "version": "0.1.0"
+    },
+    {
+      "id": "axiom://schema/axiom.semantic_mir.v1",
+      "kind": "schema",
+      "signature": "published schema id=https://omt-global.github.io/axiom/schemas/axiom.semantic_mir.v1.schema.json; semantic_digest=3b96a52b476fdc6e39f6a51542d6d8bf841634ad06af6f907aa9151368df667c; envelope=axiom.semantic_mir.v1",
+      "sources": [
+        {
+          "path": "stage1/compiler-contracts/schemas/axiom.semantic_mir.v1.schema.json",
+          "role": "published_schema",
+          "selector": "$id,properties.schema_version.const",
+          "sha256": "1ea24479a585a0b3a3421883db3eec1a8a8d50032edf86b5ba629fb38d4e0be0"
+        }
+      ],
+      "stability": "experimental",
+      "version": "0.1.0"
+    },
+    {
+      "id": "axiom://schema/axiom.stage1.command",
+      "kind": "schema",
+      "signature": "published schema id=https://omt-global.github.io/axiom/schemas/axiom.stage1.command.schema.json; semantic_digest=a5635c369905e84f34f25974bdad66ab92b95446fef1e9079e438445806373aa",
+      "sources": [
+        {
+          "path": "stage1/compiler-contracts/schemas/axiom.stage1.command.schema.json",
+          "role": "published_schema",
+          "selector": "$id,properties.schema_version.const",
+          "sha256": "ddc64d122d59925ec93391d86781b8d4f76adf01e846f7120d312f32ce71421c"
+        }
+      ],
+      "stability": "experimental",
+      "version": "0.1.0"
+    },
+    {
+      "id": "axiom://schema/axiom.stage1.v1",
+      "kind": "schema",
+      "signature": "published schema id=https://axiom.omt.global/schemas/axiom.stage1.v1.schema.json; semantic_digest=f29cd4109c7c9f5b9e2e210f045a9125639390806610d9675d86c85eaff355d4; envelope=axiom.stage1.v1",
+      "sources": [
+        {
+          "path": "stage1/schemas/axiom.stage1.v1.schema.json",
+          "role": "published_schema",
+          "selector": "$id,properties.schema_version.const",
+          "sha256": "39eecabfb6a990619f0b2068bac68fb0c0da3fac1ec8ee840a5253916cd28969"
+        }
+      ],
+      "stability": "experimental",
+      "version": "0.1.0"
+    },
+    {
+      "id": "axiom://schema/axiom.toml",
+      "kind": "schema",
+      "signature": "published schema id=https://axiom.omt.global/schemas/axiom.toml.schema.json; semantic_digest=4b082a2037f1d1579235773ed158f67c05b151f737c9bdf72e55b76f2be425cb",
+      "sources": [
+        {
+          "path": "stage1/schemas/axiom.toml.schema.json",
+          "role": "published_schema",
+          "selector": "$id,properties.schema_version.const",
+          "sha256": "8fb6c6060461c8209bb2153382f17333b390f8ba4468027c7d395bf7f59cce36"
+        }
+      ],
+      "stability": "experimental",
+      "version": "0.1.0"
+    },
+    {
+      "id": "axiom://artifact/envelope",
+      "kind": "artifact",
+      "signature": "schema=https://axiomlang.dev/schemas/axiom-artifacts-v0.schema.json; semantic_digest=a7e2fe52df2b5230009088aa6107e477f23989e4dcf4d12ba186829f90a30391; target_neutral_kinds=benchmark_report,docs,native_binary,openapi_spec,policy_bundle,runbook,sql_migration,terraform_module,test_report; identity=axiom artifact IDs; compatibility_host_source_kind=excluded",
+      "sources": [
+        {
+          "path": "stage1/schemas/axiom-artifacts-v0.schema.json",
+          "role": "artifact_envelope",
+          "selector": "$id,$defs.artifact.properties.kind.enum",
+          "sha256": "777f24f3c7e7414c4850c3cfa309ad267d82c1587d535748d8dd0f323614e64d"
+        }
+      ],
+      "stability": "experimental",
+      "version": "0.1.0"
+    }
+  ]
+}

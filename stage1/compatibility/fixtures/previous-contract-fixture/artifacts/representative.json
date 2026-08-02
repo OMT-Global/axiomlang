@@ -1,0 +1,16 @@
+{
+  "schema_version": "axiom.artifacts.v0",
+  "ok": true,
+  "command": "inspect artifacts",
+  "project": "<compatibility-previous-fixture>",
+  "package": "compatibility-previous-fixture",
+  "artifacts": [
+    {
+      "id": "axiom://package/compatibility-previous-fixture/artifact/native",
+      "kind": "native_binary",
+      "path": "dist/compatibility-previous-fixture",
+      "generated_from": ["axiom://package/compatibility-previous-fixture"],
+      "status": "planned"
+    }
+  ]
+}

@@ -91,10 +91,13 @@ cargo run --manifest-path stage1/Cargo.toml -p axiomc -- test stage1/examples/mo
 # Inspect capability requirements
 cargo run --manifest-path stage1/Cargo.toml -p axiomc -- caps stage1/examples/hello --json
 
-# Publish to a local static registry tree and build/validate its index
-cargo run --manifest-path stage1/Cargo.toml -p axiomc -- publish stage1/examples/hello --registry-dir ./registry/packages --signing-key dev-key
-cargo run --manifest-path stage1/Cargo.toml -p axiomc -- registry-index ./registry/packages --base-url https://packages.example.test --out ./registry/index.json
-cargo run --manifest-path stage1/Cargo.toml -p axiomc -- registry-validate ./registry/index.json --packages-dir ./registry/packages --signing-key dev-key
+# Verify a signed registry index and every exact local release artifact
+cargo run --manifest-path stage1/Cargo.toml -p axiomc -- registry-validate ./registry/index.json \
+  --packages-dir ./registry/packages \
+  --trust-roots ./registry/trust-roots.json \
+  --expectation ./registry/verification-request.json
+
+# Publishing and index generation use protected Ed25519 seed files; see docs/package.md
 
 # Format source, generate docs, and run benchmark entrypoints
 cargo run --manifest-path stage1/Cargo.toml -p axiomc -- fmt stage1/examples/hello --check

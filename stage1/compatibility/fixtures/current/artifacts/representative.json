@@ -1,0 +1,16 @@
+{
+  "schema_version": "axiom.artifacts.v0",
+  "ok": true,
+  "command": "inspect artifacts",
+  "project": "<compatibility-current>",
+  "package": "compatibility-current",
+  "artifacts": [
+    {
+      "id": "axiom://package/compatibility-current/artifact/native",
+      "kind": "native_binary",
+      "path": "dist/compatibility-current",
+      "generated_from": ["axiom://package/compatibility-current"],
+      "status": "planned"
+    }
+  ]
+}

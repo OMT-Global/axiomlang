@@ -50,6 +50,19 @@ impl SurfaceKind {
             Self::Artifact => "artifact",
         }
     }
+
+    fn rank(self) -> u8 {
+        match self {
+            Self::Compiler => 0,
+            Self::Language => 1,
+            Self::Stdlib => 2,
+            Self::Cli => 3,
+            Self::Package => 4,
+            Self::Abi => 5,
+            Self::Schema => 6,
+            Self::Artifact => 7,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
@@ -78,11 +91,47 @@ struct CompatibilityReport {
     schema_version: String,
     ok: bool,
     command: String,
+    policies: PolicyVersions,
+    contracts: ContractVersions,
     old: String,
     new: String,
+    compiler: CompilerChange,
     edition: EditionChange,
     summary: CompatibilitySummary,
     changes: Vec<CompatibilityChange>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PolicyVersions {
+    old: String,
+    new: String,
+    severity: Severity,
+    migration: RequiredNullableString,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ContractVersions {
+    old: String,
+    new: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CompilerRange {
+    current: String,
+    minimum: String,
+    maximum: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CompilerChange {
+    old: CompilerRange,
+    new: CompilerRange,
+    severity: Severity,
+    migration: RequiredNullableString,
 }
 
 #[derive(Debug, Deserialize)]
@@ -234,13 +283,28 @@ fn validate_report(report: &CompatibilityReport) -> Result<(), String> {
     if report.command != "compatibility-report" {
         return Err("compatibility report command must be compatibility-report".to_owned());
     }
-    require_text(&report.old, "compatibility report old contract")?;
-    require_text(&report.new, "compatibility report new contract")?;
+    require_axiom_id(&report.old, "compatibility report old contract")?;
+    require_axiom_id(&report.new, "compatibility report new contract")?;
+    let policy_drift = validate_policy_change(&report.policies)?;
+    let old = parse_semver(
+        &report.contracts.old,
+        "compatibility report old contract version",
+    )?;
+    let new = parse_semver(
+        &report.contracts.new,
+        "compatibility report new contract version",
+    )?;
+    if new < old {
+        return Err(
+            "compatibility report new contract version must not be lower than old".to_owned(),
+        );
+    }
+    validate_compiler_change(&report.compiler)?;
     validate_edition(&report.edition)?;
 
     let mut observed = [0usize; 4];
     let mut surface_ids = BTreeSet::new();
-    let mut previous_key: Option<(u8, &str, &str, &str)> = None;
+    let mut previous_key: Option<(u8, u8, &str, &str)> = None;
     for change in &report.changes {
         validate_change(change)?;
         if !surface_ids.insert(change.surface_id.as_str()) {
@@ -257,7 +321,7 @@ fn validate_report(report: &CompatibilityReport) -> Result<(), String> {
         }
         let key = (
             change.severity.rank(),
-            change.surface_kind.as_str(),
+            change.surface_kind.rank(),
             change.surface_id.as_str(),
             change.change_kind.as_str(),
         );
@@ -277,6 +341,137 @@ fn validate_report(report: &CompatibilityReport) -> Result<(), String> {
             "compatibility report summary does not match changes: expected {expected:?}, observed {observed:?}"
         ));
     }
+    let compiler_drift = report.compiler.old.current != report.compiler.new.current
+        || report.compiler.old.minimum != report.compiler.new.minimum
+        || report.compiler.old.maximum != report.compiler.new.maximum;
+    let edition_drift =
+        report.edition.old != report.edition.new || report.edition.severity != Severity::Compatible;
+    let has_drift = compiler_drift || edition_drift || policy_drift || !report.changes.is_empty();
+    if has_drift && new <= old {
+        return Err(
+            "compatibility report semantic drift requires an increased new contract version"
+                .to_owned(),
+        );
+    }
+    if has_drift {
+        let mut strongest = Severity::Compatible;
+        if policy_drift {
+            strongest = strongest_severity(strongest, report.policies.severity);
+        }
+        if compiler_drift {
+            strongest = strongest_severity(strongest, report.compiler.severity);
+        }
+        if edition_drift {
+            strongest = strongest_severity(strongest, report.edition.severity);
+        }
+        for change in &report.changes {
+            strongest = strongest_severity(strongest, change.severity);
+        }
+        validate_contract_bump(old, new, strongest)?;
+    }
+    Ok(())
+}
+
+fn validate_policy_change(policies: &PolicyVersions) -> Result<bool, String> {
+    let old = parse_semver(&policies.old, "compatibility report old policy version")?;
+    let new = parse_semver(&policies.new, "compatibility report new policy version")?;
+    if new < old {
+        return Err(
+            "compatibility report new policy version must not be lower than old".to_owned(),
+        );
+    }
+    let changed = policies.old != policies.new;
+    if !changed {
+        if policies.severity != Severity::Compatible {
+            return Err("unchanged policy versions must have compatible severity".to_owned());
+        }
+        if policies.migration.0.is_some() {
+            return Err("unchanged policy versions cannot declare a migration".to_owned());
+        }
+    } else if matches!(policies.severity, Severity::Breaking | Severity::Deprecated) {
+        require_optional_text(
+            policies.migration.0.as_deref(),
+            "breaking or deprecated policy migration action",
+        )?;
+    } else if policies.migration.0.is_some() {
+        return Err("compatible or additive policy drift cannot declare a migration".to_owned());
+    }
+    Ok(changed)
+}
+
+fn strongest_severity(left: Severity, right: Severity) -> Severity {
+    if left.rank() <= right.rank() {
+        left
+    } else {
+        right
+    }
+}
+
+fn validate_contract_bump(
+    old: (u64, u64, u64),
+    new: (u64, u64, u64),
+    strongest: Severity,
+) -> Result<(), String> {
+    let major = new.0 > old.0;
+    let minor = major || (new.0 == old.0 && new.1 > old.1);
+    match strongest {
+        Severity::Breaking if old.0 > 0 && !major => {
+            Err("breaking drift requires a major contract version bump".to_owned())
+        }
+        Severity::Breaking if old.0 == 0 && !minor => {
+            Err("pre-1.0 breaking drift requires at least a minor contract version bump".to_owned())
+        }
+        Severity::Deprecated | Severity::Additive if old.0 > 0 && !minor => Err(
+            "additive or deprecated drift requires at least a minor contract version bump"
+                .to_owned(),
+        ),
+        Severity::Breaking | Severity::Deprecated | Severity::Additive | Severity::Compatible => {
+            Ok(())
+        }
+    }
+}
+
+fn validate_compiler_change(compiler: &CompilerChange) -> Result<(), String> {
+    let old_minimum = parse_semver(&compiler.old.minimum, "old compiler minimum")?;
+    let old_current = parse_semver(&compiler.old.current, "old compiler current")?;
+    let old_maximum = parse_semver(&compiler.old.maximum, "old compiler maximum")?;
+    let new_minimum = parse_semver(&compiler.new.minimum, "new compiler minimum")?;
+    let new_current = parse_semver(&compiler.new.current, "new compiler current")?;
+    let new_maximum = parse_semver(&compiler.new.maximum, "new compiler maximum")?;
+    if !(old_minimum <= old_current && old_current <= old_maximum) {
+        return Err("old compiler current must lie inside minimum..maximum".to_owned());
+    }
+    if !(new_minimum <= new_current && new_current <= new_maximum) {
+        return Err("new compiler current must lie inside minimum..maximum".to_owned());
+    }
+    let narrowed = new_minimum > old_minimum || new_maximum < old_maximum;
+    let expanded = new_minimum < old_minimum || new_maximum > old_maximum;
+    let expected = if narrowed {
+        Severity::Breaking
+    } else if expanded {
+        Severity::Additive
+    } else {
+        Severity::Compatible
+    };
+    if compiler.severity != expected {
+        return Err(format!(
+            "compiler support severity must be {}",
+            match expected {
+                Severity::Breaking => "breaking",
+                Severity::Additive => "additive",
+                Severity::Compatible => "compatible",
+                Severity::Deprecated => unreachable!("compiler severity is never deprecated"),
+            }
+        ));
+    }
+    if compiler.severity == Severity::Breaking {
+        require_optional_text(
+            compiler.migration.0.as_deref(),
+            "breaking compiler range migration action",
+        )?;
+    } else if compiler.migration.0.is_some() {
+        return Err("compiler migration is only allowed for breaking support drift".to_owned());
+    }
     Ok(())
 }
 
@@ -295,6 +490,8 @@ fn validate_edition(edition: &EditionChange) -> Result<(), String> {
             edition.migration.0.as_deref(),
             "breaking or deprecated edition migration action",
         )?;
+    } else if edition.migration.0.is_some() {
+        return Err("compatible edition state cannot declare a migration".to_owned());
     }
     if matches!(edition.severity, Severity::Additive) {
         return Err("edition severity cannot be additive".to_owned());
@@ -317,6 +514,12 @@ fn validate_edition(edition: &EditionChange) -> Result<(), String> {
 }
 
 fn validate_change(change: &CompatibilityChange) -> Result<(), String> {
+    if change.surface_kind == SurfaceKind::Compiler {
+        return Err(
+            "compiler drift must use the top-level compiler report object, not changes[]"
+                .to_owned(),
+        );
+    }
     require_axiom_id(&change.surface_id, "surface_id")?;
     require_text(&change.description, "change description")?;
     if let Some(version) = change.old_version.0.as_deref() {
@@ -330,9 +533,11 @@ fn validate_change(change: &CompatibilityChange) -> Result<(), String> {
             if change.severity != Severity::Additive
                 || change.old_version.0.is_some()
                 || change.new_version.0.is_none()
+                || change.migration.0.is_some()
+                || change.replacement.0.is_some()
             {
                 return Err(format!(
-                    "added surface {} must be additive with only new_version",
+                    "added surface {} must be additive with only new_version and no migration or replacement",
                     change.surface_id
                 ));
             }
@@ -341,9 +546,10 @@ fn validate_change(change: &CompatibilityChange) -> Result<(), String> {
             if change.severity != Severity::Breaking
                 || change.old_version.0.is_none()
                 || change.new_version.0.is_some()
+                || change.replacement.0.is_none()
             {
                 return Err(format!(
-                    "removed surface {} must be breaking with only old_version",
+                    "removed surface {} must be breaking with only old_version and a replacement",
                     change.surface_id
                 ));
             }
@@ -363,9 +569,10 @@ fn validate_change(change: &CompatibilityChange) -> Result<(), String> {
             if change.old_version.0.is_none()
                 || change.new_version.0.is_none()
                 || change.severity == Severity::Deprecated
+                || change.replacement.0.is_some()
             {
                 return Err(format!(
-                    "modified surface {} must have old_version and new_version with non-deprecated severity",
+                    "modified surface {} must have old_version and new_version with non-deprecated severity and no replacement",
                     change.surface_id
                 ));
             }
@@ -376,6 +583,11 @@ fn validate_change(change: &CompatibilityChange) -> Result<(), String> {
             change.migration.0.as_deref(),
             &format!("{} surface migration action", change.surface_id),
         )?;
+    } else if change.migration.0.is_some() {
+        return Err(format!(
+            "non-actionable surface {} cannot declare a migration",
+            change.surface_id
+        ));
     }
     if change.severity == Severity::Deprecated {
         require_optional_axiom_id(
@@ -384,7 +596,10 @@ fn validate_change(change: &CompatibilityChange) -> Result<(), String> {
         )?;
     }
     if change.replacement.0.is_some()
-        && !matches!(change.severity, Severity::Breaking | Severity::Deprecated)
+        && !matches!(
+            change.change_kind,
+            ChangeKind::Removed | ChangeKind::Deprecated
+        )
     {
         return Err(format!(
             "non-actionable surface {} cannot declare a replacement",
@@ -405,6 +620,22 @@ fn validate_change(change: &CompatibilityChange) -> Result<(), String> {
 
 fn build_plan(report: CompatibilityReport) -> Result<MigrationPlan, String> {
     let mut drafts = Vec::new();
+    if report.compiler.severity == Severity::Breaking {
+        drafts.push(ActionDraft {
+            id: "compiler:axiom://compiler/support-range".to_owned(),
+            kind: MigrationActionKind::Breaking,
+            severity: Severity::Breaking,
+            surface_kind: Some(SurfaceKind::Compiler),
+            surface_id: Some("axiom://compiler/support-range".to_owned()),
+            instruction: report
+                .compiler
+                .migration
+                .0
+                .clone()
+                .expect("validated compiler migration"),
+            replacement: None,
+        });
+    }
     if matches!(
         report.edition.severity,
         Severity::Breaking | Severity::Deprecated
@@ -542,6 +773,10 @@ fn valid_edition(value: &str) -> bool {
 }
 
 fn require_semver(value: &str, label: &str) -> Result<(), String> {
+    parse_semver(value, label).map(|_| ())
+}
+
+fn parse_semver(value: &str, label: &str) -> Result<(u64, u64, u64), String> {
     let parts = value.split('.').collect::<Vec<_>>();
     if parts.len() != 3
         || parts.iter().any(|part| {
@@ -552,7 +787,14 @@ fn require_semver(value: &str, label: &str) -> Result<(), String> {
     {
         return Err(format!("{label} must be canonical SemVer"));
     }
-    Ok(())
+    let values = parts
+        .iter()
+        .map(|part| {
+            part.parse::<u64>()
+                .map_err(|_| format!("{label} must be canonical SemVer"))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok((values[0], values[1], values[2]))
 }
 
 fn require_optional_axiom_id(value: Option<&str>, label: &str) -> Result<(), String> {

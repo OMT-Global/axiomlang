@@ -12,6 +12,13 @@ fi
 
 mkdir -p "$sbom_output_dir"
 
+python3 "$repo_root/scripts/ci/check-package-trust-contract.py" --json
+bash "$repo_root/scripts/ci/test-check-package-trust-contract.sh"
+
+cargo test --manifest-path "$manifest_path" -p axiomc --locked --lib package_trust::tests
+cargo test --manifest-path "$manifest_path" -p axiomc --locked --lib registry::tests
+cargo test --manifest-path "$manifest_path" -p axiomc --locked --test package_trust_cli
+
 if [[ -f "$repo_root/package-lock.json" ]]; then
   if ! command -v npm >/dev/null 2>&1; then
     echo "npm is required to verify signed packages in package-lock.json" >&2

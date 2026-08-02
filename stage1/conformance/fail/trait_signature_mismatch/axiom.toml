@@ -13,10 +13,3 @@ process = false
 env = false
 clock = false
 crypto = false
-
-[expected_error]
-kind = "type"
-message = "impl Eq for conformance_trait_signature_mismatch_main_Point method \"eq\" has parameter type int, expected conformance_trait_signature_mismatch_main_Point"
-path = "src/main.ax"
-line = 8
-column = 1

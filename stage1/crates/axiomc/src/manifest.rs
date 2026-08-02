@@ -90,6 +90,7 @@ pub struct HttpTestFixture {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct ExpectedDiagnostic {
     pub kind: String,
     pub code: Option<String>,
@@ -109,6 +110,11 @@ pub enum TestKind {
     Snapshot,
     Benchmark,
 }
+
+pub const TEST_KIND_NAMES: [&str; 5] = ["unit", "table", "property", "snapshot", "benchmark"];
+pub const PER_TEST_CAPABILITIES_SUPPORTED: bool = false;
+pub const DEPENDENCY_VERSION_PATTERN: &str =
+    r"^(\*|\^?(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*))$";
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq, Default)]
 pub struct CapabilityConfig {
@@ -194,6 +200,7 @@ impl ProcessCommandPolicy {
 #[serde(rename_all = "snake_case")]
 pub enum CapabilityKind {
     Fs,
+    #[serde(rename = "fs:write")]
     FsWrite,
     Net,
     Process,
@@ -232,6 +239,7 @@ pub struct CapabilityDescriptor {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RawManifest {
     package: Option<RawPackageSection>,
     dependencies: Option<BTreeMap<String, RawDependencySpec>>,
@@ -245,6 +253,7 @@ struct RawManifest {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RawPackageSection {
     name: Option<String>,
     version: Option<String>,
@@ -254,17 +263,20 @@ struct RawPackageSection {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RawWorkspaceSection {
     members: Option<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RawBuildSection {
     entry: Option<String>,
     out_dir: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RawRuntimeConfig {
     max_threads: Option<usize>,
 }
@@ -277,6 +289,7 @@ enum RawDependencySpec {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RawDependencyDetail {
     path: Option<String>,
     version: Option<String>,
@@ -301,6 +314,7 @@ struct RawTestTarget {
 }
 
 #[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RawPublishSection {
     registry: Option<String>,
     checksum: Option<String>,
@@ -346,6 +360,7 @@ enum RawNetCapability {
 }
 
 #[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RawNetAllowlist {
     hosts: Option<Vec<String>>,
     ports: Option<Vec<u16>>,
@@ -1214,9 +1229,11 @@ fn validate_version_constraint(
     let candidate = version.strip_prefix('^').unwrap_or(version);
     let parts = candidate.split('.').collect::<Vec<_>>();
     if parts.len() == 3
-        && parts
-            .iter()
-            .all(|part| !part.is_empty() && part.chars().all(|ch| ch.is_ascii_digit()))
+        && parts.iter().all(|part| {
+            !part.is_empty()
+                && part.chars().all(|ch| ch.is_ascii_digit())
+                && (part == &"0" || !part.starts_with('0'))
+        })
     {
         return Ok(());
     }
@@ -1248,10 +1265,11 @@ fn normalize_tests(
         validate_relative_path(path, &format!("{field_prefix}.entry"), &entry)?;
         let package =
             normalize_optional_name(path, &format!("{field_prefix}.package"), raw_test.package)?;
-        if raw_test
-            .capabilities
-            .as_ref()
-            .is_some_and(|capabilities| !capabilities.is_empty())
+        if !PER_TEST_CAPABILITIES_SUPPORTED
+            && raw_test
+                .capabilities
+                .as_ref()
+                .is_some_and(|capabilities| !capabilities.is_empty())
         {
             return Err(Diagnostic::new(
                 "manifest",
@@ -1321,7 +1339,8 @@ fn normalize_test_kind(
     path: &Path,
     field_name: &str,
 ) -> Result<TestKind, Diagnostic> {
-    match value.as_deref().unwrap_or("unit") {
+    let value = value.as_deref().unwrap_or(TEST_KIND_NAMES[0]);
+    match value {
         "unit" => Ok(TestKind::Unit),
         "table" => Ok(TestKind::Table),
         "property" => Ok(TestKind::Property),
@@ -1330,7 +1349,8 @@ fn normalize_test_kind(
         other => Err(Diagnostic::new(
             "manifest",
             format!(
-                "{field_name} must be one of unit, table, property, snapshot, or benchmark; got {other:?}"
+                "{field_name} must be one of {}; got {other:?}",
+                TEST_KIND_NAMES.join(", ")
             ),
         )
         .with_path(path.display().to_string())),
@@ -1532,6 +1552,148 @@ max_threads = 32
     }
 
     #[test]
+    fn parser_accepts_fields_published_by_manifest_schema() {
+        let dir = write_manifest(
+            r#"
+[package]
+name = "parity"
+version = "0.1.0"
+
+[dependencies.dep]
+path = "../dep"
+version = "^1.2.3"
+
+[[tests]]
+name = "http"
+entry = "src/http_test.ax"
+
+[tests.http]
+bind = "127.0.0.1:0"
+path = "/health"
+expected_body = "ok"
+
+[capabilities]
+env = true
+env_unrestricted = true
+unsafe_rationale = "This test intentionally reads the inherited environment."
+"#,
+        );
+        let manifest = load_manifest(dir.path()).expect("schema-published fields must parse");
+        assert_eq!(
+            manifest.dependencies["dep"].version.as_deref(),
+            Some("^1.2.3")
+        );
+        assert_eq!(
+            manifest.tests[0].http.as_ref().expect("HTTP fixture").path,
+            "/health"
+        );
+        assert_eq!(
+            manifest.capabilities.unsafe_rationale.as_deref(),
+            Some("This test intentionally reads the inherited environment.")
+        );
+    }
+
+    #[test]
+    fn parser_test_contract_matches_published_kind_and_capability_constraints() {
+        for kind in TEST_KIND_NAMES {
+            let dir = write_manifest(&format!(
+                r#"
+[package]
+name = "parity"
+version = "0.1.0"
+
+[[tests]]
+name = "{kind}"
+entry = "src/{kind}.ax"
+kind = "{kind}"
+capabilities = []
+"#
+            ));
+            let manifest = load_manifest(dir.path())
+                .unwrap_or_else(|error| panic!("published test kind {kind} must parse: {error:?}"));
+            assert_eq!(manifest.tests[0].capabilities, []);
+        }
+
+        let unknown_kind = write_manifest(
+            r#"
+[package]
+name = "parity"
+version = "0.1.0"
+
+[[tests]]
+name = "integration"
+entry = "src/integration.ax"
+kind = "integration"
+"#,
+        );
+        assert!(
+            load_manifest(unknown_kind.path())
+                .expect_err("unpublished test kind must fail")
+                .message
+                .contains("tests[0].kind must be one of")
+        );
+
+        for capability in KNOWN_CAPABILITIES {
+            let unsupported_capability = write_manifest(&format!(
+                r#"
+[package]
+name = "parity"
+version = "0.1.0"
+
+[[tests]]
+name = "network"
+entry = "src/network.ax"
+capabilities = ["{}"]
+"#,
+                capability.name()
+            ));
+            assert!(
+                load_manifest(unsupported_capability.path())
+                    .expect_err("non-empty per-test capabilities must fail")
+                    .message
+                    .contains("capabilities is not yet enforced per test"),
+                "published capability {} must deserialize before fail-closed enforcement",
+                capability.name()
+            );
+        }
+
+        let snake_case_fs_write = write_manifest(
+            r#"
+[package]
+name = "parity"
+version = "0.1.0"
+
+[[tests]]
+name = "write"
+entry = "src/write.ax"
+capabilities = ["fs_write"]
+"#,
+        );
+        assert!(
+            load_manifest(snake_case_fs_write.path()).is_err(),
+            "unpublished fs_write spelling must not deserialize"
+        );
+
+        let noncanonical_dependency = write_manifest(
+            r#"
+[package]
+name = "parity"
+version = "0.1.0"
+
+[dependencies.dep]
+path = "../dep"
+version = "^01.2.3"
+"#,
+        );
+        assert!(
+            load_manifest(noncanonical_dependency.path())
+                .expect_err("leading-zero dependency version must fail")
+                .message
+                .contains("MAJOR.MINOR.PATCH")
+        );
+    }
+
+    #[test]
     fn rejects_zero_runtime_max_threads() {
         let dir = write_manifest(
             r#"
@@ -1570,6 +1732,167 @@ fs_write = true
             "unexpected error: {}",
             error.message
         );
+    }
+
+    #[test]
+    fn rejects_unknown_root_field_including_future_edition_selector() {
+        for field in ["edition = \"2027\"", "future_contract = true"] {
+            let dir = write_manifest(&format!(
+                r#"
+{field}
+
+[package]
+name = "demo"
+version = "0.1.0"
+"#
+            ));
+            let error = load_manifest(dir.path()).expect_err("unknown root field should fail");
+            assert_eq!(error.kind, "manifest");
+            assert!(
+                error.message.contains("unknown field"),
+                "unexpected error for {field}: {}",
+                error.message
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_unknown_package_field_including_future_edition_selector() {
+        for field in ["edition = \"2027\"", "future_contract = true"] {
+            let dir = write_manifest(&format!(
+                r#"
+[package]
+name = "demo"
+version = "0.1.0"
+{field}
+"#
+            ));
+            let error = load_manifest(dir.path()).expect_err("unknown package field should fail");
+            assert_eq!(error.kind, "manifest");
+            assert!(
+                error.message.contains("unknown field"),
+                "unexpected error for {field}: {}",
+                error.message
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_unknown_fields_in_closed_manifest_tables() {
+        let cases = [
+            (
+                "workspace",
+                r#"
+[package]
+name = "demo"
+version = "0.1.0"
+
+[workspace]
+members = []
+future_contract = true
+"#,
+            ),
+            (
+                "build",
+                r#"
+[package]
+name = "demo"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+future_contract = true
+"#,
+            ),
+            (
+                "runtime",
+                r#"
+[package]
+name = "demo"
+version = "0.1.0"
+
+[runtime]
+max_threads = 1
+future_contract = true
+"#,
+            ),
+            (
+                "dependency",
+                r#"
+[package]
+name = "demo"
+version = "0.1.0"
+
+[dependencies.dep]
+path = "dep"
+future_contract = true
+"#,
+            ),
+            (
+                "publish",
+                r#"
+[package]
+name = "demo"
+version = "0.1.0"
+
+[publish]
+registry = "https://registry.example.test/index"
+future_contract = true
+"#,
+            ),
+            (
+                "network allowlist",
+                r#"
+[package]
+name = "demo"
+version = "0.1.0"
+
+[capabilities.net]
+hosts = ["example.test"]
+future_contract = true
+"#,
+            ),
+            (
+                "expected diagnostic",
+                r#"
+[package]
+name = "demo"
+version = "0.1.0"
+
+[[tests]]
+name = "failure"
+entry = "src/main_test.ax"
+
+[tests.expected_error]
+kind = "type"
+message = "mismatch"
+path = "src/main_test.ax"
+line = 1
+column = 1
+future_contract = true
+"#,
+            ),
+        ];
+        for (label, manifest) in cases {
+            let dir = write_manifest(manifest);
+            let error =
+                load_manifest(dir.path()).expect_err(&format!("{label} unknown field should fail"));
+            assert_eq!(error.kind, "manifest");
+            let rejected_unknown_field = error.message.contains("unknown field")
+                || (label == "dependency"
+                    && error
+                        .message
+                        .contains("did not match any variant of untagged enum RawDependencySpec"))
+                || (label == "network allowlist"
+                    && error
+                        .message
+                        .contains("did not match any variant of untagged enum RawNetCapability"));
+            assert!(
+                rejected_unknown_field,
+                "unexpected error for {label}: {}",
+                error.message
+            );
+        }
     }
 
     #[test]

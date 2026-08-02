@@ -1,0 +1,592 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://axiom.omt.global/schemas/axiom-registry-index-v2.schema.json",
+  "title": "Axiom Registry Index v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "contract",
+    "contract_status",
+    "signed",
+    "transcript",
+    "signatures"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "axiom.registry_index.v2"
+    },
+    "contract": {
+      "const": "package.registry_index"
+    },
+    "contract_status": {
+      "enum": [
+        "contract_only",
+        "implemented"
+      ]
+    },
+    "signed": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "metadata_version",
+        "registry_identity",
+        "source_identity",
+        "generation",
+        "sequence",
+        "issued_at",
+        "expires_at",
+        "consistent_snapshot",
+        "signature_role",
+        "releases"
+      ],
+      "properties": {
+        "metadata_version": {
+          "const": 2
+        },
+        "registry_identity": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "source_identity": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "generation": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "sequence": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "issued_at": {
+          "type": "string",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+        },
+        "expires_at": {
+          "type": "string",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+        },
+        "consistent_snapshot": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "enabled",
+            "snapshot_id",
+            "metadata_path",
+            "previous_snapshot_sha256"
+          ],
+          "properties": {
+            "enabled": {
+              "const": true
+            },
+            "snapshot_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            },
+            "metadata_path": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            },
+            "previous_snapshot_sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            }
+          }
+        },
+        "signature_role": {
+          "const": "registry-index"
+        },
+        "releases": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1024,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "namespace",
+              "name",
+              "version",
+              "target_path",
+              "registry_identity",
+              "source_identity",
+              "publisher_identity",
+              "archive",
+              "manifest",
+              "provenance",
+              "package_signature_sha256",
+              "yanked"
+            ],
+            "properties": {
+              "namespace": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              "version": {
+                "type": "string",
+                "maxLength": 256,
+                "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$"
+              },
+              "target_path": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 4096
+              },
+              "registry_identity": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2048
+              },
+              "source_identity": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2048
+              },
+              "publisher_identity": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2048
+              },
+              "archive": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "length",
+                  "digest"
+                ],
+                "properties": {
+                  "length": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "digest": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "algorithm",
+                      "value"
+                    ],
+                    "properties": {
+                      "algorithm": {
+                        "const": "sha-256"
+                      },
+                      "value": {
+                        "type": "string",
+                        "pattern": "^[0-9a-f]{64}$"
+                      }
+                    }
+                  }
+                }
+              },
+              "manifest": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "algorithm",
+                  "value"
+                ],
+                "properties": {
+                  "algorithm": {
+                    "const": "sha-256"
+                  },
+                  "value": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                  }
+                }
+              },
+              "provenance": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "statement",
+                  "selected_subject"
+                ],
+                "properties": {
+                  "statement": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "digest",
+                      "canonical_bytes_hex",
+                      "value"
+                    ],
+                    "properties": {
+                      "digest": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "algorithm",
+                          "value"
+                        ],
+                        "properties": {
+                          "algorithm": {
+                            "const": "sha-256"
+                          },
+                          "value": {
+                            "type": "string",
+                            "pattern": "^[0-9a-f]{64}$"
+                          }
+                        }
+                      },
+                      "canonical_bytes_hex": {
+                        "type": "string",
+                        "pattern": "^(?:[0-9a-f]{2})+$"
+                      },
+                      "value": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "_type",
+                          "subject",
+                          "predicateType",
+                          "predicate"
+                        ],
+                        "properties": {
+                          "_type": {
+                            "const": "https://in-toto.io/Statement/v1"
+                          },
+                          "subject": {
+                            "type": "array",
+                            "minItems": 1,
+                            "maxItems": 1024,
+                            "items": {
+                              "type": "object",
+                              "additionalProperties": false,
+                              "required": [
+                                "name",
+                                "digest"
+                              ],
+                              "properties": {
+                                "name": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 4096
+                                },
+                                "digest": {
+                                  "type": "object",
+                                  "additionalProperties": false,
+                                  "required": [
+                                    "sha256"
+                                  ],
+                                  "properties": {
+                                    "sha256": {
+                                      "type": "string",
+                                      "pattern": "^[0-9a-f]{64}$"
+                                    }
+                                  }
+                                }
+                              }
+                            },
+                            "uniqueItems": true
+                          },
+                          "predicateType": {
+                            "const": "https://slsa.dev/provenance/v1"
+                          },
+                          "predicate": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": [
+                              "buildDefinition",
+                              "runDetails"
+                            ],
+                            "properties": {
+                              "buildDefinition": {
+                                "type": "object",
+                                "additionalProperties": false,
+                                "required": [
+                                  "buildType",
+                                  "externalParameters",
+                                  "internalParameters",
+                                  "resolvedDependencies"
+                                ],
+                                "properties": {
+                                    "buildType": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 2048
+                                  },
+                                "externalParameters": {
+                                  "type": "object",
+                                  "maxProperties": 128,
+                                  "additionalProperties": true
+                                },
+                                "internalParameters": {
+                                  "type": "object",
+                                  "maxProperties": 128,
+                                  "additionalProperties": true
+                                },
+                                "resolvedDependencies": {
+                                  "type": "array",
+                                  "minItems": 1,
+                                  "maxItems": 1024,
+                                    "items": {
+                                      "type": "object",
+                                      "additionalProperties": false,
+                                      "required": [
+                                        "uri",
+                                        "digest"
+                                      ],
+                                      "properties": {
+                                          "uri": {
+                                            "type": "string",
+                                            "minLength": 1,
+                                            "maxLength": 2048
+                                        },
+                                        "digest": {
+                                          "type": "object",
+                                          "minProperties": 1,
+                                          "maxProperties": 128,
+                                          "additionalProperties": {
+                                            "type": "string",
+                                            "pattern": "^[0-9a-f]{64}$"
+                                          }
+                                        }
+                                      }
+                                    },
+                                    "uniqueItems": true
+                                  }
+                                }
+                              },
+                              "runDetails": {
+                                "type": "object",
+                                "additionalProperties": false,
+                                "required": [
+                                  "builder",
+                                  "metadata",
+                                  "byproducts"
+                                ],
+                                "properties": {
+                                  "builder": {
+                                    "type": "object",
+                                    "additionalProperties": false,
+                                    "required": [
+                                      "id",
+                                      "builderDependencies",
+                                      "version"
+                                    ],
+                                    "properties": {
+                                        "id": {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 2048
+                                      },
+                                    "builderDependencies": {
+                                      "type": "array",
+                                      "minItems": 0,
+                                      "maxItems": 1024,
+                                        "items": {
+                                          "type": "object",
+                                          "additionalProperties": false,
+                                          "required": [
+                                            "uri",
+                                            "digest"
+                                          ],
+                                          "properties": {
+                                              "uri": {
+                                                "type": "string",
+                                                "minLength": 1,
+                                                "maxLength": 2048
+                                            },
+                                            "digest": {
+                                              "type": "object",
+                                              "minProperties": 1,
+                                              "maxProperties": 128,
+                                              "additionalProperties": {
+                                                "type": "string",
+                                                "pattern": "^[0-9a-f]{64}$"
+                                              }
+                                            }
+                                          }
+                                        },
+                                        "uniqueItems": true
+                                      },
+                                    "version": {
+                                      "type": "object",
+                                      "minProperties": 1,
+                                      "maxProperties": 128,
+                                        "additionalProperties": {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 4096
+                                        }
+                                      }
+                                    }
+                                  },
+                                  "metadata": {
+                                    "type": "object",
+                                    "additionalProperties": false,
+                                    "required": [
+                                      "invocationId",
+                                      "startedOn",
+                                      "finishedOn"
+                                    ],
+                                    "properties": {
+                                        "invocationId": {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 4096
+                                      },
+                                      "startedOn": {
+                                        "type": "string",
+                                        "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+                                      },
+                                      "finishedOn": {
+                                        "type": "string",
+                                        "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+                                      }
+                                    }
+                                  },
+                                "byproducts": {
+                                  "type": "array",
+                                  "minItems": 0,
+                                  "maxItems": 1024,
+                                    "items": {
+                                      "type": "object",
+                                      "additionalProperties": false,
+                                      "required": [
+                                        "uri",
+                                        "digest"
+                                      ],
+                                      "properties": {
+                                          "uri": {
+                                            "type": "string",
+                                            "minLength": 1,
+                                            "maxLength": 2048
+                                        },
+                                        "digest": {
+                                          "type": "object",
+                                          "minProperties": 1,
+                                          "maxProperties": 128,
+                                          "additionalProperties": {
+                                            "type": "string",
+                                            "pattern": "^[0-9a-f]{64}$"
+                                          }
+                                        }
+                                      }
+                                    },
+                                    "uniqueItems": true
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "selected_subject": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "name",
+                      "digest"
+                    ],
+                    "properties": {
+                      "name": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 4096
+                      },
+                      "digest": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "sha256"
+                        ],
+                        "properties": {
+                          "sha256": {
+                            "type": "string",
+                            "pattern": "^[0-9a-f]{64}$"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              "package_signature_sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "yanked": {
+                "type": "boolean"
+              }
+            }
+          }
+        }
+      },
+      "minProperties": 10
+    },
+    "transcript": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "encoding",
+        "domain",
+        "bytes_hex",
+        "sha256"
+      ],
+      "properties": {
+        "encoding": {
+          "const": "axiom-canonical-json-v1"
+        },
+        "domain": {
+          "const": "AXIOM-REGISTRY-INDEX-V2"
+        },
+        "bytes_hex": {
+          "type": "string",
+          "pattern": "^(?:[0-9a-f]{2})+$"
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "signatures": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 16,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "key_id",
+          "algorithm",
+          "encoding",
+          "value"
+        ],
+        "properties": {
+          "key_id": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "algorithm": {
+            "const": "ed25519"
+          },
+          "encoding": {
+            "const": "lowercase-hex"
+          },
+          "value": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{128}$"
+          }
+        }
+      },
+      "uniqueItems": true
+    }
+  }
+}

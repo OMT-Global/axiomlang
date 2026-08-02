@@ -14,6 +14,13 @@ use axiomc::manifest::{
 #[cfg(test)]
 use axiomc::new_project::create_project;
 use axiomc::new_project::{WorkloadTemplate, create_project_with_template};
+use axiomc::package_trust::{
+    Ed25519Signer, PackageArtifacts, PackageInputFailure, PackageTrustInput, PackageVerification,
+    RegistryIndexEnvelope, TrustRootsEnvelope, VerificationExpectation, input_failure_verification,
+    parse_package_signature_json, parse_registry_index_json, parse_strict_json_value,
+    parse_trust_roots_json, parse_verification_expectation_json, validate_package_verification,
+    verify_package_with_artifacts,
+};
 use axiomc::project::{
     BuildOptions, BuildOutput, CheckOptions, RunLimits, RunOptions, TestOptions, TestOutput,
     build_project_with_options, capability_sbom, check_project_with_options,
@@ -22,17 +29,18 @@ use axiomc::project::{
     trace_provenance,
 };
 use axiomc::registry::{
-    PublishOptions, RegistryServeOptions, load_registry_index, publish_package,
-    render_registry_index, serve_registry, verify_registry_index_integrity,
+    PublishOptions, RegistryIndexOptions, RegistryServeOptions, load_registry_index,
+    publish_package, render_registry_index, serve_registry, verify_registry_index_integrity,
 };
 use axiomc::syntax::parse_program;
 use benchmark::{BenchOptions, run_benchmarks};
 use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
+use ed25519_dalek::{Signer as _, SigningKey};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::ffi::CString;
 use std::fs::{self, File};
-use std::io::{self, BufRead, Write};
+use std::io::{self, BufRead, Read, Write};
 #[cfg(unix)]
 use std::os::fd::{AsRawFd, FromRawFd};
 #[cfg(unix)]
@@ -304,52 +312,89 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
-    /// Pack and publish a stage1 package into a local registry tree.
-    ///
-    /// Note: --signing-key is required and the emitted `.sig` payload is an
-    /// HMAC-SHA256 authentication tag bound to that key.
+    /// Pack, authenticate, and publish a stage1 package into a local registry tree.
     Publish {
         path: PathBuf,
         #[arg(long = "registry-dir")]
         registry_dir: PathBuf,
-        #[arg(
-            long = "signing-key",
-            help = "Required authentication key bound into the emitted .sig payload."
-        )]
-        signing_key: Option<String>,
+        #[arg(long)]
+        namespace: String,
+        #[arg(long = "registry-identity")]
+        registry_identity: String,
+        #[arg(long = "source-identity")]
+        source_identity: String,
+        #[arg(long = "publisher-identity")]
+        publisher_identity: String,
+        #[arg(long = "index-generation")]
+        index_generation: u64,
+        #[arg(long = "index-sequence")]
+        index_sequence: u64,
+        #[arg(long)]
+        provenance: PathBuf,
+        #[arg(long = "trust-roots")]
+        trust_roots: PathBuf,
+        #[arg(long)]
+        expectation: PathBuf,
+        /// Ed25519 seed file: exactly 32 raw bytes or 64 lowercase hexadecimal characters.
+        #[arg(long = "signing-key-file", required = true)]
+        signing_key_files: Vec<PathBuf>,
         #[arg(long)]
         allow_overwrite: bool,
     },
-    /// Build a static package-registry index from package release folders.
+    /// Build an authenticated package-registry index from trusted release folders.
     RegistryIndex {
         packages_dir: PathBuf,
+        #[arg(long = "registry-identity")]
+        registry_identity: String,
+        #[arg(long = "source-identity")]
+        source_identity: String,
         #[arg(long)]
-        base_url: String,
-        #[arg(long = "signing-key")]
-        signing_key: String,
+        generation: u64,
+        #[arg(long)]
+        sequence: u64,
+        #[arg(long = "issued-at")]
+        issued_at: String,
+        #[arg(long = "expires-at")]
+        expires_at: String,
+        #[arg(long = "snapshot-id")]
+        snapshot_id: String,
+        #[arg(long = "metadata-path")]
+        metadata_path: String,
+        #[arg(long = "previous-snapshot-sha256")]
+        previous_snapshot_sha256: String,
+        #[arg(long = "trust-roots")]
+        trust_roots: PathBuf,
+        #[arg(long)]
+        expectation: PathBuf,
+        /// Ed25519 seed file: exactly 32 raw bytes or 64 lowercase hexadecimal characters.
+        #[arg(long = "signing-key-file", required = true)]
+        signing_key_files: Vec<PathBuf>,
         #[arg(long)]
         out: Option<PathBuf>,
     },
-    /// Validate a static package-registry index JSON file.
-    ///
-    /// Pass --packages-dir with --signing-key to also verify local archive
-    /// integrity sidecars for every indexed release with an archive.
+    /// Verify a signed registry index and every exact local release artifact.
     RegistryValidate {
         index: PathBuf,
         #[arg(long = "packages-dir")]
-        packages_dir: Option<PathBuf>,
-        #[arg(long = "signing-key")]
-        signing_key: Option<String>,
+        packages_dir: PathBuf,
+        #[arg(long = "trust-roots")]
+        trust_roots: PathBuf,
+        #[arg(long)]
+        expectation: PathBuf,
     },
-    /// Serve a hosted package-registry index and release artifacts over HTTP.
+    /// Verify and serve one immutable registry-index and artifact snapshot over HTTP.
     RegistryServe {
         packages_dir: PathBuf,
+        #[arg(long)]
+        index: PathBuf,
+        #[arg(long = "trust-roots")]
+        trust_roots: PathBuf,
+        #[arg(long)]
+        expectation: PathBuf,
         #[arg(long, default_value = "127.0.0.1:8080")]
         addr: String,
         #[arg(long = "base-url")]
         base_url: Option<String>,
-        #[arg(long = "signing-key")]
-        signing_key: String,
         #[arg(long)]
         once: bool,
     },
@@ -464,6 +509,33 @@ enum PkgCommand {
         path: PathBuf,
         /// Emit an axiom.stage1.v1 JSON envelope for agent/tool consumption.
         #[arg(long)]
+        json: bool,
+    },
+    /// Verify a delivered package against Package Trust v1 metadata and exact artifact bytes.
+    Verify {
+        /// Exact package archive bytes to authenticate.
+        #[arg(long)]
+        archive: PathBuf,
+        /// Exact packaged axiom.toml bytes to authenticate.
+        #[arg(long)]
+        manifest: PathBuf,
+        /// Exact canonical in-toto provenance statement bytes to authenticate.
+        #[arg(long)]
+        provenance: PathBuf,
+        /// Package signature envelope JSON.
+        #[arg(long)]
+        signature: PathBuf,
+        /// Trust roots envelope JSON.
+        #[arg(long = "trust-roots")]
+        trust_roots: PathBuf,
+        /// Registry Index v2 envelope JSON.
+        #[arg(long = "registry-index")]
+        registry_index: PathBuf,
+        /// Package verification expectation JSON.
+        #[arg(long)]
+        expectation: PathBuf,
+        /// Emit one axiom.package_verification.v1 JSON result.
+        #[arg(long, required = true)]
         json: bool,
     },
 }
@@ -1101,6 +1173,24 @@ fn main() {
                 }
                 Err(error) => print_error("pkg graph", error, json),
             },
+            PkgCommand::Verify {
+                archive,
+                manifest,
+                provenance,
+                signature,
+                trust_roots,
+                registry_index,
+                expectation,
+                json: _,
+            } => verify_package_files(&PackageVerifyPaths {
+                archive,
+                manifest,
+                provenance,
+                signature,
+                trust_roots,
+                registry_index,
+                expectation,
+            }),
         },
         Command::Doctor { path, json } => {
             let project = path.unwrap_or_else(|| PathBuf::from("."));
@@ -1216,16 +1306,42 @@ fn main() {
         Command::Publish {
             path,
             registry_dir,
-            signing_key,
+            namespace,
+            registry_identity,
+            source_identity,
+            publisher_identity,
+            index_generation,
+            index_sequence,
+            provenance,
+            trust_roots,
+            expectation,
+            signing_key_files,
             allow_overwrite,
-        } => match publish_package(
-            &path,
-            &registry_dir,
-            &PublishOptions {
-                signing_key,
-                allow_overwrite,
-            },
-        ) {
+        } => match (|| {
+            let provenance_statement =
+                load_registry_json_value(&provenance, "publish", "provenance statement")?;
+            let trust_roots = load_cli_trust_roots(&trust_roots, "publish")?;
+            let verification_expectation =
+                load_cli_verification_expectation(&expectation, "publish")?;
+            let signers = load_cli_signers(&signing_key_files, "publish")?;
+            publish_package(
+                &path,
+                &registry_dir,
+                &PublishOptions {
+                    allow_overwrite,
+                    namespace: &namespace,
+                    registry_identity: &registry_identity,
+                    source_identity: &source_identity,
+                    publisher_identity: &publisher_identity,
+                    index_generation,
+                    index_sequence,
+                    provenance_statement: &provenance_statement,
+                    trust_roots: &trust_roots,
+                    verification_expectation: &verification_expectation,
+                    signers: &signers,
+                },
+            )
+        })() {
             Ok(output) => {
                 eprintln!(
                     "published {}@{} to {}",
@@ -1239,10 +1355,42 @@ fn main() {
         },
         Command::RegistryIndex {
             packages_dir,
-            base_url,
-            signing_key,
+            registry_identity,
+            source_identity,
+            generation,
+            sequence,
+            issued_at,
+            expires_at,
+            snapshot_id,
+            metadata_path,
+            previous_snapshot_sha256,
+            trust_roots,
+            expectation,
+            signing_key_files,
             out,
-        } => match render_registry_index(&packages_dir, &base_url, &signing_key) {
+        } => match (|| {
+            let trust_roots = load_cli_trust_roots(&trust_roots, "registry-index")?;
+            let verification_expectation =
+                load_cli_verification_expectation(&expectation, "registry-index")?;
+            let signers = load_cli_signers(&signing_key_files, "registry-index")?;
+            render_registry_index(
+                &packages_dir,
+                &RegistryIndexOptions {
+                    registry_identity: &registry_identity,
+                    source_identity: &source_identity,
+                    generation,
+                    sequence,
+                    issued_at: &issued_at,
+                    expires_at: &expires_at,
+                    snapshot_id: &snapshot_id,
+                    metadata_path: &metadata_path,
+                    previous_snapshot_sha256: &previous_snapshot_sha256,
+                    trust_roots: &trust_roots,
+                    verification_expectation: &verification_expectation,
+                    signers: &signers,
+                },
+            )
+        })() {
             Ok(index) => {
                 if let Some(path) = out {
                     match fs::write(&path, index) {
@@ -1270,23 +1418,18 @@ fn main() {
         Command::RegistryValidate {
             index,
             packages_dir,
-            signing_key,
+            trust_roots,
+            expectation,
         } => match load_registry_index(&index).and_then(|registry_index| {
-            if packages_dir.is_some() || signing_key.is_some() {
-                let packages_dir = packages_dir.as_deref().ok_or_else(|| {
-                    Diagnostic::new(
-                        "registry",
-                        "registry-validate integrity checks require --packages-dir and --signing-key",
-                    )
-                })?;
-                let signing_key = signing_key.as_deref().ok_or_else(|| {
-                    Diagnostic::new(
-                        "registry",
-                        "registry-validate integrity checks require --packages-dir and --signing-key",
-                    )
-                })?;
-                verify_registry_index_integrity(&registry_index, packages_dir, signing_key)?;
-            }
+            let trust_roots = load_cli_trust_roots(&trust_roots, "registry-validate")?;
+            let verification_expectation =
+                load_cli_verification_expectation(&expectation, "registry-validate")?;
+            verify_registry_index_integrity(
+                &registry_index,
+                &packages_dir,
+                &trust_roots,
+                &verification_expectation,
+            )?;
             Ok(())
         }) {
             Ok(()) => {
@@ -1297,19 +1440,29 @@ fn main() {
         },
         Command::RegistryServe {
             packages_dir,
+            index,
+            trust_roots,
+            expectation,
             addr,
             base_url,
-            signing_key,
             once,
-        } => match serve_registry(
-            &packages_dir,
-            &RegistryServeOptions {
-                addr,
-                base_url,
-                signing_key,
-                once,
-            },
-        ) {
+        } => match (|| {
+            let index = load_registry_index(&index)?;
+            let trust_roots = load_cli_trust_roots(&trust_roots, "registry-serve")?;
+            let verification_expectation =
+                load_cli_verification_expectation(&expectation, "registry-serve")?;
+            serve_registry(
+                &packages_dir,
+                &RegistryServeOptions {
+                    addr,
+                    base_url,
+                    index,
+                    trust_roots,
+                    verification_expectation,
+                    once,
+                },
+            )
+        })() {
             Ok(output) => {
                 eprintln!(
                     "served {} registry request(s) from {}",
@@ -1663,6 +1816,328 @@ fn print_json_output_or_error<T: Serialize>(command: &str, payload: &T, success_
 
 fn format_json_output<T: Serialize>(payload: &T) -> Result<String, Diagnostic> {
     json_contract::to_pretty_string(payload)
+}
+
+const MAX_PACKAGE_ARCHIVE_BYTES: usize = 512 * 1024 * 1024;
+const MAX_PACKAGE_MANIFEST_BYTES: usize = 1024 * 1024;
+const MAX_PACKAGE_PROVENANCE_BYTES: usize = 8 * 1024 * 1024;
+const MAX_PACKAGE_TRUST_DOCUMENT_BYTES: usize = 8 * 1024 * 1024;
+const MAX_REGISTRY_PROVENANCE_BYTES: usize = 4 * 1024 * 1024;
+const MAX_SIGNING_KEY_FILE_BYTES: usize = 64;
+
+struct CliEd25519Signer(SigningKey);
+
+impl Ed25519Signer for CliEd25519Signer {
+    type Error = std::convert::Infallible;
+
+    fn public_key(&self) -> Result<[u8; 32], Self::Error> {
+        Ok(self.0.verifying_key().to_bytes())
+    }
+
+    fn sign(&self, message: &[u8]) -> Result<[u8; 64], Self::Error> {
+        Ok(self.0.sign(message).to_bytes())
+    }
+}
+
+fn load_registry_json_value(
+    path: &Path,
+    command: &str,
+    description: &str,
+) -> Result<serde_json::Value, Diagnostic> {
+    let bytes = read_bounded_package_input(path, description, MAX_REGISTRY_PROVENANCE_BYTES)
+        .map_err(|error| registry_cli_input_error(command, path, error))?;
+    parse_strict_json_value(&bytes).map_err(|error| {
+        registry_cli_input_error(
+            command,
+            path,
+            format!("invalid {description} {}: {error}", path.display()),
+        )
+    })
+}
+
+fn load_cli_trust_roots(path: &Path, command: &str) -> Result<TrustRootsEnvelope, Diagnostic> {
+    let bytes = read_bounded_package_input(path, "trust roots", MAX_PACKAGE_TRUST_DOCUMENT_BYTES)
+        .map_err(|error| registry_cli_input_error(command, path, error))?;
+    parse_trust_roots_json(&bytes).map_err(|error| {
+        registry_cli_input_error(
+            command,
+            path,
+            format!("invalid trust roots {}: {error}", path.display()),
+        )
+    })
+}
+
+fn load_cli_verification_expectation(
+    path: &Path,
+    command: &str,
+) -> Result<VerificationExpectation, Diagnostic> {
+    let bytes = read_bounded_package_input(
+        path,
+        "verification expectation",
+        MAX_PACKAGE_TRUST_DOCUMENT_BYTES,
+    )
+    .map_err(|error| registry_cli_input_error(command, path, error))?;
+    parse_verification_expectation_json(&bytes).map_err(|error| {
+        registry_cli_input_error(
+            command,
+            path,
+            format!(
+                "invalid verification expectation {}: {error}",
+                path.display()
+            ),
+        )
+    })
+}
+
+fn load_cli_signers(paths: &[PathBuf], command: &str) -> Result<Vec<CliEd25519Signer>, Diagnostic> {
+    paths
+        .iter()
+        .map(|path| {
+            let bytes =
+                read_bounded_package_input(path, "Ed25519 signing key", MAX_SIGNING_KEY_FILE_BYTES)
+                    .map_err(|error| registry_cli_input_error(command, path, error))?;
+            let seed = signing_seed(&bytes).ok_or_else(|| {
+                registry_cli_input_error(
+                    command,
+                    path,
+                    format!(
+                        "invalid Ed25519 signing key file {}; expected exactly 32 raw bytes or 64 lowercase hexadecimal characters",
+                        path.display()
+                    ),
+                )
+            })?;
+            Ok(CliEd25519Signer(SigningKey::from_bytes(&seed)))
+        })
+        .collect()
+}
+
+fn signing_seed(bytes: &[u8]) -> Option<[u8; 32]> {
+    if bytes.len() == 32 {
+        return bytes.try_into().ok();
+    }
+    if bytes.len() != 64
+        || !bytes
+            .iter()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(byte))
+    {
+        return None;
+    }
+    let mut seed = [0_u8; 32];
+    for (target, digits) in seed.iter_mut().zip(bytes.chunks_exact(2)) {
+        let high = signing_hex_digit(digits[0])?;
+        let low = signing_hex_digit(digits[1])?;
+        *target = (high << 4) | low;
+    }
+    Some(seed)
+}
+
+fn signing_hex_digit(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        _ => None,
+    }
+}
+
+fn registry_cli_input_error(command: &str, path: &Path, message: String) -> Diagnostic {
+    Diagnostic::new(command, message).with_path(path.display().to_string())
+}
+
+struct PackageVerifyPaths {
+    archive: PathBuf,
+    manifest: PathBuf,
+    provenance: PathBuf,
+    signature: PathBuf,
+    trust_roots: PathBuf,
+    registry_index: PathBuf,
+    expectation: PathBuf,
+}
+
+fn verify_package_files(paths: &PackageVerifyPaths) -> i32 {
+    let verdict = match load_package_verification_inputs(paths) {
+        Ok(inputs) => verify_package_with_artifacts(
+            &inputs.metadata,
+            PackageArtifacts {
+                archive: Some(&inputs.archive),
+                manifest: Some(&inputs.manifest),
+                provenance: Some(&inputs.provenance),
+            },
+        ),
+        Err(error) => {
+            eprintln!("axiomc pkg verify: {}", error.message);
+            input_failure_verification(error.failure)
+        }
+    };
+    write_package_verification(&verdict)
+}
+
+struct LoadedPackageVerification {
+    metadata: PackageTrustInput,
+    archive: Vec<u8>,
+    manifest: Vec<u8>,
+    provenance: Vec<u8>,
+}
+
+struct PackageVerifyInputError {
+    failure: PackageInputFailure,
+    message: String,
+}
+
+impl PackageVerifyInputError {
+    fn new(failure: PackageInputFailure, message: String) -> Self {
+        Self { failure, message }
+    }
+
+    fn missing_or_unreadable(message: String) -> Self {
+        Self::new(PackageInputFailure::MissingOrUnreadable, message)
+    }
+}
+
+fn load_package_verification_inputs(
+    paths: &PackageVerifyPaths,
+) -> Result<LoadedPackageVerification, PackageVerifyInputError> {
+    let signature = read_bounded_package_input(
+        &paths.signature,
+        "package signature",
+        MAX_PACKAGE_TRUST_DOCUMENT_BYTES,
+    )
+    .map_err(PackageVerifyInputError::missing_or_unreadable)?;
+    let trust_roots = read_bounded_package_input(
+        &paths.trust_roots,
+        "trust roots",
+        MAX_PACKAGE_TRUST_DOCUMENT_BYTES,
+    )
+    .map_err(PackageVerifyInputError::missing_or_unreadable)?;
+    let registry_index = read_bounded_package_input(
+        &paths.registry_index,
+        "registry index",
+        MAX_PACKAGE_TRUST_DOCUMENT_BYTES,
+    )
+    .map_err(PackageVerifyInputError::missing_or_unreadable)?;
+    let expectation = read_bounded_package_input(
+        &paths.expectation,
+        "verification expectation",
+        MAX_PACKAGE_TRUST_DOCUMENT_BYTES,
+    )
+    .map_err(PackageVerifyInputError::missing_or_unreadable)?;
+
+    let package_signature = parse_package_signature_json(&signature).map_err(|error| {
+        PackageVerifyInputError::new(
+            PackageInputFailure::PackageSignatureMalformed,
+            format!(
+                "invalid package signature {}: {error}",
+                paths.signature.display()
+            ),
+        )
+    })?;
+    let trust_roots: TrustRootsEnvelope =
+        parse_trust_roots_json(&trust_roots).map_err(|error| {
+            PackageVerifyInputError::new(
+                PackageInputFailure::TrustRootsMalformed,
+                format!(
+                    "invalid trust roots {}: {error}",
+                    paths.trust_roots.display()
+                ),
+            )
+        })?;
+    let registry_index: RegistryIndexEnvelope = parse_registry_index_json(&registry_index)
+        .map_err(|error| {
+            PackageVerifyInputError::new(
+                PackageInputFailure::RegistryIndexMalformed,
+                format!(
+                    "invalid registry index {}: {error}",
+                    paths.registry_index.display()
+                ),
+            )
+        })?;
+    let verification_expectation: VerificationExpectation =
+        parse_verification_expectation_json(&expectation).map_err(|error| {
+            PackageVerifyInputError::new(
+                PackageInputFailure::VerificationExpectationMalformed,
+                format!(
+                    "invalid verification expectation {}: {error}",
+                    paths.expectation.display()
+                ),
+            )
+        })?;
+    let archive =
+        read_bounded_package_input(&paths.archive, "package archive", MAX_PACKAGE_ARCHIVE_BYTES)
+            .map_err(PackageVerifyInputError::missing_or_unreadable)?;
+    let manifest = read_bounded_package_input(
+        &paths.manifest,
+        "package manifest",
+        MAX_PACKAGE_MANIFEST_BYTES,
+    )
+    .map_err(PackageVerifyInputError::missing_or_unreadable)?;
+    let provenance = read_bounded_package_input(
+        &paths.provenance,
+        "provenance statement",
+        MAX_PACKAGE_PROVENANCE_BYTES,
+    )
+    .map_err(PackageVerifyInputError::missing_or_unreadable)?;
+
+    Ok(LoadedPackageVerification {
+        metadata: PackageTrustInput {
+            package_signature,
+            trust_roots,
+            registry_index,
+            verification_expectation,
+        },
+        archive,
+        manifest,
+        provenance,
+    })
+}
+
+fn read_bounded_package_input(
+    path: &Path,
+    description: &str,
+    max_bytes: usize,
+) -> Result<Vec<u8>, String> {
+    let file = File::open(path)
+        .map_err(|error| format!("failed to open {description} {}: {error}", path.display()))?;
+    let mut bytes = Vec::new();
+    file.take(max_bytes as u64 + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|error| format!("failed to read {description} {}: {error}", path.display()))?;
+    if bytes.len() > max_bytes {
+        return Err(format!(
+            "{description} {} exceeds the {max_bytes}-byte limit",
+            path.display()
+        ));
+    }
+    Ok(bytes)
+}
+
+fn write_package_verification(verdict: &PackageVerification) -> i32 {
+    let mut stdout = io::stdout().lock();
+    write_package_verification_to(verdict, &mut stdout)
+}
+
+fn write_package_verification_to(
+    verdict: &PackageVerification,
+    output_writer: &mut impl Write,
+) -> i32 {
+    if let Err(error) = validate_package_verification(verdict) {
+        eprintln!("axiomc pkg verify: invalid verification result: {error}");
+        return 2;
+    }
+    let output = match serde_json::to_vec_pretty(verdict) {
+        Ok(output) => output,
+        Err(error) => {
+            eprintln!("axiomc pkg verify: failed to serialize verification result: {error}");
+            return 2;
+        }
+    };
+    if let Err(error) = output_writer
+        .write_all(&output)
+        .and_then(|()| output_writer.write_all(b"\n"))
+        .and_then(|()| output_writer.flush())
+    {
+        eprintln!("axiomc pkg verify: failed to write package verification result: {error}");
+        return 2;
+    }
+    if verdict.decision == "trusted" { 0 } else { 1 }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -8399,6 +8874,78 @@ return "ok"
     }
 
     #[test]
+    fn publish_cli_parses_trust_metadata_and_signer_file_references() {
+        let cli = Cli::parse_from([
+            "axiomc",
+            "publish",
+            ".",
+            "--registry-dir",
+            "registry/packages",
+            "--namespace",
+            "axiom",
+            "--registry-identity",
+            "axiom-registry-production",
+            "--source-identity",
+            "registry:axiom-production",
+            "--publisher-identity",
+            "https://publishers.example/foundation",
+            "--index-generation",
+            "42",
+            "--index-sequence",
+            "1042",
+            "--provenance",
+            "statement.json",
+            "--trust-roots",
+            "roots.json",
+            "--expectation",
+            "verification-request.json",
+            "--signing-key-file",
+            "publisher-a.seed",
+            "--signing-key-file",
+            "publisher-b.seed",
+            "--allow-overwrite",
+        ]);
+        match cli.command {
+            Command::Publish {
+                path,
+                registry_dir,
+                namespace,
+                registry_identity,
+                source_identity,
+                publisher_identity,
+                index_generation,
+                index_sequence,
+                provenance,
+                trust_roots,
+                expectation,
+                signing_key_files,
+                allow_overwrite,
+            } => {
+                assert_eq!(path, PathBuf::from("."));
+                assert_eq!(registry_dir, PathBuf::from("registry/packages"));
+                assert_eq!(namespace, "axiom");
+                assert_eq!(registry_identity, "axiom-registry-production");
+                assert_eq!(source_identity, "registry:axiom-production");
+                assert_eq!(publisher_identity, "https://publishers.example/foundation");
+                assert_eq!(index_generation, 42);
+                assert_eq!(index_sequence, 1042);
+                assert_eq!(provenance, PathBuf::from("statement.json"));
+                assert_eq!(trust_roots, PathBuf::from("roots.json"));
+                assert_eq!(expectation, PathBuf::from("verification-request.json"));
+                assert_eq!(
+                    signing_key_files,
+                    [
+                        PathBuf::from("publisher-a.seed"),
+                        PathBuf::from("publisher-b.seed")
+                    ]
+                );
+                assert!(allow_overwrite);
+            }
+            other => panic!("expected publish command, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn registry_validate_cli_parses_integrity_options() {
         let cli = Cli::parse_from([
             "axiomc",
@@ -8406,18 +8953,22 @@ return "ok"
             "registry/index.json",
             "--packages-dir",
             "registry/packages",
-            "--signing-key",
-            "dev-key",
+            "--trust-roots",
+            "roots.json",
+            "--expectation",
+            "verification-request.json",
         ]);
         match cli.command {
             Command::RegistryValidate {
                 index,
                 packages_dir,
-                signing_key,
+                trust_roots,
+                expectation,
             } => {
                 assert_eq!(index, PathBuf::from("registry/index.json"));
-                assert_eq!(packages_dir, Some(PathBuf::from("registry/packages")));
-                assert_eq!(signing_key.as_deref(), Some("dev-key"));
+                assert_eq!(packages_dir, PathBuf::from("registry/packages"));
+                assert_eq!(trust_roots, PathBuf::from("roots.json"));
+                assert_eq!(expectation, PathBuf::from("verification-request.json"));
             }
             other => panic!("expected registry validate command, got {other:?}"),
         }
@@ -8429,23 +8980,74 @@ return "ok"
             "axiomc",
             "registry-index",
             "registry/packages",
-            "--base-url",
-            "https://packages.example.test",
-            "--signing-key",
-            "dev-key",
+            "--registry-identity",
+            "axiom-registry-production",
+            "--source-identity",
+            "registry:axiom-production",
+            "--generation",
+            "42",
+            "--sequence",
+            "1042",
+            "--issued-at",
+            "2026-07-29T10:00:00Z",
+            "--expires-at",
+            "2026-08-29T10:00:00Z",
+            "--snapshot-id",
+            "snapshot-42",
+            "--metadata-path",
+            "index.json",
+            "--previous-snapshot-sha256",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "--trust-roots",
+            "roots.json",
+            "--expectation",
+            "verification-request.json",
+            "--signing-key-file",
+            "registry-a.seed",
+            "--signing-key-file",
+            "registry-b.seed",
             "--out",
             "registry/index.json",
         ]);
         match cli.command {
             Command::RegistryIndex {
                 packages_dir,
-                base_url,
-                signing_key,
+                registry_identity,
+                source_identity,
+                generation,
+                sequence,
+                issued_at,
+                expires_at,
+                snapshot_id,
+                metadata_path,
+                previous_snapshot_sha256,
+                trust_roots,
+                expectation,
+                signing_key_files,
                 out,
             } => {
                 assert_eq!(packages_dir, PathBuf::from("registry/packages"));
-                assert_eq!(base_url, "https://packages.example.test");
-                assert_eq!(signing_key, "dev-key");
+                assert_eq!(registry_identity, "axiom-registry-production");
+                assert_eq!(source_identity, "registry:axiom-production");
+                assert_eq!(generation, 42);
+                assert_eq!(sequence, 1042);
+                assert_eq!(issued_at, "2026-07-29T10:00:00Z");
+                assert_eq!(expires_at, "2026-08-29T10:00:00Z");
+                assert_eq!(snapshot_id, "snapshot-42");
+                assert_eq!(metadata_path, "index.json");
+                assert_eq!(
+                    previous_snapshot_sha256,
+                    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                );
+                assert_eq!(trust_roots, PathBuf::from("roots.json"));
+                assert_eq!(expectation, PathBuf::from("verification-request.json"));
+                assert_eq!(
+                    signing_key_files,
+                    [
+                        PathBuf::from("registry-a.seed"),
+                        PathBuf::from("registry-b.seed")
+                    ]
+                );
                 assert_eq!(out, Some(PathBuf::from("registry/index.json")));
             }
             other => panic!("expected registry index command, got {other:?}"),
@@ -8458,30 +9060,140 @@ return "ok"
             "axiomc",
             "registry-serve",
             "registry/packages",
+            "--index",
+            "registry/index.json",
+            "--trust-roots",
+            "roots.json",
+            "--expectation",
+            "verification-request.json",
             "--addr",
             "127.0.0.1:0",
             "--base-url",
             "http://127.0.0.1:0",
-            "--signing-key",
-            "dev-key",
             "--once",
         ]);
         match cli.command {
             Command::RegistryServe {
                 packages_dir,
+                index,
+                trust_roots,
+                expectation,
                 addr,
                 base_url,
-                signing_key,
                 once,
             } => {
                 assert_eq!(packages_dir, PathBuf::from("registry/packages"));
+                assert_eq!(index, PathBuf::from("registry/index.json"));
+                assert_eq!(trust_roots, PathBuf::from("roots.json"));
+                assert_eq!(expectation, PathBuf::from("verification-request.json"));
                 assert_eq!(addr, "127.0.0.1:0");
                 assert_eq!(base_url.as_deref(), Some("http://127.0.0.1:0"));
-                assert_eq!(signing_key, "dev-key");
                 assert!(once);
             }
             other => panic!("expected registry serve command, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn registry_commands_never_accept_signing_material_on_argv() {
+        for command in [
+            "publish",
+            "registry-index",
+            "registry-validate",
+            "registry-serve",
+        ] {
+            let help = subcommand_help(&[command]);
+            assert!(
+                !help.lines().any(|line| {
+                    line.trim_start().starts_with("--signing-key ")
+                        || line.trim_start().starts_with("--private-key")
+                        || line.trim_start().starts_with("--secret")
+                }),
+                "{command} help must not expose raw signing material"
+            );
+        }
+        for command in ["publish", "registry-index"] {
+            assert!(
+                subcommand_help(&[command]).contains("--signing-key-file"),
+                "{command} should accept repeatable signer-provider file references"
+            );
+        }
+        for command in ["registry-validate", "registry-serve"] {
+            assert!(
+                !subcommand_help(&[command]).contains("--signing-key-file"),
+                "{command} verifies existing signatures and needs no signer"
+            );
+        }
+    }
+
+    #[test]
+    fn signing_key_files_accept_only_exact_raw_or_lowercase_hex_seeds() {
+        assert_eq!(signing_seed(&[7_u8; 32]), Some([7_u8; 32]));
+        assert_eq!(
+            signing_seed(b"0707070707070707070707070707070707070707070707070707070707070707"),
+            Some([7_u8; 32])
+        );
+        assert!(
+            signing_seed(b"ABCDEFABCDEFABCDEFABCDEFABCDEFABCDEFABCDEFABCDEFABCDEFABCDEFABCD")
+                .is_none()
+        );
+        assert!(
+            signing_seed(b"0707070707070707070707070707070707070707070707070707070707070707\n")
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn registry_json_loader_rejects_duplicate_provenance_keys() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("provenance.json");
+        fs::write(&path, br#"{"_type":"first","_type":"duplicate"}"#)
+            .expect("write duplicate-key provenance");
+
+        let error =
+            load_registry_json_value(&path, "publish", "provenance statement").unwrap_err();
+
+        assert!(
+            error.message.contains("duplicate"),
+            "strict provenance parsing should report duplicate keys: {error:?}"
+        );
+    }
+
+    #[test]
+    fn package_verification_writer_rejects_schema_invalid_result_before_output() {
+        let mut verdict =
+            input_failure_verification(PackageInputFailure::MissingOrUnreadable);
+        verdict.decision = "unknown".to_owned();
+        let mut output = Vec::new();
+
+        assert_eq!(write_package_verification_to(&verdict, &mut output), 2);
+        assert!(
+            output.is_empty(),
+            "invalid verification result must not reach stdout"
+        );
+    }
+
+    #[test]
+    fn package_verification_writer_returns_two_on_output_failure() {
+        struct FailingWriter;
+
+        impl Write for FailingWriter {
+            fn write(&mut self, _buffer: &[u8]) -> io::Result<usize> {
+                Err(io::Error::other("intentional output failure"))
+            }
+
+            fn flush(&mut self) -> io::Result<()> {
+                Ok(())
+            }
+        }
+
+        let verdict =
+            input_failure_verification(PackageInputFailure::MissingOrUnreadable);
+
+        assert_eq!(
+            write_package_verification_to(&verdict, &mut FailingWriter),
+            2
+        );
     }
 
     #[test]
@@ -8496,6 +9208,104 @@ return "ok"
             }
             other => panic!("expected pkg graph command, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn pkg_verify_cli_parses_offline_evidence_paths_and_json_flag() {
+        let cli = Cli::parse_from([
+            "axiomc",
+            "pkg",
+            "verify",
+            "--archive",
+            "package.axp",
+            "--manifest",
+            "axiom.toml",
+            "--provenance",
+            "statement.json",
+            "--signature",
+            "package.sig.json",
+            "--trust-roots",
+            "roots.json",
+            "--registry-index",
+            "index.json",
+            "--expectation",
+            "verification-request.json",
+            "--json",
+        ]);
+        match cli.command {
+            Command::Pkg {
+                command:
+                    PkgCommand::Verify {
+                        archive,
+                        manifest,
+                        provenance,
+                        signature,
+                        trust_roots,
+                        registry_index,
+                        expectation,
+                        json,
+                    },
+            } => {
+                assert_eq!(archive, PathBuf::from("package.axp"));
+                assert_eq!(manifest, PathBuf::from("axiom.toml"));
+                assert_eq!(provenance, PathBuf::from("statement.json"));
+                assert_eq!(signature, PathBuf::from("package.sig.json"));
+                assert_eq!(trust_roots, PathBuf::from("roots.json"));
+                assert_eq!(registry_index, PathBuf::from("index.json"));
+                assert_eq!(expectation, PathBuf::from("verification-request.json"));
+                assert!(json);
+            }
+            other => panic!("expected pkg verify command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn pkg_verify_cli_requires_json_and_exposes_no_signing_material_flag() {
+        let error = Cli::try_parse_from([
+            "axiomc",
+            "pkg",
+            "verify",
+            "--archive",
+            "package.axp",
+            "--manifest",
+            "axiom.toml",
+            "--provenance",
+            "statement.json",
+            "--signature",
+            "package.sig.json",
+            "--trust-roots",
+            "roots.json",
+            "--registry-index",
+            "index.json",
+            "--expectation",
+            "verification-request.json",
+        ])
+        .expect_err("Package Trust v1 requires --json");
+        assert_eq!(
+            error.kind(),
+            clap::error::ErrorKind::MissingRequiredArgument
+        );
+
+        let help = subcommand_help(&["pkg", "verify"]);
+        for flag in [
+            "--archive",
+            "--manifest",
+            "--provenance",
+            "--signature",
+            "--trust-roots",
+            "--registry-index",
+            "--expectation",
+            "--json",
+        ] {
+            assert!(help.contains(flag), "pkg verify help should list {flag}");
+        }
+        for forbidden in ["--signing-key", "--private-key", "--secret"] {
+            assert!(
+                !help.contains(forbidden),
+                "pkg verify must not accept signing material via {forbidden}"
+            );
+        }
+        assert!(help.contains("axiom.package_verification.v1"));
     }
 
     #[test]

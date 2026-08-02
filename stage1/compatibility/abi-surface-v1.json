@@ -1,0 +1,166 @@
+{
+  "schema_version": "axiom.compatibility_abi_surface.v1",
+  "abi_id": "axiom://abi/logical-runtime-v1",
+  "value_features": [
+    {
+      "id": "array.fixed",
+      "logical_semantics": "Fixed arrays preserve element order, declared length, indexing, projection, argument, and return behavior."
+    },
+    {
+      "id": "boolean",
+      "logical_semantics": "Boolean values preserve truth, equality, condition, argument, and return behavior."
+    },
+    {
+      "id": "enum.payload",
+      "logical_semantics": "Enum values preserve variant identity, payload meaning, construction, matching, argument, and return behavior."
+    },
+    {
+      "id": "map.lookup",
+      "logical_semantics": "Maps preserve key equality, replacement, lookup, containment, key enumeration, and missing-key behavior."
+    },
+    {
+      "id": "numeric.scalars",
+      "logical_semantics": "Numeric values preserve declared width, signedness, arithmetic, comparison, conversion, argument, and return behavior."
+    },
+    {
+      "id": "option",
+      "logical_semantics": "Optional values preserve present or absent identity, payload meaning, matching, argument, and return behavior."
+    },
+    {
+      "id": "owned.move_state",
+      "logical_semantics": "Owned values preserve move, use-after-move rejection, argument transfer, and return ownership behavior."
+    },
+    {
+      "id": "result",
+      "logical_semantics": "Outcome values preserve success or error identity, payload meaning, matching, propagation, argument, and return behavior."
+    },
+    {
+      "id": "slice.borrowed",
+      "logical_semantics": "Borrowed slices preserve bounded views, element order, length, indexing, and aliasing behavior."
+    },
+    {
+      "id": "string",
+      "logical_semantics": "Strings preserve Unicode text, byte-length, comparison, concatenation, slicing helpers, argument, and return behavior."
+    },
+    {
+      "id": "struct.field",
+      "logical_semantics": "Structured values preserve named field identity, construction, projection, argument, and return behavior."
+    },
+    {
+      "id": "tuple",
+      "logical_semantics": "Tuples preserve positional identity, element order, construction, projection, argument, and return behavior."
+    }
+  ],
+  "capability_shims": [
+    {
+      "id": "async.runtime",
+      "capability": "async",
+      "logical_semantics": "Asynchronous operations require declared async authority and preserve readiness, joining, cancellation, timeout, channel, and selection behavior."
+    },
+    {
+      "id": "clock.now_sleep",
+      "capability": "clock",
+      "logical_semantics": "Clock operations require declared clock authority and preserve time observation, elapsed duration, and bounded sleep behavior."
+    },
+    {
+      "id": "crypto.aead",
+      "capability": "crypto",
+      "logical_semantics": "Authenticated encryption requires declared crypto authority and preserves algorithm, key, nonce, associated-data, ciphertext, and authentication behavior."
+    },
+    {
+      "id": "crypto.hash",
+      "capability": "crypto",
+      "logical_semantics": "Hash operations require declared crypto authority and preserve algorithm, input, digest, and verification behavior."
+    },
+    {
+      "id": "crypto.mac",
+      "capability": "crypto",
+      "logical_semantics": "Message authentication requires declared crypto authority and preserves algorithm, key, message, tag, and verification behavior."
+    },
+    {
+      "id": "crypto.random",
+      "capability": "crypto",
+      "logical_semantics": "Random operations require declared crypto authority and preserve bounded byte generation and unsigned scalar generation behavior."
+    },
+    {
+      "id": "crypto.signature",
+      "capability": "crypto",
+      "logical_semantics": "Signature operations require declared crypto authority and preserve algorithm, key, message, signature, and verification behavior."
+    },
+    {
+      "id": "env.read",
+      "capability": "env",
+      "logical_semantics": "Environment reads require declared environment authority and preserve allowlist, present, absent, and secret-safe audit behavior."
+    },
+    {
+      "id": "ffi.call",
+      "capability": "ffi",
+      "logical_semantics": "Foreign calls require declared foreign-call authority and preserve library, symbol, argument, result, denial, and audit behavior."
+    },
+    {
+      "id": "fs.read",
+      "capability": "fs",
+      "logical_semantics": "Filesystem reads require declared read authority and preserve scoped path, bytes, text, absence, denial, and audit behavior."
+    },
+    {
+      "id": "fs.write",
+      "capability": "fs:write",
+      "logical_semantics": "Filesystem writes require declared write authority and preserve scoped path, content, replacement, denial, and audit behavior."
+    },
+    {
+      "id": "io.logging_stdio",
+      "capability": null,
+      "logical_semantics": "Standard input, output, error, and logging preserve byte, text, line, flush, and redaction behavior."
+    },
+    {
+      "id": "json.serdes",
+      "capability": null,
+      "logical_semantics": "Structured-data operations preserve null, boolean, integer, text, array, object, parse, field, item, stringify, and error behavior."
+    },
+    {
+      "id": "network.dns.resolve",
+      "capability": "net",
+      "logical_semantics": "Name resolution requires declared network authority and preserves host, address, denial, and error behavior."
+    },
+    {
+      "id": "network.http.async_server",
+      "capability": "async",
+      "logical_semantics": "Asynchronous HTTP serving requires declared async authority and preserves request, response, cancellation, draining, denial, and error behavior."
+    },
+    {
+      "id": "network.http.client",
+      "capability": "net",
+      "logical_semantics": "HTTP requests require declared network authority and preserve method, URL, headers, body, response, cancellation, denial, and error behavior."
+    },
+    {
+      "id": "network.http.server",
+      "capability": "net",
+      "logical_semantics": "HTTP serving requires declared network authority and preserves binding, request, response, backpressure, draining, denial, and error behavior."
+    },
+    {
+      "id": "network.tcp",
+      "capability": "net",
+      "logical_semantics": "TCP operations require declared network authority and preserve address, connection, ordered bytes, closure, denial, and error behavior."
+    },
+    {
+      "id": "network.udp",
+      "capability": "net",
+      "logical_semantics": "UDP operations require declared network authority and preserve address, datagram boundaries, denial, and error behavior."
+    },
+    {
+      "id": "process.status",
+      "capability": "process",
+      "logical_semantics": "Process execution requires declared process authority and preserves command policy, normalized status, absence, denial, and audit behavior."
+    },
+    {
+      "id": "regex.match_replace",
+      "capability": null,
+      "logical_semantics": "Pattern operations preserve compilation, matching, capture, replacement, and invalid-pattern behavior."
+    },
+    {
+      "id": "sync.primitives",
+      "capability": null,
+      "logical_semantics": "Synchronization operations preserve mutual exclusion, shared access, notification, ordering, poisoning, and shutdown behavior."
+    }
+  ]
+}
