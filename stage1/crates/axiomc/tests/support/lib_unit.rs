@@ -45,9 +45,7 @@ fn build_project(project_root: &Path) -> Result<crate::project::BuildOutput, Dia
     )
 }
 
-fn build_project_cranelift(
-    project_root: &Path,
-) -> Result<crate::project::BuildOutput, Diagnostic> {
+fn build_project_cranelift(project_root: &Path) -> Result<crate::project::BuildOutput, Diagnostic> {
     build_project_with_options(project_root, &BuildOptions::default())
 }
 
@@ -3168,7 +3166,11 @@ fn package_graph_metadata_lists_workspace_packages() {
     .expect("write root lockfile");
 
     let graph = package_graph_metadata(&project).expect("load package graph metadata");
-    assert_eq!(graph.schema_version, json_contract::JSON_SCHEMA_VERSION);
+    assert_eq!(
+        graph.schema_version,
+        "axiom.compiler.package_graph.runtime.v1"
+    );
+    assert_eq!(graph.contract, "compiler.package_graph.runtime");
     assert_eq!(graph.packages.len(), 3);
     let root = graph
         .packages
@@ -9705,7 +9707,7 @@ fn manifest_parses_richer_test_kinds() {
 }
 
 #[test]
-fn manifest_rejects_reserved_registry_publish_fields() {
+fn manifest_accepts_typed_registry_dependencies_and_rejects_unowned_publish_fields() {
     let dir = tempdir().expect("tempdir");
 
     let root_registry = dir.path().join("root-registry");
@@ -9713,13 +9715,21 @@ fn manifest_rejects_reserved_registry_publish_fields() {
     fs::write(
         root_registry.join("axiom.toml"),
         format!(
-            "{}\n[registry]\nsource = \"https://registry.example\"\n",
+            "{}\n[registry]\nname = \"default\"\nindex = \"https://registry.example.test/index.json\"\ntrust_roots = \"trust-roots.json\"\nexpectation = \"verification-expectation.json\"\n\n[dependencies]\ncore = {{ registry = \"default\", namespace = \"axiom\", version = \"^1.0.0\" }}\n",
             render_manifest("root-registry-app")
         ),
     )
     .expect("write manifest");
-    let err = load_manifest(&root_registry).expect_err("reserved registry should fail");
-    assert!(err.message.contains("[registry] is reserved"));
+    let manifest = load_manifest(&root_registry).expect("typed registry dependency should parse");
+    let registry = manifest.registry.expect("registry config");
+    assert_eq!(registry.name, "default");
+    assert_eq!(registry.index, "https://registry.example.test/index.json");
+    let dependency = manifest.dependencies.get("core").expect("core dependency");
+    assert_eq!(dependency.version.as_deref(), Some("^1.0.0"));
+    let registry_dependency = dependency.registry_source().expect("registry source");
+    assert_eq!(registry_dependency.registry, "default");
+    assert_eq!(registry_dependency.namespace, "axiom");
+    assert_eq!(registry_dependency.package, "core");
 
     let package_checksum = dir.path().join("package-checksum");
     create_project(&package_checksum, Some("package-checksum-app")).expect("create project");
@@ -9730,22 +9740,6 @@ fn manifest_rejects_reserved_registry_publish_fields() {
         .expect("write manifest");
     let err = load_manifest(&package_checksum).expect_err("reserved checksum should fail");
     assert!(err.message.contains("package.checksum is reserved"));
-
-    let dependency_version = dir.path().join("dependency-version");
-    create_project(&dependency_version, Some("dependency-version-app")).expect("create project");
-    fs::write(
-        dependency_version.join("axiom.toml"),
-        format!(
-            "{}\n[dependencies]\ncore = {{ version = \"1.0.0\", registry = \"default\" }}\n",
-            render_manifest("dependency-version-app")
-        ),
-    )
-    .expect("write manifest");
-    let err = load_manifest(&dependency_version).expect_err("reserved dependency should fail");
-    assert!(
-        err.message
-            .contains("dependencies.core.registry is reserved")
-    );
 
     let invalid_dependency_version = dir.path().join("invalid-dependency-version");
     create_project(
@@ -10701,11 +10695,8 @@ fn checked_in_proof_workload_examples_build_run_and_test() {
 #[test]
 #[cfg_attr(not(feature = "run-native-tests"), ignore)]
 fn conformance_corpus_reports_stable_results() {
-    let output = run_project_tests_with_options(
-        &conformance_fixture(),
-        &TestOptions::default(),
-    )
-    .expect("run stage1 conformance corpus");
+    let output = run_project_tests_with_options(&conformance_fixture(), &TestOptions::default())
+        .expect("run stage1 conformance corpus");
     assert_eq!(output.cases.len(), 154);
     let failures: Vec<_> = output
         .cases
@@ -11698,8 +11689,8 @@ fn build_project_folds_static_string_comparisons() {
         )
         .expect("write source");
 
-    let built = build_project_cranelift(&project)
-        .expect("build project with static string comparisons");
+    let built =
+        build_project_cranelift(&project).expect("build project with static string comparisons");
     assert!(
         built.generated_rust.is_none(),
         "default direct-native builds must not emit generated Rust"
@@ -11747,8 +11738,8 @@ fn build_project_emits_native_binary_with_imported_public_static_globals() {
         "pub static LIMIT: int = 40 + 2\npub static READY: bool = LIMIT == 42\n",
     )
     .expect("write values");
-    let built = build_project_cranelift(&project)
-        .expect("build project with imported static globals");
+    let built =
+        build_project_cranelift(&project).expect("build project with imported static globals");
     assert!(
         built.generated_rust.is_none(),
         "default direct-native builds must not emit generated Rust"

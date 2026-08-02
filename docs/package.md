@@ -4,9 +4,10 @@ Stage1 packages use `axiom.toml` with a deterministic `axiom.lock` lockfile.
 The `axiom.pkg` manifest format is no longer supported.
 
 Package graph truth is AxiOM-owned: `axiom.toml`, `axiom.lock`, local source
-files, workspace members, and future registry integrity records define package
-identity. Cargo remains the current developer host for running the Rust stage1
-compiler, but Cargo metadata is not part of the package graph contract. See
+files, workspace members, authenticated registry records, and exact cached or
+vendored release bytes define package identity. Cargo remains the current
+developer host for running the Rust stage1 compiler, but Cargo metadata is not
+part of the package graph contract. See
 [Compiler Package Graph Boundary](compiler-package-graph.md).
 
 ## Common Commands
@@ -39,10 +40,12 @@ filesystem access is enabled, the `fs` capability includes the manifest-relative
 `configured_root` and canonical `effective_root` so operators can inspect the
 actual package-local filesystem boundary before build or run.
 
-`axiomc pkg graph <path> --json` prints the resolved local package graph without
-mutating manifests or lockfiles. The JSON lists each package root, package
-identity, workspace members, local dependencies, build entrypoint, capabilities,
-and whether that package's `axiom.lock` is current or stale.
+`axiomc pkg graph <path> --json` prints the resolved package graph without
+mutating manifests or lockfiles. Local path nodes retain their package roots;
+registry nodes report the locked source, selected version, Package Trust
+decision, cache or vendor disposition, dependency edges, and deterministic
+resolver decisions. This makes the graph an inspection surface for why a
+version was requested and selected rather than only a list of paths.
 
 Local path dependencies may declare a bounded version constraint:
 
@@ -62,6 +65,12 @@ Checked-in editor and agent metadata lives under `stage1/schemas/`:
 
 - `stage1/schemas/axiom.toml.schema.json` describes the decoded `axiom.toml`
   manifest shape for TOML-aware editors.
+- `stage1/schemas/axiom-lockfile-v2.schema.json` describes the strict
+  compatibility, registry, package, and dependency-edge records written to a
+  registry-enabled `axiom.lock`.
+- `stage1/schemas/axiom-package-resolution-v1.schema.json` describes selected
+  packages, preserved path dependencies, dependency edges, and the ordered
+  resolver trace emitted for agent inspection.
 - `stage1/schemas/axiom.stage1.v1.schema.json` describes the shared JSON
   envelope emitted by `axiomc check`, `build`, `test`, and `caps` with
   `--json`.
@@ -192,16 +201,212 @@ Pass `--base-url` when the registry is behind a proxy or stable hostname;
 otherwise it derives a local URL from the bound address. Uploads remain a
 separate `axiomc publish` operation.
 
-## Registry And Publish Contract
+## Package Resolver v1
 
-The local manifest contract exposes publish metadata for future registry tooling while keeping dependency resolution local-only. Today, `axiomc` accepts local path dependencies and rejects registry dependency selectors:
+Package Resolver v1 preserves local path dependencies and adds one explicitly
+configured static registry source. A root manifest names the registry and the
+project-relative Package Trust policy files that authenticate it:
 
 ```toml
-[dependencies]
-core = { path = "deps/core" }
+[registry]
+name = "fixture"
+index = "file:///absolute/path/to/registry/index.json"
+trust_roots = "trust/roots.json"
+expectation = "trust/expectation.json"
+cache = ".axiom/cache"
+vendor = "vendor"
+
+[dependencies.local_util]
+path = "deps/local-util"
+version = "^0.4.0"
+
+[dependencies.core]
+registry = "fixture"
+namespace = "axiom"
+package = "core"
+version = "^1.2.3"
 ```
 
-Package identity is the pair in `[package]`. Publish metadata is optional and declarative only:
+`registry.name`, `registry.index`, `registry.trust_roots`, and
+`registry.expectation` are required. `registry.cache` and `registry.vendor` are
+optional project-relative roots and must not name the same path. A registry
+dependency must name that configured registry, a portable lowercase namespace,
+an optional published package name (defaulting to the dependency alias), and
+an exact or caret release version. Path and registry sources are mutually
+exclusive. Registry versions are strict `MAJOR.MINOR.PATCH` releases; wildcard,
+prerelease, build-metadata, range, and tilde selectors are rejected.
+
+The current transport is deliberately a local qualification surface:
+
+- `file://` reads a regular, non-symlink local index or artifact.
+- `http://` is limited to numeric loopback addresses for the checked local HTTP
+  registry fixture.
+- Redirects, transfer encoding, content encoding other than identity,
+  ambiguous lengths, oversized headers/bodies, and truncated responses fail
+  closed.
+- Public HTTPS transport and a hosted registry service are not implemented by
+  this resolver slice. A syntactically valid HTTPS index may be retained as
+  forward-compatible manifest data, but the current fetch transport rejects it.
+
+This is not an edition-selection mechanism. Resolver v1 records the current
+compatibility and edition policy as evidence; it does not choose an edition for
+a package.
+
+### Resolution and trust boundary
+
+The resolver first authenticates the exact Registry Index v2 bytes with
+Package Trust v1. Only an `AuthenticatedRegistryCatalog` can supply candidates.
+Its read-only catalog and release methods expose authenticated registry/source
+identities, current root and index positions, transcript digests, signer IDs,
+yank state, artifact digests, exact index bytes, and normalized paths for
+`package.axp`, `axiom.toml`, `provenance.json`, and `package.axp.sig`. Resolver
+code cannot construct or mutate authenticated release internals directly.
+
+Resolution allows one version for each canonical
+`(registry_identity, source_identity, namespace, package)` coordinate. It
+orders coordinates lexically, tries matching strict release versions in
+descending order, and uses authenticated release ID and target path lexical
+order as the final tie-break. Duplicate coordinate/version records are
+rejected. Exact and caret requirements, transitive edges, conflicts, yanks,
+candidate attempts, backtracks, and trace events all use fixed deterministic
+work budgets.
+
+Each decision records the dependency alias, requested constraint, selected
+coordinate, candidate disposition, and reason. An index signature failure,
+expired or rolled-back metadata, replay, duplicate coordinate or target path,
+source mismatch, incompatible constraints, work-budget exhaustion, or
+ineligible yanked candidate fails closed before package bytes become graph
+inputs. Fresh resolution never selects a yanked release. Locked replay may
+retain one only when every exact Package Trust, digest, transcript, and cache or
+vendor pin still verifies; `update` moves off it when a compatible non-yanked
+release exists.
+
+After candidate selection, the consumer fetches all four exact release
+artifacts and calls full Package Trust verification. The authenticated manifest
+is parsed from the verified bytes with `parse_manifest_exact`; it is never
+silently reread from a mutable filesystem path. Transitive dependency
+discovery therefore happens only after the containing release has been fully
+authenticated.
+
+### Lockfile v2
+
+Any graph containing a registry dependency requires `axiom.lock` version 2.
+Version 1 remains valid for path-only graphs. The v2 TOML contract contains:
+
+- `[compatibility]`: `contract`, `compiler`, and the recorded
+  `edition_policy`.
+- `roots`: sorted unique package IDs for every entry package whose dependency
+  closure forms the graph, including virtual-workspace members.
+- `[[registry]]`: manifest-local `name`/`source`, authenticated
+  `registry_identity`/`source_identity`, exact `trust_roots_sha256` and
+  `expectation_sha256`,
+  `current_root_version`/`current_root_sequence`/
+  `current_root_transcript_sha256`, exact `index_sha256`/
+  `index_transcript_sha256`, `index_generation`/`index_sequence`,
+  `index_snapshot_id`, and sorted unique `index_signer_key_ids`.
+- `[[package]]`: required `id`, `name`, `version`, `source`, and
+  `compatibility`. Registry records additionally require `registry`,
+  `namespace`, `archive_sha256`, `archive_length`, `manifest_sha256`,
+  `provenance_sha256`, `package_signature_sha256`, `publisher_identity`,
+  `verification_sha256`, sorted unique `signer_key_ids`, exact `cache_key`, and
+  `yanked_at_resolution`; path records must omit every registry evidence field.
+- `[[edge]]`: from/to package IDs, dependency alias, requested constraint,
+  path or registry source kind, and one closed stable reason:
+  `root_path_constraint`, `transitive_path_constraint`,
+  `highest_compatible`, `exact_locked_replay`, or
+  `trusted_yanked_locked_replay`.
+
+Parsing is strict and rejects unknown fields, duplicate identities, malformed
+versions or digests, and inconsistent graph edges. Lockfile replacement is an
+atomic write. `--locked` never performs resolution or changes the file; a
+missing, v1, stale, or altered lock for a registry graph is an error.
+
+The Rust boundary preserves version identity instead of decoding into a common
+lossy struct: `parse_lockfile_exact` and `load_lockfile` return
+`ParsedLockfile::V1` or `ParsedLockfile::V2`; `render_lockfile_v2`,
+`validate_lockfile_v2`, and `write_lockfile_v2_atomic` own v2 persistence;
+`validate_lockfile_version_for_manifest` enforces the registry/v2 gate; and
+`canonical_path_package_id`/`canonical_registry_package_id` define stable node
+IDs.
+
+### Cache, offline mode, and vendoring
+
+Registry packages enter the build graph only through verified immutable
+material. Archives are limited to 64 MiB, 4,096 files, 16 MiB per file,
+1,024-byte paths, and 64 path components. Absolute or parent paths, duplicate
+entries, symlinks, unsupported entry types, and extraction outside the
+transaction root are rejected.
+
+The content-addressed store shares immutable archive content by authenticated
+archive digest: the exact blob lives under `blobs/sha256/<archive-digest>` and
+the extracted tree under
+`trees/axiom-package-extractor-v1/sha256/<archive-digest>`. Package Trust and
+tree-integrity evidence lives under
+`evidence/sha256/<archive-digest>/<evidence-identity>/`, where the evidence
+identity binds the exact registry-index and verification-document digests.
+Atomic admission records live under
+`commits/sha256/<archive-digest>/<registry-index-digest>/<evidence-identity>.json`.
+The `axiom.package_tree_integrity.v1` record binds the extractor version and a
+path-sorted list of every file length and SHA-256 digest. Cache hits are
+selected by the lock's exact archive, registry-index, and verification digests
+and revalidated against the complete evidence and commit records; a matching
+directory name is not sufficient proof.
+
+`--locked --offline` performs no registry request and has no network fallback.
+It succeeds only when every locked release can be reconstructed from intact
+cache or vendor material and still passes the locked digest, identity, trust,
+and compatibility checks. Missing files, modified bytes, symlinks, traversal,
+duplicate archive paths, or stale trust/index pins fail closed.
+
+Vendoring copies the same verified immutable package material into a
+project-controlled snapshot under
+`snapshots/sha256/<vendor-manifest-digest>/`, then atomically replaces
+`CURRENT`. Within one snapshot, packages sharing an archive reuse
+`packages/sha256/<archive-digest>/{archive,tree}` while exact Package Trust
+evidence and commits remain isolated by evidence identity. Its canonical
+`axiom.vendor_manifest.v1` sorts package identities and binds every content
+key, archive digest, registry-index digest, verification digest, evidence
+identity, and tree-manifest digest. A vendor tree is not a trust bypass:
+locked and offline consumers reverify it exactly as they reverify the shared
+cache. Local path dependencies remain paths and are never copied into the
+registry store or vendor tree.
+
+The stable operator surface is:
+
+```bash
+cargo run --manifest-path stage1/Cargo.toml -p axiomc -- pkg fetch <path> --json
+cargo run --manifest-path stage1/Cargo.toml -p axiomc -- pkg update <path> --json
+cargo run --manifest-path stage1/Cargo.toml -p axiomc -- pkg update <path> --package core --json
+cargo run --manifest-path stage1/Cargo.toml -p axiomc -- pkg vendor <path> --out vendor --json
+cargo run --manifest-path stage1/Cargo.toml -p axiomc -- pkg graph <path> --json
+```
+
+`fetch` preserves every selection in an existing valid v2 lock while
+authenticating and caching its exact pins. For a registry graph with no lock or
+only v1, it performs the initial deterministic resolution and atomically writes
+v2. `update` explicitly re-resolves and atomically replaces v2; `--package`
+unlocks only that direct dependency while freezing all other selections, and
+fails with a deterministic conflict when the requested change needs a broader
+update. `vendor` materializes the locked graph at the configured vendor root or
+`--out` override. Machine-readable reports include the deterministic resolver
+trace, trust decision, cache/vendor disposition, and resulting package graph.
+
+The issue-level qualification gate is:
+
+```bash
+make stage1-package-resolver
+```
+
+It covers exact/caret and transitive resolution, conflicts and yanks, local
+HTTP fixture fetch, Package Trust tamper/replay rejection, content-addressed
+cache admission, locked-offline and vendor round trips, package-graph
+inspection, and supply-chain integration. Public hosted-registry operation
+remains outside this gate.
+
+## Publish metadata
+
+Package identity remains the `[package]` name/version pair. `[publish]` is
+optional metadata consumed by the separate local publication flow:
 
 ```toml
 [package]
@@ -215,21 +420,5 @@ include = ["src/**", "axiom.toml", "axiom.lock"]
 exclude = ["dist/**"]
 ```
 
-Future registry packages will need stable source and integrity metadata:
-
-- Package identity: `package.name` plus `package.version`.
-- Registry source: a named registry or URL source for non-local packages.
-- Checksums: content-addressed package archives, expected to use a tagged form
-  such as `sha256:<hex>`.
-- Publish metadata: include/exclude rules, target registry, archive checksum,
-  and provenance or signature references.
-
-Those registry fields are intentionally reserved. Until registry resolution
-exists, manifests must not contain root `[registry]`, `package.checksum`,
-`package.registry`, `package.source`, or dependency
-`checksum`/`registry`/`source` fields. Local dependency `version` constraints
-are accepted only with a local `path` and are validated against the dependency
-package version. The parser rejects reserved registry fields instead
-of silently treating a registry package as a local package. `[publish]` is
-accepted only as metadata; it does not make `axiomc` contact or upload to a
-remote registry.
+Resolver v1 does not turn `[publish]` into an upload client and does not
+implement a public hosted registry.

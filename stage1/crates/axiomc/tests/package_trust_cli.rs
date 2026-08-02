@@ -346,6 +346,8 @@ fn trust_fixture() -> TrustFixture {
     let mut expectation = VerificationExpectation(contract()["verification_expectation"].clone());
     expectation.0["contract_status"] = serde_json::json!("implemented");
     expectation.0["verification_time"] = serde_json::json!("2026-07-29T12:00:00Z");
+    expectation.0["request"]["registry_identity"] = serde_json::json!("registry:test");
+    expectation.0["request"]["source_identity"] = serde_json::json!("registry:test-source");
     expectation.0["required_signers"]["index_role_id"] = serde_json::json!("registry-index");
     expectation.0["required_signers"]["index_threshold"] = serde_json::json!(2);
     expectation.0["required_signers"]["package_role_id"] = serde_json::json!("targets:axiom");

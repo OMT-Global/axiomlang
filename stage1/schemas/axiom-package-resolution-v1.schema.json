@@ -1,0 +1,626 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://axiom.omt.global/schemas/axiom-package-resolution-v1.schema.json",
+  "title": "Axiom package resolution v1",
+  "description": "Deterministic registry selection, preserved path dependencies, and ordered resolver trace.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "packages",
+    "edges",
+    "path_dependencies",
+    "trace"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "axiom.package_resolution.v1"
+    },
+    "packages": {
+      "type": "array",
+      "maxItems": 256,
+      "items": {
+        "$ref": "#/$defs/resolvedPackage"
+      }
+    },
+    "edges": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/resolvedEdge"
+      }
+    },
+    "path_dependencies": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/pathDependency"
+      }
+    },
+    "trace": {
+      "type": "array",
+      "maxItems": 65536,
+      "items": {
+        "$ref": "#/$defs/traceEvent"
+      }
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "keyId": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "version": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "major",
+        "minor",
+        "patch"
+      ],
+      "properties": {
+        "major": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "minor": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "patch": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "requirement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "version"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "exact",
+            "caret"
+          ]
+        },
+        "version": {
+          "$ref": "#/$defs/version"
+        }
+      }
+    },
+    "packageKey": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "registry",
+        "source",
+        "namespace",
+        "name"
+      ],
+      "properties": {
+        "registry": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "source": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "namespace": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        }
+      }
+    },
+    "optionalPackageKey": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/packageKey"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "resolvedPackage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "package",
+        "version",
+        "release_id",
+        "manifest_digest",
+        "signer_key_ids",
+        "edition",
+        "compatibility",
+        "yanked"
+      ],
+      "properties": {
+        "package": {
+          "$ref": "#/$defs/packageKey"
+        },
+        "version": {
+          "$ref": "#/$defs/version"
+        },
+        "release_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "manifest_digest": {
+          "$ref": "#/$defs/sha256"
+        },
+        "signer_key_ids": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/keyId"
+          },
+          "uniqueItems": true
+        },
+        "edition": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "compatibility": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "yanked": {
+          "type": "boolean"
+        }
+      }
+    },
+    "resolvedEdge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "from",
+        "alias",
+        "to",
+        "requirement",
+        "selected"
+      ],
+      "properties": {
+        "from": {
+          "$ref": "#/$defs/optionalPackageKey"
+        },
+        "alias": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "to": {
+          "$ref": "#/$defs/packageKey"
+        },
+        "requirement": {
+          "$ref": "#/$defs/requirement"
+        },
+        "selected": {
+          "$ref": "#/$defs/version"
+        }
+      }
+    },
+    "pathDependency": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "from",
+        "alias",
+        "path",
+        "version"
+      ],
+      "properties": {
+        "from": {
+          "$ref": "#/$defs/optionalPackageKey"
+        },
+        "alias": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "version": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/version"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "candidateRejection": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/rejectionConstraintMismatch"
+        },
+        {
+          "$ref": "#/$defs/rejectionFrozenMismatch"
+        },
+        {
+          "$ref": "#/$defs/rejectionYanked"
+        },
+        {
+          "$ref": "#/$defs/rejectionVerificationFailed"
+        },
+        {
+          "$ref": "#/$defs/rejectionIdentityMismatch"
+        },
+        {
+          "$ref": "#/$defs/rejectionCycle"
+        },
+        {
+          "$ref": "#/$defs/rejectionDownstreamConflict"
+        }
+      ]
+    },
+    "rejectionConstraintMismatch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "reason"
+      ],
+      "properties": {
+        "reason": {
+          "const": "constraint_mismatch"
+        }
+      }
+    },
+    "rejectionFrozenMismatch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "reason",
+        "required"
+      ],
+      "properties": {
+        "reason": {
+          "const": "frozen_mismatch"
+        },
+        "required": {
+          "$ref": "#/$defs/version"
+        }
+      }
+    },
+    "rejectionYanked": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "reason"
+      ],
+      "properties": {
+        "reason": {
+          "const": "yanked"
+        }
+      }
+    },
+    "rejectionVerificationFailed": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "reason",
+        "code"
+      ],
+      "properties": {
+        "reason": {
+          "const": "verification_failed"
+        },
+        "code": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        }
+      }
+    },
+    "rejectionIdentityMismatch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "reason"
+      ],
+      "properties": {
+        "reason": {
+          "const": "identity_mismatch"
+        }
+      }
+    },
+    "rejectionCycle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "reason",
+        "through"
+      ],
+      "properties": {
+        "reason": {
+          "const": "cycle"
+        },
+        "through": {
+          "$ref": "#/$defs/packageKey"
+        }
+      }
+    },
+    "rejectionDownstreamConflict": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "reason"
+      ],
+      "properties": {
+        "reason": {
+          "const": "downstream_conflict"
+        }
+      }
+    },
+    "traceEvent": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/eventPathPreserved"
+        },
+        {
+          "$ref": "#/$defs/eventConstraintAdded"
+        },
+        {
+          "$ref": "#/$defs/eventCatalogAuthenticated"
+        },
+        {
+          "$ref": "#/$defs/eventCandidateConsidered"
+        },
+        {
+          "$ref": "#/$defs/eventCandidateRejected"
+        },
+        {
+          "$ref": "#/$defs/eventCandidateVerified"
+        },
+        {
+          "$ref": "#/$defs/eventSelected"
+        },
+        {
+          "$ref": "#/$defs/eventBacktracked"
+        },
+        {
+          "$ref": "#/$defs/eventConflict"
+        }
+      ]
+    },
+    "eventPathPreserved": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "event",
+        "from",
+        "alias",
+        "path"
+      ],
+      "properties": {
+        "event": {
+          "const": "path_preserved"
+        },
+        "from": {
+          "$ref": "#/$defs/optionalPackageKey"
+        },
+        "alias": {
+          "type": "string",
+          "minLength": 1
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "eventConstraintAdded": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "event",
+        "from",
+        "package",
+        "requirement"
+      ],
+      "properties": {
+        "event": {
+          "const": "constraint_added"
+        },
+        "from": {
+          "$ref": "#/$defs/optionalPackageKey"
+        },
+        "package": {
+          "$ref": "#/$defs/packageKey"
+        },
+        "requirement": {
+          "$ref": "#/$defs/requirement"
+        }
+      }
+    },
+    "eventCatalogAuthenticated": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "event",
+        "package",
+        "authentication_id",
+        "candidate_count"
+      ],
+      "properties": {
+        "event": {
+          "const": "catalog_authenticated"
+        },
+        "package": {
+          "$ref": "#/$defs/packageKey"
+        },
+        "authentication_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "candidate_count": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "eventCandidateConsidered": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "event",
+        "package",
+        "version",
+        "release_id"
+      ],
+      "properties": {
+        "event": {
+          "const": "candidate_considered"
+        },
+        "package": {
+          "$ref": "#/$defs/packageKey"
+        },
+        "version": {
+          "$ref": "#/$defs/version"
+        },
+        "release_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        }
+      }
+    },
+    "eventCandidateRejected": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "event",
+        "package",
+        "version",
+        "reason"
+      ],
+      "properties": {
+        "event": {
+          "const": "candidate_rejected"
+        },
+        "package": {
+          "$ref": "#/$defs/packageKey"
+        },
+        "version": {
+          "$ref": "#/$defs/version"
+        },
+        "reason": {
+          "$ref": "#/$defs/candidateRejection"
+        }
+      }
+    },
+    "eventCandidateVerified": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "event",
+        "package",
+        "version",
+        "manifest_digest"
+      ],
+      "properties": {
+        "event": {
+          "const": "candidate_verified"
+        },
+        "package": {
+          "$ref": "#/$defs/packageKey"
+        },
+        "version": {
+          "$ref": "#/$defs/version"
+        },
+        "manifest_digest": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "eventSelected": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "event",
+        "package",
+        "version"
+      ],
+      "properties": {
+        "event": {
+          "const": "selected"
+        },
+        "package": {
+          "$ref": "#/$defs/packageKey"
+        },
+        "version": {
+          "$ref": "#/$defs/version"
+        }
+      }
+    },
+    "eventBacktracked": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "event",
+        "package",
+        "version"
+      ],
+      "properties": {
+        "event": {
+          "const": "backtracked"
+        },
+        "package": {
+          "$ref": "#/$defs/packageKey"
+        },
+        "version": {
+          "$ref": "#/$defs/version"
+        }
+      }
+    },
+    "eventConflict": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "event",
+        "package",
+        "requirements"
+      ],
+      "properties": {
+        "event": {
+          "const": "conflict"
+        },
+        "package": {
+          "$ref": "#/$defs/packageKey"
+        },
+        "requirements": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/requirement"
+          },
+          "uniqueItems": true
+        }
+      }
+    }
+  }
+}

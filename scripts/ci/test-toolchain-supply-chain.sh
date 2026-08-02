@@ -143,19 +143,45 @@ grep -Fq 'cargo test --manifest-path "$manifest_path" -p axiomc --locked --test 
   exit 1
 }
 
+for resolver_test in \
+  'package_version::tests' \
+  'package_resolver::tests' \
+  'registry_client::tests' \
+  'package_archive::tests' \
+  'package_store::tests' \
+  'package_manager::tests' \
+  '--test package_resolver_cli'; do
+  grep -Fq -- "$resolver_test" "$script" || {
+    echo "supply-chain script must run the Package Resolver v1 test: $resolver_test" >&2
+    exit 1
+  }
+done
+
+grep -Fq 'check-package-graph-boundary.py" --json' "$script" || {
+  echo "supply-chain script must run the Package Graph boundary checker" >&2
+  exit 1
+}
+
+grep -Fq 'test-check-package-graph-boundary.sh' "$script" || {
+  echo "supply-chain script must run the Package Graph boundary regression suite" >&2
+  exit 1
+}
+
 if ! awk '
   /test-check-package-trust-contract\.sh/ { contract = NR }
   /--locked --lib package_trust::tests/ { core = NR }
   /--locked --lib registry::tests/ { registry = NR }
   /--locked --test package_trust_cli/ { cli = NR }
+  /package_version::tests/ { resolver = NR }
+  /test-check-package-graph-boundary\.sh/ { graph = NR }
   /cargo vet --manifest-path/ { vet = NR }
   /cargo build --manifest-path/ { build = NR }
   END {
     exit !(contract < core && core < registry && registry < cli &&
-           cli < vet && cli < build)
+           cli < resolver && resolver < graph && graph < vet && vet < build)
   }
 ' "$script"; then
-  echo "Package Trust Rust suites must run after contract checks and before vet/build" >&2
+  echo "Package Trust and Package Resolver suites must run after contract checks and before vet/build" >&2
   exit 1
 fi
 

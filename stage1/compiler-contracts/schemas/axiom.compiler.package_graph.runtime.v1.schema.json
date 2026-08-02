@@ -1,0 +1,538 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://omt-global.github.io/axiom/schemas/axiom.compiler.package_graph.runtime.v1.schema.json",
+  "title": "Axiom compiler runtime package graph",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "contract",
+    "manifest",
+    "packages"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "axiom.compiler.package_graph.runtime.v1"
+    },
+    "contract": {
+      "const": "compiler.package_graph.runtime"
+    },
+    "manifest": {
+      "$ref": "#/$defs/path"
+    },
+    "packages": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/package"
+      }
+    }
+  },
+  "$defs": {
+    "path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "nullableString": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "package": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "root",
+        "manifest",
+        "name",
+        "version",
+        "workspace_only",
+        "entrypoint",
+        "capabilities",
+        "dependencies",
+        "members",
+        "lockfile"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "root": {
+          "$ref": "#/$defs/path"
+        },
+        "manifest": {
+          "$ref": "#/$defs/path"
+        },
+        "name": {
+          "$ref": "#/$defs/nullableString"
+        },
+        "version": {
+          "$ref": "#/$defs/nullableString"
+        },
+        "source": {
+          "type": "string",
+          "minLength": 1
+        },
+        "trust": {
+          "$ref": "#/$defs/trust"
+        },
+        "materialization": {
+          "$ref": "#/$defs/materialization"
+        },
+        "workspace_only": {
+          "type": "boolean"
+        },
+        "entrypoint": {
+          "$ref": "#/$defs/nullableString"
+        },
+        "capabilities": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/capability"
+          }
+        },
+        "dependencies": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/dependency"
+          }
+        },
+        "members": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/member"
+          }
+        },
+        "lockfile": {
+          "$ref": "#/$defs/lockfile"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "anyOf": [
+              {
+                "required": [
+                  "id"
+                ],
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "pattern": "^registry:"
+                  }
+                }
+              },
+              {
+                "required": [
+                  "source"
+                ],
+                "properties": {
+                  "source": {
+                    "type": "string",
+                    "pattern": "^registry:"
+                  }
+                }
+              }
+            ]
+          },
+          "then": {
+            "required": [
+              "source",
+              "trust",
+              "materialization",
+              "lockfile"
+            ],
+            "properties": {
+              "source": {
+                "type": "string",
+                "pattern": "^registry:"
+              },
+              "materialization": {
+                "allOf": [
+                  {
+                    "$ref": "#/$defs/materialization"
+                  },
+                  {
+                    "properties": {
+                      "package_trust_verified": {
+                        "const": true
+                      }
+                    }
+                  }
+                ]
+              },
+              "lockfile": {
+                "allOf": [
+                  {
+                    "$ref": "#/$defs/lockfile"
+                  },
+                  {
+                    "required": [
+                      "version",
+                      "hash"
+                    ],
+                    "properties": {
+                      "version": {
+                        "const": 2
+                      },
+                      "hash": {
+                        "$ref": "#/$defs/sha256"
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ]
+    },
+    "dependency": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "path",
+        "package"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "path": {
+          "$ref": "#/$defs/path"
+        },
+        "package": {
+          "$ref": "#/$defs/nullableString"
+        },
+        "package_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source_kind": {
+          "enum": [
+            "path",
+            "registry"
+          ]
+        },
+        "requested": {
+          "type": "string",
+          "minLength": 1
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "required": [
+              "source_kind"
+            ],
+            "properties": {
+              "source_kind": {
+                "const": "registry"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "package_id",
+              "source_kind",
+              "requested",
+              "reason"
+            ],
+            "properties": {
+              "package_id": {
+                "type": "string",
+                "pattern": "^registry:"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "package_id"
+            ],
+            "properties": {
+              "package_id": {
+                "type": "string",
+                "pattern": "^registry:"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "package_id",
+              "source_kind",
+              "requested",
+              "reason"
+            ],
+            "properties": {
+              "source_kind": {
+                "const": "registry"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "member": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "package"
+      ],
+      "properties": {
+        "path": {
+          "$ref": "#/$defs/path"
+        },
+        "package": {
+          "$ref": "#/$defs/nullableString"
+        }
+      }
+    },
+    "lockfile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "status"
+      ],
+      "properties": {
+        "path": {
+          "$ref": "#/$defs/path"
+        },
+        "status": {
+          "enum": [
+            "current",
+            "stale"
+          ]
+        },
+        "version": {
+          "enum": [
+            1,
+            2
+          ]
+        },
+        "hash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{16}([0-9a-f]{48})?$"
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "required": [
+              "version"
+            ],
+            "properties": {
+              "version": {
+                "const": 1
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "hash": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{16}$"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "version"
+            ],
+            "properties": {
+              "version": {
+                "const": 2
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "hash"
+            ],
+            "properties": {
+              "hash": {
+                "$ref": "#/$defs/sha256"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "capability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "enabled",
+        "description"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1
+        },
+        "deny_by_default": {
+          "type": "boolean"
+        },
+        "allowed": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "configured_root": {
+          "type": "string"
+        },
+        "effective_root": {
+          "$ref": "#/$defs/path"
+        },
+        "package_root": {
+          "$ref": "#/$defs/path"
+        },
+        "unsafe_unrestricted": {
+          "type": "boolean"
+        },
+        "unsafe_opt_in": {
+          "type": "boolean"
+        },
+        "unsafe_rationale": {
+          "type": "string"
+        },
+        "owner": {
+          "type": "string"
+        },
+        "rationale": {
+          "type": "string"
+        }
+      }
+    },
+    "trust": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "registry",
+        "registry_identity",
+        "source_identity",
+        "publisher_identity",
+        "archive_sha256",
+        "manifest_sha256",
+        "provenance_sha256",
+        "package_signature_sha256",
+        "index_sha256",
+        "verification_sha256",
+        "signer_key_ids",
+        "index_generation",
+        "index_sequence",
+        "index_transcript_sha256"
+      ],
+      "properties": {
+        "registry": {
+          "type": "string",
+          "minLength": 1
+        },
+        "registry_identity": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source_identity": {
+          "type": "string",
+          "minLength": 1
+        },
+        "publisher_identity": {
+          "type": "string",
+          "minLength": 1
+        },
+        "archive_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "manifest_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "provenance_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "package_signature_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "index_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "verification_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "signer_key_ids": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        },
+        "index_generation": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "index_sequence": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "index_transcript_sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "materialization": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source",
+        "content_key",
+        "package_trust_verified"
+      ],
+      "properties": {
+        "source": {
+          "type": "string",
+          "minLength": 1
+        },
+        "content_key": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "package_trust_verified": {
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}

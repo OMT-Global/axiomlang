@@ -203,23 +203,34 @@ def main() -> int:
         "axiom://schema/axiom-quality-policy-v1",
         "axiom://schema/axiom-quality-report-v1",
     }
+    new_package_resolver_ids = {
+        "axiom://schema/axiom.compiler.package_graph.runtime.v1",
+        "axiom://schema/axiom-lockfile-v2",
+        "axiom://schema/axiom-package-resolution-v1",
+    }
     new_public_schema_ids = new_package_trust_ids | new_main_schema_ids | new_quality_schema_ids
+    new_schema_ids = new_package_trust_ids | new_main_schema_ids | new_package_resolver_ids
     modified_schema_ids = {
         "axiom://schema/axiom-build-lowering-evidence-v1",
         "axiom://schema/axiom.stage1.command",
         "axiom://schema/axiom.stage1.v1",
     }
     assert len(baseline_ids) == 52, "accepted baseline must remain the frozen 52-surface ratchet"
-    assert len(current_ids) == 63, "current contract must include five package trust schemas, two quality schemas, Provider ABI, Semantic MIR, runtime lifecycle, and persistent LSP schemas"
+    assert len(current_ids) == 66, "current contract must include package trust, quality, Provider ABI, Semantic MIR, runtime lifecycle, persistent LSP, and package resolver schemas"
     assert set(baseline_ids) < set(current_ids)
-    assert set(current_ids) - set(baseline_ids) == new_public_schema_ids
-    assert current_payload["contract_version"] == "0.3.0"
+    assert set(current_ids) - set(baseline_ids) == new_public_schema_ids | new_package_resolver_ids
+    assert current_payload["contract_version"] == "0.4.0"
     current_cli = surface(current_payload, "axiom://cli/axiomc")
-    assert current_cli["version"] == "0.2.0"
+    assert current_cli["version"] == "0.3.0"
+    current_stage1_schema = surface(current_payload, "axiom://schema/axiom.stage1.v1")
+    assert current_stage1_schema["version"] == "0.2.0"
+    compatibility_doc = (ROOT / "docs/compatibility-v1.md").read_text(encoding="utf-8")
+    assert f"current source contract is version `{current_payload['contract_version']}` with {len(current_ids)} surfaces" in compatibility_doc
+    assert f"CLI surface is version `{current_cli['version']}`" in compatibility_doc
     current_commands = (
         current_cli["signature"].split("; ", maxsplit=1)[0].split("=")[1].split(",")
     )
-    assert "pkg verify" in current_commands
+    assert {"pkg fetch", "pkg update", "pkg vendor", "pkg verify"} <= set(current_commands)
     canonical = run(
         BASELINE,
         CURRENT,
@@ -229,12 +240,17 @@ def main() -> int:
     assert canonical.returncode == 0, canonical.stdout + canonical.stderr
     canonical_report = json.loads(canonical.stdout)
     assert canonical_report["summary"] == {
-        "additive": 11,
-        "breaking": 4,
+        "additive": 14,
+        "breaking": 7,
         "compatible": 0,
         "deprecated": 0,
     }
-    expected_changed_ids = new_public_schema_ids | modified_schema_ids | {"axiom://cli/axiomc"}
+    expected_changed_ids = new_public_schema_ids | new_package_resolver_ids | modified_schema_ids | {
+        "axiom://cli/axiomc",
+        "axiom://package/lockfile",
+        "axiom://package/manifest",
+        "axiom://schema/axiom.toml",
+    }
     assert {
         item["surface_id"] for item in canonical_report["changes"]
     } == expected_changed_ids
@@ -243,7 +259,7 @@ def main() -> int:
         and item["severity"] == "additive"
         and item["surface_kind"] == "schema"
         for item in canonical_report["changes"]
-        if item["surface_id"] in new_package_trust_ids
+        if item["surface_id"] in new_schema_ids
     )
     cli_change = next(
         item
@@ -254,10 +270,12 @@ def main() -> int:
     assert cli_change["severity"] == "breaking"
     assert cli_change["surface_kind"] == "cli"
     assert cli_change["migration"] == (
-        "Existing command invocations require no changes. To adopt Package Trust v1 "
-        "verification, invoke axiomc pkg verify with the exact artifact and trust "
-        "metadata paths plus --json, then handle exit 0 as trusted, exit 1 as rejected, "
-        "and exit 2 as an operational failure."
+        "Existing command invocations require no changes. To adopt registry dependencies, "
+        "run axiomc pkg fetch to create the v2 lock and verified cache, use axiomc pkg "
+        "update for explicit re-resolution, and run axiomc pkg vendor before "
+        "cache-independent locked offline builds. Package Trust v1 remains available "
+        "through axiomc pkg verify with exact artifact and trust metadata paths plus "
+        "--json."
     )
     for identifier in modified_schema_ids:
         schema_change = next(
@@ -270,7 +288,12 @@ def main() -> int:
         f"axiom://schema/{path.name.removesuffix('.schema.json')}"
         for path in (ROOT / "stage1/compiler-contracts/schemas").glob("*.schema.json")
     }
-    assert compiler_schema_ids - new_main_schema_ids <= set(baseline_ids)
+    assert compiler_schema_ids <= set(current_ids)
+    assert compiler_schema_ids - set(baseline_ids) == (
+        new_main_schema_ids - {"axiom://schema/axiom.lsp.v1"}
+    ) | {
+        "axiom://schema/axiom.compiler.package_graph.runtime.v1"
+    }
     with tempfile.TemporaryDirectory() as temporary:
         directory = Path(temporary)
         for identifier in baseline_ids:

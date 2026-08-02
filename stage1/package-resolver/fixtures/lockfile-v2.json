@@ -1,0 +1,101 @@
+{
+  "version": 2,
+  "compatibility": {
+    "contract": "axiom.compatibility.v1",
+    "compiler": "0.1.0",
+    "edition_policy": "2026-policy-only"
+  },
+  "roots": [
+    "path:.#resolver-demo@0.1.0"
+  ],
+  "registry": [
+    {
+      "name": "fixture",
+      "source": "file:///registry/index.json",
+      "registry_identity": "axiom-registry-production",
+      "source_identity": "registry:axiom-production",
+      "trust_roots_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "expectation_sha256": "7777777777777777777777777777777777777777777777777777777777777777",
+      "current_root_version": 7,
+      "current_root_sequence": 19,
+      "current_root_transcript_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "index_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "index_transcript_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "index_generation": 42,
+      "index_sequence": 1042,
+      "index_snapshot_id": "snapshot-42",
+      "index_signer_key_ids": [
+        "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+        "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+      ]
+    }
+  ],
+  "package": [
+    {
+      "id": "path:.#resolver-demo@0.1.0",
+      "name": "resolver-demo",
+      "version": "0.1.0",
+      "source": "path",
+      "compatibility": {
+        "contract": "axiom.compatibility.v1",
+        "compiler": "0.1.0",
+        "edition_policy": "2026-policy-only"
+      }
+    },
+    {
+      "id": "path:tools/local#local-tools@0.4.0",
+      "name": "local-tools",
+      "version": "0.4.0",
+      "source": "path:tools/local",
+      "compatibility": {
+        "contract": "axiom.compatibility.v1",
+        "compiler": "0.1.0",
+        "edition_policy": "2026-policy-only"
+      }
+    },
+    {
+      "id": "registry:fixture/axiom/core@1.2.3",
+      "name": "core",
+      "version": "1.2.3",
+      "source": "registry:fixture/axiom/core",
+      "registry": "fixture",
+      "namespace": "axiom",
+      "archive_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "archive_length": 4096,
+      "manifest_sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "provenance_sha256": "9999999999999999999999999999999999999999999999999999999999999999",
+      "package_signature_sha256": "8888888888888888888888888888888888888888888888888888888888888888",
+      "verification_sha256": "6666666666666666666666666666666666666666666666666666666666666666",
+      "publisher_identity": "https://publishers.example/foundation",
+      "signer_key_ids": [
+        "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+        "sha256:4444444444444444444444444444444444444444444444444444444444444444"
+      ],
+      "cache_key": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "yanked_at_resolution": false,
+      "compatibility": {
+        "contract": "axiom.compatibility.v1",
+        "compiler": "0.1.0",
+        "edition_policy": "2026-policy-only"
+      }
+    }
+  ],
+  "edge": [
+    {
+      "from": "path:.#resolver-demo@0.1.0",
+      "alias": "core",
+      "to": "registry:fixture/axiom/core@1.2.3",
+      "requested": "^1.2.0",
+      "source_kind": "registry",
+      "reason": "highest_compatible"
+    },
+    {
+      "from": "path:.#resolver-demo@0.1.0",
+      "alias": "local-tools",
+      "to": "path:tools/local#local-tools@0.4.0",
+      "requested": "*",
+      "source_kind": "path",
+      "reason": "root_path_constraint"
+    }
+  ]
+}

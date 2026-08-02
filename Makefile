@@ -125,6 +125,17 @@ stage1-package-graph-boundary:
 stage1-package-graph-boundary-test:
 	bash scripts/ci/test-check-package-graph-boundary.sh
 
+stage1-package-resolver:
+	cargo test --manifest-path stage1/Cargo.toml -p axiomc --locked --lib package_version::tests
+	cargo test --manifest-path stage1/Cargo.toml -p axiomc --locked --lib package_resolver::tests
+	cargo test --manifest-path stage1/Cargo.toml -p axiomc --locked --lib registry_client::tests
+	cargo test --manifest-path stage1/Cargo.toml -p axiomc --locked --lib package_archive::tests
+	cargo test --manifest-path stage1/Cargo.toml -p axiomc --locked --lib package_store::tests
+	cargo test --manifest-path stage1/Cargo.toml -p axiomc --locked --lib package_manager::tests
+	cargo test --manifest-path stage1/Cargo.toml -p axiomc --locked --test package_resolver_cli
+	python3 scripts/ci/check-package-graph-boundary.py --json
+	bash scripts/ci/test-check-package-graph-boundary.sh
+
 stage1-package-trust-contract:
 	python3 scripts/ci/check-package-trust-contract.py --json
 

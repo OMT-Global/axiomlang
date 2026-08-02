@@ -83,6 +83,7 @@ pub fn create_project_with_template(
             version: String::from("0.1.0"),
         }),
         publish: None,
+        registry: None,
         dependencies: BTreeMap::new(),
         workspace: None,
         build: BuildSection {

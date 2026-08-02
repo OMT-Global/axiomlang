@@ -31,7 +31,10 @@
     "new",
     "parse",
     "pkg",
+    "pkg fetch",
     "pkg graph",
+    "pkg update",
+    "pkg vendor",
     "pkg verify",
     "publish",
     "registry-index",
@@ -65,6 +68,6 @@
     "failure": "nonzero"
   },
   "migration": {
-    "action": "Existing command invocations require no changes. To adopt Package Trust v1 verification, invoke axiomc pkg verify with the exact artifact and trust metadata paths plus --json, then handle exit 0 as trusted, exit 1 as rejected, and exit 2 as an operational failure."
+    "action": "Existing command invocations require no changes. To adopt registry dependencies, run axiomc pkg fetch to create the v2 lock and verified cache, use axiomc pkg update for explicit re-resolution, and run axiomc pkg vendor before cache-independent locked offline builds. Package Trust v1 remains available through axiomc pkg verify with exact artifact and trust metadata paths plus --json."
   }
 }

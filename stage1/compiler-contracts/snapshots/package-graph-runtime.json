@@ -1,0 +1,83 @@
+{
+  "schema_version": "axiom.compiler.package_graph.runtime.v1",
+  "contract": "compiler.package_graph.runtime",
+  "manifest": "/workspace/axiom.toml",
+  "packages": [
+    {
+      "id": "path:.#app@0.1.0",
+      "root": "/workspace",
+      "manifest": "/workspace/axiom.toml",
+      "name": "app",
+      "version": "0.1.0",
+      "source": "path",
+      "materialization": {
+        "source": "path",
+        "content_key": null,
+        "package_trust_verified": true
+      },
+      "workspace_only": false,
+      "entrypoint": "/workspace/src/main.ax",
+      "capabilities": [],
+      "dependencies": [
+        {
+          "name": "dep",
+          "path": "/cache/sha256-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "package": "dep",
+          "package_id": "registry:default/acme/dep@1.2.3",
+          "source_kind": "registry",
+          "requested": "^1.2.0",
+          "reason": "highest_compatible"
+        }
+      ],
+      "members": [],
+      "lockfile": {
+        "path": "/workspace/axiom.lock",
+        "status": "current",
+        "version": 2,
+        "hash": "1111111111111111111111111111111111111111111111111111111111111111"
+      }
+    },
+    {
+      "id": "registry:default/acme/dep@1.2.3",
+      "root": "/cache/sha256-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "manifest": "/cache/sha256-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/axiom.toml",
+      "name": "dep",
+      "version": "1.2.3",
+      "source": "registry:default/acme/dep",
+      "trust": {
+        "registry": "default",
+        "registry_identity": "registry.example",
+        "source_identity": "registry-source.example",
+        "publisher_identity": "publisher.example",
+        "archive_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "manifest_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "provenance_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "package_signature_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "index_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+        "verification_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+        "signer_key_ids": [
+          "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+        ],
+        "index_generation": 1,
+        "index_sequence": 2,
+        "index_transcript_sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+      },
+      "materialization": {
+        "source": "cache",
+        "content_key": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "package_trust_verified": true
+      },
+      "workspace_only": false,
+      "entrypoint": "/cache/sha256-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/src/lib.ax",
+      "capabilities": [],
+      "dependencies": [],
+      "members": [],
+      "lockfile": {
+        "path": "/workspace/axiom.lock",
+        "status": "current",
+        "version": 2,
+        "hash": "1111111111111111111111111111111111111111111111111111111111111111"
+      }
+    }
+  ]
+}

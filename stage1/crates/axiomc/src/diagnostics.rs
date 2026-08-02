@@ -1,4 +1,6 @@
+use crate::package_resolver::TraceEvent;
 use serde::Serialize;
+use serde_json::Value;
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct DiagnosticRepair {
@@ -28,6 +30,10 @@ pub struct Diagnostic {
     pub related: Vec<Diagnostic>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub repair: Option<DiagnosticRepair>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub trace: Vec<TraceEvent>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resolver: Option<Value>,
 }
 
 impl Diagnostic {
@@ -44,6 +50,8 @@ impl Diagnostic {
             end_column: None,
             related: Vec::new(),
             repair: None,
+            trace: Vec::new(),
+            resolver: None,
         }
     }
 
@@ -107,6 +115,16 @@ impl Diagnostic {
             edit: edit.map(Into::into),
             command: command.map(Into::into),
         });
+        self
+    }
+
+    pub fn with_package_resolution(
+        mut self,
+        trace: Vec<TraceEvent>,
+        resolver: Option<Value>,
+    ) -> Self {
+        self.trace = trace;
+        self.resolver = resolver;
         self
     }
 

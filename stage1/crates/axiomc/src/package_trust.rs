@@ -270,6 +270,235 @@ pub struct RegistryIndexTrustPreflight {
     pub package_eligible_key_ids: Vec<String>,
 }
 
+/// One release exposed by an authenticated registry catalog.
+///
+/// Every field was covered by the catalog's authenticated index transcript.
+/// The original JSON representation remains private so consumers cannot
+/// accidentally treat an arbitrary, untrusted release object as authenticated.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AuthenticatedRegistryArtifactPaths {
+    pub archive: String,
+    pub manifest: String,
+    pub provenance: String,
+    pub package_signature: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AuthenticatedRegistryRelease {
+    registry_identity: String,
+    source_identity: String,
+    namespace: String,
+    name: String,
+    version: String,
+    target_path: String,
+    publisher_identity: String,
+    archive_length: u64,
+    archive_sha256: String,
+    manifest_sha256: String,
+    provenance_statement_sha256: String,
+    provenance_predicate_type: String,
+    provenance_subject_name: String,
+    provenance_subject_sha256: String,
+    package_signature_sha256: String,
+    yanked: bool,
+    yank_reason: Option<String>,
+    artifact_paths: AuthenticatedRegistryArtifactPaths,
+    authenticated_value: Value,
+}
+
+impl AuthenticatedRegistryRelease {
+    pub fn registry_identity(&self) -> &str {
+        &self.registry_identity
+    }
+
+    pub fn source_identity(&self) -> &str {
+        &self.source_identity
+    }
+
+    pub fn namespace(&self) -> &str {
+        &self.namespace
+    }
+
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub fn version(&self) -> &str {
+        &self.version
+    }
+
+    pub fn target_path(&self) -> &str {
+        &self.target_path
+    }
+
+    pub fn publisher_identity(&self) -> &str {
+        &self.publisher_identity
+    }
+
+    pub fn archive_length(&self) -> u64 {
+        self.archive_length
+    }
+
+    pub fn archive_sha256(&self) -> &str {
+        &self.archive_sha256
+    }
+
+    pub fn manifest_sha256(&self) -> &str {
+        &self.manifest_sha256
+    }
+
+    pub fn provenance_statement_sha256(&self) -> &str {
+        &self.provenance_statement_sha256
+    }
+
+    pub fn provenance_predicate_type(&self) -> &str {
+        &self.provenance_predicate_type
+    }
+
+    pub fn provenance_subject_name(&self) -> &str {
+        &self.provenance_subject_name
+    }
+
+    pub fn provenance_subject_sha256(&self) -> &str {
+        &self.provenance_subject_sha256
+    }
+
+    pub fn package_signature_sha256(&self) -> &str {
+        &self.package_signature_sha256
+    }
+
+    pub fn yanked(&self) -> bool {
+        self.yanked
+    }
+
+    pub fn yank_reason(&self) -> Option<&str> {
+        self.yank_reason.as_deref()
+    }
+
+    /// Return normalized relative paths for every artifact needed by full
+    /// Package Trust verification.
+    pub fn artifact_paths(&self) -> &AuthenticatedRegistryArtifactPaths {
+        &self.artifact_paths
+    }
+}
+
+/// Strictly parsed releases from an authenticated Registry Index v2 snapshot.
+///
+/// The catalog retains the exact delivered index bytes as well as the
+/// authenticated root and index transcript pins. Resolver code must consume
+/// releases through this type rather than reparsing the index JSON.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AuthenticatedRegistryCatalog {
+    registry_identity: String,
+    source_identity: String,
+    trusted_root_version: u64,
+    trusted_root_sequence: u64,
+    trusted_root_transcript_sha256: String,
+    root_version: u64,
+    root_sequence: u64,
+    root_transcript_sha256: String,
+    generation: u64,
+    sequence: u64,
+    snapshot_id: String,
+    index_transcript_sha256: String,
+    index_signer_key_ids: Vec<String>,
+    releases: Vec<AuthenticatedRegistryRelease>,
+    exact_index_bytes: Vec<u8>,
+}
+
+impl AuthenticatedRegistryCatalog {
+    pub fn registry_identity(&self) -> &str {
+        &self.registry_identity
+    }
+
+    pub fn source_identity(&self) -> &str {
+        &self.source_identity
+    }
+
+    pub fn trusted_root_version(&self) -> u64 {
+        self.trusted_root_version
+    }
+
+    pub fn trusted_root_sequence(&self) -> u64 {
+        self.trusted_root_sequence
+    }
+
+    pub fn trusted_root_transcript_sha256(&self) -> &str {
+        &self.trusted_root_transcript_sha256
+    }
+
+    pub fn root_version(&self) -> u64 {
+        self.root_version
+    }
+
+    pub fn root_sequence(&self) -> u64 {
+        self.root_sequence
+    }
+
+    pub fn root_transcript_sha256(&self) -> &str {
+        &self.root_transcript_sha256
+    }
+
+    pub fn generation(&self) -> u64 {
+        self.generation
+    }
+
+    pub fn sequence(&self) -> u64 {
+        self.sequence
+    }
+
+    pub fn snapshot_id(&self) -> &str {
+        &self.snapshot_id
+    }
+
+    pub fn index_transcript_sha256(&self) -> &str {
+        &self.index_transcript_sha256
+    }
+
+    pub fn index_signer_key_ids(&self) -> &[String] {
+        &self.index_signer_key_ids
+    }
+
+    pub fn releases(&self) -> &[AuthenticatedRegistryRelease] {
+        &self.releases
+    }
+
+    /// Return the exact strict JSON bytes whose signed body was authenticated.
+    pub fn exact_index_bytes(&self) -> &[u8] {
+        &self.exact_index_bytes
+    }
+
+    /// Find one exact package coordinate in the authenticated catalog.
+    pub fn release(
+        &self,
+        namespace: &str,
+        name: &str,
+        version: &str,
+    ) -> Option<&AuthenticatedRegistryRelease> {
+        self.releases.iter().find(|release| {
+            release.namespace == namespace && release.name == name && release.version == version
+        })
+    }
+}
+
+/// Stable fail-closed reasons returned by index-only catalog authentication.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RegistryCatalogAuthenticationError {
+    pub reason_codes: Vec<String>,
+}
+
+impl fmt::Display for RegistryCatalogAuthenticationError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            formatter,
+            "Package Trust registry catalog rejected: {}",
+            self.reason_codes.join(", ")
+        )
+    }
+}
+
+impl std::error::Error for RegistryCatalogAuthenticationError {}
+
 /// Stable fail-closed reasons returned by registry-index trust preflight.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TrustRootPreflightError {
@@ -2354,6 +2583,478 @@ pub fn preflight_registry_index_trust(
     })
 }
 
+fn catalog_error(failures: &BTreeSet<String>) -> RegistryCatalogAuthenticationError {
+    RegistryCatalogAuthenticationError {
+        reason_codes: ordered_reason_codes(failures),
+    }
+}
+
+fn registry_artifact_paths(target_path: &str) -> Option<AuthenticatedRegistryArtifactPaths> {
+    if !safe_target_path(&Value::String(target_path.to_owned())) {
+        return None;
+    }
+    let release_dir = target_path.strip_suffix("/package.axp")?;
+    if release_dir.is_empty() {
+        return None;
+    }
+    Some(AuthenticatedRegistryArtifactPaths {
+        archive: target_path.to_owned(),
+        manifest: format!("{release_dir}/axiom.toml"),
+        provenance: format!("{release_dir}/provenance.json"),
+        package_signature: format!("{release_dir}/package.axp.sig"),
+    })
+}
+
+fn authenticated_registry_release(value: &Value) -> Option<AuthenticatedRegistryRelease> {
+    let provenance = field(value, "provenance");
+    let statement = field(provenance, "statement");
+    let subject = field(provenance, "selected_subject");
+    let target_path = text(field(value, "target_path"))?.to_owned();
+    Some(AuthenticatedRegistryRelease {
+        registry_identity: text(field(value, "registry_identity"))?.to_owned(),
+        source_identity: text(field(value, "source_identity"))?.to_owned(),
+        namespace: text(field(value, "namespace"))?.to_owned(),
+        name: text(field(value, "name"))?.to_owned(),
+        version: text(field(value, "version"))?.to_owned(),
+        target_path: target_path.clone(),
+        publisher_identity: text(field(value, "publisher_identity"))?.to_owned(),
+        archive_length: number(field(field(value, "archive"), "length"))?,
+        archive_sha256: text(field(field(field(value, "archive"), "digest"), "value"))?.to_owned(),
+        manifest_sha256: text(field(field(value, "manifest"), "value"))?.to_owned(),
+        provenance_statement_sha256: text(field(field(statement, "digest"), "value"))?.to_owned(),
+        provenance_predicate_type: text(field(field(statement, "value"), "predicateType"))?
+            .to_owned(),
+        provenance_subject_name: text(field(subject, "name"))?.to_owned(),
+        provenance_subject_sha256: text(field(field(subject, "digest"), "sha256"))?.to_owned(),
+        package_signature_sha256: text(field(value, "package_signature_sha256"))?.to_owned(),
+        yanked: field(value, "yanked").as_bool()?,
+        yank_reason: optional_string(field(value, "yank_reason")),
+        artifact_paths: registry_artifact_paths(&target_path)?,
+        authenticated_value: value.clone(),
+    })
+}
+
+/// Authenticate strict Registry Index v2 bytes without admitting package
+/// artifacts.
+///
+/// This is the resolver's index-only trust boundary. It authenticates the root
+/// transition and index role, verifies the exact signed transcript, enforces
+/// time and monotonic trusted-state rules, rejects snapshot rebinding and
+/// duplicate release identities, and only then projects releases into typed
+/// values.
+pub fn authenticate_registry_catalog(
+    index_bytes: &[u8],
+    roots: &TrustRootsEnvelope,
+    expectation: &VerificationExpectation,
+) -> Result<AuthenticatedRegistryCatalog, RegistryCatalogAuthenticationError> {
+    let index = parse_registry_index_json(index_bytes).map_err(|_| {
+        let mut failures = BTreeSet::new();
+        add(&mut failures, "INDEX_DIGEST_MISMATCH");
+        catalog_error(&failures)
+    })?;
+    let mut failures = BTreeSet::new();
+    if !validate_document_work_budget(roots, DocumentKind::Roots)
+        || validate_schema_value(
+            roots,
+            include_bytes!("../../../schemas/axiom-trust-roots-v1.schema.json"),
+            &TRUST_ROOTS_SCHEMA,
+            "trust roots",
+        )
+        .is_err()
+    {
+        add(&mut failures, "ROOT_DIGEST_MISMATCH");
+    }
+    if !validate_document_work_budget(expectation, DocumentKind::Expectation)
+        || validate_schema_value(
+            expectation,
+            include_bytes!(
+                "../../../schemas/axiom-package-verification-expectation-v1.schema.json"
+            ),
+            &VERIFICATION_EXPECTATION_SCHEMA,
+            "verification expectation",
+        )
+        .is_err()
+    {
+        add(&mut failures, "OFFLINE_INPUT_MISSING");
+    }
+    if !failures.is_empty() {
+        return Err(catalog_error(&failures));
+    }
+
+    let RootValidation {
+        verification_time,
+        candidate_keys,
+        candidate_roles,
+        candidate_version,
+        candidate_sequence,
+        ..
+    } = validate_trust_root_transition(roots, expectation, &mut failures);
+    let candidate_root = field(roots, "candidate_root");
+    let candidate_signed = field(candidate_root, "signed");
+    let candidate_raw = metadata_transcript(ROOT_DOMAIN, candidate_signed).unwrap_or_default();
+    let trusted_root = field(roots, "trusted_root");
+    let trusted_signed = field(trusted_root, "signed");
+    let trusted_raw = metadata_transcript(ROOT_DOMAIN, trusted_signed).unwrap_or_default();
+
+    let signed = field(&index, "signed");
+    let index_raw = match metadata_transcript(INDEX_DOMAIN, signed) {
+        Ok(transcript) => transcript,
+        Err(_) => {
+            add(&mut failures, "INDEX_DIGEST_MISMATCH");
+            Vec::new()
+        }
+    };
+    let index_transcript_sha256 = sha256(&index_raw);
+    if !transcript_matches(&index, &index_raw) {
+        add(&mut failures, "INDEX_DIGEST_MISMATCH");
+    }
+    if timestamp(field(signed, "issued_at")).is_none_or(|issued| issued > verification_time)
+        || timestamp(field(signed, "expires_at")).is_none_or(|expiry| expiry <= verification_time)
+    {
+        add(&mut failures, "METADATA_EXPIRED");
+    }
+
+    let generation = number(field(signed, "generation")).unwrap_or(0);
+    let sequence = number(field(signed, "sequence")).unwrap_or(0);
+    let request = field(expectation, "request");
+    if field(signed, "registry_identity") != field(request, "registry_identity")
+        || field(signed, "source_identity") != field(request, "source_identity")
+    {
+        add(&mut failures, "SOURCE_MISMATCH");
+    }
+
+    let required_signers = field(expectation, "required_signers");
+    let expected_role_id = text(field(required_signers, "index_role_id"));
+    let signed_role_id = text(field(signed, "signature_role"));
+    if signed_role_id != expected_role_id {
+        add(&mut failures, "INDEX_THRESHOLD_NOT_MET");
+    }
+    let role = signed_role_id
+        .filter(|role_id| Some(*role_id) == expected_role_id)
+        .and_then(|role_id| candidate_roles.get(role_id));
+    let (valid_signers, valid_signer_count) = signature_evidence(
+        field(&index, "signatures"),
+        SignatureEvidence {
+            role,
+            keys: &candidate_keys,
+            message: &index_raw,
+            sequence,
+            verification_time,
+            context: "INDEX",
+            required_key_ids: None,
+            expected_publisher: None,
+            publisher_grant_authorized: true,
+        },
+        &mut failures,
+    );
+    let expected_threshold = number(field(required_signers, "index_threshold"));
+    if role.and_then(|role| number(field(role, "threshold"))) != expected_threshold {
+        add(&mut failures, "INDEX_THRESHOLD_NOT_MET");
+    }
+    let index_authenticated = transcript_matches(&index, &index_raw)
+        && role.is_some()
+        && role.and_then(|role| number(field(role, "threshold"))) == expected_threshold
+        && expected_threshold.is_some_and(|threshold| valid_signer_count >= threshold as usize);
+
+    let trusted_state = field(expectation, "trusted_state");
+    if index_authenticated {
+        let highest_generation =
+            number(field(trusted_state, "highest_index_generation")).unwrap_or(generation);
+        let highest_sequence =
+            number(field(trusted_state, "highest_index_sequence")).unwrap_or(sequence);
+        if generation < highest_generation || sequence < highest_sequence {
+            add(&mut failures, "ROLLBACK_DETECTED");
+            add(&mut failures, "METADATA_REPLAYED");
+        }
+        let seen_snapshots = field(trusted_state, "seen_snapshots")
+            .as_array()
+            .cloned()
+            .unwrap_or_default();
+        let snapshot = field(signed, "consistent_snapshot");
+        let snapshot_state = serde_json::json!({
+            "generation": generation,
+            "sequence": sequence,
+            "snapshot_id": field(snapshot, "snapshot_id"),
+            "index_transcript_sha256": index_transcript_sha256,
+        });
+        let exact_repeat = seen_snapshots.contains(&snapshot_state);
+        let rebound = seen_snapshots.iter().any(|seen| {
+            object(seen).is_some()
+                && seen != &snapshot_state
+                && ((number(field(seen, "generation")) == Some(generation)
+                    && number(field(seen, "sequence")) == Some(sequence))
+                    || field(seen, "snapshot_id") == field(&snapshot_state, "snapshot_id")
+                    || field(seen, "index_transcript_sha256")
+                        == field(&snapshot_state, "index_transcript_sha256"))
+        });
+        let highest_position_seen = seen_snapshots.iter().any(|seen| {
+            number(field(seen, "generation")) == Some(highest_generation)
+                && number(field(seen, "sequence")) == Some(highest_sequence)
+        });
+        let highest_snapshot_sha256 = seen_snapshots.iter().find_map(|seen| {
+            (number(field(seen, "generation")) == Some(highest_generation)
+                && number(field(seen, "sequence")) == Some(highest_sequence))
+            .then(|| text(field(seen, "index_transcript_sha256")))
+            .flatten()
+        });
+        if !highest_position_seen {
+            add(&mut failures, "OFFLINE_INPUT_MISSING");
+        }
+        if (generation > highest_generation || sequence > highest_sequence)
+            && text(field(snapshot, "previous_snapshot_sha256")) != highest_snapshot_sha256
+        {
+            add(&mut failures, "METADATA_REPLAYED");
+        }
+        if rebound
+            || (generation == highest_generation
+                && sequence == highest_sequence
+                && highest_position_seen
+                && !exact_repeat)
+        {
+            add(&mut failures, "METADATA_REPLAYED");
+        }
+    }
+
+    let releases = field(signed, "releases")
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    let mut full_releases = HashSet::new();
+    let mut coordinates = HashSet::new();
+    let mut target_paths = HashSet::new();
+    for release in &releases {
+        let full = (
+            optional_string(field(release, "registry_identity")),
+            optional_string(field(release, "source_identity")),
+            optional_string(field(release, "namespace")),
+            optional_string(field(release, "name")),
+            optional_string(field(release, "version")),
+            optional_string(field(release, "target_path")),
+        );
+        let coordinate = (
+            full.0.clone(),
+            full.1.clone(),
+            full.2.clone(),
+            full.3.clone(),
+            full.4.clone(),
+        );
+        if !full_releases.insert(full.clone()) {
+            add(&mut failures, "DUPLICATE_RELEASE");
+        }
+        if !coordinates.insert(coordinate) {
+            add(&mut failures, "DUPLICATE_PACKAGE_COORDINATE");
+        }
+        if !target_paths.insert(full.5.clone()) {
+            add(&mut failures, "DUPLICATE_TARGET_PATH");
+        }
+        if field(release, "registry_identity") != field(signed, "registry_identity")
+            || field(release, "source_identity") != field(signed, "source_identity")
+        {
+            add(&mut failures, "SOURCE_MISMATCH");
+        }
+        if text(field(release, "target_path"))
+            .and_then(registry_artifact_paths)
+            .is_none()
+        {
+            add(&mut failures, "TARGET_PATH_INVALID");
+        }
+    }
+    let typed_releases = releases
+        .iter()
+        .filter_map(authenticated_registry_release)
+        .collect::<Vec<_>>();
+    if typed_releases.len() != releases.len() {
+        add(&mut failures, "INDEX_DIGEST_MISMATCH");
+    }
+    if !failures.is_empty() {
+        return Err(catalog_error(&failures));
+    }
+
+    let mut index_signer_key_ids = valid_signers.into_iter().collect::<Vec<_>>();
+    index_signer_key_ids.sort();
+    Ok(AuthenticatedRegistryCatalog {
+        registry_identity: text(field(signed, "registry_identity"))
+            .unwrap_or_default()
+            .to_owned(),
+        source_identity: text(field(signed, "source_identity"))
+            .unwrap_or_default()
+            .to_owned(),
+        trusted_root_version: number(field(trusted_signed, "root_version")).unwrap_or(0),
+        trusted_root_sequence: number(field(trusted_signed, "sequence")).unwrap_or(0),
+        trusted_root_transcript_sha256: sha256(&trusted_raw),
+        root_version: candidate_version.unwrap_or(0),
+        root_sequence: candidate_sequence.unwrap_or(0),
+        root_transcript_sha256: sha256(&candidate_raw),
+        generation,
+        sequence,
+        snapshot_id: text(field(field(signed, "consistent_snapshot"), "snapshot_id"))
+            .unwrap_or_default()
+            .to_owned(),
+        index_transcript_sha256,
+        index_signer_key_ids,
+        releases: typed_releases,
+        exact_index_bytes: index_bytes.to_vec(),
+    })
+}
+
+/// Build the exact release-scoped verification expectation for one
+/// authenticated catalog entry.
+///
+/// The returned value preserves policy fields from `template` while replacing
+/// every release request and current root/index/offline pin with authenticated
+/// catalog evidence. It is suitable for [`verify_package_with_artifacts`].
+pub fn verification_expectation_for_authenticated_release(
+    template: &VerificationExpectation,
+    catalog: &AuthenticatedRegistryCatalog,
+    release: &AuthenticatedRegistryRelease,
+) -> Result<VerificationExpectation, RegistryCatalogAuthenticationError> {
+    let mut failures = BTreeSet::new();
+    if !catalog
+        .releases
+        .iter()
+        .any(|candidate| candidate == release)
+    {
+        add(&mut failures, "OFFLINE_INPUT_MISSING");
+        return Err(catalog_error(&failures));
+    }
+
+    let mut value = template.0.clone();
+    value["request"] = serde_json::json!({
+        "registry_identity": field(&release.authenticated_value, "registry_identity"),
+        "source_identity": field(&release.authenticated_value, "source_identity"),
+        "namespace": field(&release.authenticated_value, "namespace"),
+        "name": field(&release.authenticated_value, "name"),
+        "version": field(&release.authenticated_value, "version"),
+        "target_path": field(&release.authenticated_value, "target_path"),
+        "publisher_identity": field(&release.authenticated_value, "publisher_identity"),
+        "archive": field(&release.authenticated_value, "archive"),
+        "manifest": field(&release.authenticated_value, "manifest"),
+        "provenance": field(&release.authenticated_value, "provenance"),
+    });
+    value["trusted_state"]["trusted_root_anchor"] = serde_json::json!({
+        "root_version": catalog.trusted_root_version,
+        "root_sequence": catalog.trusted_root_sequence,
+        "root_transcript_sha256": catalog.trusted_root_transcript_sha256,
+    });
+    value["trusted_state"]["highest_root_version"] = Value::from(catalog.root_version);
+    value["trusted_state"]["highest_root_sequence"] = Value::from(catalog.root_sequence);
+    value["trusted_state"]["highest_index_generation"] = Value::from(catalog.generation);
+    value["trusted_state"]["highest_index_sequence"] = Value::from(catalog.sequence);
+    let snapshot_state = serde_json::json!({
+        "generation": catalog.generation,
+        "sequence": catalog.sequence,
+        "snapshot_id": catalog.snapshot_id,
+        "index_transcript_sha256": catalog.index_transcript_sha256,
+    });
+    let seen_snapshots = value["trusted_state"]["seen_snapshots"]
+        .as_array_mut()
+        .ok_or_else(|| {
+            add(&mut failures, "OFFLINE_INPUT_MISSING");
+            catalog_error(&failures)
+        })?;
+    if !seen_snapshots.contains(&snapshot_state) {
+        if seen_snapshots.len() >= MAX_SEEN_SNAPSHOTS {
+            add(&mut failures, "OFFLINE_INPUT_MISSING");
+            return Err(catalog_error(&failures));
+        }
+        seen_snapshots.push(snapshot_state);
+    }
+    value["offline_lock"] = serde_json::json!({
+        "mode": "offline_locked",
+        "network_fallback": false,
+        "root_version": catalog.root_version,
+        "root_sequence": catalog.root_sequence,
+        "root_transcript_sha256": catalog.root_transcript_sha256,
+        "index_generation": catalog.generation,
+        "index_sequence": catalog.sequence,
+        "index_transcript_sha256": catalog.index_transcript_sha256,
+        "release": {
+            "registry_identity": field(&release.authenticated_value, "registry_identity"),
+            "source_identity": field(&release.authenticated_value, "source_identity"),
+            "namespace": field(&release.authenticated_value, "namespace"),
+            "name": field(&release.authenticated_value, "name"),
+            "version": field(&release.authenticated_value, "version"),
+            "target_path": field(&release.authenticated_value, "target_path"),
+            "publisher_identity": field(&release.authenticated_value, "publisher_identity"),
+            "archive": field(&release.authenticated_value, "archive"),
+            "manifest": field(&release.authenticated_value, "manifest"),
+            "provenance_statement_sha256": field(field(field(&release.authenticated_value, "provenance"), "statement"), "digest").get("value").unwrap_or(&Value::Null),
+            "provenance_predicate_type": field(field(field(field(&release.authenticated_value, "provenance"), "statement"), "value"), "predicateType"),
+            "provenance_subject": field(field(&release.authenticated_value, "provenance"), "selected_subject"),
+            "package_signature_sha256": field(&release.authenticated_value, "package_signature_sha256"),
+        },
+    });
+    let expectation = VerificationExpectation(value);
+    if !validate_document_work_budget(&expectation, DocumentKind::Expectation)
+        || validate_schema_value(
+            &expectation,
+            include_bytes!(
+                "../../../schemas/axiom-package-verification-expectation-v1.schema.json"
+            ),
+            &VERIFICATION_EXPECTATION_SCHEMA,
+            "verification expectation",
+        )
+        .is_err()
+    {
+        add(&mut failures, "OFFLINE_INPUT_MISSING");
+        return Err(catalog_error(&failures));
+    }
+    Ok(expectation)
+}
+
+/// Construct release-scoped expectation fields for a package publication that
+/// has not yet been admitted to a signed index.
+///
+/// This crate-private entry point exists only for the registry publication
+/// preflight. Resolver and install consumers must use
+/// [`verification_expectation_for_authenticated_release`] instead.
+pub(crate) fn verification_expectation_for_unindexed_release(
+    template: &VerificationExpectation,
+    release: &Value,
+) -> Result<VerificationExpectation, PackageTrustError> {
+    let mut value = template.0.clone();
+    value["request"] = serde_json::json!({
+        "registry_identity": field(release, "registry_identity"),
+        "source_identity": field(release, "source_identity"),
+        "namespace": field(release, "namespace"),
+        "name": field(release, "name"),
+        "version": field(release, "version"),
+        "target_path": field(release, "target_path"),
+        "publisher_identity": field(release, "publisher_identity"),
+        "archive": field(release, "archive"),
+        "manifest": field(release, "manifest"),
+        "provenance": field(release, "provenance"),
+    });
+    value["offline_lock"]["release"] = serde_json::json!({
+        "registry_identity": field(release, "registry_identity"),
+        "source_identity": field(release, "source_identity"),
+        "namespace": field(release, "namespace"),
+        "name": field(release, "name"),
+        "version": field(release, "version"),
+        "target_path": field(release, "target_path"),
+        "publisher_identity": field(release, "publisher_identity"),
+        "archive": field(release, "archive"),
+        "manifest": field(release, "manifest"),
+        "provenance_statement_sha256": field(field(field(release, "provenance"), "statement"), "digest").get("value").unwrap_or(&Value::Null),
+        "provenance_predicate_type": field(field(field(field(release, "provenance"), "statement"), "value"), "predicateType"),
+        "provenance_subject": field(field(release, "provenance"), "selected_subject"),
+        "package_signature_sha256": field(release, "package_signature_sha256"),
+    });
+    let expectation = VerificationExpectation(value);
+    if !validate_document_work_budget(&expectation, DocumentKind::Expectation) {
+        return Err(PackageTrustError::new(
+            "release verification expectation exceeds the Package Trust work budget",
+        ));
+    }
+    validate_schema_value(
+        &expectation,
+        include_bytes!("../../../schemas/axiom-package-verification-expectation-v1.schema.json"),
+        &VERIFICATION_EXPECTATION_SCHEMA,
+        "verification expectation",
+    )?;
+    Ok(expectation)
+}
+
 /// Validate canonical in-toto/SLSA semantics before invoking a package signer.
 ///
 /// The envelope may still be unsigned; this checks the selected subject,
@@ -3576,6 +4277,244 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    fn catalog_bytes(index: &RegistryIndexEnvelope) -> Vec<u8> {
+        serde_json::to_vec(index).expect("serialize registry index")
+    }
+
+    fn catalog_reasons(
+        index: &RegistryIndexEnvelope,
+        roots: &TrustRootsEnvelope,
+        expectation: &VerificationExpectation,
+    ) -> Vec<String> {
+        authenticate_registry_catalog(&catalog_bytes(index), roots, expectation)
+            .expect_err("catalog mutation must fail closed")
+            .reason_codes
+    }
+
+    fn flip_first_hex(value: &mut Value) {
+        let encoded = value.as_str().expect("fixture value is hex");
+        let replacement = if encoded.starts_with('0') { "1" } else { "0" };
+        *value = Value::String(format!("{replacement}{}", &encoded[1..]));
+    }
+
+    #[test]
+    fn authenticated_catalog_retains_exact_bytes_and_typed_release_artifacts() {
+        let bundle = bundle();
+        let bytes = catalog_bytes(&bundle.registry_index);
+        let catalog = authenticate_registry_catalog(
+            &bytes,
+            &bundle.trust_roots,
+            &bundle.verification_expectation,
+        )
+        .expect("published catalog authenticates");
+
+        assert_eq!(catalog.exact_index_bytes(), bytes);
+        assert_eq!(catalog.registry_identity, "axiom-registry-production");
+        assert_eq!(catalog.source_identity, "registry:axiom-production");
+        assert_eq!(catalog.root_version, 4);
+        assert_eq!(catalog.root_sequence, 1040);
+        assert_eq!(catalog.generation, 42);
+        assert_eq!(catalog.sequence, 1042);
+        assert_eq!(catalog.index_signer_key_ids.len(), 2);
+        let release = catalog
+            .release("axiom", "core", "1.2.3")
+            .expect("typed release is addressable by exact coordinate");
+        assert_eq!(release.archive_length, 4096);
+        assert_eq!(
+            release.archive_sha256,
+            "fe8d20ff71a399777064fc096654d204b5e46894bdca6dba4fb0eb9bdf4a6fd5"
+        );
+        assert!(!release.yanked);
+        assert_eq!(
+            release.artifact_paths(),
+            &AuthenticatedRegistryArtifactPaths {
+                archive: "axiom/core/1.2.3/package.axp".to_owned(),
+                manifest: "axiom/core/1.2.3/axiom.toml".to_owned(),
+                provenance: "axiom/core/1.2.3/provenance.json".to_owned(),
+                package_signature: "axiom/core/1.2.3/package.axp.sig".to_owned(),
+            }
+        );
+    }
+
+    #[test]
+    fn catalog_rejects_bad_index_and_root_transition_signatures() {
+        let bundle = bundle();
+        let mut index = bundle.registry_index.clone();
+        flip_first_hex(&mut index.0["signatures"][0]["value"]);
+        let reasons = catalog_reasons(
+            &index,
+            &bundle.trust_roots,
+            &bundle.verification_expectation,
+        );
+        assert!(reasons.contains(&"INDEX_SIGNATURE_INVALID".to_owned()));
+        assert!(reasons.contains(&"INDEX_THRESHOLD_NOT_MET".to_owned()));
+
+        let mut roots = bundle.trust_roots.clone();
+        flip_first_hex(&mut roots.0["transition"]["candidate_signatures_by_old_root"][0]["value"]);
+        let reasons = catalog_reasons(
+            &bundle.registry_index,
+            &roots,
+            &bundle.verification_expectation,
+        );
+        assert!(reasons.contains(&"ROOT_SIGNATURE_INVALID".to_owned()));
+        assert!(reasons.contains(&"ROOT_THRESHOLD_NOT_MET".to_owned()));
+    }
+
+    #[test]
+    fn catalog_rejects_expiry_rollback_replay_and_wrong_identity() {
+        let bundle = bundle();
+
+        let mut expired = bundle.verification_expectation.clone();
+        expired.0["verification_time"] = Value::String("2028-01-01T00:00:00Z".to_owned());
+        assert!(
+            catalog_reasons(&bundle.registry_index, &bundle.trust_roots, &expired)
+                .contains(&"METADATA_EXPIRED".to_owned())
+        );
+
+        let mut rollback = bundle.verification_expectation.clone();
+        rollback.0["trusted_state"]["highest_index_generation"] = Value::from(43_u64);
+        rollback.0["trusted_state"]["highest_index_sequence"] = Value::from(1043_u64);
+        assert!(
+            catalog_reasons(&bundle.registry_index, &bundle.trust_roots, &rollback)
+                .contains(&"ROLLBACK_DETECTED".to_owned())
+        );
+
+        let mut replay = bundle.verification_expectation.clone();
+        replay.0["trusted_state"]["seen_snapshots"][1]["index_transcript_sha256"] =
+            Value::String("0".repeat(64));
+        assert!(
+            catalog_reasons(&bundle.registry_index, &bundle.trust_roots, &replay)
+                .contains(&"METADATA_REPLAYED".to_owned())
+        );
+
+        let mut wrong_identity = bundle.verification_expectation.clone();
+        wrong_identity.0["request"]["registry_identity"] =
+            Value::String("shadow-registry".to_owned());
+        assert!(
+            catalog_reasons(&bundle.registry_index, &bundle.trust_roots, &wrong_identity)
+                .contains(&"SOURCE_MISMATCH".to_owned())
+        );
+
+        for (vector_id, expected_reason) in [
+            ("stale-snapshot-replay", "ROLLBACK_DETECTED"),
+            ("snapshot-id-rebound", "METADATA_REPLAYED"),
+        ] {
+            let replacement = bundle
+                .negative_vectors
+                .iter()
+                .find(|vector| text(field(vector, "id")) == Some(vector_id))
+                .and_then(|vector| field(vector, "mutations").as_array())
+                .and_then(|mutations| mutations.first())
+                .map(|mutation| field(mutation, "value").clone())
+                .expect("resigned replay index vector");
+            let reasons = catalog_reasons(
+                &RegistryIndexEnvelope(replacement),
+                &bundle.trust_roots,
+                &bundle.verification_expectation,
+            );
+            assert!(
+                reasons.contains(&expected_reason.to_owned()),
+                "{vector_id}: {reasons:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn catalog_rejects_resigned_duplicate_coordinates_and_targets() {
+        let bundle = bundle();
+        for (vector_id, expected_reason) in [
+            ("duplicate-target-path-resigned", "DUPLICATE_TARGET_PATH"),
+            (
+                "duplicate-package-coordinate-resigned",
+                "DUPLICATE_PACKAGE_COORDINATE",
+            ),
+        ] {
+            let replacement = bundle
+                .negative_vectors
+                .iter()
+                .find(|vector| text(field(vector, "id")) == Some(vector_id))
+                .and_then(|vector| field(vector, "mutations").as_array())
+                .and_then(|mutations| mutations.first())
+                .map(|mutation| field(mutation, "value").clone())
+                .expect("resigned duplicate index vector");
+            let index = RegistryIndexEnvelope(replacement);
+            let reasons = catalog_reasons(
+                &index,
+                &bundle.trust_roots,
+                &bundle.verification_expectation,
+            );
+            assert!(
+                reasons.contains(&expected_reason.to_owned()),
+                "{vector_id}: {reasons:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn authenticated_release_expectation_installs_exact_catalog_pins() {
+        let bundle = bundle();
+        let bytes = catalog_bytes(&bundle.registry_index);
+        let catalog = authenticate_registry_catalog(
+            &bytes,
+            &bundle.trust_roots,
+            &bundle.verification_expectation,
+        )
+        .expect("catalog authenticates");
+        let release = catalog
+            .release("axiom", "core", "1.2.3")
+            .expect("selected release");
+        let expectation = verification_expectation_for_authenticated_release(
+            &bundle.verification_expectation,
+            &catalog,
+            release,
+        )
+        .expect("release expectation");
+
+        assert_eq!(
+            number(field(
+                field(&expectation, "trusted_state"),
+                "highest_root_version"
+            )),
+            Some(catalog.root_version)
+        );
+        assert_eq!(
+            text(field(
+                field(&expectation, "offline_lock"),
+                "root_transcript_sha256"
+            )),
+            Some(catalog.root_transcript_sha256.as_str())
+        );
+        assert_eq!(
+            text(field(
+                field(&expectation, "offline_lock"),
+                "index_transcript_sha256"
+            )),
+            Some(catalog.index_transcript_sha256.as_str())
+        );
+        assert_eq!(
+            text(field(field(&expectation, "request"), "target_path")),
+            Some(release.target_path.as_str())
+        );
+        assert_eq!(
+            text(field(
+                field(field(&expectation, "offline_lock"), "release"),
+                "package_signature_sha256"
+            )),
+            Some(release.package_signature_sha256.as_str())
+        );
+        parse_verification_expectation_json(
+            &serde_json::to_vec(&expectation).expect("serialize exact expectation"),
+        )
+        .expect("builder output remains strict and schema-valid");
+        let verdict = verify_package(&PackageTrustInput {
+            package_signature: bundle.package_signature,
+            trust_roots: bundle.trust_roots,
+            registry_index: bundle.registry_index,
+            verification_expectation: expectation,
+        });
+        assert_eq!(verdict.decision, "trusted", "{verdict:#?}");
     }
 
     #[test]

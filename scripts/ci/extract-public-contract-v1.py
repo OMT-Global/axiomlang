@@ -651,42 +651,111 @@ def extract(inventory_path: Path, policy_path: Path) -> dict[str, Any]:
         manifest_schema,
         parser_contract,
     )
-    surfaces.append(
-        surface(
-            "axiom://package/manifest",
-            "package",
-            public_surface_version("axiom://package/manifest"),
-            (
-                f"axiom.toml schema={manifest_schema.get('$id')}; "
-                f"semantic_digest={semantic_digest(manifest_projection)}; "
-                f"fields={','.join(sorted(manifest_properties))}; edition_selector=unavailable"
+    manifest_surface = surface(
+        "axiom://package/manifest",
+        "package",
+        public_surface_version("axiom://package/manifest"),
+        (
+            f"axiom.toml schema={manifest_schema.get('$id')}; "
+            f"semantic_digest={semantic_digest(manifest_projection)}; "
+            f"fields={','.join(sorted(manifest_properties))}; edition_selector=unavailable"
+        ),
+        [
+            manifest_schema_source,
+            source(
+                parser_contract_path,
+                "package_manifest_parser_contract",
+                "dependency_version_pattern,test_kinds,test_capabilities",
             ),
-            [
-                manifest_schema_source,
-                source(
-                    parser_contract_path,
-                    "package_manifest_parser_contract",
-                    "dependency_version_pattern,test_kinds,test_capabilities",
-                ),
-                manifest_parser_source,
-            ],
-        )
+            manifest_parser_source,
+        ],
     )
+    manifest_migration = entries["package_manifest"].get("migration")
+    if (
+        not isinstance(manifest_migration, dict)
+        or set(manifest_migration) != {"action"}
+        or not isinstance(manifest_migration.get("action"), str)
+        or not manifest_migration["action"].strip()
+    ):
+        raise ValueError("package manifest source entry must contain one migration action")
+    manifest_surface["migration"] = {"action": manifest_migration["action"].strip()}
+    surfaces.append(manifest_surface)
 
     lock_path = entry_path(entries, "lockfile")
     lock = tomllib.loads(lock_path.read_text(encoding="utf-8"))
     lock_version = lock.get("version")
     if not isinstance(lock_version, int) or lock_version < 1:
         raise ValueError("canonical axiom.lock fixture must declare a positive numeric version")
-    surfaces.append(
-        surface(
-            "axiom://package/lockfile",
-            "package",
-            public_surface_version("axiom://package/lockfile"),
-            f"axiom.lock format={lock_version}; records=package(name,version,source)",
-            [source(lock_path, "lockfile_format", "version,package[*]")],
+    lock_v2_schema_value = entries["lockfile"].get("schema_v2")
+    lock_v2_fixture_value = entries["lockfile"].get("fixture_v2")
+    lock_implementation_value = entries["lockfile"].get("implementation")
+    if not all(
+        isinstance(value, str) and value
+        for value in (
+            lock_v2_schema_value,
+            lock_v2_fixture_value,
+            lock_implementation_value,
         )
+    ):
+        raise ValueError(
+            "lockfile source entry must name schema_v2, fixture_v2, and implementation"
+        )
+    lock_v2_schema_path = ROOT / lock_v2_schema_value
+    lock_v2_fixture_path = ROOT / lock_v2_fixture_value
+    lock_implementation_path = ROOT / lock_implementation_value
+    lock_v2_schema = load_object(lock_v2_schema_path)
+    lock_v2_fixture = load_object(lock_v2_fixture_path)
+    if lock_v2_fixture.get("version") != 2:
+        raise ValueError("canonical axiom.lock v2 fixture must declare version 2")
+    lock_v2_properties = lock_v2_schema.get("properties")
+    if not isinstance(lock_v2_properties, dict):
+        raise ValueError("axiom.lock v2 schema must define top-level properties")
+    expected_v2_fields = ["compatibility", "edge", "package", "registry", "roots", "version"]
+    if sorted(lock_v2_properties) != expected_v2_fields:
+        raise ValueError("axiom.lock v2 schema has an unexpected top-level field set")
+    lock_v2_projection = {
+        "schema": lock_v2_schema,
+        "fixture": lock_v2_fixture,
+    }
+    lock_surface = surface(
+        "axiom://package/lockfile",
+        "package",
+        public_surface_version("axiom://package/lockfile"),
+        (
+            f"axiom.lock formats={lock_version},2; "
+            "v1_records=package(name,version,source); "
+            f"v2_fields={','.join(expected_v2_fields)}; "
+            f"v2_semantic_digest={semantic_digest(lock_v2_projection)}"
+        ),
+        [
+            source(lock_path, "lockfile_v1_format", "version,package[*]"),
+            source(
+                lock_v2_schema_path,
+                "lockfile_v2_schema",
+                "$id,required,properties,$defs",
+            ),
+            source(
+                lock_v2_fixture_path,
+                "lockfile_v2_fixture",
+                "version,compatibility,roots,registry,package,edge",
+            ),
+            source(
+                lock_implementation_path,
+                "lockfile_runtime_parity",
+                "LockfileV2 and validate_lockfile_v2",
+            ),
+        ],
     )
+    lock_migration = entries["lockfile"].get("migration")
+    if (
+        not isinstance(lock_migration, dict)
+        or set(lock_migration) != {"action"}
+        or not isinstance(lock_migration.get("action"), str)
+        or not lock_migration["action"].strip()
+    ):
+        raise ValueError("lockfile source entry must contain one non-empty migration action")
+    lock_surface["migration"] = {"action": lock_migration["action"].strip()}
+    surfaces.append(lock_surface)
 
     abi_path = entry_path(entries, "logical_abi")
     abi = load_object(abi_path)
@@ -802,6 +871,25 @@ def extract(inventory_path: Path, policy_path: Path) -> dict[str, Any]:
     )
 
     surfaces.sort(key=lambda item: (KIND_RANK[item["kind"]], item["id"]))
+    surface_migrations = inventory.get("surface_migrations", {})
+    if not isinstance(surface_migrations, dict):
+        raise ValueError("source inventory surface_migrations must be an object")
+    surface_by_id = {item["id"]: item for item in surfaces}
+    for identifier, migration in surface_migrations.items():
+        if identifier not in surface_by_id:
+            raise ValueError(f"surface migration references unknown surface {identifier}")
+        if (
+            not isinstance(migration, dict)
+            or set(migration) != {"action"}
+            or not isinstance(migration.get("action"), str)
+            or not migration["action"].strip()
+        ):
+            raise ValueError(
+                f"surface migration for {identifier} must contain one non-empty action"
+            )
+        surface_by_id[identifier]["migration"] = {
+            "action": migration["action"].strip()
+        }
     observed = {item["kind"] for item in surfaces}
     missing = set(KINDS) - observed
     if missing:
