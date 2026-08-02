@@ -1152,7 +1152,7 @@
     },
     {
       "evidenceTier": "static_spike",
-      "name": "axiom.provider-abi.v1.schema.json",
+      "name": "https://omt-global.github.io/axiom/schemas/axiom.provider-abi.v1.schema.json",
       "source": "stage1/compiler-contracts/schemas/axiom.provider-abi.v1.schema.json",
       "status": "checked"
     },

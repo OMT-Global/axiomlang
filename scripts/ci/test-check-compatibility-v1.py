@@ -195,11 +195,12 @@ def main() -> int:
     }
     new_main_schema_ids = {
         "axiom://schema/axiom.lsp.v1",
+        "axiom://schema/axiom.provider-abi.v1",
         "axiom://schema/axiom.runtime_lifecycle.v1",
         "axiom://schema/axiom.semantic_mir.v1",
     }
     assert len(baseline_ids) == 52, "accepted baseline must remain the frozen 52-surface ratchet"
-    assert len(current_ids) == 60, "current contract must include five package trust schemas plus Semantic MIR, runtime lifecycle, and persistent LSP schemas"
+    assert len(current_ids) == 61, "current contract must include five package trust schemas plus Provider ABI, Semantic MIR, runtime lifecycle, and persistent LSP schemas"
     assert set(baseline_ids) < set(current_ids)
     assert set(current_ids) - set(baseline_ids) == new_package_trust_ids | new_main_schema_ids
     assert current_payload["contract_version"] == "0.3.0"
@@ -218,7 +219,7 @@ def main() -> int:
     assert canonical.returncode == 0, canonical.stdout + canonical.stderr
     canonical_report = json.loads(canonical.stdout)
     assert canonical_report["summary"] == {
-        "additive": 8,
+        "additive": 9,
         "breaking": 1,
         "compatible": 0,
         "deprecated": 0,

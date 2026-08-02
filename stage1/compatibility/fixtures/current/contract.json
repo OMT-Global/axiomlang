@@ -92,7 +92,7 @@
           "path": "stage1/compiler-contracts/snapshots/capability-ledger.json",
           "role": "cli_top_level_parity",
           "selector": "commands[*].name",
-          "sha256": "9a764a825458e3425e69bcb9f681726faae877841784ce3da2e9536c030de072"
+          "sha256": "4f26106e3bea22f2aec9ddd1979e3b6f075692e5a40cf19c2ab93c56566d26dc"
         },
         {
           "path": "stage1/crates/axiomc/src/main.rs",
@@ -882,6 +882,21 @@
           "role": "published_schema",
           "selector": "$id,properties.schema_version.const",
           "sha256": "8b4aa2afff3020c87f6d9be72dd796479d198a755f8d6a20b660f29ddb1b7c5d"
+        }
+      ],
+      "stability": "experimental",
+      "version": "0.1.0"
+    },
+    {
+      "id": "axiom://schema/axiom.provider-abi.v1",
+      "kind": "schema",
+      "signature": "published schema id=https://omt-global.github.io/axiom/schemas/axiom.provider-abi.v1.schema.json; semantic_digest=2f5e45d0b088167ae43a12e520109d5d5c297f67b911c0799da469dc500fa7eb; envelope=axiom.provider-abi.v1",
+      "sources": [
+        {
+          "path": "stage1/compiler-contracts/schemas/axiom.provider-abi.v1.schema.json",
+          "role": "published_schema",
+          "selector": "$id,properties.schema_version.const",
+          "sha256": "d5ae5f985f29f744e026e599c4f5af7da8b658f605fe38b26b3c7874a53ee5fa"
         }
       ],
       "stability": "experimental",

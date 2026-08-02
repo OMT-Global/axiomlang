@@ -80,9 +80,11 @@ release history or a previous compiler.
 `previous-contract-fixture/` remains sparse synthetic checker input and is not
 used as the canonical ratchet.
 
-The current source contract is version `0.3.0` with 57 surfaces. Its changes
+The current source contract is version `0.3.0` with 61 surfaces. Its changes
 from the byte-frozen 52-surface `0.1.0` accepted baseline are the five additive
-Package Trust v1 schemas and the additive `pkg verify` command path. Per-surface
+Package Trust v1 schemas, the four additive base-contract schemas (Provider
+ABI, Semantic MIR, runtime lifecycle, and persistent LSP), and the additive
+`pkg verify` command path. Per-surface
 versions remain `0.1.0` for unchanged surfaces and are `0.2.0` for the five
 schema additions and the CLI surface, so a contract-level version bump does not
 fabricate semantic drift across the existing inventory.
