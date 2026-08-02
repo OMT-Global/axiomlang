@@ -5750,6 +5750,18 @@ fn parse_module_with_cache(
     macro_recursion_limit: usize,
     parse_cache: &mut ModuleParseCache,
 ) -> Result<(syntax::Program, Arc<str>), Diagnostic> {
+    if let Some(source) = parse_cache.overlay_source(module_path) {
+        let source = Arc::<str>::from(source.to_owned());
+        let program = syntax::parse_program_with_options(
+            source.as_ref(),
+            module_path,
+            &syntax::ParseOptions {
+                macro_recursion_limit,
+                ..syntax::ParseOptions::default()
+            },
+        )?;
+        return Ok((program, source));
+    }
     let cache_key = if graph
         .has_verified_source(package_root, module_path)
         .is_some()

@@ -534,17 +534,14 @@ fn validate_lockfile_v1_model(lockfile: &Lockfile, path: &Path) -> Result<(), Di
             format!("axiom.lock v1 parser received version {}", lockfile.version),
         ));
     }
-    let mut names = BTreeSet::new();
     for package in &lockfile.package {
         require_nonempty(path, "package.name", &package.name)?;
         require_nonempty(path, "package.version", &package.version)?;
-        validate_path_source(path, &package.source)?;
-        if !names.insert(package.name.as_str()) {
-            return Err(lockfile_error(
-                path,
-                format!("duplicate axiom.lock v1 package name {:?}", package.name),
-            ));
-        }
+        // v1 lockfiles are workspace-relative and may contain multiple
+        // packages with the same name from different dependency trees. Keep
+        // their legacy source syntax intact; the canonical/portable source
+        // contract belongs to v2.
+        validate_path_source_v1(path, &package.source)?;
     }
     Ok(())
 }
@@ -1146,6 +1143,25 @@ fn validate_path_source(path: &Path, source: &str) -> Result<(), Diagnostic> {
         return Err(lockfile_error(
             path,
             format!("path source {source:?} is not portable and canonical"),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_path_source_v1(path: &Path, source: &str) -> Result<(), Diagnostic> {
+    if source == "path" {
+        return Ok(());
+    }
+    let Some(relative) = source.strip_prefix("path:") else {
+        return Err(lockfile_error(
+            path,
+            format!("path package has invalid source {source:?}"),
+        ));
+    };
+    if relative.is_empty() {
+        return Err(lockfile_error(
+            path,
+            format!("path package has invalid source {source:?}"),
         ));
     }
     Ok(())

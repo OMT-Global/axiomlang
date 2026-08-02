@@ -332,7 +332,7 @@ impl LspServer {
             match analyze_package_for_lsp(root, &overlays) {
                 Ok(modules) => {
                     for module in modules {
-                        let uri = uri_for_path(&module.path);
+                        let uri = workspace_uri_for_path(&module.path, &documents);
                         let source = documents.get(&uri).cloned().unwrap_or_else(|| {
                             fs::read_to_string(&module.path).unwrap_or_default()
                         });
@@ -345,7 +345,7 @@ impl LspServer {
                             module
                                 .imports
                                 .iter()
-                                .map(|path| uri_for_path(path))
+                                .map(|path| workspace_uri_for_path(path, &documents))
                                 .collect(),
                         );
                         resolved.insert(uri);
@@ -356,8 +356,8 @@ impl LspServer {
                         .path
                         .as_deref()
                         .map(Path::new)
-                        .map(uri_for_path)
-                        .unwrap_or_else(|| uri_for_path(root));
+                        .map(|path| workspace_uri_for_path(path, &documents))
+                        .unwrap_or_else(|| workspace_uri_for_path(root, &documents));
                     diagnostics.entry(uri).or_default().push(diagnostic);
                 }
             }
@@ -769,6 +769,21 @@ fn uri_for_path(path: &Path) -> String {
         "workspace file paths must be absolute"
     );
     format!("file://{}", percent_encode_path(path))
+}
+
+fn workspace_uri_for_path(path: &Path, documents: &BTreeMap<String, String>) -> String {
+    let direct = uri_for_path(path);
+    if documents.contains_key(&direct) {
+        return direct;
+    }
+    let Ok(canonical) = fs::canonicalize(path) else {
+        return direct;
+    };
+    documents
+        .keys()
+        .find(|uri| fs::canonicalize(path_for_uri(uri)).ok().as_ref() == Some(&canonical))
+        .cloned()
+        .unwrap_or(direct)
 }
 
 fn percent_encode_path(path: &str) -> String {
