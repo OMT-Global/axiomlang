@@ -12,10 +12,10 @@ use crate::mir;
 use crate::new_project::{WorkloadTemplate, create_project, create_project_with_template};
 use crate::project::{
     BuildCacheStatus, BuildOptions, CheckOptions, RunOptions, TestOptions,
-    build_project_with_options, capability_sbom, check_project, check_project_with_options,
-    command_for_build_output, command_for_executable, list_project_tests_with_options,
-    package_graph_metadata, project_capabilities, run_project_tests_with_options,
-    run_project_with_options,
+    ExpectedDiagnostic, build_project_with_options, capability_sbom, check_project,
+    check_project_with_options, command_for_build_output, command_for_executable,
+    list_project_tests_with_options, package_graph_metadata, project_capabilities,
+    run_project_tests_with_options, run_project_with_options,
 };
 use crate::syntax::{
     DEFAULT_PARSE_RECURSION_LIMIT, MacroStyle, ParseOptions, Stmt, TypeName, Visibility,
@@ -8271,10 +8271,10 @@ let _listener_closed: int = close_listener(listener)
     fs::write(project.join("src/main.ax"), source).expect("write source");
 
     let built = build_project(&project).expect("build project");
-    assert_eq!(built.backend, NativeBackendKind::Cranelift);
+    assert_eq!(built.backend, NativeBackendKind::GeneratedRust);
     assert!(
-        built.generated_rust.is_none(),
-        "default direct-native raw TCP builds must not emit generated Rust"
+        built.generated_rust.is_some(),
+        "semantic async TCP coverage uses the generated-Rust compatibility backend"
     );
     let output = compiled_binary_command(&built.binary)
         .output()
@@ -9984,6 +9984,39 @@ fn run_project_tests_uses_sibling_stderr_golden() {
     assert!(case.ok);
 }
 
+#[test]
+fn expected_build_failure_matches_analysis_phase_diagnostic() {
+    let dir = tempdir().expect("tempdir");
+    let project = dir.path().join("analysis-expected-build-failure");
+    create_project(&project, Some("analysis-expected-build-failure-app"))
+        .expect("create project");
+    fs::write(project.join("src/main.ax"), "print missing_value\n").expect("write source");
+    let actual = check_project(&project).expect_err("fixture must fail during analysis");
+    let expected = ExpectedDiagnostic {
+        kind: actual.kind.clone(),
+        code: actual.code.clone(),
+        message: actual.message.clone(),
+        path: "src/main.ax".to_string(),
+        line: actual.line.unwrap_or_default(),
+        column: actual.column.unwrap_or_default(),
+    };
+    fs::write(
+        project.join("expected-build-error.json"),
+        serde_json::to_vec(&expected).expect("serialize expected diagnostic"),
+    )
+    .expect("write expected build diagnostic");
+
+    let output = run_project_tests(&project).expect("run expected build-failure test");
+    assert_eq!(output.passed, 1);
+    assert_eq!(output.failed, 0);
+    let case = output.cases.first().expect("expected build-failure case");
+    assert!(case.ok);
+    assert_eq!(case.expected_error.as_ref(), Some(&expected));
+    assert!(case.error.is_none());
+    assert!(case.binary.is_none());
+    assert!(case.lowering.is_none());
+}
+
 #[cfg(unix)]
 #[test]
 fn run_project_tests_rejects_sibling_stdout_symlink() {
@@ -10095,7 +10128,7 @@ fn std_testing_source_file_backs_virtual_module() {
 
     assert_eq!(
         virtual_source,
-        include_str!("../../../stdlib/std/testing.ax")
+        include_str!("../../../../stdlib/std/testing.ax")
     );
     assert!(virtual_source.contains("pub fn assert_true(value: bool): int"));
     assert!(virtual_source.contains("pub fn assert_eq<T>(left: T, right: T): int"));
@@ -10108,7 +10141,7 @@ fn std_doc_source_file_backs_virtual_module() {
     let virtual_source =
         crate::stdlib::stdlib_source_for(&virtual_path).expect("doc stdlib source");
 
-    assert_eq!(virtual_source, include_str!("../../../stdlib/std/doc.ax"));
+    assert_eq!(virtual_source, include_str!("../../../../stdlib/std/doc.ax"));
     assert!(virtual_source.contains("pub type DocItem"));
     assert!(virtual_source.contains("pub fn render_markdown(items: [DocItem]): string"));
     assert!(
@@ -10605,8 +10638,10 @@ fn checked_in_proof_workload_examples_build_run_and_test() {
         .name("proof-workload-examples".into())
         .stack_size(8 * 1024 * 1024)
         .spawn(|| {
+            let fixtures = tempdir().expect("tempdir");
             for example in ["proof_cli", "proof_worker", "proof_http_service"] {
-                let project = checked_in_example_fixture(example);
+                let project = fixtures.path().join(example);
+                copy_dir_recursive(&checked_in_example_fixture(example), &project);
                 check_project(&project).expect("check checked-in proof workload example");
 
                 let built =

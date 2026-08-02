@@ -15,41 +15,42 @@ pub(super) fn run_build_fail_case(
         Err(error) => {
             return failed_result(
                 project_root, manifest, case_name, kind, &started, None, error,
+                None,
             );
         }
     };
-    let actual = match analyze_package(graph, project_root).and_then(|analyzed| {
-        let generated_rust = generated_rust_path(project_root, manifest);
-        let binary = binary_path_for_target(project_root, manifest, None);
-        build_artifacts(
-            graph,
-            project_root,
-            &analyzed,
-            &generated_rust,
-            &binary,
-            None,
-            &BuildOptions::default(),
-        )
-    }) {
-        Ok(_) => {
-            let error = Diagnostic::new(
-                "test",
-                "expected native build to fail closed, but it succeeded",
-            )
-            .with_path(project_root.join(&manifest.build.entry).display().to_string());
-            return failed_result(
+    let entry_path = project_root.join(&manifest.build.entry);
+    let (lowering, actual) = match analyze_package(graph, project_root) {
+        Ok(analyzed) => {
+            let generated_rust = generated_rust_path(project_root, manifest);
+            let binary = binary_path_for_target(project_root, manifest, None);
+            match build_artifacts(
+                graph,
                 project_root,
-                manifest,
-                case_name,
-                kind,
-                &started,
-                Some(expected),
-                error,
-            );
+                &analyzed,
+                &generated_rust,
+                &binary,
+                None,
+                &BuildOptions::default(),
+            ) {
+                Ok(report) => (
+                    Some(report.lowering),
+                    Diagnostic::new(
+                        "test",
+                        "expected native build to fail closed, but it succeeded",
+                    )
+                    .with_path(entry_path.display().to_string()),
+                ),
+                Err(error) => (
+                    runtime_lowering_blocked_evidence(&error),
+                    diagnostic_with_default_path(error, &entry_path),
+                ),
+            }
         }
-        Err(error) => {
-            diagnostic_with_default_path(error, &project_root.join(&manifest.build.entry))
-        }
+        Err(error) => (
+            None,
+            diagnostic_with_default_path(error, &entry_path),
+        ),
     };
     let mismatch = expected_error_mismatch(project_root, &expected, &actual);
     TestCaseResult {
@@ -66,6 +67,7 @@ pub(super) fn run_build_fail_case(
         expected_stdout: None,
         expected_stderr: None,
         expected_error: Some(expected),
+        lowering,
         duration_ms: started.elapsed().as_millis() as u64,
         error: mismatch.map(|message| Diagnostic::new("test", message)),
     }
@@ -79,6 +81,7 @@ fn failed_result(
     started: &Instant,
     expected: Option<ExpectedDiagnostic>,
     error: Diagnostic,
+    lowering: Option<BuildLoweringEvidence>,
 ) -> TestCaseResult {
     TestCaseResult {
         package_root: project_root.display().to_string(),
@@ -94,6 +97,7 @@ fn failed_result(
         expected_stdout: None,
         expected_stderr: None,
         expected_error: expected,
+        lowering,
         duration_ms: started.elapsed().as_millis() as u64,
         error: Some(error),
     }

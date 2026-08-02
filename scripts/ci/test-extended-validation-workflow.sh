@@ -52,6 +52,9 @@ for case in fixture.get("cases", []):
             f"reason: {case['reason']}"
         )
 
+if not matches("Makefile"):
+    errors.append("Makefile changes must route to extended qualification")
+
 preset_match = re.search(
     r"- name: Run full suite for nightly or manual invocations\n"
     r"(?P<body>.*?)(?=\n      - (?:name:|uses:))",
@@ -91,6 +94,29 @@ if "bash scripts/ci/run-extended-validation.sh" not in extended_job:
 job_preamble = extended_job.split("\n    steps:\n", 1)[0]
 if re.search(r"\$\{\{\s*runner\s*(?:\.|\[)", job_preamble):
     errors.append("extended-checks must not use the runner context before step execution")
+if "fetch-depth: 0" not in extended_job:
+    errors.append("extended-checks must fetch full history for quality baseline ancestry")
+if (
+    "AXIOM_QUALIFICATION_BASE_SHA: "
+    "${{ github.event_name == 'push' && github.event.before || '' }}"
+    not in extended_job
+):
+    errors.append(
+        "extended-checks must bind push qualification to github.event.before "
+        "and leave other triggers unbased"
+    )
+if "components: llvm-tools-preview" not in extended_job:
+    errors.append("extended-checks must provision llvm-tools-preview")
+if "actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16" not in extended_job:
+    errors.append("extended-checks must provision Go with the pinned setup action")
+if "go-version: ${{ env.GO_VERSION }}" not in extended_job:
+    errors.append("extended-checks must use the repository-pinned Go version")
+if not re.search(r"^  GO_VERSION: '1\.26\.5'$", workflow, re.MULTILINE):
+    errors.append("extended validation must pin Go 1.26.5")
+if 'required_version="0.8.5"' not in extended_job:
+    errors.append("extended-checks must pin cargo-llvm-cov 0.8.5")
+if 'cargo install cargo-llvm-cov --version "$required_version" --locked --force' not in extended_job:
+    errors.append("extended-checks must repair a missing or mismatched cargo-llvm-cov")
 for exact_head_fragment in (
     "--head-sha '${{ github.sha }}'",
     "--target '${{ runner.os }}-${{ runner.arch }}'",

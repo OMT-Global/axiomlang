@@ -3,6 +3,7 @@ __pycache__/
 *.pyo
 *.axb
 .axiom-build/
+/artifacts/toolchain-qualification/
 .DS_Store
 .hephaestus-*-task.txt
 stage1/target/

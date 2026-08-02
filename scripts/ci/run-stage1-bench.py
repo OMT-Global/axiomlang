@@ -12,7 +12,7 @@ from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 AXIOMC = ["cargo", "run", "--quiet", "--manifest-path", "stage1/Cargo.toml", "-p", "axiomc", "--"]
-DEFAULT_EXAMPLES = ["hello", "capabilities", "modules"]
+DEFAULT_EXAMPLES = ["hello", "stdlib_time", "stdlib_sync"]
 
 
 def run_timed(cmd: list[str]) -> tuple[float, str]:

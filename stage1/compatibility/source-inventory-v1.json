@@ -5,11 +5,25 @@
     "default": "0.1.0",
     "overrides": {
       "axiom://cli/axiomc": "0.2.0",
+      "axiom://schema/axiom-build-lowering-evidence-v1": "0.2.0",
       "axiom://schema/axiom-package-signature-v1": "0.2.0",
       "axiom://schema/axiom-package-verification-expectation-v1": "0.2.0",
       "axiom://schema/axiom-package-verification-v1": "0.2.0",
       "axiom://schema/axiom-registry-index-v2": "0.2.0",
+      "axiom://schema/axiom.stage1.command": "0.2.0",
+      "axiom://schema/axiom.stage1.v1": "0.2.0",
       "axiom://schema/axiom-trust-roots-v1": "0.2.0"
+    }
+  },
+  "surface_migrations": {
+    "axiom://schema/axiom-build-lowering-evidence-v1": {
+      "action": "Update consumers to understand the new lowering evidence variants before reading build-lowering evidence."
+    },
+    "axiom://schema/axiom.stage1.command": {
+      "action": "Update consumers to understand the new diagnostic and lowering fields before consuming axiom.stage1.command envelopes."
+    },
+    "axiom://schema/axiom.stage1.v1": {
+      "action": "Update consumers to understand the new diagnostic and lowering fields before consuming axiom.stage1.v1 envelopes."
     }
   },
   "snapshot_id": "axiom://compatibility/current-source-contract",

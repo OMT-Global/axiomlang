@@ -8,29 +8,15 @@ import subprocess
 import sys
 import tempfile
 import time
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+from stage1_benchmark_workloads import Workload, load_workloads
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 AXIOMC_MANIFEST = REPO_ROOT / "stage1/Cargo.toml"
 AXIOMC_BIN = REPO_ROOT / "stage1/target/debug/axiomc"
-REF_ROOT = REPO_ROOT / "stage1/benchmarks/reference"
-
-
-@dataclass(frozen=True)
-class Workload:
-    name: str
-    kind: str
-    project: Path
-    reference: Path
-
-
-WORKLOADS = [
-    Workload("hello", "compute", REPO_ROOT / "stage1/examples/hello", REF_ROOT / "hello"),
-    Workload("capabilities", "io", REPO_ROOT / "stage1/examples/capabilities", REF_ROOT / "capabilities"),
-    Workload("stdlib_async", "concurrency", REPO_ROOT / "stage1/examples/stdlib_async", REF_ROOT / "stdlib_async"),
-]
+WORKLOADS = load_workloads(REPO_ROOT)
 
 
 def run_timed(cmd: list[str], *, cwd: Path | None = None) -> tuple[float, subprocess.CompletedProcess[str]]:

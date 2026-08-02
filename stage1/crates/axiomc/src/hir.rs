@@ -5845,5 +5845,5 @@ fn with_assert_location(args: Vec<Expr>, line: usize, column: usize) -> Vec<Expr
 }
 
 #[cfg(test)]
-#[path = "../tests/hir_unit.rs"]
+#[path = "../tests/support/hir_unit.rs"]
 mod boundary_tests;

@@ -9505,7 +9505,7 @@ return "ok"
     }
 
     #[test]
-    fn check_properties_runs_property_only_tests() {
+    fn check_properties_runs_only_property_tests_and_fails_closed_without_runtime_lowering() {
         let dir = tempfile::tempdir().expect("tempdir");
         let project = dir.path().join("check-properties");
         create_project(&project, Some("check-properties-app")).expect("create project");
@@ -9522,9 +9522,17 @@ return "ok"
         let output = run_property_check_tests(&project, NativeBackendKind::Cranelift, None)
             .expect("run property checks");
 
-        assert_eq!(output.failed, 0);
+        assert_eq!(output.failed, 1, "{output:#?}");
         assert_eq!(output.cases.len(), 1);
-        assert_eq!(output.cases[0].kind, TestKind::Property);
+        let case = &output.cases[0];
+        assert_eq!(case.kind, TestKind::Property);
+        assert!(!case.ok);
+        assert!(case.generated_rust.is_none());
+        assert_eq!(
+            case.error.as_ref().and_then(|error| error.code.as_deref()),
+            Some("backend.runtime_lowering_required")
+        );
+        assert!(case.lowering.is_some());
     }
 
     #[test]

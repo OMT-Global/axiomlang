@@ -63,7 +63,9 @@ fn agent_native_authorize_emits_schema_valid_byte_stable_intent_ir() {
 
 #[test]
 fn workspace_emits_multiple_packages_and_dependency_nodes() {
-    let project = example("workspace");
+    let temp = tempfile::tempdir().expect("temporary workspace fixture");
+    let project = temp.path().join("workspace");
+    copy_source_fixture(&example("workspace"), &project);
     let first = inspect_intent(&project);
     let second = inspect_intent(&project);
 
@@ -289,6 +291,22 @@ fn example(name: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../examples")
         .join(name)
+}
+
+fn copy_source_fixture(source: &Path, destination: &Path) {
+    fs::create_dir_all(destination).expect("create fixture directory");
+    for entry in fs::read_dir(source).expect("read fixture directory") {
+        let entry = entry.expect("read fixture entry");
+        if entry.file_name() == "dist" {
+            continue;
+        }
+        let target = destination.join(entry.file_name());
+        if entry.file_type().expect("read fixture type").is_dir() {
+            copy_source_fixture(&entry.path(), &target);
+        } else {
+            fs::copy(entry.path(), target).expect("copy fixture file");
+        }
+    }
 }
 
 fn schema_path() -> PathBuf {

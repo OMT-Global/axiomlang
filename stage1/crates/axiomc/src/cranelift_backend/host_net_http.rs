@@ -191,12 +191,15 @@ pub(crate) fn i64_net_resolve_host(
         return None;
     };
     let host = i64_string_text(host, static_bindings)?;
+    let resolved = i64_net_resolve_text_for_bindings(&host, static_bindings)?;
+    let runtime_host = if host.eq_ignore_ascii_case("localhost") {
+        String::from("localhost")
+    } else {
+        host
+    };
     Some(I64NetResolveHost {
-        resolved_len: i64::try_from(
-            i64_net_resolve_text_for_bindings(&host, static_bindings)?.len(),
-        )
-        .ok()?,
-        host,
+        resolved_len: i64::try_from(resolved.len()).ok()?,
+        host: runtime_host,
     })
 }
 
@@ -220,16 +223,28 @@ pub(crate) fn i64_net_resolve_text_for_bindings(
     host: &str,
     static_bindings: &I64StaticBindings,
 ) -> Option<String> {
-    i64_net_resolve_text(host).or_else(|| {
-        if !static_bindings.net_unrestricted && !static_bindings.net_allowed_hosts.contains(host) {
-            return None;
+    let explicitly_allowed = static_bindings
+        .net_allowed_hosts
+        .iter()
+        .any(|allowed| allowed.eq_ignore_ascii_case(host));
+    if explicitly_allowed {
+        if host.eq_ignore_ascii_case("localhost") {
+            return Some("127.0.0.1".to_string());
         }
-        (host, 0)
-            .to_socket_addrs()
+        return host
+            .parse::<std::net::IpAddr>()
             .ok()
-            .and_then(|mut addrs| addrs.next())
-            .map(|addr| addr.ip().to_string())
-    })
+            .map(|addr| addr.to_string());
+    }
+
+    // A nonempty host set is a restricted policy: only exact entries may
+    // lower. An empty set with `net_unrestricted` is the broad network grant,
+    // but it still must not bypass the sensitive-address filter below.
+    if !static_bindings.net_unrestricted && !static_bindings.net_allowed_hosts.is_empty() {
+        return None;
+    }
+
+    i64_net_resolve_text(host)
 }
 
 pub(crate) fn lower_i64_http_server_intrinsic_expr(
@@ -974,18 +989,11 @@ pub(crate) fn http_response(status: i64, body: &str) -> String {
 }
 
 pub(crate) fn i64_net_resolve_text(host: &str) -> Option<String> {
-    if host == "localhost" {
-        return Some("127.0.0.1".to_string());
-    }
-    let addrs: Vec<std::net::SocketAddr> = (host, 0).to_socket_addrs().ok()?.collect();
-    if addrs.is_empty()
-        || addrs
-            .iter()
-            .any(|addr| i64_is_blocked_network_ip(addr.ip()))
-    {
+    let address = host.parse::<std::net::IpAddr>().ok()?;
+    if i64_is_blocked_network_ip(address) {
         return None;
     }
-    addrs.into_iter().next().map(|addr| addr.ip().to_string())
+    Some(address.to_string())
 }
 
 pub(crate) fn i64_is_blocked_network_ip(ip: std::net::IpAddr) -> bool {
@@ -1018,5 +1026,96 @@ pub(crate) fn i64_is_blocked_network_ip(ip: std::net::IpAddr) -> bool {
                 || (segments[0] & 0xffc0) == 0xfe80
                 || (segments[0] == 0x2001 && segments[1] == 0x0db8)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn net_resolve_requires_explicit_allowlist_for_blocked_hosts() {
+        let mut bindings = I64StaticBindings {
+            net_unrestricted: true,
+            ..I64StaticBindings::default()
+        };
+        for host in [
+            "localhost",
+            "127.0.0.1",
+            "10.0.0.1",
+            "172.16.0.1",
+            "192.168.0.1",
+            "169.254.1.1",
+            "169.254.169.254",
+            "::1",
+            "fc00::1",
+            "fe80::1",
+            "::ffff:127.0.0.1",
+        ] {
+            assert_eq!(i64_net_resolve_text_for_bindings(host, &bindings), None);
+            bindings.net_allowed_hosts.insert(String::from(host));
+            assert!(
+                i64_net_resolve_text_for_bindings(host, &bindings).is_some(),
+                "explicit allowlist should admit {host}"
+            );
+        }
+    }
+
+    #[test]
+    fn unrestricted_net_resolve_allows_public_numeric_addresses_only() {
+        let bindings = I64StaticBindings {
+            net_unrestricted: true,
+            ..I64StaticBindings::default()
+        };
+
+        assert_eq!(
+            i64_net_resolve_text_for_bindings("8.8.8.8", &bindings).as_deref(),
+            Some("8.8.8.8")
+        );
+        assert_eq!(
+            i64_net_resolve_text_for_bindings("2001:4860:4860::8888", &bindings).as_deref(),
+            Some("2001:4860:4860::8888")
+        );
+        assert_eq!(
+            i64_net_resolve_text_for_bindings("example.com", &bindings),
+            None,
+            "the direct-native numeric resolver must not perform build-time DNS"
+        );
+    }
+
+    #[test]
+    fn restricted_net_resolve_requires_an_exact_host_match() {
+        let mut bindings = I64StaticBindings::default();
+        bindings.net_allowed_hosts.insert(String::from("8.8.8.8"));
+
+        assert_eq!(
+            i64_net_resolve_text_for_bindings("8.8.8.8", &bindings).as_deref(),
+            Some("8.8.8.8")
+        );
+        assert_eq!(
+            i64_net_resolve_text_for_bindings("1.1.1.1", &bindings),
+            None
+        );
+        assert_eq!(
+            i64_net_resolve_text_for_bindings("2001:4860:4860::8888", &bindings),
+            None
+        );
+    }
+
+    #[test]
+    fn restricted_net_resolve_matches_allowlisted_hosts_ascii_case_insensitively() {
+        let mut bindings = I64StaticBindings::default();
+        bindings
+            .net_allowed_hosts
+            .extend([String::from("localhost"), String::from("fc00::1")]);
+
+        assert_eq!(
+            i64_net_resolve_text_for_bindings("LOCALHOST", &bindings).as_deref(),
+            Some("127.0.0.1")
+        );
+        assert_eq!(
+            i64_net_resolve_text_for_bindings("FC00::1", &bindings).as_deref(),
+            Some("fc00::1")
+        );
     }
 }

@@ -21,4 +21,4 @@ pub mod project;
 pub mod registry;
 pub mod stdlib;
 pub mod syntax; pub mod transactional_workspace; pub mod verification_planner;
-#[cfg(test)] #[path = "../tests/lib_unit.rs"] mod tests;
+#[cfg(test)] #[path = "../tests/support/lib_unit.rs"] mod tests;

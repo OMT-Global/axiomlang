@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://omt-global.github.io/axiom/schemas/axiom-quality-policy-v1.schema.json",
+  "title": "Axiom stage1 quality policy v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "globalLineCoverageFloor",
+    "changedLineCoverageFloor"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "axiom.quality_policy.v1"
+    },
+    "globalLineCoverageFloor": {
+      "$ref": "#/$defs/threeFifths"
+    },
+    "changedLineCoverageFloor": {
+      "$ref": "#/$defs/threeFifths"
+    }
+  },
+  "$defs": {
+    "threeFifths": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["numerator", "denominator"],
+      "properties": {
+        "numerator": {
+          "const": 3
+        },
+        "denominator": {
+          "const": 5
+        }
+      }
+    }
+  }
+}

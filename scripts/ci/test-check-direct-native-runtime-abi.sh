@@ -4,6 +4,8 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 script="$repo_root/scripts/ci/check-direct-native-runtime-abi.py"
 contract="$repo_root/stage1/runtime-abi/direct-native-v0.json"
+evidence_manifest="$repo_root/stage1/runtime-abi/direct-native-v0-evidence-tests.json"
+doc="$repo_root/docs/direct-native-runtime-abi-v0.md"
 temp_dir="$(mktemp -d)"
 trap 'rm -rf "$temp_dir"' EXIT
 
@@ -24,20 +26,97 @@ assert report["value_feature_count"] == 12
 assert report["capability_shim_count"] == 22
 assert report["status_counts"]["value_features"]["implemented"] == 11
 assert report["status_counts"]["value_features"]["partial"] == 1
-assert report["status_counts"]["capability_shims"]["implemented"] == 16
-assert report["status_counts"]["capability_shims"]["partial"] == 6
+assert report["status_counts"]["capability_shims"]["implemented"] == 14
+assert report["status_counts"]["capability_shims"]["partial"] == 8
 assert report["blocked_rows"] == []
 assert report["incomplete_rows"] == [
+    "async.runtime",
     "crypto.aead",
     "crypto.signature",
     "network.dns.resolve",
     "network.http.async_server",
     "network.http.client",
+    "network.tcp",
     "network.udp",
     "owned.move_state",
 ]
 assert report["blocker_issues"] == [1438, 1445, 1447, 1448, 1449]
 assert report["errors"] == []
+PY
+
+python3 - "$contract" "$evidence_manifest" "$doc" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    contract = json.load(handle)
+with open(sys.argv[2], encoding="utf-8") as handle:
+    evidence = json.load(handle)
+with open(sys.argv[3], encoding="utf-8") as handle:
+    doc = handle.read()
+
+rows = {row["id"]: row for row in contract["capability_shims"]}
+tests = evidence["capability_shims"]
+fail_closed = {
+    "async.runtime": "cranelift_backend_rejects_async_precomputed_output_without_runtime_lowering",
+    "network.http.async_server": "cranelift_backend_rejects_http_async_server_without_runtime_lowering",
+    "network.http.client": "cranelift_backend_rejects_http_client_without_runtime_lowering",
+    "network.tcp": "cranelift_backend_rejects_mixed_tcp_udp_loopback_without_runtime_lowering",
+    "network.udp": "cranelift_backend_rejects_udp_loopback_without_runtime_lowering",
+}
+for row_id, rejection_test in fail_closed.items():
+    row = rows[row_id]
+    assert row["status"] == "partial", f"{row_id} must not claim implemented runtime support"
+    assert "runtime_evidence" not in row, f"{row_id} evaluator evidence is not runtime evidence"
+    assert "backend.runtime_lowering_required" in row["notes"]
+    assert rejection_test in tests[row_id]
+
+stale_positive_tests = {
+    "cranelift_backend_builds_http_server_binary",
+    "cranelift_backend_builds_std_async_net_tcp_binary",
+    "cranelift_backend_lowers_http_client_to_runtime_exit_code",
+    "cranelift_backend_lowers_net_loopback_to_runtime_exit_code",
+    "cranelift_backend_writes_raw_net_reads_into_mutable_buffers",
+}
+named_tests = {
+    test
+    for row_tests in tests.values()
+    for test in row_tests
+}
+assert stale_positive_tests.isdisjoint(named_tests)
+
+server = rows["network.http.server"]
+assert server["status"] == "implemented"
+assert server["runtime_evidence"]
+assert "cranelift_backend_rejects_http_server_precomputed_output_without_runtime_lowering" in tests[
+    "network.http.server"
+]
+assert "cranelift_backend_lowers_http_server_once_to_runtime_exit_code" in tests[
+    "network.http.server"
+]
+assert "cranelift_backend_lowers_http_server_route_to_runtime_exit_code" in tests[
+    "network.http.server"
+]
+
+dns = rows["network.dns.resolve"]
+assert dns["status"] == "partial"
+assert "Unrestricted networking still denies" in dns["notes"]
+assert (
+    "cranelift_backend_unrestricted_net_rejects_sensitive_resolution_targets_without_allowlist"
+    in tests["network.dns.resolve"]
+)
+
+for stale_claim in (
+    "The TCP row now has partial Cranelift evidence: the spike builds and runs",
+    "The UDP row now has partial Cranelift evidence: the spike builds and runs",
+    "The HTTP client row now has partial Cranelift evidence: the spike builds",
+    "The async HTTP server row now has partial Cranelift evidence: the spike builds",
+    "The async runtime row now has partial Cranelift evidence for",
+):
+    assert stale_claim not in doc
+assert "Their former loopback and async-net positive" in doc
+assert "The HTTP client row is partial." in doc
+assert "The async runtime row is partial." in doc
 PY
 
 python3 - "$temp_dir/coverage-matrix.json" <<'PY'

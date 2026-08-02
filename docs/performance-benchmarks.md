@@ -35,15 +35,28 @@ cargo run --manifest-path stage1/Cargo.toml -p axiomc -- test stage1/examples/st
 
 ## Advisory Go/Rust/Axiom comparison gate
 This closes the local benchmark-suite foundation. Extended validation also runs
-`make stage1-bench-gate`, which measures three representative stage1 build
-workloads (`hello`, `capabilities`, and `stdlib_async`) against checked-in
-Go/Rust reference programs.
+`make stage1-bench-gate`, which measures three representative executable
+stage1 build workloads (`hello`, `stdlib_time`, and `stdlib_sync`) against
+checked-in Go/Rust reference programs. The canonical workload paths live in
+`stage1/benchmarks/workloads.json`, so the blocking and advisory comparison
+reports cannot silently select different programs.
+The blocking gate also requires each Axiom build to preserve its declared
+lowering mode and requires exact exit-status and stdout parity with both native
+references; build-time comparisons cannot pass on semantically different
+programs.
+
+`stdlib_time` exercises direct-native clock I/O. `stdlib_sync` exercises
+ownership-shaped mutex, once-cell, and single-slot channel compilation and is
+kept in the historical `concurrency` build-budget category. Its current Axiom
+evidence is bounded static output; it is not scheduler, thread, blocking, or
+dynamic-channel runtime proof. Broad capability and async examples remain
+honestly fail-closed and are therefore not executable benchmark fixtures.
 
 The existing benchmark gate still owns hard failures for obvious cold-build and
 warm-cache regressions against the checked-in native reference builds. The newer
 committed calibration-baseline comparison is deliberately non-blocking: it
 compares current `axiomc build` medians to
-`stage1/benchmarks/stage1-build-baseline.json` with a 35% tolerance and prints
+`stage1/benchmarks/baselines/stage1-build-median.json` with a 35% tolerance and prints
 `PASS`/`WARN` diagnostics, but WARN results exit successfully so CI can collect
 calibration data without blocking unrelated PRs.
 
@@ -83,11 +96,11 @@ make stage1-bench
 
 The report uses schema `axiom.stage1.benchmark_harness.v1` and includes per-step
 samples and medians for each workload. The default fixed examples are `hello`,
-`capabilities`, and `modules`; callers can invoke the underlying script directly
-to change the round count, workload list, or output path:
+`stdlib_time`, and `stdlib_sync`; callers can invoke the underlying script
+directly to change the round count, workload list, or output path:
 
 ```bash
-python3 scripts/ci/run-stage1-bench.py --rounds 5 hello modules
+python3 scripts/ci/run-stage1-bench.py --rounds 5 hello stdlib_time stdlib_sync
 ```
 
 To intentionally refresh the tracked baseline at

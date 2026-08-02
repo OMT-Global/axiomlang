@@ -14,6 +14,11 @@ bash "$script_repo_root/scripts/ci/validate-capability-manifests.sh"
 bash "$script_repo_root/scripts/ci/test-validate-capability-manifests.sh"
 bash "$script_repo_root/scripts/ci/test-pr-fast-ci-workflow.sh"
 bash "$script_repo_root/scripts/ci/test-extended-validation-workflow.sh"
+bash "$script_repo_root/scripts/ci/test-run-stage1-basic-smoke.sh"
+bash "$script_repo_root/scripts/ci/test-run-stage1-stdlib-smoke.sh"
+bash "$script_repo_root/scripts/ci/test-run-stage1-proof-test.sh"
+python3 "$script_repo_root/scripts/ci/test-validate-stage1-smoke-report.py"
+python3 "$script_repo_root/scripts/ci/test-stage1-benchmark-workloads.py"
 bash "$script_repo_root/scripts/ci/test-run-extended-stage1-checks.sh"
 bash "$script_repo_root/scripts/ci/test-run-compiler-property-checks.sh"
 python3 "$script_repo_root/scripts/ci/check-stage1-full-lib-triage.py" \
@@ -63,6 +68,11 @@ bash "$script_repo_root/scripts/ci/test-check-rust-exit-readiness.sh"
 bash "$script_repo_root/scripts/ci/test-check-self-hosting-language-readiness.sh"
 bash "$script_repo_root/scripts/ci/test-check-compatibility-v1.sh"
 bash "$script_repo_root/scripts/ci/test-check-package-trust-contract.sh"
+python3 "$script_repo_root/scripts/ci/test-run-stage1-quality-gate.py"
+bash "$script_repo_root/scripts/ci/test-propose-stage1-crap-thresholds.sh"
+python3 "$script_repo_root/scripts/ci/test-run-toolchain-qualification.py"
+cargo test --manifest-path "$repo_root/stage1/Cargo.toml" -p axiomc \
+  --test schema_metadata --locked
 cargo test --manifest-path "$repo_root/stage1/Cargo.toml" -p axiomc \
   --test migration_plan_cli --locked
 python3 "$script_repo_root/scripts/ci/check-capability-ledger.py" \

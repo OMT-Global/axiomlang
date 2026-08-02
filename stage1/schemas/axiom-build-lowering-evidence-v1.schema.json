@@ -13,14 +13,11 @@
     "known_value_static_folds": { "type": "boolean" },
     "legacy_fallback_attempted": { "type": "boolean" }
   },
-  "allOf": [
-    {
-      "if": { "properties": { "legacy_fallback_attempted": { "const": true } } },
-      "then": { "properties": { "execution_mode": { "const": "not_produced" }, "lowering_mode": { "const": "runtime_lowering_required" }, "direct_native_runtime": { "const": false }, "known_value_static_folds": { "const": false } } }
-    },
-    {
-      "if": { "properties": { "lowering_mode": { "const": "direct_native_runtime_with_static_folds" } } },
-      "then": { "properties": { "execution_mode": { "const": "direct_native_runtime" }, "lowering_mode": { "const": "direct_native_runtime_with_static_folds" }, "direct_native_runtime": { "const": true }, "legacy_fallback_attempted": { "const": false } } }
-    }
+  "oneOf": [
+    { "properties": { "execution_mode": { "const": "direct_native_runtime" }, "lowering_mode": { "const": "direct_native_runtime" }, "direct_native_runtime": { "const": true }, "known_value_static_folds": { "const": false }, "legacy_fallback_attempted": { "const": false } } },
+    { "properties": { "execution_mode": { "const": "direct_native_runtime" }, "lowering_mode": { "const": "direct_native_runtime_with_static_folds" }, "direct_native_runtime": { "const": true }, "known_value_static_folds": { "const": true }, "legacy_fallback_attempted": { "const": false } } },
+    { "properties": { "execution_mode": { "const": "generated_rust_runtime" }, "lowering_mode": { "const": "generated_rust_compatibility" }, "direct_native_runtime": { "const": false }, "known_value_static_folds": { "const": false }, "legacy_fallback_attempted": { "const": false } } },
+    { "properties": { "execution_mode": { "const": "not_produced" }, "lowering_mode": { "const": "runtime_lowering_required" }, "direct_native_runtime": { "const": false }, "known_value_static_folds": { "const": false }, "legacy_fallback_attempted": { "const": true } } },
+    { "properties": { "execution_mode": { "const": "bounded_static_output" }, "lowering_mode": { "const": "bounded_static_output" }, "direct_native_runtime": { "const": false }, "known_value_static_folds": { "const": true }, "legacy_fallback_attempted": { "const": false } } }
   ]
 }

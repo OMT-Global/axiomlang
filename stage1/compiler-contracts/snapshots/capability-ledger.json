@@ -653,7 +653,7 @@
       "evidenceTier": "static_spike",
       "name": "async.runtime",
       "source": "stage1/runtime-abi/direct-native-v0.json",
-      "status": "implemented"
+      "status": "partial"
     },
     {
       "evidenceTier": "static_spike",
@@ -773,7 +773,7 @@
       "evidenceTier": "static_spike",
       "name": "network.tcp",
       "source": "stage1/runtime-abi/direct-native-v0.json",
-      "status": "implemented"
+      "status": "partial"
     },
     {
       "evidenceTier": "static_spike",
@@ -1010,6 +1010,18 @@
       "evidenceTier": "static_spike",
       "name": "https://axiom.omt.global/schemas/axiom-public-contract-v1.schema.json",
       "source": "stage1/schemas/axiom-public-contract-v1.schema.json",
+      "status": "checked"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "https://omt-global.github.io/axiom/schemas/axiom-quality-policy-v1.schema.json",
+      "source": "stage1/schemas/axiom-quality-policy-v1.schema.json",
+      "status": "checked"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "https://omt-global.github.io/axiom/schemas/axiom-quality-report-v1.schema.json",
+      "source": "stage1/schemas/axiom-quality-report-v1.schema.json",
       "status": "checked"
     },
     {
@@ -1828,11 +1840,11 @@
       "direct_runtime": 2,
       "production_qualified": 0,
       "scaffold": 5,
-      "static_spike": 213,
+      "static_spike": 215,
       "unsupported": 5
     },
     "runtimeAbiRows": 34,
-    "schemas": 54,
+    "schemas": 56,
     "stdlibFunctions": 299,
     "stdlibModules": 34,
     "supportedNativeBackend": "cranelift"

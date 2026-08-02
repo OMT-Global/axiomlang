@@ -7,6 +7,14 @@
       "entry": "src/main_test.ax",
       "error": null,
       "exit_code": 0,
+      "lowering": {
+        "direct_native_runtime": true,
+        "execution_mode": "direct_native_runtime",
+        "known_value_static_folds": false,
+        "legacy_fallback_attempted": false,
+        "lowering_mode": "direct_native_runtime",
+        "schema_version": "axiom.build-lowering-evidence.v1"
+      },
       "expected_stderr": null,
       "expected_stdout": "hello from stage1\n",
       "generated_rust": null,
