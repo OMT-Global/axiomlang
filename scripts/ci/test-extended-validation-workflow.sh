@@ -88,7 +88,14 @@ if "needs.changes.outputs.extended == 'true'" not in extended_job:
     errors.append("extended-checks must consume the extended selection output")
 if "bash scripts/ci/run-extended-validation.sh" not in extended_job:
     errors.append("extended-checks must invoke the extended validation entrypoint")
-for exact_head_fragment in ("--head-sha '${{ github.sha }}'", "--trigger '${{ github.event_name }}'"):
+job_preamble = extended_job.split("\n    steps:\n", 1)[0]
+if re.search(r"\$\{\{\s*runner\s*(?:\.|\[)", job_preamble):
+    errors.append("extended-checks must not use the runner context before step execution")
+for exact_head_fragment in (
+    "--head-sha '${{ github.sha }}'",
+    "--target '${{ runner.os }}-${{ runner.arch }}'",
+    "--trigger '${{ github.event_name }}'",
+):
     if exact_head_fragment not in extended_job:
         errors.append(f"extended-checks must pass exact qualification provenance: {exact_head_fragment}")
 if "if: always()" not in extended_job or "actions/upload-artifact@" not in extended_job:
