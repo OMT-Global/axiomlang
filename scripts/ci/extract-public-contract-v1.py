@@ -344,6 +344,7 @@ def surface(
     sources: list[dict[str, str]],
     *,
     stability: str = "experimental",
+    migration: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     if not AXIOM_ID.fullmatch(identifier):
         raise ValueError(f"invalid AxiOM surface identity {identifier!r}")
@@ -361,7 +362,7 @@ def surface(
     ]
     if len(source_keys) != len(set(source_keys)):
         raise ValueError(f"surface {identifier} duplicates source provenance")
-    return {
+    result = {
         "id": identifier,
         "kind": kind,
         "signature": signature,
@@ -369,6 +370,11 @@ def surface(
         "stability": stability,
         "version": version,
     }
+    if migration is not None:
+        if set(migration) != {"action"} or not isinstance(migration["action"], str) or not migration["action"].strip():
+            raise ValueError(f"{identifier}.migration must contain one non-empty action")
+        result["migration"] = {"action": migration["action"].strip()}
+    return result
 
 
 def extract(inventory_path: Path, policy_path: Path) -> dict[str, Any]:
@@ -392,9 +398,19 @@ def extract(inventory_path: Path, policy_path: Path) -> dict[str, Any]:
         if not AXIOM_ID.fullmatch(identifier):
             raise ValueError(f"invalid surface version override ID {identifier!r}")
         require_semver(version, f"surface_versions.overrides[{identifier!r}]")
+    surface_migrations = inventory.get("surface_migrations", {})
+    if not isinstance(surface_migrations, dict) or not all(
+        isinstance(identifier, str) and isinstance(migration, dict)
+        for identifier, migration in surface_migrations.items()
+    ):
+        raise ValueError("source inventory surface_migrations must map IDs to migration objects")
 
     def public_surface_version(identifier: str) -> str:
         return surface_version_overrides.get(identifier, default_surface_version)
+
+    def public_surface_migration(identifier: str) -> dict[str, str] | None:
+        migration = surface_migrations.get(identifier)
+        return migration if migration is not None else None
 
     policy_version = require_semver(policy.get("policy_version"), "policy.policy_version")
 
@@ -760,6 +776,7 @@ def extract(inventory_path: Path, policy_path: Path) -> dict[str, Any]:
                 public_surface_version(identifier),
                 signature,
                 [source(schema_path, "published_schema", "$id,properties.schema_version.const")],
+                migration=public_surface_migration(identifier),
             )
         )
 

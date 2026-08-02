@@ -230,6 +230,9 @@
     {
       "id": "axiom://schema/axiom-build-lowering-evidence-v1",
       "kind": "schema",
+      "migration": {
+        "action": "Update consumers to understand the new lowering evidence variants before reading build-lowering evidence."
+      },
       "signature": "published schema id=https://axiom.omt.global/schemas/axiom-build-lowering-evidence-v1.schema.json; semantic_digest=849d395243648cfaf1daefa597965ad10cf54f88f20f8f78e5804b023d274abd; envelope=axiom.build-lowering-evidence.v1",
       "sources": [
         {
@@ -240,7 +243,7 @@
         }
       ],
       "stability": "experimental",
-      "version": "0.1.0"
+      "version": "0.2.0"
     },
     {
       "id": "axiom://schema/axiom-capability-ledger-v1",
@@ -965,6 +968,9 @@
     {
       "id": "axiom://schema/axiom.stage1.command",
       "kind": "schema",
+      "migration": {
+        "action": "Update consumers to understand the new diagnostic and lowering fields before consuming axiom.stage1.command envelopes."
+      },
       "signature": "published schema id=https://omt-global.github.io/axiom/schemas/axiom.stage1.command.schema.json; semantic_digest=aa49a0885cba0e06e4f0bf79ca00a8f0b3c58bf16f6148a8c72af070ea701239",
       "sources": [
         {
@@ -975,11 +981,14 @@
         }
       ],
       "stability": "experimental",
-      "version": "0.1.0"
+      "version": "0.2.0"
     },
     {
       "id": "axiom://schema/axiom.stage1.v1",
       "kind": "schema",
+      "migration": {
+        "action": "Update consumers to understand the new diagnostic and lowering fields before consuming axiom.stage1.v1 envelopes."
+      },
       "signature": "published schema id=https://axiom.omt.global/schemas/axiom.stage1.v1.schema.json; semantic_digest=a86e98c6693d21c7d4613a5f77930a82beaa41c3e1e8f4b566f70c52ff117326; envelope=axiom.stage1.v1",
       "sources": [
         {
@@ -990,7 +999,7 @@
         }
       ],
       "stability": "experimental",
-      "version": "0.1.0"
+      "version": "0.2.0"
     },
     {
       "id": "axiom://schema/axiom.toml",

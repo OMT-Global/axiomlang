@@ -199,10 +199,20 @@ def main() -> int:
         "axiom://schema/axiom.runtime_lifecycle.v1",
         "axiom://schema/axiom.semantic_mir.v1",
     }
+    new_quality_schema_ids = {
+        "axiom://schema/axiom-quality-policy-v1",
+        "axiom://schema/axiom-quality-report-v1",
+    }
+    new_public_schema_ids = new_package_trust_ids | new_main_schema_ids | new_quality_schema_ids
+    modified_schema_ids = {
+        "axiom://schema/axiom-build-lowering-evidence-v1",
+        "axiom://schema/axiom.stage1.command",
+        "axiom://schema/axiom.stage1.v1",
+    }
     assert len(baseline_ids) == 52, "accepted baseline must remain the frozen 52-surface ratchet"
-    assert len(current_ids) == 61, "current contract must include five package trust schemas plus Provider ABI, Semantic MIR, runtime lifecycle, and persistent LSP schemas"
+    assert len(current_ids) == 63, "current contract must include five package trust schemas, two quality schemas, Provider ABI, Semantic MIR, runtime lifecycle, and persistent LSP schemas"
     assert set(baseline_ids) < set(current_ids)
-    assert set(current_ids) - set(baseline_ids) == new_package_trust_ids | new_main_schema_ids
+    assert set(current_ids) - set(baseline_ids) == new_public_schema_ids
     assert current_payload["contract_version"] == "0.3.0"
     current_cli = surface(current_payload, "axiom://cli/axiomc")
     assert current_cli["version"] == "0.2.0"
@@ -219,12 +229,12 @@ def main() -> int:
     assert canonical.returncode == 0, canonical.stdout + canonical.stderr
     canonical_report = json.loads(canonical.stdout)
     assert canonical_report["summary"] == {
-        "additive": 9,
-        "breaking": 1,
+        "additive": 11,
+        "breaking": 4,
         "compatible": 0,
         "deprecated": 0,
     }
-    expected_changed_ids = new_package_trust_ids | new_main_schema_ids | {"axiom://cli/axiomc"}
+    expected_changed_ids = new_public_schema_ids | modified_schema_ids | {"axiom://cli/axiomc"}
     assert {
         item["surface_id"] for item in canonical_report["changes"]
     } == expected_changed_ids
@@ -249,6 +259,13 @@ def main() -> int:
         "metadata paths plus --json, then handle exit 0 as trusted, exit 1 as rejected, "
         "and exit 2 as an operational failure."
     )
+    for identifier in modified_schema_ids:
+        schema_change = next(
+            item for item in canonical_report["changes"] if item["surface_id"] == identifier
+        )
+        assert schema_change["change"] == "modified"
+        assert schema_change["severity"] == "breaking"
+        assert schema_change["migration"]
     compiler_schema_ids = {
         f"axiom://schema/{path.name.removesuffix('.schema.json')}"
         for path in (ROOT / "stage1/compiler-contracts/schemas").glob("*.schema.json")
