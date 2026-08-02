@@ -86,19 +86,19 @@
           "path": "stage1/compiler-contracts/schemas/axiom.stage1.command.schema.json",
           "role": "cli_json_envelope",
           "selector": "$id,oneOf",
-          "sha256": "ddc64d122d59925ec93391d86781b8d4f76adf01e846f7120d312f32ce71421c"
+          "sha256": "7cc009c7e11ec2396416169ebef3bfd50a78163613614465436c1f2b427408ec"
         },
         {
           "path": "stage1/compiler-contracts/snapshots/capability-ledger.json",
           "role": "cli_top_level_parity",
           "selector": "commands[*].name",
-          "sha256": "4f26106e3bea22f2aec9ddd1979e3b6f075692e5a40cf19c2ab93c56566d26dc"
+          "sha256": "d2e2a51a4874447b20d6bf5908f74b4c9cde2c8703c1d7fa2239483446a2c1e5"
         },
         {
           "path": "stage1/crates/axiomc/src/main.rs",
           "role": "cli_command_graph_parity",
           "selector": "Command and nested command variant names",
-          "sha256": "919f1e405f07896ae4f8b369501f791d95d0cb9096268f21765aa9335851b954"
+          "sha256": "f91ec6858dfea119ba89031989665237c0c6f9b4c1c36a75665c7c678ab06ef1"
         }
       ],
       "stability": "experimental",
@@ -161,7 +161,7 @@
           "path": "stage1/runtime-abi/direct-native-v0.json",
           "role": "runtime_abi_readiness_parity",
           "selector": "value_features[*].id,capability_shims[*].(id,capability)",
-          "sha256": "6e54b6b2f2b4d89c6a8b53a1cbcee6393037993ad02245bbb01d86f1e33e87ba"
+          "sha256": "8a03f82820516beb78911e8cfc6c72f800583579cc76abfb6d1670f1bca67ed8"
         }
       ],
       "stability": "experimental",
@@ -230,13 +230,13 @@
     {
       "id": "axiom://schema/axiom-build-lowering-evidence-v1",
       "kind": "schema",
-      "signature": "published schema id=https://axiom.omt.global/schemas/axiom-build-lowering-evidence-v1.schema.json; semantic_digest=380e0fa597a2bd485c3a2376c7e3862e60309c4a783a033d0875be4f5d135f57; envelope=axiom.build-lowering-evidence.v1",
+      "signature": "published schema id=https://axiom.omt.global/schemas/axiom-build-lowering-evidence-v1.schema.json; semantic_digest=849d395243648cfaf1daefa597965ad10cf54f88f20f8f78e5804b023d274abd; envelope=axiom.build-lowering-evidence.v1",
       "sources": [
         {
           "path": "stage1/schemas/axiom-build-lowering-evidence-v1.schema.json",
           "role": "published_schema",
           "selector": "$id,properties.schema_version.const",
-          "sha256": "b7de2bc8f713785a9bc454cc4612e1cce449f3f00567cb2ce73b21108a8c4adb"
+          "sha256": "3293180c9b056de9f2c440064c2cf15792744d014266d118b6201af805c2f775"
         }
       ],
       "stability": "experimental",
@@ -567,6 +567,36 @@
           "role": "published_schema",
           "selector": "$id,properties.schema_version.const",
           "sha256": "4882172369caea2c4b808a9d0b8d6bee8ff56dbb17b1292a691fa04470355f8a"
+        }
+      ],
+      "stability": "experimental",
+      "version": "0.1.0"
+    },
+    {
+      "id": "axiom://schema/axiom-quality-policy-v1",
+      "kind": "schema",
+      "signature": "published schema id=https://omt-global.github.io/axiom/schemas/axiom-quality-policy-v1.schema.json; semantic_digest=6fa3d2e1db92bcef93f0aa135ddd70db6420dd536b92c424f81e1890dd7e5dbf",
+      "sources": [
+        {
+          "path": "stage1/schemas/axiom-quality-policy-v1.schema.json",
+          "role": "published_schema",
+          "selector": "$id,properties.schema_version.const",
+          "sha256": "e0a2dcc40d05116edb245e2ea65f5f82a407d85c3765e13352ae6b2aaad5aaf8"
+        }
+      ],
+      "stability": "experimental",
+      "version": "0.1.0"
+    },
+    {
+      "id": "axiom://schema/axiom-quality-report-v1",
+      "kind": "schema",
+      "signature": "published schema id=https://omt-global.github.io/axiom/schemas/axiom-quality-report-v1.schema.json; semantic_digest=1b51c517158840aec4dbdaf1b0773604b8a7208d24334612dde2afd2589af549",
+      "sources": [
+        {
+          "path": "stage1/schemas/axiom-quality-report-v1.schema.json",
+          "role": "published_schema",
+          "selector": "$id,properties.schema_version.const",
+          "sha256": "e8a63acfb396d76722e47b1bd0ae0e4f21dda41ab86642344baedca3b7f2f653"
         }
       ],
       "stability": "experimental",
@@ -935,13 +965,13 @@
     {
       "id": "axiom://schema/axiom.stage1.command",
       "kind": "schema",
-      "signature": "published schema id=https://omt-global.github.io/axiom/schemas/axiom.stage1.command.schema.json; semantic_digest=a5635c369905e84f34f25974bdad66ab92b95446fef1e9079e438445806373aa",
+      "signature": "published schema id=https://omt-global.github.io/axiom/schemas/axiom.stage1.command.schema.json; semantic_digest=aa49a0885cba0e06e4f0bf79ca00a8f0b3c58bf16f6148a8c72af070ea701239",
       "sources": [
         {
           "path": "stage1/compiler-contracts/schemas/axiom.stage1.command.schema.json",
           "role": "published_schema",
           "selector": "$id,properties.schema_version.const",
-          "sha256": "ddc64d122d59925ec93391d86781b8d4f76adf01e846f7120d312f32ce71421c"
+          "sha256": "7cc009c7e11ec2396416169ebef3bfd50a78163613614465436c1f2b427408ec"
         }
       ],
       "stability": "experimental",
@@ -950,13 +980,13 @@
     {
       "id": "axiom://schema/axiom.stage1.v1",
       "kind": "schema",
-      "signature": "published schema id=https://axiom.omt.global/schemas/axiom.stage1.v1.schema.json; semantic_digest=f29cd4109c7c9f5b9e2e210f045a9125639390806610d9675d86c85eaff355d4; envelope=axiom.stage1.v1",
+      "signature": "published schema id=https://axiom.omt.global/schemas/axiom.stage1.v1.schema.json; semantic_digest=a86e98c6693d21c7d4613a5f77930a82beaa41c3e1e8f4b566f70c52ff117326; envelope=axiom.stage1.v1",
       "sources": [
         {
           "path": "stage1/schemas/axiom.stage1.v1.schema.json",
           "role": "published_schema",
           "selector": "$id,properties.schema_version.const",
-          "sha256": "39eecabfb6a990619f0b2068bac68fb0c0da3fac1ec8ee840a5253916cd28969"
+          "sha256": "717476ad335ddc4243ec1d747ffe041cc1b30372758e819a4bbb29873e831a67"
         }
       ],
       "stability": "experimental",
