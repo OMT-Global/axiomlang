@@ -1116,6 +1116,12 @@
     },
     {
       "evidenceTier": "static_spike",
+      "name": "axiom.provider-abi.v1.schema.json",
+      "source": "stage1/compiler-contracts/schemas/axiom.provider-abi.v1.schema.json",
+      "status": "checked"
+    },
+    {
+      "evidenceTier": "static_spike",
       "name": "https://omt-global.github.io/axiom/schemas/axiom.runtime_lifecycle.v1.schema.json",
       "source": "stage1/compiler-contracts/schemas/axiom.runtime_lifecycle.v1.schema.json",
       "status": "checked"
@@ -1786,11 +1792,11 @@
       "direct_runtime": 2,
       "production_qualified": 0,
       "scaffold": 5,
-      "static_spike": 206,
+      "static_spike": 207,
       "unsupported": 5
     },
     "runtimeAbiRows": 34,
-    "schemas": 47,
+    "schemas": 48,
     "stdlibFunctions": 299,
     "stdlibModules": 34,
     "supportedNativeBackend": "cranelift"
