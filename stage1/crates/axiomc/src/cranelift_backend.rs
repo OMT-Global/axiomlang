@@ -11913,6 +11913,14 @@ fn lower_i64_known_bool_intrinsic_condition(
     static_bindings: &I64StaticBindings,
 ) -> Option<CraneliftI64Condition> {
     match name {
+        "fs_file_exists" | "file_exists" | "std_fs_file_exists" => {
+            let value = lower_i64_fs_metadata_expr(name, args, static_bindings)?;
+            Some(CraneliftI64Condition::Compare(CraneliftI64Compare {
+                op: CraneliftI64CompareOp::Ne,
+                lhs: value,
+                rhs: CraneliftI64Expr::Literal(0),
+            }))
+        }
         "string_contains" | "string_starts_with" => {
             let [text, needle] = args else {
                 return None;
@@ -13251,6 +13259,7 @@ fn lower_i64_expr(
             )
             .or_else(|| lower_i64_process_intrinsic_expr(name, args, static_bindings))
             .or_else(|| lower_i64_fs_write_intrinsic_expr(name, args, static_bindings))
+            .or_else(|| lower_i64_fs_metadata_expr(name, args, static_bindings))
             .or_else(|| lower_i64_crypto_random_intrinsic_expr(name, args, static_bindings))
             .or_else(|| {
                 lower_i64_ffi_intrinsic_expr(

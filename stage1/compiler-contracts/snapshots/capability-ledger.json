@@ -1469,6 +1469,8 @@
       "functions": [
         "append_file",
         "create_file",
+        "file_exists",
+        "file_size",
         "mkdir",
         "mkdir_all",
         "read_file",

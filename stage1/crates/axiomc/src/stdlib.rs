@@ -140,6 +140,14 @@ pub fn sleep(duration: Duration): int {\nreturn clock_sleep_ms(duration.ms)\n}\n
 return fs_read(path)
 }
 \
+pub fn file_exists(path: string): bool {
+return fs_file_exists(path)
+}
+\
+pub fn file_size(path: string): int {
+return fs_file_size(path)
+}
+\
 pub fn write_file(path: string, content: string): int {
 return fs_write(path, content)
 }

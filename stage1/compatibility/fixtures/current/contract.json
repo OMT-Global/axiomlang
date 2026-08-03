@@ -59,13 +59,13 @@
       "migration": {
         "action": "Existing stdlib modules and functions remain valid. Consumers adopting the Unicode scalar helpers should use scalar_count for code-point cardinality and scalar_at for bounds-checked scalar access."
       },
-      "signature": "axiom.compiler.stdlib_catalog.v1; catalog_semantic_digest=f4e0fc52121a90013145c74c7740069c619dd06911c2b6f5421ccfb0086a5632; modules=34; symbols=301",
+      "signature": "axiom.compiler.stdlib_catalog.v1; catalog_semantic_digest=5ce3d78f5725c3ff1c663090e0ca116d5dff19c9c3b99d7577cc699ad7fe8ec5; modules=34; symbols=303",
       "sources": [
         {
           "path": "stage1/compiler-contracts/snapshots/stdlib-catalog.json",
           "role": "stdlib_catalog",
           "selector": "modules[*].name,symbols[*].signature",
-          "sha256": "9ce15c1d7b1288060ce11f5a617c56296bf22053044a4ccd25644ec330c03977"
+          "sha256": "365cfd5554c5a86bc15086735c6826e7e8dda6e670e882e8e504d3d9482c8b69"
         }
       ],
       "stability": "experimental",
@@ -95,7 +95,7 @@
           "path": "stage1/compiler-contracts/snapshots/capability-ledger.json",
           "role": "cli_top_level_parity",
           "selector": "commands[*].name",
-          "sha256": "2c0148e5f3ac08f73ee600c62cef8207817c4feb99a1d3c4d2489d7a4f552690"
+          "sha256": "1b2d63a5e1149b72eadf073aae2deb0a03c774612ea240f15b54326e21ddf11f"
         },
         {
           "path": "stage1/crates/axiomc/src/main.rs",
@@ -965,17 +965,20 @@
     {
       "id": "axiom://schema/axiom.compiler.stdlib_catalog.v1",
       "kind": "schema",
-      "signature": "published schema id=https://omt-global.github.io/axiom/schemas/axiom.compiler.stdlib_catalog.v1.schema.json; semantic_digest=b54970e5dae12e2a9475a5511c64683f11eb005ed40b4db8a58f2a0edcdfc121; envelope=axiom.compiler.stdlib_catalog.v1",
+      "migration": {
+        "action": "Update catalog consumers to accept catalog_version 1.1.0 and the additive file_exists and file_size stdlib symbols before consuming the refreshed catalog."
+      },
+      "signature": "published schema id=https://omt-global.github.io/axiom/schemas/axiom.compiler.stdlib_catalog.v1.schema.json; semantic_digest=c04c6ae6929b0a68d376b0b3ea771d7cacca72b39dd668b6266c74b455a76708; envelope=axiom.compiler.stdlib_catalog.v1",
       "sources": [
         {
           "path": "stage1/compiler-contracts/schemas/axiom.compiler.stdlib_catalog.v1.schema.json",
           "role": "published_schema",
           "selector": "$id,properties.schema_version.const",
-          "sha256": "02cebcbb57be97e3efb6d5f09baa891ab6e278f3feeaef4a6e72e3d042687005"
+          "sha256": "04d715c4e77a8f74e967b5953a0f63dd1bee1bb255cec18971f7f748830416f5"
         }
       ],
       "stability": "experimental",
-      "version": "0.1.0"
+      "version": "0.2.0"
     },
     {
       "id": "axiom://schema/axiom.docs.v1",

@@ -6815,7 +6815,7 @@ fn stage1_project_rejects_stdlib_fs_without_fs_capability() {
     .expect("write lockfile");
     fs::write(
             project.join("src/main.ax"),
-            "import \"std/fs.ax\"\nmatch read_file(\"x\") {\nSome(v) {\nprint v\n}\nNone {\nprint \"missing\"\n}\n}\n",
+            "import \"std/fs.ax\"\nprint file_size(\"x\")\n",
         )
         .expect("write source");
 
