@@ -91,7 +91,11 @@ def compile_fixture(target):
         exports = subprocess.run([nm, "-g", "--defined-only", str(output)], capture_output=True, text=True)
         need(exports.returncode == 0, f"unable to inspect C reference fixture exports for {target}: {exports.stderr}")
         expected = {"axiom_provider_v1", "axiom_provider_call", "axiom_provider_close_handle", "axiom_provider_release_owned_buffer"}
-        actual = {line.split()[-1] for line in exports.stdout.splitlines() if line.split()}
+        actual = {
+            line.split()[-1].removeprefix("_")
+            for line in exports.stdout.splitlines()
+            if line.split()
+        }
         need(expected <= actual, f"C reference fixture missing required exports for {target}: {sorted(expected - actual)}")
         probe = directory / "provider-abi-probe.c"
         probe.write_text(f'''#include "{C}"

@@ -1,7 +1,7 @@
 {
   "schema_version": "axiom.compiler.stdlib_catalog.v1",
   "contract": "compiler.stdlib",
-  "catalog_version": "1.0.0",
+  "catalog_version": "1.1.0",
   "source": "stage1/compiler-contracts/snapshots/capability-ledger.json",
   "modules": [
     {
@@ -3763,7 +3763,7 @@
       "symbols": []
     }
   ],
-  "release_digest": "b8466622c43445ab22c2ecda12a73532ffda60e18b6d51f2490cec3959e3d39f",
+  "release_digest": "c5e37dcdd84568751838dce6a92324144d2317d5620e5d205b8dc79deef34ceb",
   "rollback_boundary": "stage1/crates/axiomc/src/stdlib.rs remains the bootstrap loader until #1436 qualifies a catalog consumer.",
   "acceptance_boundary": {
     "status": "pending",
