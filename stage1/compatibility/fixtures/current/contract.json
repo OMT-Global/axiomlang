@@ -101,7 +101,7 @@
           "path": "stage1/crates/axiomc/src/main.rs",
           "role": "cli_command_graph_parity",
           "selector": "Command and nested command variant names",
-          "sha256": "cf9e69b4795ee644273840a8d36138037e13d2aca58309f9cf9a97701a9c2755"
+          "sha256": "e5f87856b59f0b8e130997e06f69043fa5434167582a93dbce45078023ea6c67"
         }
       ],
       "stability": "experimental",
