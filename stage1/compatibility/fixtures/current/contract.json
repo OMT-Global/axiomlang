@@ -95,7 +95,7 @@
           "path": "stage1/compiler-contracts/snapshots/capability-ledger.json",
           "role": "cli_top_level_parity",
           "selector": "commands[*].name",
-          "sha256": "b3842e55505ece6af096fb8600f14d5205b042f2986af1f8c424470f15204d6f"
+          "sha256": "8f18d52b274a6143e7e4dad1fe7822b3f678cd8f121be8821d5763f316d250f1"
         },
         {
           "path": "stage1/crates/axiomc/src/main.rs",
