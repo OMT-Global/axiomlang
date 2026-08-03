@@ -632,14 +632,6 @@ pub fn build_project(project_root: &Path) -> Result<BuildOutput, Diagnostic> {
     build_project_with_options(project_root, &BuildOptions::default())
 }
 
-fn resolved_build_target(target: Option<&str>) -> Option<String> {
-    match target {
-        Some("wasm32") | Some("wasm32-wasi") => Some(String::from("wasm32-wasip1")),
-        Some(target) => Some(target.to_string()),
-        None => None,
-    }
-}
-
 pub fn build_project_with_options(
     project_root: &Path,
     options: &BuildOptions,
@@ -656,12 +648,15 @@ fn build_project_with_graph(
 ) -> Result<BuildOutput, Diagnostic> {
     validate_build_resolution_mode(options)?;
     validate_workspace_root_lockfile(graph, project_root)?;
+    let resolved_target = crate::doctor::target_support::resolve_build_target(
+        options.target.as_deref(),
+        matches!(options.backend, NativeBackendKind::Cranelift),
+    )?;
     let started = Instant::now();
     let mut packages = Vec::new();
     for package_root in workspace_package_roots(graph, project_root, options.package.as_deref())? {
         let analyzed = analyze_package(graph, &package_root)?;
         let generated_rust = generated_rust_path(&package_root, &analyzed.manifest);
-        let resolved_target = resolved_build_target(options.target.as_deref());
         let binary = binary_path_for_target(
             &package_root,
             &analyzed.manifest,

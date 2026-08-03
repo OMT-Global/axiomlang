@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://axiom.omt.global/schemas/axiom-target-support-v1.schema.json",
+  "title": "Axiom Native Target Support v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "backend",
+    "host_target",
+    "host_supported",
+    "target_selection",
+    "supported_targets"
+  ],
+  "properties": {
+    "schema_version": { "const": "axiom.target_support.v1" },
+    "backend": { "const": "cranelift" },
+    "host_target": { "type": ["string", "null"] },
+    "host_supported": { "type": "boolean" },
+    "target_selection": { "const": "exact-host-only" },
+    "supported_targets": {
+      "type": "array",
+      "minItems": 2,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "target",
+          "platform",
+          "object_format",
+          "abi",
+          "linker",
+          "runtime",
+          "status"
+        ],
+        "properties": {
+          "target": { "type": "string", "minLength": 1 },
+          "platform": { "type": "string", "minLength": 1 },
+          "object_format": { "type": "string", "minLength": 1 },
+          "abi": { "type": "string", "minLength": 1 },
+          "linker": { "type": "string", "minLength": 1 },
+          "runtime": { "type": "string", "minLength": 1 },
+          "status": { "const": "supported-host-only" }
+        }
+      }
+    }
+  }
+}

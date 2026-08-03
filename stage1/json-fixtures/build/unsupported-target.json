@@ -3,9 +3,10 @@
   "ok": false,
   "command": "build",
   "error": {
-    "kind": "build",
-    "code": "build.failed",
-    "message": "unsupported by --backend cranelift spike: the cranelift backend spike currently supports only the host target",
+    "kind": "target",
+    "code": "target.unsupported",
+    "message": "target \\\"wasm32-wasip1\\\" is unsupported by the direct-native backend; host target is \\\"aarch64-apple-darwin\\\"",
+    "help": "direct-native builds currently accept only the exact host target; cross-target support requires target-specific linker evidence",
     "path": null,
     "line": null,
     "column": null
