@@ -6,6 +6,7 @@ use axiomc::project::{run_project_tests_with_options, TestOptions};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 pub const BASELINE_SCHEMA_VERSION: &str = "axiom.stage1.bench.baseline.v1";
 
@@ -15,6 +16,7 @@ pub struct BenchOptions {
     pub iterations: usize,
     pub baseline: Option<PathBuf>,
     pub max_regression_percent: f64,
+    pub timeout: Duration,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -25,6 +27,7 @@ pub struct BenchReport {
     pub iterations: usize,
     pub baseline: Option<String>,
     pub max_regression_percent: f64,
+    pub timeout_ms: u64,
     pub benches: Vec<BenchResult>,
     pub passed: usize,
     pub failed: usize,
@@ -82,6 +85,12 @@ pub fn run_benchmarks(
             "max regression percent must be a finite non-negative number",
         ));
     }
+    if options.timeout.is_zero() {
+        return Err(Diagnostic::new(
+            "bench",
+            "benchmark timeout must be greater than zero",
+        ));
+    }
 
     let baselines = match &options.baseline {
         Some(path) => load_baseline(path)?,
@@ -119,6 +128,7 @@ pub fn run_benchmarks(
             .as_ref()
             .map(|path| path.display().to_string()),
         max_regression_percent: options.max_regression_percent,
+        timeout_ms: options.timeout.as_millis() as u64,
         failed: benches.len().saturating_sub(passed),
         passed,
         benches,
@@ -139,7 +149,7 @@ fn run_one_benchmark(
 ) -> BenchResult {
     let mut failure = None;
     for _ in 0..options.warmup {
-        if let Err(error) = execute_benchmark(project_root, &benchmark.id) {
+        if let Err(error) = execute_benchmark(project_root, &benchmark.id, options.timeout) {
             failure = Some(error.to_string());
             break;
         }
@@ -148,7 +158,7 @@ fn run_one_benchmark(
     let mut samples_ms = Vec::with_capacity(options.iterations);
     if failure.is_none() {
         for _ in 0..options.iterations {
-            match execute_benchmark(project_root, &benchmark.id) {
+            match execute_benchmark(project_root, &benchmark.id, options.timeout) {
                 Ok(duration_ms) => samples_ms.push(duration_ms),
                 Err(error) => {
                     failure = Some(error.to_string());
@@ -198,12 +208,17 @@ fn run_one_benchmark(
     }
 }
 
-fn execute_benchmark(project_root: &Path, benchmark_id: &str) -> Result<u64, Diagnostic> {
+fn execute_benchmark(
+    project_root: &Path,
+    benchmark_id: &str,
+    timeout: Duration,
+) -> Result<u64, Diagnostic> {
     let output = run_project_tests_with_options(
         project_root,
         &TestOptions {
             filter: Some(benchmark_id.to_string()),
             include_benchmarks: true,
+            run_limits: Some(axiomc::project::RunLimits::benchmark(timeout)),
             ..TestOptions::default()
         },
     )?;
@@ -361,8 +376,11 @@ fn exceeds_regression_limit(regression_percent: Option<f64>, max_regression_perc
 
 #[cfg(test)]
 mod tests {
-    use super::{exceeds_regression_limit, sample_variance};
+    use super::{BenchOptions, exceeds_regression_limit, run_benchmarks, sample_variance};
+    use axiomc::project::RunLimits;
     use serde_json::Value;
+    use std::path::Path;
+    use std::time::Duration;
 
     #[test]
     fn sample_variance_uses_the_unbiased_denominator() {
@@ -391,5 +409,29 @@ mod tests {
             .expect("compile benchmark baseline schema")
             .validate(&baseline)
             .expect("baseline fixture matches schema");
+    }
+
+    #[test]
+    fn benchmark_budget_tracks_the_requested_timeout() {
+        let limits = RunLimits::benchmark(Duration::from_millis(1_500));
+        assert_eq!(limits.timeout, Duration::from_millis(1_500));
+        assert_eq!(limits.max_output_bytes, 1024 * 1024);
+        assert_eq!(limits.max_cpu_seconds, 2);
+    }
+
+    #[test]
+    fn benchmark_rejects_an_unbounded_timeout() {
+        let error = run_benchmarks(
+            Path::new("missing"),
+            &BenchOptions {
+                warmup: 0,
+                iterations: 1,
+                baseline: None,
+                max_regression_percent: 20.0,
+                timeout: Duration::ZERO,
+            },
+        )
+        .expect_err("zero timeout should be rejected");
+        assert!(error.message.contains("timeout must be greater than zero"));
     }
 }
