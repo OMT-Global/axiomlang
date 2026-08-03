@@ -52,6 +52,7 @@ use std::io::Write;
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Instant;
 
 const MAX_TRUST_DOCUMENT_BYTES: usize = 8 * 1024 * 1024;
 const MAX_CANDIDATE_DOWNLOAD_BYTES: usize = 256 * 1024 * 1024;
@@ -234,6 +235,7 @@ struct VerifiedDownload {
 
 struct OnlineResolverSource<'a> {
     transport: &'a RegistryClient,
+    operation_deadline: Instant,
     registry: RegistryConfig,
     trust_roots_bytes: Vec<u8>,
     expectation_bytes: Vec<u8>,
@@ -791,8 +793,10 @@ impl PackageManager {
         expected_lock_sha256: Option<String>,
         target: Option<&str>,
     ) -> Result<OnlineResolution<'a>, PackageManagerError> {
+        let operation_deadline = transport.operation_deadline().map_err(transport_error)?;
         let mut source = self.online_source(
             transport,
+            operation_deadline,
             (mode != ResolutionMode::Fresh)
                 .then_some(previous.as_ref())
                 .flatten(),
@@ -1110,6 +1114,7 @@ impl PackageManager {
     fn online_source<'a>(
         &self,
         transport: &'a RegistryClient,
+        operation_deadline: Instant,
         previous: Option<&LockfileV2>,
     ) -> Result<OnlineResolverSource<'a>, PackageManagerError> {
         let registry = self.manifest.registry.clone().ok_or_else(|| {
@@ -1136,7 +1141,9 @@ impl PackageManager {
             .map_err(|error| PackageManagerError::new("trust_roots_invalid", error.to_string()))?;
         let mut expectation = parse_verification_expectation_json(&expectation_bytes)
             .map_err(|error| PackageManagerError::new("expectation_invalid", error.to_string()))?;
-        let index_bytes = transport.fetch(&registry.index).map_err(transport_error)?;
+        let index_bytes = transport
+            .fetch_until(&registry.index, operation_deadline)
+            .map_err(transport_error)?;
         if let Some(previous) = previous {
             advance_expectation_from_lock(&mut expectation, previous, &registry)?;
         }
@@ -1147,6 +1154,7 @@ impl PackageManager {
         let index_bytes: Arc<[u8]> = Arc::from(index_bytes);
         Ok(OnlineResolverSource {
             transport,
+            operation_deadline,
             registry,
             trust_roots_bytes,
             expectation_bytes,
@@ -1411,7 +1419,10 @@ impl OnlineResolverSource<'_> {
     fn fetch_artifact(&mut self, relative_path: &str) -> Result<Vec<u8>, SourceFailure> {
         let url = resolve_registry_artifact_url(&self.registry.index, relative_path)
             .map_err(source_transport_error)?;
-        let bytes = self.transport.fetch(&url).map_err(source_transport_error)?;
+        let bytes = self
+            .transport
+            .fetch_until(&url, self.operation_deadline)
+            .map_err(source_transport_error)?;
         self.charge_candidate_bytes(bytes.len())?;
         Ok(bytes)
     }
@@ -1426,7 +1437,7 @@ impl OnlineResolverSource<'_> {
             .map_err(source_transport_error)?;
         let bytes = self
             .transport
-            .fetch_package_archive(&url)
+            .fetch_package_archive_until(&url, self.operation_deadline)
             .map_err(source_transport_error)?;
         if bytes.len() != authenticated_length {
             return Err(SourceFailure::new(
