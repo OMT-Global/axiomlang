@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::fs::{self, File, OpenOptions};
-use std::io::{Read, Write};
+use std::io::{self, Read, Write};
 use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -1878,7 +1878,7 @@ fn atomic_replace_file(path: &Path, bytes: &[u8]) -> Result<(), StoreError> {
     let temporary = transaction.join("value");
     let result = (|| {
         write_new_file(&temporary, bytes)?;
-        fs::rename(&temporary, path).map_err(|error| {
+        replace_file(&temporary, path).map_err(|error| {
             StoreError::new(
                 "store_publish_failed",
                 format!("failed to replace {}: {error}", path.display()),
@@ -1887,6 +1887,54 @@ fn atomic_replace_file(path: &Path, bytes: &[u8]) -> Result<(), StoreError> {
         sync_directory(parent)
     })();
     finish_transaction(result, &transaction)
+}
+
+#[cfg(not(windows))]
+fn replace_file(source: &Path, destination: &Path) -> io::Result<()> {
+    fs::rename(source, destination)
+}
+
+#[cfg(windows)]
+fn replace_file(source: &Path, destination: &Path) -> io::Result<()> {
+    use std::os::windows::ffi::OsStrExt;
+
+    // `rename` cannot replace an existing file on Windows. MoveFileEx with
+    // REPLACE_EXISTING preserves the same publication contract as rename on
+    // Unix while WRITE_THROUGH makes the replacement durable before return.
+    const MOVEFILE_REPLACE_EXISTING: u32 = 0x0000_0001;
+    const MOVEFILE_WRITE_THROUGH: u32 = 0x0000_0008;
+
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn MoveFileExW(
+            existing_file_name: *const u16,
+            new_file_name: *const u16,
+            flags: u32,
+        ) -> i32;
+    }
+
+    let source = source
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect::<Vec<_>>();
+    let destination = destination
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect::<Vec<_>>();
+    let replaced = unsafe {
+        MoveFileExW(
+            source.as_ptr(),
+            destination.as_ptr(),
+            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
+        )
+    };
+    if replaced == 0 {
+        Err(io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
 }
 
 fn sync_directory(path: &Path) -> Result<(), StoreError> {
@@ -2139,6 +2187,20 @@ mod tests {
                 .code,
             "vendor_lock_mismatch"
         );
+    }
+
+    #[test]
+    fn current_pointer_replacement_overwrites_an_existing_file() {
+        let temp = tempfile::tempdir().unwrap();
+        let source = temp.path().join("replacement");
+        let destination = temp.path().join("CURRENT");
+        write_new_file(&source, b"new\n").unwrap();
+        fs::write(&destination, b"old\n").unwrap();
+
+        replace_file(&source, &destination).unwrap();
+
+        assert_eq!(fs::read(&destination).unwrap(), b"new\n");
+        assert!(!source.exists());
     }
 
     #[test]
