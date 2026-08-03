@@ -50,6 +50,7 @@ use std::os::fd::{AsRawFd, FromRawFd};
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Duration;
 
 mod agent_task_cli;
 mod benchmark;
@@ -317,6 +318,9 @@ enum Command {
         /// Maximum accepted median regression when --baseline is supplied.
         #[arg(long, default_value_t = 20.0)]
         max_regression_percent: f64,
+        /// Maximum runtime for each benchmark entrypoint execution.
+        #[arg(long, default_value_t = 30)]
+        timeout_seconds: u64,
         /// Emit an axiom.stage1.v1 JSON envelope for agent/tool consumption.
         #[arg(long)]
         json: bool,
@@ -818,6 +822,7 @@ fn main() {
                 include_benchmarks,
                 properties_only: properties,
                 conformance,
+                run_limits: None,
             };
             if list {
                 match list_project_tests_with_options(&path, &options) {
@@ -1374,6 +1379,7 @@ fn main() {
             iterations,
             baseline,
             max_regression_percent,
+            timeout_seconds,
             json,
         } => match run_benchmarks(
             &path,
@@ -1382,6 +1388,7 @@ fn main() {
                 iterations,
                 baseline,
                 max_regression_percent,
+                timeout: Duration::from_secs(timeout_seconds),
             },
         ) {
             Ok(report) => {
