@@ -441,6 +441,18 @@
       },
       {
         "evidenceTier": "static_spike",
+        "name": "break",
+        "source": "stage1/crates/axiomc/src/syntax.rs",
+        "status": "partial"
+      },
+      {
+        "evidenceTier": "static_spike",
+        "name": "continue",
+        "source": "stage1/crates/axiomc/src/syntax.rs",
+        "status": "partial"
+      },
+      {
+        "evidenceTier": "static_spike",
         "name": "defer",
         "source": "stage1/crates/axiomc/src/syntax.rs",
         "status": "partial"
@@ -1867,7 +1879,7 @@
       "direct_runtime": 2,
       "production_qualified": 0,
       "scaffold": 5,
-      "static_spike": 219,
+      "static_spike": 221,
       "unsupported": 5
     },
     "runtimeAbiRows": 34,

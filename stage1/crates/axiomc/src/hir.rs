@@ -104,6 +104,7 @@ enum NetBindingOrigin {
     LoopbackTcpListenerPort,
 }
 
+#[derive(Clone)]
 struct LowerContext<'a> {
     current_path: &'a str,
     consts: &'a HashMap<String, syntax::ConstDecl>,
@@ -118,6 +119,7 @@ struct LowerContext<'a> {
     current_function: Option<String>,
     current_property: bool,
     current_borrow_return_params: HashSet<String>,
+    loop_depth: usize,
 }
 
 const OWNERSHIP_CLOSURE_MOVE_CAPTURED_NON_COPY: &str = "closure_move_captured_non_copy";
@@ -251,6 +253,7 @@ fn lower_with_capabilities_impl(
         current_function: None,
         current_property: false,
         current_borrow_return_params: HashSet::new(),
+        loop_depth: 0,
     };
     let statics = match lower_static_decls(&program.consts, &structs, &enums, &aliases, &ctx) {
         Ok(statics) => statics,
@@ -563,6 +566,7 @@ fn lower_function(
             .iter()
             .filter_map(|index| params.get(*index).map(|param| param.name.clone()))
             .collect(),
+        loop_depth: 0,
     };
     let (body, _, guaranteed_return) = if function.is_extern {
         (Vec::new(), env.clone(), true)
@@ -1059,7 +1063,10 @@ fn lower_stmt(
             }
             let before = env.clone();
             let mut body_env = before.clone();
-            let (body, body_after, body_returns) = lower_block(body, &mut body_env, ctx)?;
+            let mut loop_ctx = ctx.clone();
+            loop_ctx.loop_depth += 1;
+            let (body, body_after, body_returns) =
+                lower_block(body, &mut body_env, &loop_ctx)?;
             // AG1.1: reject moves of outer non-Copy variables inside the loop
             // body — on subsequent iterations the value would not be available.
             if !body_returns {
@@ -1208,6 +1215,28 @@ fn lower_stmt(
             }
             Ok(Stmt::Defer {
                 expr: lowered_expr,
+                span: SourceSpan::point(*line, *column),
+            })
+        }
+        syntax::Stmt::Break { line, column } => {
+            if ctx.loop_depth == 0 {
+                return Err(
+                    Diagnostic::new("control", "break is only valid inside a while loop")
+                        .with_span(*line, *column),
+                );
+            }
+            Ok(Stmt::Break {
+                span: SourceSpan::point(*line, *column),
+            })
+        }
+        syntax::Stmt::Continue { line, column } => {
+            if ctx.loop_depth == 0 {
+                return Err(
+                    Diagnostic::new("control", "continue is only valid inside a while loop")
+                        .with_span(*line, *column),
+                );
+            }
+            Ok(Stmt::Continue {
                 span: SourceSpan::point(*line, *column),
             })
         }

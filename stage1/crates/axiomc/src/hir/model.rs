@@ -147,6 +147,12 @@ pub enum Stmt {
         body: Vec<Stmt>,
         span: SourceSpan,
     },
+    Break {
+        span: SourceSpan,
+    },
+    Continue {
+        span: SourceSpan,
+    },
     Match {
         expr: Expr,
         arms: Vec<MatchArm>,

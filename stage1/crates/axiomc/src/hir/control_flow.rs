@@ -6,6 +6,7 @@ impl Stmt {
         match self {
             Stmt::Return { .. } | Stmt::Panic { .. } => true,
             Stmt::Defer { .. } | Stmt::Assign { .. } => false,
+            Stmt::Break { .. } | Stmt::Continue { .. } => true,
             Stmt::If {
                 cond,
                 then_block,

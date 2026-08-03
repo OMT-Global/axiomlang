@@ -13,6 +13,7 @@ impl syntax::Stmt {
             | syntax::Stmt::Match { line, .. }
             | syntax::Stmt::Assign { line, .. }
             | syntax::Stmt::Return { line, .. } => *line,
+            syntax::Stmt::Break { line, .. } | syntax::Stmt::Continue { line, .. } => *line,
         }
     }
 
@@ -28,6 +29,7 @@ impl syntax::Stmt {
             | syntax::Stmt::Match { column, .. }
             | syntax::Stmt::Assign { column, .. }
             | syntax::Stmt::Return { column, .. } => *column,
+            syntax::Stmt::Break { column, .. } | syntax::Stmt::Continue { column, .. } => *column,
         }
     }
 }

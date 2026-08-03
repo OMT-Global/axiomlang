@@ -108,6 +108,12 @@ pub enum Stmt {
         body: Vec<Stmt>,
         span: SourceSpan,
     },
+    Break {
+        span: SourceSpan,
+    },
+    Continue {
+        span: SourceSpan,
+    },
     Match {
         expr: Expr,
         arms: Vec<MatchArm>,
@@ -436,6 +442,7 @@ fn count_stmt(stmt: &Stmt) -> usize {
                     .unwrap_or(0)
         }
         Stmt::While { body, .. } => 1 + body.iter().map(count_stmt).sum::<usize>(),
+        Stmt::Break { .. } | Stmt::Continue { .. } => 1,
         Stmt::Match { arms, .. } => {
             1 + arms
                 .iter()
@@ -546,6 +553,12 @@ fn lower_stmt(stmt: &hir::Stmt) -> Stmt {
         hir::Stmt::While { cond, body, span } => Stmt::While {
             cond: lower_expr(cond),
             body: body.iter().map(lower_stmt).collect(),
+            span: lower_source_span(span),
+        },
+        hir::Stmt::Break { span } => Stmt::Break {
+            span: lower_source_span(span),
+        },
+        hir::Stmt::Continue { span } => Stmt::Continue {
             span: lower_source_span(span),
         },
         hir::Stmt::Match { expr, arms, span } => Stmt::Match {

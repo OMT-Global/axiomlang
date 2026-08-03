@@ -2363,6 +2363,36 @@ fn build_project_emits_native_binary_after_while_false_dead_body_is_ignored() {
 }
 
 #[test]
+fn build_project_supports_break_and_continue_in_while_loops() {
+    let dir = tempdir().expect("tempdir");
+    let project = dir.path().join("while-control");
+    create_project(&project, Some("while-control-app")).expect("create project");
+    fs::write(
+        project.join("src/main.ax"),
+        "let index: int = 0\nwhile index < 5 {\nindex = index + 1\nif index == 2 {\ncontinue\n} else {\nprint 0\n}\nif index == 4 {\nbreak\n} else {\nprint index\n}\n}\n",
+    )
+    .expect("write source");
+
+    let built = build_project(&project).expect("build project");
+    let output = compiled_binary_command(&built.binary)
+        .output()
+        .expect("run compiled binary");
+    assert!(output.status.success(), "binary failed: {output:?}");
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "0\n1\n0\n3\n0\n");
+}
+
+#[test]
+fn check_project_rejects_loop_control_outside_while() {
+    let dir = tempdir().expect("tempdir");
+    let project = dir.path().join("invalid-loop-control");
+    create_project(&project, Some("invalid-loop-control-app")).expect("create project");
+    fs::write(project.join("src/main.ax"), "break\n").expect("write source");
+
+    let error = check_project(&project).expect_err("top-level break must be rejected");
+    assert!(error.message.contains("break is only valid inside a while loop"));
+}
+
+#[test]
 fn check_project_rejects_wrapped_multi_param_borrow_returns() {
     let dir = tempdir().expect("tempdir");
     let project = dir.path().join("multi-param-borrow-returns");

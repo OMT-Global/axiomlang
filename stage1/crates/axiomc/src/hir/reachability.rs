@@ -32,6 +32,7 @@ fn collect_stmt_calls(stmt: &syntax::Stmt, calls: &mut VecDeque<String>) {
         | syntax::Stmt::Panic { expr, .. }
         | syntax::Stmt::Defer { expr, .. }
         | syntax::Stmt::Return { expr, .. } => collect_expr_calls(expr, calls),
+        syntax::Stmt::Break { .. } | syntax::Stmt::Continue { .. } => {}
         syntax::Stmt::Assign { target, expr, .. } => {
             collect_expr_calls(target, calls);
             collect_expr_calls(expr, calls);

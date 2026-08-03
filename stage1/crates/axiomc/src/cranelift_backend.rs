@@ -522,6 +522,7 @@ fn collect_stmt_calls(stmts: &[Stmt], calls: &mut Vec<String>) {
                 collect_expr_calls(cond, calls);
                 collect_stmt_calls(body, calls);
             }
+            Stmt::Break { .. } | Stmt::Continue { .. } => {}
             Stmt::Match { expr, arms, .. } => {
                 collect_expr_calls(expr, calls);
                 for arm in arms {
@@ -624,6 +625,7 @@ fn stmts_use_known_value_folds(stmts: &[Stmt]) -> bool {
         Stmt::While { cond, body, .. } => {
             expr_uses_known_value_fold(cond) || stmts_use_known_value_folds(body)
         }
+        Stmt::Break { .. } | Stmt::Continue { .. } => false,
         Stmt::Match { expr, arms, .. } => {
             expr_uses_known_value_fold(expr)
                 || arms

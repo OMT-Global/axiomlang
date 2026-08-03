@@ -196,6 +196,14 @@ fn infer_generic_calls_in_stmt(
                 column: *column,
             }
         }
+        syntax::Stmt::Break { line, column } => syntax::Stmt::Break {
+            line: *line,
+            column: *column,
+        },
+        syntax::Stmt::Continue { line, column } => syntax::Stmt::Continue {
+            line: *line,
+            column: *column,
+        },
         syntax::Stmt::IfLet {
             variant,
             bindings,
@@ -1306,6 +1314,7 @@ fn validate_generic_trait_method_calls_in_stmts(
                     structs,
                 )?;
             }
+            syntax::Stmt::Break { .. } | syntax::Stmt::Continue { .. } => {}
             syntax::Stmt::Match { expr, arms, .. } => {
                 validate_generic_trait_method_calls_in_expr(
                     expr,
@@ -2745,6 +2754,14 @@ fn rewrite_stmt_aggregate_types(
             line: *line,
             column: *column,
         },
+        syntax::Stmt::Break { line, column } => syntax::Stmt::Break {
+            line: *line,
+            column: *column,
+        },
+        syntax::Stmt::Continue { line, column } => syntax::Stmt::Continue {
+            line: *line,
+            column: *column,
+        },
         syntax::Stmt::Match {
             expr,
             arms,
@@ -3578,6 +3595,14 @@ fn rewrite_stmt_generic_calls(
                     )
                 })
                 .collect::<Result<Vec<_>, _>>()?,
+            line: *line,
+            column: *column,
+        },
+        syntax::Stmt::Break { line, column } => syntax::Stmt::Break {
+            line: *line,
+            column: *column,
+        },
+        syntax::Stmt::Continue { line, column } => syntax::Stmt::Continue {
             line: *line,
             column: *column,
         },

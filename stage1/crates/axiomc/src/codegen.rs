@@ -5612,6 +5612,7 @@ fn collect_stmt_call_names<'a>(stmt: &'a Stmt, calls: &mut HashSet<&'a str>) {
                 collect_stmt_call_names(stmt, calls);
             }
         }
+        Stmt::Break { .. } | Stmt::Continue { .. } => {}
         Stmt::Match { expr, arms, .. } => {
             collect_expr_call_names(expr, calls);
             for arm in arms {
@@ -6185,6 +6186,7 @@ fn collect_stmt_mutable_borrows(stmt: &Stmt, locals: &mut HashSet<String>) {
                 collect_stmt_mutable_borrows(stmt, locals);
             }
         }
+        Stmt::Break { .. } | Stmt::Continue { .. } => {}
         Stmt::Match { expr, arms, .. } => {
             collect_expr_mutable_borrows(expr, locals);
             for arm in arms {
@@ -6489,6 +6491,18 @@ fn render_stmt(
                 "{pad}}}
 "
             ));
+        }
+        Stmt::Break { span } => {
+            render_source_marker(source_path, *span, out, indent, debug);
+            render_deferred_exprs(out, indent, source_path, debug, local_defers);
+            render_deferred_exprs(out, indent, source_path, debug, active_defers);
+            out.push_str(&format!("{pad}break;\n"));
+        }
+        Stmt::Continue { span } => {
+            render_source_marker(source_path, *span, out, indent, debug);
+            render_deferred_exprs(out, indent, source_path, debug, local_defers);
+            render_deferred_exprs(out, indent, source_path, debug, active_defers);
+            out.push_str(&format!("{pad}continue;\n"));
         }
         Stmt::Match { expr, arms, span } => {
             render_source_marker(source_path, *span, out, indent, debug);

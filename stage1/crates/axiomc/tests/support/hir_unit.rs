@@ -34,7 +34,12 @@ fn collect_borrow_region_facts(stmts: &[Stmt]) -> Vec<BorrowRegionFact> {
                 borrow_region_facts,
                 ..
             } => facts.extend(borrow_region_facts.iter().cloned()),
-            Stmt::Assign { .. } | Stmt::Print { .. } | Stmt::Panic { .. } | Stmt::Defer { .. } => {}
+            Stmt::Assign { .. }
+            | Stmt::Print { .. }
+            | Stmt::Panic { .. }
+            | Stmt::Defer { .. }
+            | Stmt::Break { .. }
+            | Stmt::Continue { .. } => {}
         }
     }
     facts
