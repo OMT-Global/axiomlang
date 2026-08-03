@@ -33,6 +33,12 @@ collecting timing data:
 cargo run --manifest-path stage1/Cargo.toml -p axiomc -- test stage1/examples/stdlib_testing --include-benchmarks --json
 ```
 
+Transient benchmark failures can be retried without losing the signal that the
+entrypoint was flaky. Pass `--retries N` to retry each warmup or sample up to
+`N` times; JSON reports include the number of retries actually consumed and a
+`flaky` flag for every benchmark. A run that exhausts its retries remains a
+failure, so retries never weaken the baseline or exit-status gate.
+
 ## Advisory Go/Rust/Axiom comparison gate
 This closes the local benchmark-suite foundation. Extended validation also runs
 `make stage1-bench-gate`, which measures three representative executable

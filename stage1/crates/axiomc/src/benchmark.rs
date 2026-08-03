@@ -14,6 +14,7 @@ pub const BASELINE_SCHEMA_VERSION: &str = "axiom.stage1.bench.baseline.v1";
 pub struct BenchOptions {
     pub warmup: usize,
     pub iterations: usize,
+    pub retries: usize,
     pub baseline: Option<PathBuf>,
     pub max_regression_percent: f64,
     pub timeout: Duration,
@@ -25,6 +26,7 @@ pub struct BenchReport {
     pub command: &'static str,
     pub warmup: usize,
     pub iterations: usize,
+    pub retries: usize,
     pub baseline: Option<String>,
     pub max_regression_percent: f64,
     pub timeout_ms: u64,
@@ -39,6 +41,8 @@ pub struct BenchResult {
     pub path: String,
     pub warmup: usize,
     pub iterations: usize,
+    pub retries: usize,
+    pub flaky: bool,
     pub samples_ms: Vec<u64>,
     pub median_ms: u64,
     pub p95_ms: u64,
@@ -123,6 +127,7 @@ pub fn run_benchmarks(
         command: "bench",
         warmup: options.warmup,
         iterations: options.iterations,
+        retries: options.retries,
         baseline: options
             .baseline
             .as_ref()
@@ -148,20 +153,34 @@ fn run_one_benchmark(
     baseline: Option<u64>,
 ) -> BenchResult {
     let mut failure = None;
+    let mut retries = 0;
+    let mut flaky = false;
     for _ in 0..options.warmup {
-        if let Err(error) = execute_benchmark(project_root, &benchmark.id, options.timeout) {
-            failure = Some(error.to_string());
-            break;
+        match execute_with_retries(project_root, &benchmark.id, options.timeout, options.retries) {
+            Ok((_duration_ms, used_retries, recovered)) => {
+                retries += used_retries;
+                flaky |= recovered;
+            }
+            Err(error) => {
+                failure = Some(error.to_string());
+                retries += options.retries;
+                break;
+            }
         }
     }
 
     let mut samples_ms = Vec::with_capacity(options.iterations);
     if failure.is_none() {
         for _ in 0..options.iterations {
-            match execute_benchmark(project_root, &benchmark.id, options.timeout) {
-                Ok(duration_ms) => samples_ms.push(duration_ms),
+            match execute_with_retries(project_root, &benchmark.id, options.timeout, options.retries) {
+                Ok((duration_ms, used_retries, recovered)) => {
+                    samples_ms.push(duration_ms);
+                    retries += used_retries;
+                    flaky |= recovered;
+                }
                 Err(error) => {
                     failure = Some(error.to_string());
+                    retries += options.retries;
                     break;
                 }
             }
@@ -196,6 +215,8 @@ fn run_one_benchmark(
         path: benchmark.path.display().to_string(),
         warmup: options.warmup,
         iterations: options.iterations,
+        retries,
+        flaky,
         samples_ms,
         median_ms,
         p95_ms,
@@ -206,6 +227,29 @@ fn run_one_benchmark(
         ok: failure.is_none(),
         error: failure,
     }
+}
+
+fn execute_with_retries(
+    project_root: &Path,
+    benchmark_id: &str,
+    timeout: Duration,
+    retries: usize,
+) -> Result<(u64, usize, bool), Diagnostic> {
+    retry_operation(retries, || execute_benchmark(project_root, benchmark_id, timeout))
+}
+
+fn retry_operation<T>(
+    retries: usize,
+    mut operation: impl FnMut() -> Result<T, Diagnostic>,
+) -> Result<(T, usize, bool), Diagnostic> {
+    let mut last_error = None;
+    for attempt in 0..=retries {
+        match operation() {
+            Ok(value) => return Ok((value, attempt, attempt > 0)),
+            Err(error) => last_error = Some(error),
+        }
+    }
+    Err(last_error.expect("retry operation always attempts at least once"))
 }
 
 fn execute_benchmark(
@@ -376,7 +420,9 @@ fn exceeds_regression_limit(regression_percent: Option<f64>, max_regression_perc
 
 #[cfg(test)]
 mod tests {
-    use super::{BenchOptions, exceeds_regression_limit, run_benchmarks, sample_variance};
+    use super::{
+        BenchOptions, exceeds_regression_limit, retry_operation, run_benchmarks, sample_variance,
+    };
     use axiomc::project::RunLimits;
     use serde_json::Value;
     use std::path::Path;
@@ -393,6 +439,30 @@ mod tests {
         assert!(!exceeds_regression_limit(None, 20.0));
         assert!(!exceeds_regression_limit(Some(20.0), 20.0));
         assert!(exceeds_regression_limit(Some(20.01), 20.0));
+    }
+
+    #[test]
+    fn retry_operation_reports_recovery_without_hiding_final_failures() {
+        let mut attempts = 0;
+        let recovered = retry_operation(2, || {
+            attempts += 1;
+            if attempts == 1 {
+                Err(axiomc::diagnostics::Diagnostic::new("bench", "transient"))
+            } else {
+                Ok(17_u64)
+            }
+        })
+        .expect("retry should recover");
+        assert_eq!(recovered, (17, 1, true));
+
+        let mut failures = 0;
+        let error = retry_operation(1, || {
+            failures += 1;
+            Err::<u64, _>(axiomc::diagnostics::Diagnostic::new("bench", "permanent"))
+        })
+        .expect_err("permanent failure should remain visible");
+        assert_eq!(failures, 2);
+        assert_eq!(error.message, "permanent");
     }
 
     #[test]
@@ -426,6 +496,7 @@ mod tests {
             &BenchOptions {
                 warmup: 0,
                 iterations: 1,
+                retries: 0,
                 baseline: None,
                 max_regression_percent: 20.0,
                 timeout: Duration::ZERO,

@@ -312,6 +312,9 @@ enum Command {
         warmup: usize,
         #[arg(long, default_value_t = 5)]
         iterations: usize,
+        /// Retry a failed warmup or sample and report recovered flaky runs.
+        #[arg(long, default_value_t = 0)]
+        retries: usize,
         /// Versioned JSON baseline used to reject performance regressions.
         #[arg(long)]
         baseline: Option<PathBuf>,
@@ -1377,6 +1380,7 @@ fn main() {
             path,
             warmup,
             iterations,
+            retries,
             baseline,
             max_regression_percent,
             timeout_seconds,
@@ -1386,6 +1390,7 @@ fn main() {
             &BenchOptions {
                 warmup,
                 iterations,
+                retries,
                 baseline,
                 max_regression_percent,
                 timeout: Duration::from_secs(timeout_seconds),
@@ -1397,12 +1402,14 @@ fn main() {
                 } else {
                     for bench in &report.benches {
                         println!(
-                            "{} median={}ms p95={}ms variance={:.2}ms² iterations={}",
+                            "{} median={}ms p95={}ms variance={:.2}ms² iterations={} retries={} flaky={}",
                             bench.id,
                             bench.median_ms,
                             bench.p95_ms,
                             bench.variance_ms2,
-                            bench.iterations
+                            bench.iterations,
+                            bench.retries,
+                            bench.flaky
                         );
                     }
                     if report.failed == 0 { 0 } else { 1 }
@@ -8888,10 +8895,10 @@ mod tests {
         assert!(help.contains("Generate API docs"));
         assert!(help.contains("Run discovered *_bench.ax entrypoints"));
         assert!(help.contains("Start a small stage1 scratch REPL"));
-        assert!(help.contains("Pack and publish a stage1 package into a local registry tree"));
-        assert!(help.contains("Build a static package-registry index"));
-        assert!(help.contains("Validate a static package-registry index JSON file"));
-        assert!(help.contains("Serve a hosted package-registry index"));
+        assert!(help.contains("Pack, authenticate, and publish a stage1 package into a local registry tree"));
+        assert!(help.contains("Build an authenticated package-registry index from trusted release folders"));
+        assert!(help.contains("Verify a signed registry index and every exact local release artifact"));
+        assert!(help.contains("Verify and serve one immutable registry-index and artifact snapshot over HTTP"));
         assert!(help.contains("Verify declared axioms and target evidence requirements"));
         assert!(help.contains("Diff two Intent IR snapshots"));
     }
