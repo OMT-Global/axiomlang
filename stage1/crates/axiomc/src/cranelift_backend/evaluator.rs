@@ -2154,6 +2154,8 @@ pub(crate) fn is_string_call(name: &str) -> bool {
         name,
         "string_line_at"
             | "string_byte_at"
+            | "string_scalar_count"
+            | "string_scalar_at"
             | "string_clone" | "string_contains"
             | "string_starts_with"
             | "string_strip_prefix"
@@ -2200,6 +2202,28 @@ pub(crate) fn eval_string_call(
                     .map(|byte| SpikeValue::Int(i64::from(*byte)))
             };
             Ok(spike_option(byte))
+        }
+        "string_scalar_count" => {
+            let [text] = args else {
+                return Err(unsupported("string_scalar_count expects exactly one argument"));
+            };
+            let text = expect_text(eval_expr(text, functions, env, lines)?, name)?;
+            Ok(SpikeValue::Int(text.chars().count() as i64))
+        }
+        "string_scalar_at" => {
+            let [text, index] = args else {
+                return Err(unsupported("string_scalar_at expects exactly two arguments"));
+            };
+            let text = expect_text(eval_expr(text, functions, env, lines)?, name)?;
+            let index = expect_int(eval_expr(index, functions, env, lines)?)?;
+            let scalar = if index < 0 {
+                None
+            } else {
+                text.chars()
+                    .nth(index as usize)
+                    .map(|scalar| SpikeValue::Text(scalar.to_string()))
+            };
+            Ok(spike_option(scalar))
         }
         "string_clone" => {
             let [text] = args else {

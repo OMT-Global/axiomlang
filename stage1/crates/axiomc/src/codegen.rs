@@ -1833,6 +1833,19 @@ fn axiom_string_byte_at(text: &str, index: i64) -> Option<i64> {
 }
 
 #[allow(dead_code)]
+fn axiom_string_scalar_count(text: &str) -> i64 {
+    text.chars().count() as i64
+}
+
+#[allow(dead_code)]
+fn axiom_string_scalar_at(text: &str, index: i64) -> Option<String> {
+    if index < 0 {
+        return None;
+    }
+    text.chars().nth(index as usize).map(|scalar| scalar.to_string())
+}
+
+#[allow(dead_code)]
 fn axiom_string_clone(text: &str) -> String {
     text.to_string()
 }
@@ -6851,6 +6864,16 @@ fn render_expr(expr: &Expr) -> String {
         Expr::Call { name, args, .. } if name == "string_byte_at" => {
             format!(
                 "axiom_string_byte_at({}, {})",
+                render_expr(&args[0]),
+                render_expr(&args[1])
+            )
+        }
+        Expr::Call { name, args, .. } if name == "string_scalar_count" => {
+            format!("axiom_string_scalar_count({})", render_expr(&args[0]))
+        }
+        Expr::Call { name, args, .. } if name == "string_scalar_at" => {
+            format!(
+                "axiom_string_scalar_at({}, {})",
                 render_expr(&args[0]),
                 render_expr(&args[1])
             )
