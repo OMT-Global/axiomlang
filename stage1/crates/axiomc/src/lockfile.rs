@@ -15,6 +15,7 @@ pub const LOCKFILE_V1_VERSION: u32 = 1;
 pub const LOCKFILE_V2_VERSION: u32 = 2;
 pub const REGISTRY_LOCKFILE_V2_REQUIRED: &str = "registry dependency graphs require axiom.lock version 2 under --locked; regenerate it with `axiomc pkg update`";
 const MAX_LOCKFILE_BYTES: usize = 4 * 1024 * 1024;
+const LOCKFILE_WRITER_LOCK_NAME: &str = ".axiom.lock.writer.lock";
 static LOCKFILE_TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -279,6 +280,193 @@ fn open_lockfile_no_follow(path: &Path) -> io::Result<File> {
         .open(path)
 }
 
+#[cfg(unix)]
+fn open_lockfile_writer_lock(path: &Path) -> io::Result<File> {
+    use std::os::unix::fs::OpenOptionsExt;
+
+    OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        // The sidecar is a persistent lock identity. Refuse a substituted
+        // final component and keep the descriptor out of child processes.
+        .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
+        .open(path)
+}
+
+#[cfg(windows)]
+fn open_lockfile_writer_lock(path: &Path) -> io::Result<File> {
+    use std::os::windows::fs::OpenOptionsExt;
+
+    const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
+    OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)
+        .open(path)
+}
+
+#[cfg(not(any(unix, windows)))]
+fn open_lockfile_writer_lock(_path: &Path) -> io::Result<File> {
+    Err(io::Error::new(
+        io::ErrorKind::Unsupported,
+        "secure lockfile writer locking requires platform file-lock support",
+    ))
+}
+
+#[cfg(unix)]
+fn lock_lockfile_writer(file: &File) -> io::Result<()> {
+    use std::os::unix::io::AsRawFd;
+
+    if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) } < 0 {
+        Err(io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
+}
+
+#[cfg(windows)]
+fn lock_lockfile_writer(file: &File) -> io::Result<()> {
+    use std::os::windows::io::AsRawHandle;
+    use std::ptr;
+
+    #[repr(C)]
+    struct Overlapped {
+        internal: usize,
+        internal_high: usize,
+        offset: u32,
+        offset_high: u32,
+        event: *mut std::ffi::c_void,
+    }
+
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn LockFileEx(
+            file: *mut std::ffi::c_void,
+            flags: u32,
+            reserved: u32,
+            bytes_low: u32,
+            bytes_high: u32,
+            overlapped: *mut Overlapped,
+        ) -> i32;
+    }
+
+    const LOCKFILE_EXCLUSIVE_LOCK: u32 = 0x0000_0002;
+    let mut overlapped = Overlapped {
+        internal: 0,
+        internal_high: 0,
+        offset: 0,
+        offset_high: 0,
+        event: ptr::null_mut(),
+    };
+    if unsafe {
+        LockFileEx(
+            file.as_raw_handle(),
+            LOCKFILE_EXCLUSIVE_LOCK,
+            0,
+            u32::MAX,
+            u32::MAX,
+            &mut overlapped,
+        )
+    } == 0
+    {
+        Err(io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
+}
+
+#[cfg(not(any(unix, windows)))]
+fn lock_lockfile_writer(_file: &File) -> io::Result<()> {
+    Err(io::Error::new(
+        io::ErrorKind::Unsupported,
+        "secure lockfile writer locking requires platform file-lock support",
+    ))
+}
+
+#[cfg(unix)]
+fn unlock_lockfile_writer(file: &File) -> io::Result<()> {
+    use std::os::unix::io::AsRawFd;
+
+    if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_UN) } < 0 {
+        Err(io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
+}
+
+#[cfg(windows)]
+fn unlock_lockfile_writer(file: &File) -> io::Result<()> {
+    use std::os::windows::io::AsRawHandle;
+    use std::ptr;
+
+    #[repr(C)]
+    struct Overlapped {
+        internal: usize,
+        internal_high: usize,
+        offset: u32,
+        offset_high: u32,
+        event: *mut std::ffi::c_void,
+    }
+
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn UnlockFileEx(
+            file: *mut std::ffi::c_void,
+            reserved: u32,
+            bytes_low: u32,
+            bytes_high: u32,
+            overlapped: *mut Overlapped,
+        ) -> i32;
+    }
+
+    let mut overlapped = Overlapped {
+        internal: 0,
+        internal_high: 0,
+        offset: 0,
+        offset_high: 0,
+        event: ptr::null_mut(),
+    };
+    if unsafe { UnlockFileEx(file.as_raw_handle(), 0, u32::MAX, u32::MAX, &mut overlapped) } == 0 {
+        Err(io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
+}
+
+#[cfg(not(any(unix, windows)))]
+fn unlock_lockfile_writer(_file: &File) -> io::Result<()> {
+    Ok(())
+}
+
+struct LockfileWriterGuard {
+    file: File,
+}
+
+impl Drop for LockfileWriterGuard {
+    fn drop(&mut self) {
+        let _ = unlock_lockfile_writer(&self.file);
+    }
+}
+
+fn acquire_lockfile_writer_guard(target: &Path) -> Result<LockfileWriterGuard, Diagnostic> {
+    let lock_path = target.with_file_name(LOCKFILE_WRITER_LOCK_NAME);
+    let file = open_lockfile_writer_lock(&lock_path).map_err(|error| {
+        lockfile_error(
+            &lock_path,
+            format!("failed to open axiom.lock writer lock: {error}"),
+        )
+    })?;
+    lock_lockfile_writer(&file).map_err(|error| {
+        lockfile_error(
+            &lock_path,
+            format!("failed to acquire axiom.lock writer lock: {error}"),
+        )
+    })?;
+    Ok(LockfileWriterGuard { file })
+}
+
 #[cfg(windows)]
 fn open_lockfile_no_follow(path: &Path) -> io::Result<File> {
     use std::os::windows::fs::OpenOptionsExt;
@@ -403,6 +591,11 @@ fn write_lockfile_v2_atomic_cas_impl(
     before_compare: impl FnOnce() -> Result<(), Diagnostic>,
 ) -> Result<(), Diagnostic> {
     let target = lockfile_path(project_root);
+    // Serialize all cooperating writers across the compare-and-rename
+    // interval. The digest check remains the public CAS contract, while the
+    // sidecar lock closes the writer-vs-writer gap between the final read and
+    // replacement.
+    let _writer_guard = acquire_lockfile_writer_guard(&target)?;
     if let Some(expected_sha256) = expected_sha256 {
         validate_sha256(&target, "expected axiom.lock SHA-256", expected_sha256)?;
     }
@@ -1794,6 +1987,9 @@ fn normalize_path(path: impl AsRef<Path>) -> PathBuf {
 mod tests {
     use super::*;
     use std::fs;
+    use std::sync::mpsc;
+    use std::thread;
+    use std::time::{Duration, Instant};
     use tempfile::tempdir;
 
     fn write_manifest(root: &Path, body: &str) {
@@ -2826,6 +3022,37 @@ version = "^1.2.0"
                 .to_string_lossy()
                 .starts_with(".axiom.lock.tmp.")
         }));
+    }
+
+    #[test]
+    fn atomic_writer_serializes_compare_and_replace_with_sidecar_lock() {
+        let dir = tempdir().expect("tempdir");
+        let target = lockfile_path(dir.path());
+        let (ready_sender, ready_receiver) = mpsc::channel();
+        let (release_sender, release_receiver) = mpsc::channel();
+        let lock_target = target.clone();
+        let lock_holder = thread::spawn(move || {
+            let guard = acquire_lockfile_writer_guard(&lock_target).expect("acquire writer lock");
+            ready_sender.send(()).expect("signal writer lock");
+            release_receiver.recv().expect("wait for writer release");
+            drop(guard);
+        });
+        ready_receiver.recv().expect("wait for lock holder");
+
+        let release = thread::spawn(move || {
+            thread::sleep(Duration::from_millis(100));
+            release_sender.send(()).expect("release writer lock");
+        });
+        let started = Instant::now();
+        write_lockfile_v2_atomic_cas(dir.path(), &sample_lockfile_v2(), None)
+            .expect("writer waits for the shared lock and then commits");
+        assert!(
+            started.elapsed() >= Duration::from_millis(75),
+            "writer bypassed the shared lock: {:?}",
+            started.elapsed()
+        );
+        release.join().expect("release thread joins");
+        lock_holder.join().expect("lock holder joins");
     }
 
     #[test]
