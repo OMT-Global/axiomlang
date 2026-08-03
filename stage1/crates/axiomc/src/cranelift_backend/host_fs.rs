@@ -97,6 +97,17 @@ pub(crate) fn lower_i64_fs_metadata_expr(
     args: &[Expr],
     static_bindings: &I64StaticBindings,
 ) -> Option<CraneliftI64Expr> {
+    if !matches!(
+        name,
+        "fs_file_exists"
+            | "file_exists"
+            | "std_fs_file_exists"
+            | "fs_file_size"
+            | "file_size"
+            | "std_fs_file_size"
+    ) {
+        return None;
+    }
     if static_bindings.has_fs_write_calls {
         return None;
     }
