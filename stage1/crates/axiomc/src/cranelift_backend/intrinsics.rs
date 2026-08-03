@@ -64,6 +64,11 @@ pub(crate) struct RegexProgram {
     pub(crate) end_anchor: bool,
 }
 
+pub(crate) const JSON_MAX_DOCUMENT_BYTES: usize = 4 * 1024 * 1024;
+pub(crate) const JSON_MAX_DEPTH: usize = 128;
+pub(crate) const JSON_MAX_COLLECTION_ITEMS: usize = 100_000;
+pub(crate) const JSON_MAX_NUMBER_DIGITS: usize = 1_024;
+
 pub(crate) fn json_parse_int(text: &str) -> Option<i64> {
     text.trim().parse::<i64>().ok()
 }

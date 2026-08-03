@@ -68,9 +68,9 @@ impl FromStr for NativeBackendKind {
 #[cfg(test)]
 mod tests {
     use super::{
+        GeneratedRustBackendInput, INTERNAL_COMPILER_ERROR_CODE, NativeBackendKind,
         collect_program_call_names, deterministic_numbers, deterministic_strings,
-        render_generated_rust, try_render_generated_rust, GeneratedRustBackendInput,
-        NativeBackendKind, INTERNAL_COMPILER_ERROR_CODE,
+        render_generated_rust, render_json_serdes_support, try_render_generated_rust,
     };
     use crate::mir::{
         ArithmeticOp, Expr, Function, LiteralValue, LogicOp, Program, SourceSpan, Stmt, Type,
@@ -138,6 +138,19 @@ mod tests {
         let rendered = render_generated_rust(&GeneratedRustBackendInput::from_mir(program));
 
         assert!(rendered.contains("fn main()"));
+    }
+
+    #[test]
+    fn generated_rust_json_serdes_emits_bounded_parser_contract() {
+        let mut rendered = String::new();
+        render_json_serdes_support(&mut rendered);
+
+        assert!(rendered.contains("AXIOM_JSON_MAX_DOCUMENT_BYTES: usize = 4 * 1024 * 1024"));
+        assert!(rendered.contains("AXIOM_JSON_MAX_DEPTH: usize = 128"));
+        assert!(rendered.contains("AXIOM_JSON_MAX_COLLECTION_ITEMS: usize = 100_000"));
+        assert!(rendered.contains("AXIOM_JSON_MAX_NUMBER_DIGITS: usize = 1_024"));
+        assert!(rendered.contains("fn parse_value(&mut self, depth: usize)"));
+        assert!(rendered.contains("JSON collection exceeds"));
     }
 
     #[test]
@@ -5226,6 +5239,11 @@ unsafe extern "C" {
 fn render_json_serdes_support(out: &mut String) {
     out.push_str(
         r##"#[allow(dead_code)]
+const AXIOM_JSON_MAX_DOCUMENT_BYTES: usize = 4 * 1024 * 1024;
+const AXIOM_JSON_MAX_DEPTH: usize = 128;
+const AXIOM_JSON_MAX_COLLECTION_ITEMS: usize = 100_000;
+const AXIOM_JSON_MAX_NUMBER_DIGITS: usize = 1_024;
+
 fn axiom_json_serdes_float_to_json(value: f64) -> String {
     if !value.is_finite() {
         return String::from("null");
@@ -5343,22 +5361,28 @@ impl<'a> AxiomJsonSerdesParser<'a> {
         }
     }
 
-    fn parse_value(&mut self) -> Result<std_serdes_Value, String> {
+    fn parse_value(&mut self, depth: usize) -> Result<std_serdes_Value, String> {
         self.skip_ws();
         match self.peek_byte() {
             Some(b'n') if self.consume_literal("null") => Ok(std_serdes_Value::Null),
             Some(b't') if self.consume_literal("true") => Ok(std_serdes_Value::Bool(true)),
             Some(b'f') if self.consume_literal("false") => Ok(std_serdes_Value::Bool(false)),
             Some(b'"') => Ok(std_serdes_Value::Text(self.parse_string()?)),
-            Some(b'[') => self.parse_array(),
-            Some(b'{') => self.parse_object(),
+            Some(b'[') => self.parse_array(depth),
+            Some(b'{') => self.parse_object(depth),
             Some(b'-' | b'0'..=b'9') => self.parse_number(),
             Some(_) => Err(String::from("unexpected JSON token")),
             None => Err(String::from("empty JSON input")),
         }
     }
 
-    fn parse_array(&mut self) -> Result<std_serdes_Value, String> {
+    fn parse_array(&mut self, depth: usize) -> Result<std_serdes_Value, String> {
+        if depth >= AXIOM_JSON_MAX_DEPTH {
+            return Err(format!(
+                "JSON nesting exceeds {} level limit",
+                AXIOM_JSON_MAX_DEPTH
+            ));
+        }
         self.expect_byte(b'[', "array")?;
         self.skip_ws();
         let mut values = Vec::new();
@@ -5367,7 +5391,13 @@ impl<'a> AxiomJsonSerdesParser<'a> {
             return Ok(std_serdes_Value::Array(values));
         }
         loop {
-            values.push(self.parse_value()?);
+            if values.len() >= AXIOM_JSON_MAX_COLLECTION_ITEMS {
+                return Err(format!(
+                    "JSON collection exceeds {} item limit",
+                    AXIOM_JSON_MAX_COLLECTION_ITEMS
+                ));
+            }
+            values.push(self.parse_value(depth + 1)?);
             self.skip_ws();
             match self.next_byte() {
                 Some(b',') => {
@@ -5379,7 +5409,13 @@ impl<'a> AxiomJsonSerdesParser<'a> {
         }
     }
 
-    fn parse_object(&mut self) -> Result<std_serdes_Value, String> {
+    fn parse_object(&mut self, depth: usize) -> Result<std_serdes_Value, String> {
+        if depth >= AXIOM_JSON_MAX_DEPTH {
+            return Err(format!(
+                "JSON nesting exceeds {} level limit",
+                AXIOM_JSON_MAX_DEPTH
+            ));
+        }
         self.expect_byte(b'{', "object")?;
         self.skip_ws();
         let mut values = HashMap::new();
@@ -5388,11 +5424,17 @@ impl<'a> AxiomJsonSerdesParser<'a> {
             return Ok(std_serdes_Value::Object(values));
         }
         loop {
+            if values.len() >= AXIOM_JSON_MAX_COLLECTION_ITEMS {
+                return Err(format!(
+                    "JSON collection exceeds {} item limit",
+                    AXIOM_JSON_MAX_COLLECTION_ITEMS
+                ));
+            }
             self.skip_ws();
             let key = self.parse_string()?;
             self.skip_ws();
             self.expect_byte(b':', "object field")?;
-            let value = self.parse_value()?;
+            let value = self.parse_value(depth + 1)?;
             values.insert(key, value);
             self.skip_ws();
             match self.next_byte() {
@@ -5439,6 +5481,12 @@ impl<'a> AxiomJsonSerdesParser<'a> {
             }
         }
         let raw = &self.text[start..self.index];
+        if raw.bytes().filter(u8::is_ascii_digit).count() > AXIOM_JSON_MAX_NUMBER_DIGITS {
+            return Err(format!(
+                "JSON number exceeds {} digit limit",
+                AXIOM_JSON_MAX_NUMBER_DIGITS
+            ));
+        }
         if is_float {
             let value = raw
                 .parse::<f64>()
@@ -5546,8 +5594,16 @@ fn axiom_json_serdes_parse(text: String) -> Result<std_serdes_Value, std_serdes_
 
 #[allow(dead_code)]
 fn axiom_json_serdes_parse_str(text: &str) -> Result<std_serdes_Value, std_serdes_ParseError> {
+    if text.len() > AXIOM_JSON_MAX_DOCUMENT_BYTES {
+        return Err(std_serdes_ParseError {
+            message: format!(
+                "JSON document exceeds {} byte limit",
+                AXIOM_JSON_MAX_DOCUMENT_BYTES
+            ),
+        });
+    }
     let mut parser = AxiomJsonSerdesParser::new(text);
-    match parser.parse_value() {
+    match parser.parse_value(0) {
         Ok(value) => {
             parser.skip_ws();
             if parser.is_end() {

@@ -17787,7 +17787,11 @@ fn await_spike_task(value: SpikeValue) -> Result<SpikeValue, Diagnostic> {
     spike_task_value(value)
 }
 
-fn json_serdes_parse_value(text: &str, index: usize) -> Result<(SpikeValue, usize), String> {
+fn json_serdes_parse_value(
+    text: &str,
+    index: usize,
+    depth: usize,
+) -> Result<(SpikeValue, usize), String> {
     let index = json_skip_ws(text, index);
     match text.as_bytes().get(index).copied() {
         Some(b'n') if text[index..].starts_with("null") => {
@@ -17811,15 +17815,25 @@ fn json_serdes_parse_value(text: &str, index: usize) -> Result<(SpikeValue, usiz
                 end,
             ))
         }
-        Some(b'[') => json_serdes_parse_array(text, index),
-        Some(b'{') => json_serdes_parse_object(text, index),
+        Some(b'[') => json_serdes_parse_array(text, index, depth),
+        Some(b'{') => json_serdes_parse_object(text, index, depth),
         Some(b'-' | b'0'..=b'9') => json_serdes_parse_number(text, index),
         Some(_) => Err(String::from("unexpected JSON token")),
         None => Err(String::from("empty JSON input")),
     }
 }
 
-fn json_serdes_parse_array(text: &str, index: usize) -> Result<(SpikeValue, usize), String> {
+fn json_serdes_parse_array(
+    text: &str,
+    index: usize,
+    depth: usize,
+) -> Result<(SpikeValue, usize), String> {
+    if depth >= JSON_MAX_DEPTH {
+        return Err(format!(
+            "JSON nesting exceeds {} level limit",
+            JSON_MAX_DEPTH
+        ));
+    }
     let mut index = index + 1;
     let mut values = Vec::new();
     loop {
@@ -17832,7 +17846,13 @@ fn json_serdes_parse_array(text: &str, index: usize) -> Result<(SpikeValue, usiz
                 ));
             }
             Some(_) => {
-                let (value, next) = json_serdes_parse_value(text, index)?;
+                if values.len() >= JSON_MAX_COLLECTION_ITEMS {
+                    return Err(format!(
+                        "JSON collection exceeds {} item limit",
+                        JSON_MAX_COLLECTION_ITEMS
+                    ));
+                }
+                let (value, next) = json_serdes_parse_value(text, index, depth + 1)?;
                 values.push(value);
                 index = json_skip_ws(text, next);
                 match text.as_bytes().get(index).copied() {
@@ -17851,7 +17871,17 @@ fn json_serdes_parse_array(text: &str, index: usize) -> Result<(SpikeValue, usiz
     }
 }
 
-fn json_serdes_parse_object(text: &str, index: usize) -> Result<(SpikeValue, usize), String> {
+fn json_serdes_parse_object(
+    text: &str,
+    index: usize,
+    depth: usize,
+) -> Result<(SpikeValue, usize), String> {
+    if depth >= JSON_MAX_DEPTH {
+        return Err(format!(
+            "JSON nesting exceeds {} level limit",
+            JSON_MAX_DEPTH
+        ));
+    }
     let mut index = index + 1;
     let mut entries = Vec::new();
     loop {
@@ -17864,6 +17894,12 @@ fn json_serdes_parse_object(text: &str, index: usize) -> Result<(SpikeValue, usi
                 ));
             }
             Some(b'"') => {
+                if entries.len() >= JSON_MAX_COLLECTION_ITEMS {
+                    return Err(format!(
+                        "JSON collection exceeds {} item limit",
+                        JSON_MAX_COLLECTION_ITEMS
+                    ));
+                }
                 let key_end = json_scan_string_end(text, index)
                     .ok_or_else(|| String::from("unterminated JSON object key"))?;
                 let key = json_parse_string(&text[index..key_end])
@@ -17872,7 +17908,7 @@ fn json_serdes_parse_object(text: &str, index: usize) -> Result<(SpikeValue, usi
                 if text.as_bytes().get(index).copied() != Some(b':') {
                     return Err(String::from("object field expects ':'"));
                 }
-                let (value, next) = json_serdes_parse_value(text, index + 1)?;
+                let (value, next) = json_serdes_parse_value(text, index + 1, depth + 1)?;
                 insert_map_entry(&mut entries, SpikeValue::Text(key), value)
                     .map_err(|err| err.message)?;
                 index = json_skip_ws(text, next);
@@ -17937,6 +17973,12 @@ fn json_serdes_parse_number(text: &str, index: usize) -> Result<(SpikeValue, usi
         }
     }
     let raw = &text[start..index];
+    if raw.bytes().filter(u8::is_ascii_digit).count() > JSON_MAX_NUMBER_DIGITS {
+        return Err(format!(
+            "JSON number exceeds {} digit limit",
+            JSON_MAX_NUMBER_DIGITS
+        ));
+    }
     if is_float {
         let value = raw
             .parse::<f64>()
