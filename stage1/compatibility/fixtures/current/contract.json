@@ -56,17 +56,20 @@
     {
       "id": "axiom://stdlib/catalog",
       "kind": "stdlib",
-      "signature": "axiom.compiler.stdlib_catalog.v1; catalog_semantic_digest=18f84b3d7b2aa9f004b4f0a3cd72e1b26f9ad954d22db1673ed073d633b19edd; modules=34; symbols=299",
+      "migration": {
+        "action": "Existing stdlib modules and functions remain valid. Consumers adopting the Unicode scalar helpers should use scalar_count for code-point cardinality and scalar_at for bounds-checked scalar access."
+      },
+      "signature": "axiom.compiler.stdlib_catalog.v1; catalog_semantic_digest=f4e0fc52121a90013145c74c7740069c619dd06911c2b6f5421ccfb0086a5632; modules=34; symbols=301",
       "sources": [
         {
           "path": "stage1/compiler-contracts/snapshots/stdlib-catalog.json",
           "role": "stdlib_catalog",
           "selector": "modules[*].name,symbols[*].signature",
-          "sha256": "c6c06b27315b8ea273909e0a3e5525c3e35122d7213fb7b1b7e84e085c2a4cd7"
+          "sha256": "9ce15c1d7b1288060ce11f5a617c56296bf22053044a4ccd25644ec330c03977"
         }
       ],
       "stability": "experimental",
-      "version": "1.0.0"
+      "version": "1.1.0"
     },
     {
       "id": "axiom://cli/axiomc",
@@ -92,7 +95,7 @@
           "path": "stage1/compiler-contracts/snapshots/capability-ledger.json",
           "role": "cli_top_level_parity",
           "selector": "commands[*].name",
-          "sha256": "b19f222c3fc1c4835cbc661b57cb430e1beaa7a4e1cabb7d356b9b4207e16178"
+          "sha256": "b3842e55505ece6af096fb8600f14d5205b042f2986af1f8c424470f15204d6f"
         },
         {
           "path": "stage1/crates/axiomc/src/main.rs",

@@ -4948,10 +4948,8 @@ fn find_top_level_as(raw: &str) -> Option<usize> {
     let mut square = 0usize;
     let mut brace = 0usize;
     let mut angle = 0usize;
-    let bytes = raw.as_bytes();
-    let mut index = 0usize;
-    while index + 4 <= bytes.len() {
-        match bytes[index] as char {
+    for (index, character) in raw.char_indices() {
+        match character {
             '(' => paren += 1,
             ')' => paren = paren.saturating_sub(1),
             '[' => square += 1,
@@ -4962,11 +4960,14 @@ fn find_top_level_as(raw: &str) -> Option<usize> {
             '>' => angle = angle.saturating_sub(1),
             _ => {}
         }
-        if paren == 0 && square == 0 && brace == 0 && angle == 0 && raw[index..].starts_with(" as ")
+        if paren == 0
+            && square == 0
+            && brace == 0
+            && angle == 0
+            && raw[index..].starts_with(" as ")
         {
             return Some(index);
         }
-        index += 1;
     }
     None
 }
