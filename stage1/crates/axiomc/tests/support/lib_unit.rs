@@ -7803,12 +7803,12 @@ fn stage1_project_imports_synthetic_stdlib_string_module() {
         render_lockfile_for_project(&project, &manifest).expect("lockfile"),
     )
     .expect("write lockfile");
-    let source = "import \"std/string.ax\"\nprint from_int(42)\nprint clone_text(\"agent\")\nprint contains(\"compiler\", \"pile\")\nprint starts_with(\"compiler\", \"com\")\nmatch strip_prefix(\"compiler\", \"com\") {\nSome(value) {\nprint value\n}\nNone {\nprint \"none\"\n}\n}\nmatch strip_suffix(\"compiler\", \"ler\") {\nSome(value) {\nprint value\n}\nNone {\nprint \"none\"\n}\n}\nprint trim(\"  spaced  \")\nprint trim_start(\"  left\")\nmatch line_at(\"first\\nsecond\", 1) {\nSome(value) {\nprint value\n}\nNone {\nprint \"none\"\n}\n}\nmatch byte_at(\"AZ\", 1) {\nSome(value) {\nprint value\n}\nNone {\nprint 0\n}\n}\n";
+    let source = "import \"std/string.ax\"\nprint from_int(42)\nprint clone_text(\"agent\")\nprint contains(\"compiler\", \"pile\")\nprint starts_with(\"compiler\", \"com\")\nmatch strip_prefix(\"compiler\", \"com\") {\nSome(value) {\nprint value\n}\nNone {\nprint \"none\"\n}\n}\nmatch strip_suffix(\"compiler\", \"ler\") {\nSome(value) {\nprint value\n}\nNone {\nprint \"none\"\n}\n}\nprint trim(\"  spaced  \")\nprint trim_start(\"  left\")\nmatch line_at(\"first\\nsecond\", 1) {\nSome(value) {\nprint value\n}\nNone {\nprint \"none\"\n}\n}\nmatch byte_at(\"AZ\", 1) {\nSome(value) {\nprint value\n}\nNone {\nprint 0\n}\n}\nprint scalar_count(\"aé🙂\")\nmatch scalar_at(\"aé🙂\", 0) {\nSome(value) {\nprint value\n}\nNone {\nprint \"none\"\n}\n}\nmatch scalar_at(\"aé🙂\", 1) {\nSome(value) {\nprint value\n}\nNone {\nprint \"none\"\n}\n}\nmatch scalar_at(\"aé🙂\", 2) {\nSome(value) {\nprint value\n}\nNone {\nprint \"none\"\n}\n}\nmatch scalar_at(\"aé🙂\", 3) {\nSome(value) {\nprint value\n}\nNone {\nprint \"none\"\n}\n}\nmatch scalar_at(\"aé🙂\", -1) {\nSome(value) {\nprint value\n}\nNone {\nprint \"none\"\n}\n}\n";
     fs::write(project.join("src/main.ax"), source).expect("write source");
     fs::write(project.join("src/main_test.ax"), source).expect("write test");
     fs::write(
         project.join("src/main_test.stdout"),
-        "42\nagent\ntrue\ntrue\npiler\ncompi\nspaced\nleft\nsecond\n90\n",
+        "42\nagent\ntrue\ntrue\npiler\ncompi\nspaced\nleft\nsecond\n90\n3\na\né\n🙂\nnone\nnone\n",
     )
     .expect("write golden");
 
@@ -7818,7 +7818,7 @@ fn stage1_project_imports_synthetic_stdlib_string_module() {
         .expect("run compiled binary");
     assert_eq!(
         String::from_utf8_lossy(&output.stdout),
-        "42\nagent\ntrue\ntrue\npiler\ncompi\nspaced\nleft\nsecond\n90\n"
+        "42\nagent\ntrue\ntrue\npiler\ncompi\nspaced\nleft\nsecond\n90\n3\na\né\n🙂\nnone\nnone\n"
     );
 
     let tests = run_project_tests(&project).expect("run tests");

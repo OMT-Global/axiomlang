@@ -2473,6 +2473,8 @@ fn lower_expr_with_expected_inner(
                 name.as_str(),
                 "string_line_at"
                     | "string_byte_at"
+                    | "string_scalar_count"
+                    | "string_scalar_at"
                     | "string_clone"
                     | "string_contains"
                     | "string_starts_with"
@@ -2481,7 +2483,7 @@ fn lower_expr_with_expected_inner(
                     | "string_trim"
                     | "string_trim_start"
             ) {
-                let expected_len = if name == "string_clone"
+                let expected_len = if name == "string_clone" || name == "string_scalar_count"
                     || name == "string_trim"
                     || name == "string_trim_start"
                 {
@@ -2500,7 +2502,10 @@ fn lower_expr_with_expected_inner(
                     .with_span(*line, *column));
                 }
                 let mut lowered_args = Vec::new();
-                let string_arg_count = if name == "string_line_at" || name == "string_byte_at" {
+                let string_arg_count = if name == "string_line_at"
+                    || name == "string_byte_at"
+                    || name == "string_scalar_at"
+                {
                     1
                 } else {
                     args.len()
@@ -2520,7 +2525,10 @@ fn lower_expr_with_expected_inner(
                     }
                     lowered_args.push(lowered);
                 }
-                if name == "string_line_at" || name == "string_byte_at" {
+                if name == "string_line_at"
+                    || name == "string_byte_at"
+                    || name == "string_scalar_at"
+                {
                     let lowered = lower_expr_with_expected(&args[1], Some(&Type::Int), env, ctx)?;
                     if lowered.ty() != &Type::Int {
                         return Err(Diagnostic::new(
@@ -2537,6 +2545,8 @@ fn lower_expr_with_expected_inner(
                 let ty = match name.as_str() {
                     "string_line_at" => Type::Option(Box::new(Type::String)),
                     "string_byte_at" => Type::Option(Box::new(Type::Int)),
+                    "string_scalar_count" => Type::Int,
+                    "string_scalar_at" => Type::Option(Box::new(Type::String)),
                     "string_clone" => Type::String,
                     "string_contains" => Type::Bool,
                     "string_starts_with" => Type::Bool,
