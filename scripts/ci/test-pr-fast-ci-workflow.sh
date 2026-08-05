@@ -50,6 +50,20 @@ ci_gate_run_line=$(printf '%s\n' "$ci_gate_section" | nl -ba | { grep 'bash scri
 ci_gate_fork_validate_line=$(printf '%s\n' "$ci_gate_section" | nl -ba | { grep 'bash scripts/ci/validate-pr-description.sh' || true; } | head -n1 | awk '{print $1}')
 ci_gate_base_ref_line=$(printf '%s\n' "$ci_gate_section" | nl -ba | { grep -F 'ref: ${{ github.event.pull_request.base.sha }}' || true; } | head -n1 | awk '{print $1}')
 ci_gate_head_ref=$(printf '%s\n' "$ci_gate_section" | grep -F 'github.event.pull_request.head.sha' || true)
+# The fast-checks job legitimately checks out the PR head as *data*, so a
+# blanket head.sha search would false-positive here. Instead resolve the `ref:`
+# that belongs to the step declaring `path: .trusted-ci` and require it to be
+# the base SHA. That step's script is executed on a persistent self-hosted
+# runner, so it must never come from the PR head (#1543).
+fast_checks_trusted_base_ref=$(awk '
+  /^  fast-checks:$/ { in_job=1; next }
+  in_job && /^  [A-Za-z0-9_-]+:$/ { exit }
+  in_job && /^[[:space:]]*ref:/ { ref=$0 }
+  in_job && /^[[:space:]]*path:[[:space:]]*\.trusted-ci[[:space:]]*$/ {
+    if (ref ~ /github\.event\.pull_request\.base\.sha/) { print "yes" }
+    exit
+  }
+' "$workflow")
 benchmark_gate_reference=$(grep -nE 'check-stage1-benchmarks\.py|stage1-comparison-report\.json' "$workflow" || true)
 runtime_abi_status_check=$(grep -nF 'scripts/ci/render-direct-native-runtime-abi-status.py' "$fast_checks_script" || true)
 runtime_abi_coverage_check=$(grep -nF -- '--coverage-matrix' "$fast_checks_script" || true)
@@ -132,6 +146,11 @@ fi
 
 if [[ -z "$ci_gate_base_ref_line" || -n "$ci_gate_head_ref" ]]; then
   echo "ci-gate must checkout the trusted base SHA before running repository scripts on self-hosted runners" >&2
+  exit 1
+fi
+
+if [[ -z "$fast_checks_trusted_base_ref" ]]; then
+  echo "fast-checks must pin the .trusted-ci checkout to github.event.pull_request.base.sha; pinning it to head.sha runs PR-authored scripts under a trusted label (#1543 regression of #1211)" >&2
   exit 1
 fi
 

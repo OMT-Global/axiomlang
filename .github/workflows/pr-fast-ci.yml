@@ -77,9 +77,17 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha }}
 
       - name: Checkout trusted CI scripts
+        # SECURITY (#1543): this checkout must stay pinned to the PR *base*.
+        # `run-fast-checks.sh` is executed from it below on a persistent
+        # self-hosted runner, with the PR head mounted only as data via
+        # AXIOM_CHECKOUT_PATH. Pinning to head.sha would run PR-authored
+        # scripts under a "trusted" label and defeat the split entirely --
+        # exactly the regression #1405 introduced against #1211. Compare the
+        # validate-secrets and ci-gate jobs, which pin to base.sha for the
+        # same reason.
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4 pinned 2026-05-30
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ github.event.pull_request.base.sha }}
           path: .trusted-ci
 
       - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable pinned 2026-04-19
