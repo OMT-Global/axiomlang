@@ -49,37 +49,37 @@ github:
   createRepo: false
   reviewers:
     - jmcte
-    - pheidon
+    - athena-omt
     - scrappedcode
   codeowners:
     - pattern: "*"
       owners:
         - "@jmcte"
-        - "@pheidon"
+        - "@athena-omt"
     - pattern: /.github/workflows/
       owners:
         - "@jmcte"
-        - "@pheidon"
+        - "@athena-omt"
         - "@scrappedcode"
     - pattern: /.githooks/
       owners:
         - "@jmcte"
-        - "@pheidon"
+        - "@athena-omt"
         - "@scrappedcode"
     - pattern: /scripts/
       owners:
         - "@jmcte"
-        - "@pheidon"
+        - "@athena-omt"
         - "@scrappedcode"
     - pattern: /project.bootstrap.yaml
       owners:
         - "@jmcte"
-        - "@pheidon"
+        - "@athena-omt"
         - "@scrappedcode"
     - pattern: /stage1/crates/axiomc/src/
       owners:
         - "@jmcte"
-        - "@pheidon"
+        - "@athena-omt"
         - "@scrappedcode"
   issueLabels:
     - name: area:frontend
