@@ -183,6 +183,7 @@ pub enum I64Expr {
     EnvLen {
         key: String,
     },
+    CwdLen,
     StdinLen {
         max_bytes: u32,
     },
@@ -465,6 +466,12 @@ pub enum I64Stmt {
     WriteEnvValue {
         stream: OutputStream,
         key: String,
+        append_newline: bool,
+    },
+    /// Write the runtime current working directory to `stream`. Callers gate
+    /// this behind a successful `CwdLen` presence check.
+    WriteCwdValue {
+        stream: OutputStream,
         append_newline: bool,
     },
     WriteArgCountLine {
@@ -1365,6 +1372,7 @@ fn collect_i64_output_lines(stmts: &[I64Stmt], lines: &mut Vec<(OutputStream, St
             I64Stmt::WriteI64Text { .. }
             | I64Stmt::WriteI64Line { .. }
             | I64Stmt::WriteEnvValue { .. }
+            | I64Stmt::WriteCwdValue { .. }
             | I64Stmt::WriteArgCountLine { .. }
             | I64Stmt::WriteStdinRemaining { .. } => {}
             I64Stmt::If {
@@ -1808,6 +1816,17 @@ fn emit_i64_stmt(
             key,
             *append_newline,
         ),
+        I64Stmt::WriteCwdValue {
+            stream,
+            append_newline,
+        } => emit_i64_write_cwd_value(
+            builder,
+            runtime_refs,
+            write_ref,
+            module.target_config().pointer_type(),
+            *stream,
+            *append_newline,
+        ),
         I64Stmt::WriteArgCountLine { stream } => emit_i64_write_arg_count_line(
             builder,
             runtime_args.ok_or_else(|| CraneliftBackendError::new("main argc is unavailable"))?,
@@ -2080,6 +2099,55 @@ fn emit_i64_write_env_value(
     }
     let line = i64_stdio_audit_line(stream, None, "ok");
     emit_i64_host_audit_line(builder, runtime_refs, &line)?;
+    builder.ins().jump(done_block, &[]);
+
+    builder.switch_to_block(done_block);
+    builder.seal_block(done_block);
+    Ok(())
+}
+
+fn emit_i64_write_cwd_value(
+    builder: &mut FunctionBuilder<'_>,
+    runtime_refs: I64RuntimeRefs,
+    write_ref: FuncRef,
+    pointer_type: cranelift_codegen::ir::Type,
+    stream: OutputStream,
+    append_newline: bool,
+) -> Result<(), CraneliftBackendError> {
+    let path_ptr = emit_i64_path_ptr(builder, ".")?;
+    let resolved_slot = builder.create_sized_stack_slot(StackSlotData::new(
+        StackSlotKind::ExplicitSlot,
+        I64_REALPATH_BUFFER_BYTES,
+        0,
+    ));
+    let resolved_ptr = builder.ins().stack_addr(pointer_type, resolved_slot, 0);
+    let call = builder
+        .ins()
+        .call(runtime_refs.realpath, &[path_ptr, resolved_ptr]);
+    let value_ptr = builder.inst_results(call)[0];
+
+    let present_block = builder.create_block();
+    let done_block = builder.create_block();
+    let missing = builder.ins().icmp_imm(IntCC::Equal, value_ptr, 0);
+    builder
+        .ins()
+        .brif(missing, done_block, &[], present_block, &[]);
+
+    builder.switch_to_block(present_block);
+    builder.seal_block(present_block);
+    let call = builder.ins().call(runtime_refs.strlen, &[value_ptr]);
+    let length = builder.inst_results(call)[0];
+    let fd = builder.ins().iconst(types::I32, output_stream_fd(stream));
+    builder.ins().call(write_ref, &[fd, value_ptr, length]);
+    if append_newline {
+        let newline_slot =
+            builder.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 1, 0));
+        let newline = builder.ins().iconst(types::I8, i64::from(b'\n'));
+        builder.ins().stack_store(newline, newline_slot, 0);
+        let newline_ptr = builder.ins().stack_addr(pointer_type, newline_slot, 0);
+        let one = builder.ins().iconst(pointer_type, 1);
+        builder.ins().call(write_ref, &[fd, newline_ptr, one]);
+    }
     builder.ins().jump(done_block, &[]);
 
     builder.switch_to_block(done_block);
@@ -3109,6 +3177,11 @@ fn emit_i64_expr(
         I64Expr::EnvLen { key } => {
             emit_i64_env_len_expr(builder, runtime_refs.getenv, runtime_refs.strlen, key)
         }
+        I64Expr::CwdLen => emit_i64_cwd_len_expr(
+            builder,
+            runtime_refs.realpath,
+            runtime_refs.strlen,
+        ),
         I64Expr::StdinLen { max_bytes } => {
             emit_i64_stdin_len_expr(builder, runtime_refs, *max_bytes)
         }
@@ -4242,6 +4315,51 @@ fn emit_i64_env_len_expr(
     let call = builder.ins().call(strlen_ref, &[value_ptr]);
     let length = builder.inst_results(call)[0];
     builder.ins().jump(merge_block, &[BlockArg::Value(length)]);
+
+    builder.switch_to_block(merge_block);
+    builder.seal_block(merge_block);
+    Ok(builder.block_params(merge_block)[0])
+}
+
+fn emit_i64_cwd_len_expr(
+    builder: &mut FunctionBuilder<'_>,
+    realpath_ref: FuncRef,
+    strlen_ref: FuncRef,
+) -> Result<cranelift_codegen::ir::Value, CraneliftBackendError> {
+    let path_ptr = emit_i64_path_ptr(builder, ".")?;
+    let resolved_slot = builder.create_sized_stack_slot(StackSlotData::new(
+        StackSlotKind::ExplicitSlot,
+        I64_REALPATH_BUFFER_BYTES,
+        0,
+    ));
+    let resolved_ptr = builder.ins().stack_addr(types::I64, resolved_slot, 0);
+    let call = builder.ins().call(realpath_ref, &[path_ptr, resolved_ptr]);
+    let value_ptr = builder.inst_results(call)[0];
+
+    let missing_block = builder.create_block();
+    let present_block = builder.create_block();
+    let merge_block = builder.create_block();
+    builder.append_block_param(merge_block, types::I64);
+
+    let missing = builder.ins().icmp_imm(IntCC::Equal, value_ptr, 0);
+    builder
+        .ins()
+        .brif(missing, missing_block, &[], present_block, &[]);
+
+    builder.switch_to_block(missing_block);
+    builder.seal_block(missing_block);
+    let missing_result = builder.ins().iconst(types::I64, -1);
+    builder
+        .ins()
+        .jump(merge_block, &[BlockArg::Value(missing_result)]);
+
+    builder.switch_to_block(present_block);
+    builder.seal_block(present_block);
+    let call = builder.ins().call(strlen_ref, &[value_ptr]);
+    let length = builder.inst_results(call)[0];
+    builder
+        .ins()
+        .jump(merge_block, &[BlockArg::Value(length)]);
 
     builder.switch_to_block(merge_block);
     builder.seal_block(merge_block);

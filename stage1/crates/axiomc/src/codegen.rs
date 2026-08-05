@@ -3752,6 +3752,13 @@ fn axiom_http_serve_once(bind: String, body: String) -> bool {
     out.push_str("    value\n");
     out.push_str("}\n\n");
     out.push_str("#[allow(dead_code)]\n");
+    out.push_str("fn axiom_env_cwd() -> Option<String> {\n");
+    out.push_str("    let value = std::env::current_dir().ok().and_then(|path| path.into_os_string().into_string().ok());\n");
+    out.push_str("    axiom_host_audit(\"env_cwd\", \"argc=0\", if value.is_some() { \"ok\" } else { \"error\" });\n");
+    out.push_str("    axiom_capability_audit(\"env_cwd\", \"env\", \"argc=0\", if value.is_some() { \"some\" } else { \"error\" });\n");
+    out.push_str("    value\n");
+    out.push_str("}\n\n");
+    out.push_str("#[allow(dead_code)]\n");
     out.push_str("fn axiom_crypto_sha256(input: String) -> String {\n");
     out.push_str("    let arg_summary = format!(\"input_len={}\", input.len());\n");
     out.push_str(
@@ -7222,6 +7229,7 @@ fn render_expr(expr: &Expr) -> String {
         Expr::Call { name, args, .. } if name == "env_get" => {
             format!("axiom_env_get({})", render_expr(&args[0]))
         }
+        Expr::Call { name, .. } if name == "env_cwd" => String::from("axiom_env_cwd()"),
         Expr::Call { name, args, .. } if name == "crypto_sha256" => {
             format!("axiom_crypto_sha256({})", render_expr(&args[0]))
         }

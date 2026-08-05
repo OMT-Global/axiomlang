@@ -6409,7 +6409,7 @@ fn stdlib_wrapper_capabilities(
         ("async.ax", _) => Some(vec![CapabilityKind::Async]),
         ("time.ax", "now_ms" | "now" | "elapsed_ms" | "sleep") => Some(vec![CapabilityKind::Clock]),
         ("async_time.ax", _) => Some(vec![CapabilityKind::Clock, CapabilityKind::Async]),
-        ("env.ax", "get_env") => Some(vec![CapabilityKind::Env]),
+        ("env.ax", "get_env" | "cwd") => Some(vec![CapabilityKind::Env]),
         ("fs.ax", "read_file" | "file_exists" | "file_size") => {
             Some(vec![CapabilityKind::Fs])
         }
@@ -7109,7 +7109,7 @@ fn intrinsic_capability(name: &str) -> Option<CapabilityKind> {
         "clock_now_ms" => Some(CapabilityKind::Clock),
         "clock_elapsed_ms" => Some(CapabilityKind::Clock),
         "clock_sleep_ms" => Some(CapabilityKind::Clock),
-        "env_get" => Some(CapabilityKind::Env),
+        "env_get" | "env_cwd" => Some(CapabilityKind::Env),
         "crypto_sha256" => Some(CapabilityKind::Crypto),
         "crypto_hmac_sha256" => Some(CapabilityKind::Crypto),
         "crypto_hmac_sha512" => Some(CapabilityKind::Crypto),

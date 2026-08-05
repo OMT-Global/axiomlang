@@ -14,7 +14,8 @@
 //! * `std/time.ax` — `Duration`, `Instant`, `now_ms()`, `now()`,
 //!   `elapsed_ms(start)`, and `sleep(duration)` on top of `clock_now_ms`,
 //!   `clock_elapsed_ms`, and `clock_sleep_ms` (clock).
-//! * `std/env.ax` — `get_env(key)` on top of `env_get` (env).
+//! * `std/env.ax` — runtime environment and current-directory access on top of
+//!   `env_get` and `env_cwd` (env).
 //! * `std/fs.ax` — `read_file(path)` on top of `fs_read` (fs) plus write-side helpers behind `fs:write`.
 //! * `std/net.ax` — `resolve(host)` on top of `net_resolve`, plus a bounded
 //!   loopback-only TCP/UDP socket floor on top of `net_tcp_*` and `net_udp_*`
@@ -132,7 +133,8 @@ pub fn sleep(duration: Duration): int {\nreturn clock_sleep_ms(duration.ms)\n}\n
     ),
     (
         "env.ax",
-        "pub fn get_env(key: string): Option<string> {\nreturn env_get(key)\n}\n",
+        "pub fn get_env(key: string): Option<string> {\nreturn env_get(key)\n}\n\
+pub fn cwd(): Option<string> {\nreturn env_cwd()\n}\n",
     ),
     (
         "fs.ax",
