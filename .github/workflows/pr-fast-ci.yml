@@ -233,6 +233,15 @@ jobs:
         # runners do not produce false reds.
         run: RUST_MIN_STACK=8388608 cargo test --manifest-path stage1/Cargo.toml -p axiomc --lib --features run-native-tests -- --test-threads=1
 
+      - name: Run axiomc bin suite
+        # SECURITY/COVERAGE (#1542): CI enumerates test targets by allowlist and
+        # the bin target was in none of them, so the CLI argument and help
+        # surface in main.rs never ran in CI. #1519 reworded a clap doc comment
+        # and left main red while every check stayed green. Keep this alongside
+        # the --lib lane; do not collapse the two into a bare `cargo test`,
+        # which would also pull in the 16.8k-line tests/cranelift_backend.rs.
+        run: RUST_MIN_STACK=8388608 cargo test --manifest-path stage1/Cargo.toml -p axiomc --bin axiomc --features run-native-tests -- --test-threads=1
+
   provider-abi-target-matrix:
     name: Provider ABI C Fixture (${{ matrix.target }})
     runs-on: ['self-hosted', 'linux', 'shell-only', 'public']
