@@ -1,8 +1,12 @@
+#[path = "target_support.rs"]
+pub(crate) mod target_support;
+
 use crate::codegen::SUPPORTED_NATIVE_BACKENDS;
 use crate::diagnostics::Diagnostic;
 use crate::json_contract;
 use crate::manifest::{CapabilityDescriptor, KNOWN_CAPABILITIES};
 use crate::project::{CheckOptions, check_project_with_options};
+use self::target_support::{TargetSupportReport, report as target_support_report};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::process::Command;
@@ -16,6 +20,7 @@ pub struct DoctorReport {
     rustc: ToolProbe,
     cargo: ToolProbe,
     target_triple: Option<String>,
+    target_support: TargetSupportReport,
     lockfile_status: &'static str,
     capabilities: Vec<CapabilityDescriptor>,
     workspace_graph: Vec<DoctorPackage>,
@@ -76,6 +81,7 @@ pub fn doctor_report(project: &Path, command_count: usize) -> DoctorReport {
     let rustc = probe_tool("rustc", &["-vV"]);
     let cargo = probe_tool("cargo", &["--version"]);
     let target_triple = rustc.version.as_deref().and_then(parse_rustc_host_target);
+    let target_support = target_support_report(target_triple.clone());
     let check = check_project_with_options(project, &CheckOptions::default());
     let (ok, lockfile_status, capabilities, workspace_graph, error) = match check {
         Ok(output) => {
@@ -90,7 +96,7 @@ pub fn doctor_report(project: &Path, command_count: usize) -> DoctorReport {
                 })
                 .collect();
             (
-                rustc.available && cargo.available,
+                rustc.available && cargo.available && target_support.host_supported,
                 "valid",
                 output.capabilities,
                 packages,
@@ -128,6 +134,7 @@ pub fn doctor_report(project: &Path, command_count: usize) -> DoctorReport {
         rustc,
         cargo,
         target_triple,
+        target_support,
         lockfile_status,
         capabilities,
         workspace_graph,
@@ -185,10 +192,7 @@ fn probe_tool(program: &str, args: &[&str]) -> ToolProbe {
 }
 
 fn parse_rustc_host_target(version: &str) -> Option<String> {
-    version
-        .lines()
-        .find_map(|line| line.strip_prefix("host: "))
-        .map(str::to_string)
+    target_support::parse_rustc_host_target(version)
 }
 
 pub fn doctor_text(report: &DoctorReport) -> String {
@@ -219,6 +223,16 @@ pub fn doctor_text(report: &DoctorReport) -> String {
     lines.push(format!(
         "known_unsupported_features: {}",
         report.known_unsupported_features.join(", ")
+    ));
+    lines.push(format!(
+        "target_support: {} (backend={}, selection={})",
+        if report.target_support.host_supported {
+            "supported"
+        } else {
+            "unsupported"
+        },
+        report.target_support.backend,
+        report.target_support.target_selection,
     ));
     lines.join("\n")
 }
@@ -266,6 +280,21 @@ mod tests {
         assert_eq!(payload["lockfile_status"], "valid");
         assert_eq!(payload["workspace_graph"].as_array().map(Vec::len), Some(1));
         assert!(payload["target_triple"].is_string());
+        assert_eq!(
+            payload["target_support"]["schema_version"],
+            "axiom.target_support.v1"
+        );
+        assert_eq!(payload["target_support"]["backend"], "cranelift");
+        assert_eq!(
+            payload["target_support"]["target_selection"],
+            "exact-host-only"
+        );
+        assert_eq!(
+            payload["target_support"]["supported_targets"]
+                .as_array()
+                .map(Vec::len),
+            Some(2)
+        );
         assert_eq!(
             payload["capability_ledger"]["schemaVersion"],
             "axiom.capability_ledger.v1"

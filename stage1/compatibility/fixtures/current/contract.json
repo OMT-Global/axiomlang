@@ -95,13 +95,13 @@
           "path": "stage1/compiler-contracts/snapshots/capability-ledger.json",
           "role": "cli_top_level_parity",
           "selector": "commands[*].name",
-          "sha256": "b3842e55505ece6af096fb8600f14d5205b042f2986af1f8c424470f15204d6f"
+          "sha256": "8f18d52b274a6143e7e4dad1fe7822b3f678cd8f121be8821d5763f316d250f1"
         },
         {
           "path": "stage1/crates/axiomc/src/main.rs",
           "role": "cli_command_graph_parity",
           "selector": "Command and nested command variant names",
-          "sha256": "af28b41a8db43be2b8df05259edbe800da349a895347754f240fda64af4494e9"
+          "sha256": "9ee7567a62157697c4aa1d702a892ace62040ef6db53c0b635e24676f524a1ea"
         }
       ],
       "stability": "experimental",
@@ -125,7 +125,7 @@
           "path": "stage1/crates/axiomc/src/lockfile.rs",
           "role": "lockfile_runtime_parity",
           "selector": "LockfileV2 and validate_lockfile_v2",
-          "sha256": "5d8d4422b12408dac5d4711948522d39e95863b51c538e1fd8d5777f1de28606"
+          "sha256": "5e5f08ffda12662262015d389895ccfe3f92341ba2a80cdfb27d02e610f3fae2"
         },
         {
           "path": "stage1/package-resolver/fixtures/lockfile-v2.json",
@@ -732,6 +732,21 @@
           "role": "published_schema",
           "selector": "$id,properties.schema_version.const",
           "sha256": "520148cc501f65d0be2c9d588d8aaec52f7a8e01465edfcd545fb0a22355a471"
+        }
+      ],
+      "stability": "experimental",
+      "version": "0.1.0"
+    },
+    {
+      "id": "axiom://schema/axiom-target-support-v1",
+      "kind": "schema",
+      "signature": "published schema id=https://axiom.omt.global/schemas/axiom-target-support-v1.schema.json; semantic_digest=2f4e8d6479d32720e5125e3e176722dc9c87d5d1e0e395f65ebd656d20db4bbf; envelope=axiom.target_support.v1",
+      "sources": [
+        {
+          "path": "stage1/schemas/axiom-target-support-v1.schema.json",
+          "role": "published_schema",
+          "selector": "$id,properties.schema_version.const",
+          "sha256": "d1082c0541fb40d7aa7e15bf8174463489411e7bc36173fb1e3d436fb9305905"
         }
       ],
       "stability": "experimental",

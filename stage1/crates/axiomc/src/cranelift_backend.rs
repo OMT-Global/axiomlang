@@ -410,9 +410,9 @@ pub fn compile_cranelift_hello_spike(
     target: Option<&str>,
     debug: bool,
 ) -> Result<CraneliftCompilationMode, Diagnostic> {
-    if target.is_some() {
+    if target.is_some_and(|target| !crate::doctor::target_support::is_host_target(target)) {
         return Err(unsupported(
-            "the cranelift backend spike currently supports only the host target",
+            "the cranelift backend spike currently supports only the exact host target",
         ));
     }
     I64_DEBUG_BUILD.with(|flag| flag.set(debug));
