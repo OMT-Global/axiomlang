@@ -1,6 +1,6 @@
-* @jmcte @pheidon
-/.github/workflows/ @jmcte @pheidon @scrappedcode
-/.githooks/ @jmcte @pheidon @scrappedcode
-/scripts/ @jmcte @pheidon @scrappedcode
-/project.bootstrap.yaml @jmcte @pheidon @scrappedcode
-/stage1/crates/axiomc/src/ @jmcte @pheidon @scrappedcode
+* @jmcte @athena-omt
+/.github/workflows/ @jmcte @athena-omt @scrappedcode
+/.githooks/ @jmcte @athena-omt @scrappedcode
+/scripts/ @jmcte @athena-omt @scrappedcode
+/project.bootstrap.yaml @jmcte @athena-omt @scrappedcode
+/stage1/crates/axiomc/src/ @jmcte @athena-omt @scrappedcode
