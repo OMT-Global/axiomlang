@@ -101,7 +101,7 @@
           "path": "stage1/crates/axiomc/src/main.rs",
           "role": "cli_command_graph_parity",
           "selector": "Command and nested command variant names",
-          "sha256": "af28b41a8db43be2b8df05259edbe800da349a895347754f240fda64af4494e9"
+          "sha256": "9ee7567a62157697c4aa1d702a892ace62040ef6db53c0b635e24676f524a1ea"
         }
       ],
       "stability": "experimental",
@@ -125,7 +125,7 @@
           "path": "stage1/crates/axiomc/src/lockfile.rs",
           "role": "lockfile_runtime_parity",
           "selector": "LockfileV2 and validate_lockfile_v2",
-          "sha256": "5d8d4422b12408dac5d4711948522d39e95863b51c538e1fd8d5777f1de28606"
+          "sha256": "5e5f08ffda12662262015d389895ccfe3f92341ba2a80cdfb27d02e610f3fae2"
         },
         {
           "path": "stage1/package-resolver/fixtures/lockfile-v2.json",

@@ -79,6 +79,18 @@ impl RunLimits {
             max_cpu_seconds: 5,
         }
     }
+
+    pub const fn benchmark(timeout: Duration) -> Self {
+        Self {
+            timeout,
+            max_output_bytes: 1024 * 1024,
+            max_file_bytes: 8 * 1024 * 1024,
+            max_cpu_seconds: {
+                let seconds = timeout.as_secs().saturating_add(1);
+                if seconds == 0 { 1 } else { seconds }
+            },
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -523,6 +535,8 @@ pub struct TestOptions {
     pub include_benchmarks: bool,
     pub properties_only: bool,
     pub conformance: bool,
+    /// Optional execution budget for test cases that need bounded runtime behavior.
+    pub run_limits: Option<RunLimits>,
 }
 
 pub fn check_project(project_root: &Path) -> Result<CheckOutput, Diagnostic> {
@@ -832,6 +846,20 @@ struct BoundedCommandOutput {
     status: std::process::ExitStatus,
     stdout: Vec<u8>,
     stderr: Vec<u8>,
+}
+
+fn run_test_command(
+    command: &mut Command,
+    limits: Option<RunLimits>,
+) -> io::Result<std::process::Output> {
+    match limits {
+        Some(limits) => run_bounded_command(command, limits).map(|output| std::process::Output {
+            status: output.status,
+            stdout: output.stdout,
+            stderr: output.stderr,
+        }),
+        None => command.output(),
+    }
 }
 
 fn run_bounded_command(
@@ -1179,6 +1207,7 @@ fn run_project_tests_with_graph(
                 manifest,
                 test,
                 options.backend,
+                options.run_limits,
                 &mut parse_cache,
             ));
         }
@@ -4846,6 +4875,7 @@ fn run_test_case(
     manifest: &Manifest,
     test: &crate::manifest::TestTarget,
     backend: NativeBackendKind,
+    run_limits: Option<RunLimits>,
     parse_cache: &mut ModuleParseCache,
 ) -> TestCaseResult {
     if test.expected_error.is_some() {
@@ -4916,7 +4946,7 @@ fn run_test_case(
             .and_then(|command| run_command_with_stdin(command, stdin))
     } else {
         command_for_build_output(&binary, &build_output_dir)
-            .and_then(|mut command| command.output())
+            .and_then(|mut command| run_test_command(&mut command, run_limits))
     };
 
     match command_result {
@@ -10785,6 +10815,19 @@ mod tests {
     #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
     use tempfile::tempdir;
+
+    #[cfg(unix)]
+    #[test]
+    fn bounded_test_command_enforces_benchmark_timeout() {
+        let mut command = Command::new("sh");
+        command.args(["-c", "sleep 2"]);
+        let error = run_test_command(
+            &mut command,
+            Some(RunLimits::benchmark(Duration::from_millis(50))),
+        )
+        .expect_err("sleeping command should exceed benchmark timeout");
+        assert_eq!(error.kind(), ErrorKind::TimedOut);
+    }
 
     #[test]
     fn http_fixture_bind_accepts_only_loopback_socket_addresses() {
