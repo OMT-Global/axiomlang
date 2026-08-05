@@ -218,7 +218,15 @@ fi
 provider_abi_check=$(grep -nF "scripts/ci/check-provider-abi-v1.py" "$fast_checks_script" || true)
 provider_abi_self_test=$(grep -nF "scripts/ci/test-check-provider-abi-v1.py" "$fast_checks_script" || true)
 provider_abi_matrix=$(grep -nF "provider-abi-target-matrix:" "$workflow" || true)
-if [[ -z "$provider_abi_check" || -z "$provider_abi_self_test" || -z "$provider_abi_matrix" ]]; then
+provider_abi_section="$({
+  awk '
+    /^  provider-abi-target-matrix:$/ { in_job=1; print; next }
+    in_job && /^  [A-Za-z0-9_-]+:$/ { exit }
+    in_job { print }
+  ' "$workflow"
+})"
+provider_abi_compiler=$(printf '%s\n' "$provider_abi_section" | grep -nF "Ensure C compiler availability" || true)
+if [[ -z "$provider_abi_check" || -z "$provider_abi_self_test" || -z "$provider_abi_matrix" || -z "$provider_abi_compiler" ]]; then
   echo "Provider ABI validator, self-test, and target matrix must remain required" >&2
   exit 1
 fi

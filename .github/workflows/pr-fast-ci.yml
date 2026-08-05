@@ -244,6 +244,49 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4 pinned 2026-05-30
         with:
           ref: ${{ github.event.pull_request.head.sha }}
+      - name: Ensure C compiler availability
+        run: |
+          set -euo pipefail
+
+          for candidate in cc gcc clang; do
+            if command -v "$candidate" >/dev/null 2>&1; then
+              exit 0
+            fi
+          done
+
+          if command -v apt-get >/dev/null 2>&1; then
+            apt_cache="${RUNNER_TEMP:-/tmp}/axiom-provider-abi-apt-cache"
+            apt_lists="${RUNNER_TEMP:-/tmp}/axiom-provider-abi-apt-lists"
+            mkdir -p "$apt_cache/partial" "$apt_lists/partial"
+            apt_get=(
+              apt-get
+              -o Acquire::Retries=3
+              -o Dpkg::Use-Pty=0
+              -o APT::Sandbox::User=root
+              -o Dir::Cache::archives="$apt_cache"
+              -o Dir::State::lists="$apt_lists"
+            )
+            if [[ "$(id -u)" != "0" ]]; then
+              if command -v sudo >/dev/null 2>&1; then
+                apt_get=(sudo "${apt_get[@]}")
+              else
+                apt_get=()
+              fi
+            fi
+            if (( ${#apt_get[@]} )); then
+              "${apt_get[@]}" update || true
+              DEBIAN_FRONTEND=noninteractive "${apt_get[@]}" install -y --no-install-recommends gcc libc6-dev || true
+            fi
+          fi
+
+          for candidate in cc gcc clang; do
+            if command -v "$candidate" >/dev/null 2>&1; then
+              exit 0
+            fi
+          done
+
+          echo "::error::Provider ABI fixture requires a usable C compiler (cc, gcc, or clang)" >&2
+          exit 1
       - name: Compile Provider ABI v1 C fixture
         run: python3 scripts/ci/check-provider-abi-v1.py --target '${{ matrix.target }}'
 
