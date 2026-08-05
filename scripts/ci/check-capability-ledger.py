@@ -67,7 +67,7 @@ COMMAND_TIERS = {
 LANGUAGE_SURFACES = {
     "Stmt": {
         "Let", "Assign", "Print", "Panic", "Defer", "If", "IfLet", "While",
-        "Match", "Return",
+        "Match", "Return", "Break", "Continue",
     },
     "Expr": {
         "Literal", "VarRef", "Call", "MethodCall", "BinaryAdd", "BinaryCompare",

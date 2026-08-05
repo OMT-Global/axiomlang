@@ -456,6 +456,8 @@ fn validate_trait_type_uses_in_stmts(
             | syntax::Stmt::Assign { .. }
             | syntax::Stmt::Panic { .. }
             | syntax::Stmt::Defer { .. }
+            | syntax::Stmt::Break { .. }
+            | syntax::Stmt::Continue { .. }
             | syntax::Stmt::Return { .. } => {}
         }
     }

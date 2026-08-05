@@ -110,6 +110,7 @@ pub(crate) fn i64_stmt_has_fs_write_call(stmt: &Stmt, static_bindings: &I64Stati
             i64_expr_has_fs_write_call(cond, static_bindings)
                 || i64_stmts_have_fs_write_call(body, static_bindings)
         }
+        Stmt::Break { .. } | Stmt::Continue { .. } => false,
         Stmt::Match { expr, arms, .. } => {
             i64_expr_has_fs_write_call(expr, static_bindings)
                 || arms
@@ -152,6 +153,7 @@ pub(crate) fn i64_stmt_has_fs_read_call(stmt: &Stmt, static_bindings: &I64Static
                     .iter()
                     .any(|stmt| i64_stmt_has_fs_read_call(stmt, static_bindings))
         }
+        Stmt::Break { .. } | Stmt::Continue { .. } => false,
         Stmt::Match { expr, arms, .. } => {
             i64_expr_has_fs_read_call(expr, static_bindings)
                 || arms.iter().any(|arm| {

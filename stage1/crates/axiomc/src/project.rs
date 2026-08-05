@@ -4592,6 +4592,8 @@ fn collect_direct_native_stmt_spans(
             | mir::Stmt::Print { .. }
             | mir::Stmt::Panic { .. }
             | mir::Stmt::Defer { .. }
+            | mir::Stmt::Break { .. }
+            | mir::Stmt::Continue { .. }
             | mir::Stmt::Return { .. } => {}
         }
     }
@@ -4604,6 +4606,8 @@ fn stmt_source_span(statement: &mir::Stmt) -> mir::SourceSpan {
         | mir::Stmt::Print { span, .. }
         | mir::Stmt::Panic { span, .. }
         | mir::Stmt::Defer { span, .. }
+        | mir::Stmt::Break { span }
+        | mir::Stmt::Continue { span }
         | mir::Stmt::If { span, .. }
         | mir::Stmt::While { span, .. }
         | mir::Stmt::Match { span, .. }
@@ -5906,6 +5910,7 @@ fn collect_hir_stmt_intrinsic_use(
                 collect_hir_stmt_intrinsic_use(module_path, stmt, uses);
             }
         }
+        hir::Stmt::Break { .. } | hir::Stmt::Continue { .. } => {}
         hir::Stmt::Match { expr, arms, span } => {
             collect_hir_expr_intrinsic_use(module_path, expr, span.line, span.column, uses);
             for arm in arms {
@@ -6212,6 +6217,7 @@ fn validate_stmt_stdlib_wrapper_capabilities(
             }
             Ok(())
         }
+        syntax::Stmt::Break { .. } | syntax::Stmt::Continue { .. } => Ok(()),
         syntax::Stmt::Match { expr, arms, .. } => {
             validate_expr_stdlib_wrapper_capabilities(module_path, expr, capabilities, wrappers)?;
             for arm in arms {
@@ -6627,6 +6633,7 @@ fn validate_stmt_capabilities(
                 )?;
             }
         }
+        syntax::Stmt::Break { .. } | syntax::Stmt::Continue { .. } => {}
         syntax::Stmt::Match { expr, arms, .. } => {
             validate_expr_capabilities(
                 module_path,
@@ -9067,6 +9074,14 @@ fn rewrite_stmt(
             line: *line,
             column: *column,
         },
+        syntax::Stmt::Break { line, column } => syntax::Stmt::Break {
+            line: *line,
+            column: *column,
+        },
+        syntax::Stmt::Continue { line, column } => syntax::Stmt::Continue {
+            line: *line,
+            column: *column,
+        },
         syntax::Stmt::Match {
             expr,
             arms,
@@ -10785,6 +10800,7 @@ fn stmt_line(stmt: &syntax::Stmt) -> usize {
         | syntax::Stmt::Match { line, .. }
         | syntax::Stmt::Assign { line, .. }
         | syntax::Stmt::Return { line, .. } => *line,
+        syntax::Stmt::Break { line, .. } | syntax::Stmt::Continue { line, .. } => *line,
     }
 }
 
@@ -10800,6 +10816,7 @@ fn stmt_column(stmt: &syntax::Stmt) -> usize {
         | syntax::Stmt::Match { column, .. }
         | syntax::Stmt::Assign { column, .. }
         | syntax::Stmt::Return { column, .. } => *column,
+        syntax::Stmt::Break { column, .. } | syntax::Stmt::Continue { column, .. } => *column,
     }
 }
 

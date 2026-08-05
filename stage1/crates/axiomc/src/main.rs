@@ -3865,6 +3865,7 @@ fn collect_effects_in_stmts(
                 collect_effects_in_expr(cond, file, effects);
                 collect_effects_in_stmts(body, file, effects);
             }
+            Stmt::Break { .. } | Stmt::Continue { .. } => {}
             Stmt::Match { expr, arms, .. } => {
                 collect_effects_in_expr(expr, file, effects);
                 for arm in arms {
@@ -4430,6 +4431,7 @@ fn collect_openapi_routes_in_stmts(
                 collect_openapi_served_routes_in_expr(cond, file, http_imported, context, routes);
                 collect_openapi_routes_in_block(body, file, http_imported, context, routes);
             }
+            Stmt::Break { .. } | Stmt::Continue { .. } => {}
             Stmt::Match { expr, arms, .. } => {
                 collect_openapi_served_routes_in_expr(expr, file, http_imported, context, routes);
                 for arm in arms {
@@ -6327,6 +6329,7 @@ fn collect_stmt_capabilities(stmt: &axiomc::syntax::Stmt, capabilities: &mut Vec
                 collect_stmt_capabilities(stmt, capabilities);
             }
         }
+        Stmt::Break { .. } | Stmt::Continue { .. } => {}
         Stmt::Match { expr, arms, .. } => {
             collect_expr_capabilities(expr, capabilities);
             for arm in arms {

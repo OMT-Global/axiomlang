@@ -135,6 +135,7 @@ pub(crate) fn i64_env_option_stmt_uses_payload_len_only(stmt: &Stmt, binding: &s
             i64_env_option_expr_uses_payload_len_only(cond, binding)
                 && i64_env_option_payload_uses_len_only(body, binding)
         }
+        Stmt::Break { .. } | Stmt::Continue { .. } => true,
         Stmt::Match { expr, arms, .. } => {
             i64_env_option_expr_uses_payload_len_only(expr, binding)
                 && arms

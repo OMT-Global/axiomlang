@@ -59,6 +59,7 @@ fn pure_stmts(
         // Even a literal-false loop is rejected. The contract is structural,
         // not dependent on executing the evaluator to discover termination.
         Stmt::While { .. } => false,
+        Stmt::Break { .. } | Stmt::Continue { .. } => true,
         Stmt::Match { expr, arms, .. } => {
             pure_expr(expr, functions, stack)
                 && arms

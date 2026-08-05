@@ -148,6 +148,7 @@ pub(crate) fn eval_stmt(
             defers.push(expr.clone());
             Ok(None)
         }
+        Stmt::Break { .. } | Stmt::Continue { .. } => Ok(None),
     }
 }
 

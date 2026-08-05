@@ -399,6 +399,14 @@ pub enum Stmt {
         line: usize,
         column: usize,
     },
+    Break {
+        line: usize,
+        column: usize,
+    },
+    Continue {
+        line: usize,
+        column: usize,
+    },
     Match {
         expr: Expr,
         arms: Vec<MatchArm>,
@@ -769,6 +777,8 @@ impl Stmt {
             | Stmt::If { line, column, .. }
             | Stmt::IfLet { line, column, .. }
             | Stmt::While { line, column, .. }
+            | Stmt::Break { line, column }
+            | Stmt::Continue { line, column }
             | Stmt::Match { line, column, .. }
             | Stmt::Return { line, column, .. } => (*line, *column),
         };
@@ -2379,6 +2389,21 @@ fn parse_stmt(
     if trimmed.starts_with("while ") {
         return parse_while_stmt(lines, index, path);
     }
+    if trimmed == "break" || trimmed == "continue" {
+        let statement = if trimmed == "break" {
+            Stmt::Break {
+                line: line_no,
+                column: 1,
+            }
+        } else {
+            Stmt::Continue {
+                line: line_no,
+                column: 1,
+            }
+        };
+        *index += 1;
+        return Ok(statement);
+    }
     if trimmed.starts_with("match ") {
         return parse_match_stmt(lines, index, path);
     }
@@ -2402,9 +2427,9 @@ fn parse_stmt(
             return Err(Diagnostic::new(
                 "parse",
                 if in_block {
-                    "stage1 bootstrap currently supports let, print, panic, defer, if/else, while, match, and return statements inside blocks"
+                    "stage1 bootstrap currently supports let, print, panic, defer, if/else, while, break, continue, match, and return statements inside blocks"
                 } else {
-                    "stage1 bootstrap currently supports top-level import, const, static, type, struct, enum, fn, let, print, panic, defer, if/else, while, and match statements"
+                    "stage1 bootstrap currently supports top-level import, const, static, type, struct, enum, fn, let, print, panic, defer, if/else, while, break, continue, and match statements"
                 },
             )
             .with_path(path.display().to_string())
@@ -2491,9 +2516,9 @@ fn parse_stmt(
         });
     }
     let message = if in_block {
-        "stage1 bootstrap currently supports let, print, panic, defer, if/else, while, match, and return statements inside blocks"
+        "stage1 bootstrap currently supports let, print, panic, defer, if/else, while, break, continue, match, and return statements inside blocks"
     } else {
-        "stage1 bootstrap currently supports top-level import, const, static, type, struct, enum, fn, let, print, panic, defer, if/else, while, and match statements"
+        "stage1 bootstrap currently supports top-level import, const, static, type, struct, enum, fn, let, print, panic, defer, if/else, while, break, continue, and match statements"
     };
     Err(Diagnostic::new("parse", message)
         .with_path(path.display().to_string())
