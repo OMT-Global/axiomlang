@@ -333,7 +333,9 @@ pub fn strip_suffix(text: string, suffix: string): Option<string> {\nreturn stri
 pub fn trim(text: string): string {\nreturn string_trim(text)\n}\n\
 pub fn trim_start(text: string): string {\nreturn string_trim_start(text)\n}\n\
 pub fn line_at(text: string, index: int): Option<string> {\nreturn string_line_at(text, index)\n}\n\
-pub fn byte_at(text: string, index: int): Option<int> {\nreturn string_byte_at(text, index)\n}\n",
+pub fn byte_at(text: string, index: int): Option<int> {\nreturn string_byte_at(text, index)\n}\n\
+pub fn scalar_count(text: string): int {\nreturn string_scalar_count(text)\n}\n\
+pub fn scalar_at(text: string, index: int): Option<string> {\nreturn string_scalar_at(text, index)\n}\n",
     ),
     (
         "string_builder.ax",

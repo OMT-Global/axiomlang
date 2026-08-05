@@ -1,7 +1,7 @@
 {
   "schema_version": "axiom.compiler.stdlib_catalog.v1",
   "contract": "compiler.stdlib",
-  "catalog_version": "1.0.0",
+  "catalog_version": "1.1.0",
   "source": "stage1/compiler-contracts/snapshots/capability-ledger.json",
   "modules": [
     {
@@ -3211,7 +3211,7 @@
       "module_loading": {
         "kind": "embedded_source",
         "source_path": "stage1/crates/axiomc/src/stdlib.rs",
-        "source_digest": "73fc8404796dd1e1e9accd1ae1291ffa860e05221e192303b714c81d494118e1"
+        "source_digest": "870120f71625c959ad2da431906173e44214e8fc21119ad53fb830aef4e60b8f"
       },
       "capabilities": [],
       "symbols": [
@@ -3267,6 +3267,28 @@
           "binding_kind": "provider_contract",
           "provider": {
             "id": "axiom://provider/stage1-v1/string/line_at",
+            "kind": "declared_provider"
+          }
+        },
+        {
+          "name": "scalar_at",
+          "signature": "fn scalar_at(text: string, index: int): Option<string>",
+          "effect": "pure",
+          "binding": "axiom://provider/stage1-v1/string/scalar_at",
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/string/scalar_at",
+            "kind": "declared_provider"
+          }
+        },
+        {
+          "name": "scalar_count",
+          "signature": "fn scalar_count(text: string): int",
+          "effect": "pure",
+          "binding": "axiom://provider/stage1-v1/string/scalar_count",
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/string/scalar_count",
             "kind": "declared_provider"
           }
         },
@@ -3741,7 +3763,7 @@
       "symbols": []
     }
   ],
-  "release_digest": "69a356f4ed5c88450259644f99273ccf5961dedf54b10194c2b7c3d6b9dc3b3b",
+  "release_digest": "c5e37dcdd84568751838dce6a92324144d2317d5620e5d205b8dc79deef34ceb",
   "rollback_boundary": "stage1/crates/axiomc/src/stdlib.rs remains the bootstrap loader until #1436 qualifies a catalog consumer.",
   "acceptance_boundary": {
     "status": "pending",

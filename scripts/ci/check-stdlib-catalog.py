@@ -75,11 +75,11 @@ def build(ledger):
             "capabilities": capabilities,
             "symbols": symbols,
         })
-    material = {"catalog_version": "1.0.0", "modules": modules, "acceptance_boundary": ACCEPTANCE}
+    material = {"catalog_version": "1.1.0", "modules": modules, "acceptance_boundary": ACCEPTANCE}
     return {
         "schema_version": "axiom.compiler.stdlib_catalog.v1",
         "contract": "compiler.stdlib",
-        "catalog_version": "1.0.0",
+        "catalog_version": "1.1.0",
         "source": "stage1/compiler-contracts/snapshots/capability-ledger.json",
         "modules": modules,
         "release_digest": hashlib.sha256(json.dumps(material, sort_keys=True, separators=(",", ":")).encode()).hexdigest(),

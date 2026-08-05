@@ -1762,6 +1762,8 @@
         "contains",
         "from_int",
         "line_at",
+        "scalar_at",
+        "scalar_count",
         "starts_with",
         "strip_prefix",
         "strip_suffix",
@@ -1863,7 +1865,7 @@
     },
     "runtimeAbiRows": 34,
     "schemas": 59,
-    "stdlibFunctions": 299,
+    "stdlibFunctions": 301,
     "stdlibModules": 34,
     "supportedNativeBackend": "cranelift"
   },

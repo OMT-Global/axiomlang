@@ -3201,6 +3201,7 @@ fn map_resolve_error(error: ResolveError, targeted: bool) -> PackageManagerError
             ResolveError::BudgetExceeded { .. } => "resolution_budget_exceeded",
             ResolveError::InvalidCatalog { .. } => "registry_catalog_invalid",
             ResolveError::InvalidRequest(_) => "resolution_request_invalid",
+            ResolveError::InvalidResolution(_) => "resolution_output_invalid",
             ResolveError::Source { .. } => "package_source_failed",
         };
         PackageManagerError::new(code, error.to_string())

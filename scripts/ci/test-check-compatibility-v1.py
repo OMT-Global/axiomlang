@@ -241,7 +241,7 @@ def main() -> int:
     canonical_report = json.loads(canonical.stdout)
     assert canonical_report["summary"] == {
         "additive": 14,
-        "breaking": 7,
+        "breaking": 8,
         "compatible": 0,
         "deprecated": 0,
     }
@@ -250,6 +250,7 @@ def main() -> int:
         "axiom://package/lockfile",
         "axiom://package/manifest",
         "axiom://schema/axiom.toml",
+        "axiom://stdlib/catalog",
     }
     assert {
         item["surface_id"] for item in canonical_report["changes"]

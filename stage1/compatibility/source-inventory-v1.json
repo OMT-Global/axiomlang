@@ -30,6 +30,9 @@
     },
     "axiom://schema/axiom.toml": {
       "action": "Existing path-only manifests remain valid. To adopt registry dependencies, add the root registry configuration and use the closed registry dependency object documented by the 0.2 schema, then run axiomc pkg fetch to create axiom.lock version 2."
+    },
+    "axiom://stdlib/catalog": {
+      "action": "Existing stdlib modules and functions remain valid. Consumers adopting the Unicode scalar helpers should use scalar_count for code-point cardinality and scalar_at for bounds-checked scalar access."
     }
   },
   "snapshot_id": "axiom://compatibility/current-source-contract",

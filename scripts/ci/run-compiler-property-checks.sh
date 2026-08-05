@@ -66,7 +66,16 @@ trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-report_parent="${TMPDIR:-/tmp}"
+# GitHub-hosted and self-hosted runners provide a job-scoped temporary root.
+# Prefer it in Actions because runner cleanup can reclaim nested TMPDIR paths
+# while the compiler subprocess is still producing its JSON report. Keep
+# TMPDIR as the local/test-harness default so the regression cases can inspect
+# and verify the cleanup boundary.
+if [[ "${GITHUB_ACTIONS:-}" == "true" && -n "${RUNNER_TEMP:-}" ]]; then
+  report_parent="$RUNNER_TEMP"
+else
+  report_parent="${TMPDIR:-/tmp}"
+fi
 mkdir -p "$report_parent"
 test_report_dir="$(mktemp -d "${report_parent%/}/axiom-compiler-property-cranelift.XXXXXX")"
 test_report="$test_report_dir/report.json"

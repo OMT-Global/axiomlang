@@ -8,6 +8,7 @@ use crate::package_version::{ReleaseVersion, VersionRequirement};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
+use std::sync::OnceLock;
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct PackageKey {
@@ -307,6 +308,7 @@ pub enum CandidateRejection {
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ResolveError {
     InvalidRequest(String),
+    InvalidResolution(String),
     InvalidCatalog {
         package: Box<PackageKey>,
         message: String,
@@ -332,6 +334,7 @@ impl fmt::Display for ResolveError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::InvalidRequest(message) => formatter.write_str(message),
+            Self::InvalidResolution(message) => formatter.write_str(message),
             Self::InvalidCatalog { package, message } => {
                 write!(
                     formatter,
@@ -428,7 +431,11 @@ pub fn resolve_packages<S: ResolverSource>(
     }
     let first = state.constraints.keys().next().cloned();
     match solver.solve(state)? {
-        Some(state) => Ok(solver.finish(state)),
+        Some(state) => {
+            let resolution = solver.finish(state);
+            validate_resolution_schema(&resolution)?;
+            Ok(resolution)
+        }
         None => {
             let (package, requirements) = solver.last_conflict.clone().unwrap_or_else(|| {
                 (
@@ -447,6 +454,38 @@ pub fn resolve_packages<S: ResolverSource>(
             })
         }
     }
+}
+
+static RESOLUTION_SCHEMA: OnceLock<Result<jsonschema::Validator, String>> = OnceLock::new();
+
+fn validate_resolution_schema(resolution: &Resolution) -> Result<(), ResolveError> {
+    let value = serde_json::to_value(resolution).map_err(|error| {
+        ResolveError::InvalidResolution(format!(
+            "failed to serialize package resolution for schema validation: {error}"
+        ))
+    })?;
+    let validator = RESOLUTION_SCHEMA
+        .get_or_init(|| {
+            let schema: serde_json::Value = serde_json::from_slice(include_bytes!(
+                "../../../schemas/axiom-package-resolution-v1.schema.json"
+            ))
+            .map_err(|error| error.to_string())?;
+            jsonschema::options()
+                .with_draft(jsonschema::Draft::Draft202012)
+                .build(&schema)
+                .map_err(|error| error.to_string())
+        })
+        .as_ref()
+        .map_err(|error| {
+            ResolveError::InvalidResolution(format!(
+                "package resolution schema is unavailable: {error}"
+            ))
+        })?;
+    validator.validate(&value).map_err(|_| {
+        ResolveError::InvalidResolution(
+            "resolved package graph does not match axiom.package_resolution.v1".to_owned(),
+        )
+    })
 }
 
 fn validate_limits(limits: ResolverLimits) -> Result<(), ResolveError> {
@@ -1020,8 +1059,13 @@ mod tests {
                     version: release,
                     release_id: format!("{name}-{release}"),
                     dependencies: dependencies.clone(),
-                    manifest_digest: format!("digest-{name}-{release}"),
-                    signer_key_ids: vec!["signer".to_owned()],
+                    manifest_digest:
+                        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                            .to_owned(),
+                    signer_key_ids: vec![
+                        "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                            .to_owned(),
+                    ],
                     edition: "2026".to_owned(),
                     compatibility: "axiom-v1".to_owned(),
                 }),
@@ -1058,6 +1102,27 @@ mod tests {
         let caret = resolve_packages(&mut source, request(vec![registry("a", "a", "^1.0.0")]))
             .expect("caret resolution");
         assert_eq!(caret.packages[0].version, version("1.5.0"));
+    }
+
+    #[test]
+    fn resolver_rejects_output_that_breaks_the_published_schema() {
+        let mut source = MockSource::default();
+        add_package(&mut source, "a", &[("1.0.0", false, vec![])]);
+        source
+            .verified
+            .get_mut(&(key("a"), version("1.0.0")))
+            .expect("release fixture")
+            .as_mut()
+            .expect("verified release")
+            .manifest_digest = "not-a-sha256".to_owned();
+
+        let error = resolve_packages(&mut source, request(vec![registry("a", "a", "1.0.0")]))
+            .expect_err("invalid public resolution must fail closed");
+        assert!(matches!(
+            error,
+            ResolveError::InvalidResolution(message)
+                if message.contains("axiom.package_resolution.v1")
+        ));
     }
 
     #[test]

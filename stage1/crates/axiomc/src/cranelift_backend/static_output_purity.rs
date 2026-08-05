@@ -165,6 +165,8 @@ fn pure_intrinsic(name: &str) -> bool {
             | "string_strip_suffix"
             | "string_line_at"
             | "string_byte_at"
+            | "string_scalar_count"
+            | "string_scalar_at"
             | "regex_is_match"
             | "regex_find"
             | "regex_replace_all"
