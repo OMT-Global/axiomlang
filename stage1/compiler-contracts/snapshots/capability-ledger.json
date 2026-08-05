@@ -1886,7 +1886,7 @@
     },
     "runtimeAbiRows": 34,
     "schemas": 60,
-    "stdlibFunctions": 301,
+    "stdlibFunctions": 303,
     "stdlibModules": 34,
     "supportedNativeBackend": "cranelift"
   },
