@@ -233,19 +233,19 @@ fn build_fixtures_cover_direct_native_target_and_no_fallback_failure() {
     let unsupported_target = fixture("build", "unsupported-target.json");
     assert_matches_stage1_schema(&validator, &unsupported_target);
     assert_envelope(&unsupported_target, "build", false);
-    assert_eq!(unsupported_target["error"]["kind"], "build");
-    assert_eq!(unsupported_target["error"]["code"], "build.failed");
+    assert_eq!(unsupported_target["error"]["kind"], "target");
+    assert_eq!(unsupported_target["error"]["code"], "target.unsupported");
     assert!(
         unsupported_target["error"]["message"]
             .as_str()
             .expect("error message")
-            .contains("--backend cranelift")
+            .contains("direct-native backend")
     );
     assert!(
         unsupported_target["error"]["message"]
             .as_str()
             .expect("error message")
-            .contains("only the host target")
+            .contains("host target")
     );
 
     let failure = fixture("build", "failure.json");

@@ -264,6 +264,7 @@
     "stage1/crates/axiomc/src/manifest.rs",
     "stage1/crates/axiomc/src/codegen.rs",
     "stage1/crates/axiomc/src/project.rs",
+    "stage1/crates/axiomc/src/target_support.rs",
     "stage1/crates/axiomc/src/registry.rs",
     "stage1/runtime-abi/direct-native-v0.json",
     "stage1/schemas",
@@ -1068,6 +1069,12 @@
     },
     {
       "evidenceTier": "static_spike",
+      "name": "https://axiom.omt.global/schemas/axiom-target-support-v1.schema.json",
+      "source": "stage1/schemas/axiom-target-support-v1.schema.json",
+      "status": "checked"
+    },
+    {
+      "evidenceTier": "static_spike",
       "name": "https://axiom.omt.global/schemas/axiom-target-v0.schema.json",
       "source": "stage1/schemas/axiom-target-v0.schema.json",
       "status": "checked"
@@ -1860,11 +1867,11 @@
       "direct_runtime": 2,
       "production_qualified": 0,
       "scaffold": 5,
-      "static_spike": 218,
+      "static_spike": 219,
       "unsupported": 5
     },
     "runtimeAbiRows": 34,
-    "schemas": 59,
+    "schemas": 60,
     "stdlibFunctions": 301,
     "stdlibModules": 34,
     "supportedNativeBackend": "cranelift"
@@ -1873,13 +1880,13 @@
     {
       "evidenceTier": "direct_runtime",
       "name": "host",
-      "source": "stage1/crates/axiomc/src/project.rs",
+      "source": "stage1/crates/axiomc/src/target_support.rs",
       "status": "partial"
     },
     {
       "evidenceTier": "unsupported",
       "name": "wasm32-wasip1",
-      "source": "stage1/crates/axiomc/src/project.rs",
+      "source": "stage1/crates/axiomc/src/target_support.rs",
       "status": "unsupported"
     }
   ],

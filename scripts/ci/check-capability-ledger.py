@@ -277,6 +277,8 @@ def build_ledger(root: Path, main_source: Path | None = None) -> dict[str, Any]:
     manifest = (root / "stage1/crates/axiomc/src/manifest.rs").read_text(encoding="utf-8")
     codegen = (root / "stage1/crates/axiomc/src/codegen.rs").read_text(encoding="utf-8")
     project = (root / "stage1/crates/axiomc/src/project.rs").read_text(encoding="utf-8")
+    target_support_path = root / "stage1/crates/axiomc/src/target_support.rs"
+    target_support = target_support_path.read_text(encoding="utf-8")
     registry = (root / "stage1/crates/axiomc/src/registry.rs").read_text(encoding="utf-8")
 
     command_names = [camel_to_kebab(item) for item in enum_variants(main, "Command")]
@@ -328,11 +330,17 @@ def build_ledger(root: Path, main_source: Path | None = None) -> dict[str, Any]:
     if supported_backend is None or supported_backend.group(1) != "cranelift" or backend_variants != {"Cranelift", "GeneratedRust"}:
         raise ValueError("backend classification drift in compiler-owned backend tables")
     target_match = re.search(
-        r"fn resolved_build_target\(.*?\n\}", project, re.DOTALL
+        r"\bfn\s+resolve_build_target\s*\(.*?(?=\n(?:pub\s+)?fn\s|\n#\[|\Z)",
+        target_support,
+        re.DOTALL,
     )
     if target_match is None:
         raise ValueError("missing compiler-owned target resolution table")
-    target_aliases = set(re.findall(r'Some\("([^"]+)"\)', target_match.group(0)))
+    target_aliases = {
+        alias
+        for alias in re.findall(r'Some\("([^"]+)"\)', target_match.group(0))
+        if alias.startswith("wasm")
+    }
     if target_aliases != {"wasm32", "wasm32-wasi"}:
         raise ValueError(f"target classification drift: aliases={sorted(target_aliases)}")
     package_markers = (
@@ -360,6 +368,7 @@ def build_ledger(root: Path, main_source: Path | None = None) -> dict[str, Any]:
             "stage1/crates/axiomc/src/manifest.rs",
             "stage1/crates/axiomc/src/codegen.rs",
             "stage1/crates/axiomc/src/project.rs",
+            "stage1/crates/axiomc/src/target_support.rs",
             "stage1/crates/axiomc/src/registry.rs",
             "stage1/runtime-abi/direct-native-v0.json",
             "stage1/schemas",
@@ -384,8 +393,8 @@ def build_ledger(root: Path, main_source: Path | None = None) -> dict[str, Any]:
             fact("generated-rust", "internal-only", "unsupported", "stage1/crates/axiomc/src/codegen.rs"),
         ],
         "targets": [
-            fact("host", "partial", "direct_runtime", "stage1/crates/axiomc/src/project.rs"),
-            fact("wasm32-wasip1", "unsupported", "unsupported", "stage1/crates/axiomc/src/project.rs"),
+            fact("host", "partial", "direct_runtime", "stage1/crates/axiomc/src/target_support.rs"),
+            fact("wasm32-wasip1", "unsupported", "unsupported", "stage1/crates/axiomc/src/target_support.rs"),
         ],
         "packages": [
             fact("local-package", "implemented", "static_spike", "stage1/crates/axiomc/src/manifest.rs"),

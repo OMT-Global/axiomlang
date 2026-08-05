@@ -199,6 +199,9 @@ def main() -> int:
         "axiom://schema/axiom.runtime_lifecycle.v1",
         "axiom://schema/axiom.semantic_mir.v1",
     }
+    new_target_support_schema_ids = {
+        "axiom://schema/axiom-target-support-v1",
+    }
     new_quality_schema_ids = {
         "axiom://schema/axiom-quality-policy-v1",
         "axiom://schema/axiom-quality-report-v1",
@@ -208,15 +211,25 @@ def main() -> int:
         "axiom://schema/axiom-lockfile-v2",
         "axiom://schema/axiom-package-resolution-v1",
     }
-    new_public_schema_ids = new_package_trust_ids | new_main_schema_ids | new_quality_schema_ids
-    new_schema_ids = new_package_trust_ids | new_main_schema_ids | new_package_resolver_ids
+    new_public_schema_ids = (
+        new_package_trust_ids
+        | new_main_schema_ids
+        | new_quality_schema_ids
+        | new_target_support_schema_ids
+    )
+    new_schema_ids = (
+        new_package_trust_ids
+        | new_main_schema_ids
+        | new_package_resolver_ids
+        | new_target_support_schema_ids
+    )
     modified_schema_ids = {
         "axiom://schema/axiom-build-lowering-evidence-v1",
         "axiom://schema/axiom.stage1.command",
         "axiom://schema/axiom.stage1.v1",
     }
     assert len(baseline_ids) == 52, "accepted baseline must remain the frozen 52-surface ratchet"
-    assert len(current_ids) == 66, "current contract must include package trust, quality, Provider ABI, Semantic MIR, runtime lifecycle, persistent LSP, and package resolver schemas"
+    assert len(current_ids) == 67, "current contract must include package trust, quality, Provider ABI, Semantic MIR, runtime lifecycle, target support, persistent LSP, and package resolver schemas"
     assert set(baseline_ids) < set(current_ids)
     assert set(current_ids) - set(baseline_ids) == new_public_schema_ids | new_package_resolver_ids
     assert current_payload["contract_version"] == "0.4.0"
@@ -240,7 +253,7 @@ def main() -> int:
     assert canonical.returncode == 0, canonical.stdout + canonical.stderr
     canonical_report = json.loads(canonical.stdout)
     assert canonical_report["summary"] == {
-        "additive": 14,
+        "additive": 15,
         "breaking": 8,
         "compatible": 0,
         "deprecated": 0,
