@@ -11,12 +11,14 @@ pub const DEFAULT_MAX_REGISTRY_BODY_BYTES: usize = 8 * 1024 * 1024;
 pub const MAX_PACKAGE_ARCHIVE_BODY_BYTES: usize = 64 * 1024 * 1024;
 pub const DEFAULT_MAX_HTTP_HEADER_BYTES: usize = 64 * 1024;
 pub const MAX_REGISTRY_URL_BYTES: usize = 4_096;
+pub const DEFAULT_REGISTRY_OPERATION_TIMEOUT: Duration = Duration::from_secs(60);
 
 #[derive(Clone, Debug)]
 pub struct RegistryClient {
     max_body_bytes: usize,
     max_header_bytes: usize,
     timeout: Duration,
+    operation_timeout: Duration,
 }
 
 impl Default for RegistryClient {
@@ -31,6 +33,7 @@ impl RegistryClient {
             max_body_bytes,
             max_header_bytes: DEFAULT_MAX_HTTP_HEADER_BYTES,
             timeout: Duration::from_secs(5),
+            operation_timeout: DEFAULT_REGISTRY_OPERATION_TIMEOUT,
         }
     }
 
@@ -39,17 +42,47 @@ impl RegistryClient {
             max_body_bytes,
             max_header_bytes,
             timeout,
+            operation_timeout: DEFAULT_REGISTRY_OPERATION_TIMEOUT,
         }
+    }
+
+    /// Set the maximum wall-clock time shared by a package operation's
+    /// registry fetches. Individual requests remain capped by `timeout`.
+    pub fn with_operation_timeout(mut self, timeout: Duration) -> Self {
+        self.operation_timeout = timeout;
+        self
     }
 
     pub const fn max_body_bytes(&self) -> usize {
         self.max_body_bytes
     }
 
+    /// Create the absolute deadline to share across all registry fetches in
+    /// one package operation.
+    pub fn operation_deadline(&self) -> Result<Instant, RegistryClientError> {
+        Instant::now()
+            .checked_add(self.operation_timeout)
+            .ok_or_else(|| RegistryClientError::Io {
+                context: "configure registry operation deadline".to_owned(),
+                message: "registry operation timeout exceeds the platform clock range".to_owned(),
+            })
+    }
+
     /// Fetch a registry index, trust document, manifest, or other bounded
     /// metadata body. The client's configured document limit applies.
     pub fn fetch(&self, url: &str) -> Result<Vec<u8>, RegistryClientError> {
         self.fetch_bounded(url, self.max_body_bytes)
+    }
+
+    /// Fetch metadata while honoring an absolute deadline shared by the
+    /// surrounding package operation. The request still has the client's
+    /// shorter per-request timeout when that expires first.
+    pub fn fetch_until(
+        &self,
+        url: &str,
+        deadline: Instant,
+    ) -> Result<Vec<u8>, RegistryClientError> {
+        self.fetch_bounded_until(url, self.max_body_bytes, deadline)
     }
 
     /// Fetch a package archive using the package-format contract's independent
@@ -59,11 +92,30 @@ impl RegistryClient {
         self.fetch_bounded(url, MAX_PACKAGE_ARCHIVE_BODY_BYTES)
     }
 
+    /// Fetch a package archive while honoring an absolute operation deadline.
+    pub fn fetch_package_archive_until(
+        &self,
+        url: &str,
+        deadline: Instant,
+    ) -> Result<Vec<u8>, RegistryClientError> {
+        self.fetch_bounded_until(url, MAX_PACKAGE_ARCHIVE_BODY_BYTES, deadline)
+    }
+
     fn fetch_bounded(
         &self,
         url: &str,
         max_body_bytes: usize,
     ) -> Result<Vec<u8>, RegistryClientError> {
+        self.fetch_bounded_until(url, max_body_bytes, self.operation_deadline()?)
+    }
+
+    fn fetch_bounded_until(
+        &self,
+        url: &str,
+        max_body_bytes: usize,
+        operation_deadline: Instant,
+    ) -> Result<Vec<u8>, RegistryClientError> {
+        let deadline = self.request_deadline(operation_deadline)?;
         if url.len() > MAX_REGISTRY_URL_BYTES || !url.is_ascii() {
             return Err(RegistryClientError::InvalidUrl(
                 "registry URL is non-ASCII or exceeds 4096 bytes".to_owned(),
@@ -73,19 +125,37 @@ impl RegistryClient {
             return Err(RegistryClientError::UnsupportedScheme("https".to_owned()));
         }
         if let Some(path) = url.strip_prefix("file://") {
-            return self.fetch_file(parse_file_path(path)?, max_body_bytes);
+            return self.fetch_file(parse_file_path(path)?, max_body_bytes, deadline);
         }
         if let Some(endpoint) = url.strip_prefix("http://") {
-            return self.fetch_http(parse_http_endpoint(endpoint)?, max_body_bytes);
+            return self.fetch_http(parse_http_endpoint(endpoint)?, max_body_bytes, deadline);
         }
         let scheme = url.split_once(':').map_or("", |(scheme, _)| scheme);
         Err(RegistryClientError::UnsupportedScheme(scheme.to_owned()))
+    }
+
+    fn request_deadline(
+        &self,
+        operation_deadline: Instant,
+    ) -> Result<Instant, RegistryClientError> {
+        let request_deadline =
+            Instant::now()
+                .checked_add(self.timeout)
+                .ok_or_else(|| RegistryClientError::Io {
+                    context: "configure loopback registry deadline".to_owned(),
+                    message: "registry timeout exceeds the platform clock range".to_owned(),
+                })?;
+        if operation_deadline <= Instant::now() {
+            return Err(deadline_error("start registry fetch"));
+        }
+        Ok(operation_deadline.min(request_deadline))
     }
 
     fn fetch_file(
         &self,
         path: PathBuf,
         max_body_bytes: usize,
+        deadline: Instant,
     ) -> Result<Vec<u8>, RegistryClientError> {
         let file = open_registry_file(&path)?;
         let metadata = file
@@ -102,22 +172,18 @@ impl RegistryClient {
                 declared: Some(metadata.len()),
             });
         }
-        read_bounded(file, max_body_bytes)
+        ensure_deadline(deadline, "read registry file")?;
+        let bytes = read_bounded(file, max_body_bytes)?;
+        ensure_deadline(deadline, "read registry file")?;
+        Ok(bytes)
     }
 
     fn fetch_http(
         &self,
         endpoint: HttpEndpoint,
         max_body_bytes: usize,
+        deadline: Instant,
     ) -> Result<Vec<u8>, RegistryClientError> {
-        let started_at = Instant::now();
-        let deadline =
-            started_at
-                .checked_add(self.timeout)
-                .ok_or_else(|| RegistryClientError::Io {
-                    context: "configure loopback registry deadline".to_owned(),
-                    message: "registry timeout exceeds the platform clock range".to_owned(),
-                })?;
         let connect_timeout = remaining_http_time(deadline, "connect to loopback registry")?;
         let mut stream = TcpStream::connect_timeout(&endpoint.address, connect_timeout)
             .map_err(|error| io_error("connect to loopback registry", error))?;
@@ -223,14 +289,25 @@ impl RegistryClient {
     }
 }
 
+fn deadline_error(context: &str) -> RegistryClientError {
+    RegistryClientError::Io {
+        context: context.to_owned(),
+        message: "registry operation deadline elapsed".to_owned(),
+    }
+}
+
+fn ensure_deadline(deadline: Instant, context: &str) -> Result<(), RegistryClientError> {
+    if deadline <= Instant::now() {
+        return Err(deadline_error(context));
+    }
+    Ok(())
+}
+
 fn remaining_http_time(deadline: Instant, context: &str) -> Result<Duration, RegistryClientError> {
     deadline
         .checked_duration_since(Instant::now())
         .filter(|remaining| !remaining.is_zero())
-        .ok_or_else(|| RegistryClientError::Io {
-            context: context.to_owned(),
-            message: "registry HTTP fetch deadline elapsed".to_owned(),
-        })
+        .ok_or_else(|| deadline_error(context))
 }
 
 fn read_before_deadline(
@@ -821,6 +898,17 @@ mod tests {
             "absolute deadline must not restart for each byte: {elapsed:?}"
         );
         handle.join().expect("server joins");
+    }
+
+    #[test]
+    fn expired_shared_operation_deadline_fails_before_connecting() {
+        let deadline = Instant::now() - Duration::from_millis(1);
+        let result = RegistryClient::new(64).fetch_until("http://127.0.0.1:1/index.json", deadline);
+
+        assert!(
+            matches!(result, Err(RegistryClientError::Io { ref message, .. }) if message.contains("operation deadline")),
+            "expired operation deadline must fail closed before transport: {result:?}"
+        );
     }
 
     #[test]
