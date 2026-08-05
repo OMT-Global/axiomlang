@@ -75,9 +75,24 @@ fi
 
 report_log="$harness_tmp/report-paths.txt"
 : >"$report_log"
-PATH="$fake_bin:$PATH" TMPDIR="$run_tmp" AXIOM_FAKE_CARGO_REPORT_LOG="$report_log" bash "$script" &
+
+# Parallel invocations must not share a checkout: the script mutates
+# stage1/examples/compiler_properties/dist (rm -rf + mkdir + chmod fixer),
+# so two concurrent instances racing on one checkout flake the fast-checks
+# lane with transient rm/exec failures and missing report payloads.
+parallel_checkouts=()
+for slot in one two; do
+  iso_checkout="$harness_tmp/parallel-checkout-$slot"
+  mkdir -p "$iso_checkout/stage1/examples"
+  cp -a "$repo_root/stage1/examples/compiler_properties" \
+    "$iso_checkout/stage1/examples/compiler_properties"
+  rm -rf "$iso_checkout/stage1/examples/compiler_properties/dist"
+  parallel_checkouts+=("$iso_checkout")
+done
+
+PATH="$fake_bin:$PATH" TMPDIR="$run_tmp" AXIOM_CHECKOUT_PATH="${parallel_checkouts[0]}" AXIOM_FAKE_CARGO_REPORT_LOG="$report_log" bash "$script" &
 pid_one=$!
-PATH="$fake_bin:$PATH" TMPDIR="$run_tmp" AXIOM_FAKE_CARGO_REPORT_LOG="$report_log" bash "$script" &
+PATH="$fake_bin:$PATH" TMPDIR="$run_tmp" AXIOM_CHECKOUT_PATH="${parallel_checkouts[1]}" AXIOM_FAKE_CARGO_REPORT_LOG="$report_log" bash "$script" &
 pid_two=$!
 wait "$pid_one"
 wait "$pid_two"
