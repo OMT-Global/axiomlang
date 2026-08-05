@@ -3754,7 +3754,7 @@ fn axiom_http_serve_once(bind: String, body: String) -> bool {
     out.push_str("#[allow(dead_code)]\n");
     out.push_str("fn axiom_env_cwd() -> Option<String> {\n");
     out.push_str("    let value = std::env::current_dir().ok().and_then(|path| path.into_os_string().into_string().ok());\n");
-    out.push_str("    axiom_host_audit(\"env_cwd\", \"argc=0\", if value.is_some() { \"ok\" } else { \"error\" });\n");
+    out.push_str("    axiom_host_audit(\"env_cwd\", \"argc=0\".to_string(), if value.is_some() { \"ok\" } else { \"error\" });\n");
     out.push_str("    axiom_capability_audit(\"env_cwd\", \"env\", \"argc=0\", if value.is_some() { \"some\" } else { \"error\" });\n");
     out.push_str("    value\n");
     out.push_str("}\n\n");
