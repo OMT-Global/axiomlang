@@ -4306,6 +4306,66 @@ fn cranelift_backend_lowers_fs_read_to_runtime_exit_code() {
 
 #[cfg(not(windows))]
 #[test]
+fn cranelift_backend_reports_scoped_file_metadata_at_runtime() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("fs-file-metadata");
+    write_fs_file_metadata_project(&project);
+    let runtime_content = "runtime-metadata\n";
+    fs::write(project.join("src/metadata.txt"), runtime_content)
+        .expect("rewrite metadata fixture for runtime");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift file metadata build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    let binary = payload["binary"].as_str().expect("binary path");
+    let audit_log = project.join("native-fs-metadata-audit.jsonl");
+    assert!(
+        !audit_log.exists(),
+        "metadata must not be inspected while building"
+    );
+
+    let run = Command::new(binary)
+        .env("AXIOM_HOST_AUDIT_LOG", &audit_log)
+        .output()
+        .expect("run cranelift file metadata binary");
+    assert_eq!(
+        run.status.code(),
+        Some(runtime_content.len() as i32),
+        "runtime metadata should determine the exit code: stdout={} stderr={}",
+        String::from_utf8_lossy(&run.stdout),
+        String::from_utf8_lossy(&run.stderr)
+    );
+    let audit = fs::read_to_string(&audit_log).expect("read native fs metadata audit log");
+    assert!(audit.contains("\"intrinsic\":\"fs_file_exists\""));
+    assert!(audit.contains("\"intrinsic\":\"fs_file_size\""));
+    assert!(audit.contains("\"outcome\":\"ok\""));
+    assert!(!audit.contains("compile-time"));
+}
+
+#[cfg(not(windows))]
+#[test]
 fn cranelift_backend_denies_fs_read_symlink_escape_at_runtime() {
     if which::which("cc").is_err() {
         eprintln!("skipping cranelift backend smoke test because cc is unavailable");
@@ -15837,6 +15897,63 @@ return 1
 "#,
     )
     .expect("write fs-read main source");
+}
+
+fn write_fs_file_metadata_project(project: &Path) {
+    fs::create_dir_all(project.join("src")).expect("create fs metadata project src");
+    fs::write(
+        project.join("axiom.toml"),
+        r#"[package]
+name = "cranelift-fs-file-metadata"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+fs = true
+net = false
+process = false
+env = false
+clock = false
+crypto = false
+"#,
+    )
+    .expect("write fs metadata manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        r#"version = 1
+
+[[package]]
+name = "cranelift-fs-file-metadata"
+version = "0.1.0"
+source = "path"
+"#,
+    )
+    .expect("write fs metadata lockfile");
+    fs::write(project.join("src/metadata.txt"), "compile-time\n")
+        .expect("write fs metadata fixture");
+    fs::write(
+        project.join("src/main.ax"),
+        r#"import "std/fs.ax"
+
+static METADATA_PATH: string = "src/metadata.txt"
+
+fn main(): int {
+let exists: bool = file_exists(METADATA_PATH)
+let missing: bool = file_exists("src/missing.txt")
+let size: int = file_size(METADATA_PATH)
+let missing_size: int = file_size("src/missing.txt")
+if exists == true && missing == false && size > 0 && missing_size == -1 {
+return size
+} else {
+return 1
+}
+}
+"#,
+    )
+    .expect("write fs metadata source");
 }
 
 fn write_fs_read_symlink_escape_project(project: &Path) {

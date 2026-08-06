@@ -855,6 +855,9 @@ pub(crate) fn eval_call(
     if name == "fs_read" {
         return eval_fs_read_call(args, functions, env, lines);
     }
+    if is_fs_metadata_call(name) {
+        return eval_fs_metadata_call(name, args, functions, env, lines);
+    }
     if is_fs_write_call(name) {
         return eval_fs_write_call(name, args, functions, env, lines);
     }
@@ -3341,6 +3344,38 @@ pub(crate) fn is_fs_write_call(name: &str) -> bool {
             | "fs_remove_dir"
             | "fs_replace"
     )
+}
+
+pub(crate) fn is_fs_metadata_call(name: &str) -> bool {
+    matches!(name, "fs_file_exists" | "fs_file_size")
+}
+
+pub(crate) fn eval_fs_metadata_call(
+    name: &str,
+    args: &[Expr],
+    functions: &HashMap<&str, &Function>,
+    env: &SpikeEnv,
+    lines: &mut Vec<OutputLine>,
+) -> Result<SpikeValue, Diagnostic> {
+    let path = eval_fs_path(name, args, functions, env, lines)?;
+    let metadata = spike_fs_existing_candidate(env, &path)
+        .ok()
+        .flatten()
+        .and_then(|candidate| std::fs::metadata(candidate).ok());
+    match name {
+        "fs_file_exists" => Ok(SpikeValue::Bool(
+            metadata.is_some_and(|metadata| metadata.is_file()),
+        )),
+        "fs_file_size" => Ok(SpikeValue::Int(
+            metadata
+                .filter(|metadata| metadata.is_file())
+                .map(|metadata| i64::try_from(metadata.len()).unwrap_or(-1))
+                .unwrap_or(-1),
+        )),
+        _ => Err(unsupported(&format!(
+            "unsupported cranelift spike filesystem metadata call {name:?}"
+        ))),
+    }
 }
 
 pub(crate) fn eval_fs_read_call(

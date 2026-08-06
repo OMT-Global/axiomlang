@@ -6410,7 +6410,9 @@ fn stdlib_wrapper_capabilities(
         ("time.ax", "now_ms" | "now" | "elapsed_ms" | "sleep") => Some(vec![CapabilityKind::Clock]),
         ("async_time.ax", _) => Some(vec![CapabilityKind::Clock, CapabilityKind::Async]),
         ("env.ax", "get_env") => Some(vec![CapabilityKind::Env]),
-        ("fs.ax", "read_file") => Some(vec![CapabilityKind::Fs]),
+        ("fs.ax", "read_file" | "file_exists" | "file_size") => {
+            Some(vec![CapabilityKind::Fs])
+        }
         ("fs.ax", _) => Some(vec![CapabilityKind::FsWrite]),
         ("process.ax", "run_status") => Some(vec![CapabilityKind::Process]),
         ("crypto_hash.ax", _)
@@ -7020,6 +7022,8 @@ fn imported_stdlib_wrapper_capabilities(
     for import in &program.imports {
         if import.path == "std/fs.ax" {
             capabilities.insert(String::from("read_file"), CapabilityKind::Fs);
+            capabilities.insert(String::from("file_exists"), CapabilityKind::Fs);
+            capabilities.insert(String::from("file_size"), CapabilityKind::Fs);
             for wrapper in [
                 "write_file",
                 "create_file",
@@ -7066,7 +7070,7 @@ fn env_capability_requirement(args: &[syntax::Expr]) -> String {
 
 fn intrinsic_capability(name: &str) -> Option<CapabilityKind> {
     match name {
-        "fs_read" => Some(CapabilityKind::Fs),
+        "fs_read" | "fs_file_exists" | "fs_file_size" => Some(CapabilityKind::Fs),
         "fs_write" | "fs_create" | "fs_append" | "fs_mkdir" | "fs_mkdir_all" | "fs_remove_file"
         | "fs_remove_dir" | "fs_replace" => Some(CapabilityKind::FsWrite),
         "net_resolve" => Some(CapabilityKind::Net),

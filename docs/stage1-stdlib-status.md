@@ -1,11 +1,11 @@
 # Stage1 stdlib status
 
-<!-- capability-ledger:v1 commands=31 stdlib_modules=34 stdlib_functions=301 capabilities=9 backend=cranelift -->
+<!-- capability-ledger:v1 commands=31 stdlib_modules=34 stdlib_functions=303 capabilities=9 backend=cranelift -->
 
 This page maps historical phase-c roadmap issues to the current compiler-owned
 stdlib inventory. Issue numbers are historical evidence, not live issue-state
 or production-qualification claims. The checked capability ledger owns the
-current 34-module and 299-exported-function inventory.
+current 34-module and 301-exported-function inventory.
 
 ## Landed bootstrap floor
 
@@ -20,7 +20,7 @@ current 34-module and 299-exported-function inventory.
 
 | Issue | Current state | Remaining unqualified breadth |
 | --- | --- | --- |
-| #233 fs write-side | `std/fs.ax` exposes read plus create, write, append, replace, mkdir, and removal helpers. Reads require `fs`; mutations require `fs:write`. Direct-native runtime evidence covers bounded, rooted filesystem shapes. | Broader dynamic path/content shapes and production qualification remain outside the proven slice. |
+| #233 fs write-side | `std/fs.ax` exposes scoped `read_file`, `file_exists`, and `file_size` metadata plus create, write, append, replace, mkdir, and removal helpers. Reads and metadata require `fs`; mutations require `fs:write`. Direct-native runtime evidence covers bounded, rooted filesystem shapes and revalidates metadata targets at runtime. | Broader dynamic path/content shapes, binary streams, traversal, atomic updates, temporary resources, and production qualification remain outside the proven slice. |
 | #234 net sockets | `std/net.ax` supports DNS resolution, HTTP client GET exists in `std/http.ax`, `std/net_tcp.ax` exposes blocking loopback TCP listener/stream handles with byte-slice and string read/write/close operations, `std/net_udp.ax` exposes loopback UDP bind/send/recv handles, and `std/async_net.ax` now supports raw TCP listener accept plus owned-string recv/send helpers for connection-per-task services. Raw socket bind and peer literals honor `[capabilities].net.hosts` and `[capabilities].net.ports`. | Borrowed-buffer async recv/send, readiness-based wakeups, and non-loopback service policy remain future runtime work. |
 | #236 crypto | `std/crypto_hash.ax`, `std/crypto_mac.ax`, `std/crypto_rand.ax`, `std/crypto_aead.ax`, and `std/crypto_sign.ax` expose hashing, MAC, randomness, AEAD, and Ed25519 key generation/sign/verify; `std/crypto.ax` re-exports the landed surface. | Broader audited crypto coverage and production qualification remain outside the proven slice. |
 | #240 richer testing | `axiomc test` discovers `*_test.ax`, golden stdout, assertion helpers, and `std/testing.ax` table/property/snapshot helpers; `axiomc bench` is the benchmark harness. | Richer randomized generation and benchmark CI policy remain future harness design work. |

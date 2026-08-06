@@ -22,9 +22,18 @@ pub(crate) fn i64_fs_read_path(
     let Expr::Call { name, args, .. } = expr else {
         return None;
     };
-    if name != "fs_read"
-        && name != "read_file"
-        && name != "std_fs_read_file"
+    if !matches!(
+        name.as_str(),
+        "fs_read"
+            | "read_file"
+            | "std_fs_read_file"
+            | "fs_file_exists"
+            | "file_exists"
+            | "std_fs_file_exists"
+            | "fs_file_size"
+            | "file_size"
+            | "std_fs_file_size"
+    )
         && !static_bindings.fs_read_wrappers.contains(name)
     {
         return None;
@@ -50,6 +59,15 @@ pub(crate) fn i64_fs_read_file_len_expr(
     path_len: usize,
     static_bindings: &I64StaticBindings,
 ) -> Option<CraneliftI64Expr> {
+    i64_fs_file_len_expr("fs_read", path, path_len, static_bindings)
+}
+
+fn i64_fs_file_len_expr(
+    intrinsic: &str,
+    path: &str,
+    path_len: usize,
+    static_bindings: &I64StaticBindings,
+) -> Option<CraneliftI64Expr> {
     if static_bindings.has_fs_write_calls {
         return None;
     }
@@ -65,13 +83,61 @@ pub(crate) fn i64_fs_read_file_len_expr(
         },
     )?;
     i64_audited_fs_expr_with_success(
-        "fs_read",
+        intrinsic,
         path_len,
         None,
         guarded,
         static_bindings,
         CraneliftI64AuditSuccess::NonNegative,
     )
+}
+
+pub(crate) fn lower_i64_fs_metadata_expr(
+    name: &str,
+    args: &[Expr],
+    static_bindings: &I64StaticBindings,
+) -> Option<CraneliftI64Expr> {
+    if !matches!(
+        name,
+        "fs_file_exists"
+            | "file_exists"
+            | "std_fs_file_exists"
+            | "fs_file_size"
+            | "file_size"
+            | "std_fs_file_size"
+    ) {
+        return None;
+    }
+    if static_bindings.has_fs_write_calls {
+        return None;
+    }
+    let path = i64_fs_path(args, static_bindings)?;
+    let package_root = static_bindings.package_root.as_deref()?;
+    let fs_root = static_bindings.fs_root.as_deref()?;
+    let candidate = spike_fs_join_candidates(package_root, fs_root, &path)?
+        .into_iter()
+        .find(|candidate| candidate.starts_with(fs_root))?;
+    let intrinsic = if matches!(
+        name,
+        "fs_file_exists" | "file_exists" | "std_fs_file_exists"
+    ) {
+        "fs_file_exists"
+    } else {
+        "fs_file_size"
+    };
+    let file_len =
+        i64_fs_file_len_expr(intrinsic, &candidate.display().to_string(), path.len(), static_bindings)?;
+    if intrinsic == "fs_file_exists" {
+        Some(CraneliftI64Expr::ConditionValue(Box::new(
+            CraneliftI64Condition::Compare(CraneliftI64Compare {
+                op: CraneliftI64CompareOp::Ge,
+                lhs: file_len,
+                rhs: CraneliftI64Expr::Literal(0),
+            }),
+        )))
+    } else {
+        Some(file_len)
+    }
 }
 
 pub(crate) fn i64_stmts_have_fs_write_call(
@@ -230,7 +296,18 @@ pub(crate) fn i64_expr_has_fs_write_call(expr: &Expr, static_bindings: &I64Stati
 pub(crate) fn i64_expr_has_fs_read_call(expr: &Expr, static_bindings: &I64StaticBindings) -> bool {
     match expr {
         Expr::Call { name, args, .. } => {
-            matches!(name.as_str(), "fs_read" | "read_file" | "std_fs_read_file")
+            matches!(
+                name.as_str(),
+                "fs_read"
+                    | "read_file"
+                    | "std_fs_read_file"
+                    | "fs_file_exists"
+                    | "file_exists"
+                    | "std_fs_file_exists"
+                    | "fs_file_size"
+                    | "file_size"
+                    | "std_fs_file_size"
+            )
                 || static_bindings.fs_read_wrappers.contains(name)
                 || args
                     .iter()
@@ -717,6 +794,8 @@ pub(crate) fn is_i64_std_fs_shim_wrapper(function: &Function) -> bool {
         (
             "<stdlib>/fs.ax",
             "read_file"
+                | "file_exists"
+                | "file_size"
                 | "write_file"
                 | "create_file"
                 | "append_file"

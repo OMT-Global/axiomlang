@@ -254,7 +254,7 @@ def main() -> int:
     canonical_report = json.loads(canonical.stdout)
     assert canonical_report["summary"] == {
         "additive": 15,
-        "breaking": 8,
+        "breaking": 9,
         "compatible": 0,
         "deprecated": 0,
     }
@@ -262,6 +262,7 @@ def main() -> int:
         "axiom://cli/axiomc",
         "axiom://package/lockfile",
         "axiom://package/manifest",
+        "axiom://schema/axiom.compiler.stdlib_catalog.v1",
         "axiom://schema/axiom.toml",
         "axiom://stdlib/catalog",
     }

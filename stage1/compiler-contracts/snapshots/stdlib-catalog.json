@@ -1157,7 +1157,7 @@
       "module_loading": {
         "kind": "embedded_source",
         "source_path": "stage1/crates/axiomc/src/stdlib.rs",
-        "source_digest": "768bc023c1641fc58a5c3b23141417e8703abd32b513592fd86754317847b22a"
+        "source_digest": "176d0a79bc2a261a8c9c9a4e2a0e0103903338e73a6e9a78ad75b8071f675df8"
       },
       "capabilities": [
         "fs",
@@ -1183,6 +1183,28 @@
           "binding_kind": "provider_contract",
           "provider": {
             "id": "axiom://provider/stage1-v1/fs/create_file",
+            "kind": "declared_provider"
+          }
+        },
+        {
+          "name": "file_exists",
+          "signature": "fn file_exists(path: string): bool",
+          "effect": "capability:fs,fs:write",
+          "binding": "axiom://provider/stage1-v1/fs/file_exists",
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/fs/file_exists",
+            "kind": "declared_provider"
+          }
+        },
+        {
+          "name": "file_size",
+          "signature": "fn file_size(path: string): int",
+          "effect": "capability:fs,fs:write",
+          "binding": "axiom://provider/stage1-v1/fs/file_size",
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/fs/file_size",
             "kind": "declared_provider"
           }
         },
@@ -3763,7 +3785,7 @@
       "symbols": []
     }
   ],
-  "release_digest": "c5e37dcdd84568751838dce6a92324144d2317d5620e5d205b8dc79deef34ceb",
+  "release_digest": "3d590d957613d3679c1467f1ca6b84e9978db7a3bac8dc47bd6ec5d073969dba",
   "rollback_boundary": "stage1/crates/axiomc/src/stdlib.rs remains the bootstrap loader until #1436 qualifies a catalog consumer.",
   "acceptance_boundary": {
     "status": "pending",
