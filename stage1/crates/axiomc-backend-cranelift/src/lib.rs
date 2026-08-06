@@ -82,7 +82,16 @@ struct I64RuntimeRefs {
     lseek: FuncRef,
     close: FuncRef,
     access: FuncRef,
+    #[cfg(windows)]
     system: FuncRef,
+    #[cfg(not(windows))]
+    fork: FuncRef,
+    #[cfg(not(windows))]
+    execv: FuncRef,
+    #[cfg(not(windows))]
+    waitpid: FuncRef,
+    #[cfg(not(windows))]
+    exit: FuncRef,
     fopen: FuncRef,
     fwrite: FuncRef,
     fclose: FuncRef,
@@ -798,14 +807,64 @@ fn emit_i64_exit_object(
         .map_err(|message| {
             CraneliftBackendError::new(format!("declare access import: {message}"))
         })?;
+    #[cfg(windows)]
     let mut system_sig = module.make_signature();
+    #[cfg(windows)]
     system_sig.params.push(AbiParam::new(pointer_type));
+    #[cfg(windows)]
     system_sig.returns.push(AbiParam::new(types::I32));
+    #[cfg(windows)]
     let system_id = module
         .declare_function("system", Linkage::Import, &system_sig)
         .map_err(|message| {
             CraneliftBackendError::new(format!("declare system import: {message}"))
         })?;
+    #[cfg(not(windows))]
+    let fork_id = {
+        let mut sig = module.make_signature();
+        sig.returns.push(AbiParam::new(types::I32));
+        module
+            .declare_function("fork", Linkage::Import, &sig)
+            .map_err(|message| {
+                CraneliftBackendError::new(format!("declare fork import: {message}"))
+            })?
+    };
+    #[cfg(not(windows))]
+    let execv_id = {
+        let mut sig = module.make_signature();
+        sig.params.push(AbiParam::new(pointer_type));
+        sig.params.push(AbiParam::new(pointer_type));
+        sig.returns.push(AbiParam::new(types::I32));
+        module
+            .declare_function("execv", Linkage::Import, &sig)
+            .map_err(|message| {
+                CraneliftBackendError::new(format!("declare execv import: {message}"))
+            })?
+    };
+    #[cfg(not(windows))]
+    let waitpid_id = {
+        let mut sig = module.make_signature();
+        sig.params.push(AbiParam::new(types::I32));
+        sig.params.push(AbiParam::new(pointer_type));
+        sig.params.push(AbiParam::new(types::I32));
+        sig.returns.push(AbiParam::new(types::I32));
+        module
+            .declare_function("waitpid", Linkage::Import, &sig)
+            .map_err(|message| {
+                CraneliftBackendError::new(format!("declare waitpid import: {message}"))
+            })?
+    };
+    #[cfg(not(windows))]
+    let exit_id = {
+        let mut sig = module.make_signature();
+        sig.params.push(AbiParam::new(types::I32));
+        sig.returns.push(AbiParam::new(types::I32));
+        module
+            .declare_function("_exit", Linkage::Import, &sig)
+            .map_err(|message| {
+                CraneliftBackendError::new(format!("declare _exit import: {message}"))
+            })?
+    };
     let mut fopen_sig = module.make_signature();
     fopen_sig.params.push(AbiParam::new(pointer_type));
     fopen_sig.params.push(AbiParam::new(pointer_type));
@@ -994,7 +1053,10 @@ fn emit_i64_exit_object(
                 lseek_id,
                 close_id,
                 access_id,
-                system_id,
+                fork_id,
+                execv_id,
+                waitpid_id,
+                exit_id,
                 fopen_id,
                 fwrite_id,
                 fclose_id,
@@ -1093,7 +1155,16 @@ fn emit_i64_exit_object(
         let lseek_ref = module.declare_func_in_func(lseek_id, builder.func);
         let close_ref = module.declare_func_in_func(close_id, builder.func);
         let access_ref = module.declare_func_in_func(access_id, builder.func);
+        #[cfg(windows)]
         let system_ref = module.declare_func_in_func(system_id, builder.func);
+        #[cfg(not(windows))]
+        let fork_ref = module.declare_func_in_func(fork_id, builder.func);
+        #[cfg(not(windows))]
+        let execv_ref = module.declare_func_in_func(execv_id, builder.func);
+        #[cfg(not(windows))]
+        let waitpid_ref = module.declare_func_in_func(waitpid_id, builder.func);
+        #[cfg(not(windows))]
+        let exit_ref = module.declare_func_in_func(exit_id, builder.func);
         let fopen_ref = module.declare_func_in_func(fopen_id, builder.func);
         let fwrite_ref = module.declare_func_in_func(fwrite_id, builder.func);
         let fclose_ref = module.declare_func_in_func(fclose_id, builder.func);
@@ -1132,7 +1203,16 @@ fn emit_i64_exit_object(
             lseek: lseek_ref,
             close: close_ref,
             access: access_ref,
+            #[cfg(windows)]
             system: system_ref,
+            #[cfg(not(windows))]
+            fork: fork_ref,
+            #[cfg(not(windows))]
+            execv: execv_ref,
+            #[cfg(not(windows))]
+            waitpid: waitpid_ref,
+            #[cfg(not(windows))]
+            exit: exit_ref,
             fopen: fopen_ref,
             fwrite: fwrite_ref,
             fclose: fclose_ref,
@@ -1389,7 +1469,11 @@ fn define_i64_function(
     lseek_id: FuncId,
     close_id: FuncId,
     access_id: FuncId,
-    system_id: FuncId,
+    #[cfg(windows)] system_id: FuncId,
+    #[cfg(not(windows))] fork_id: FuncId,
+    #[cfg(not(windows))] execv_id: FuncId,
+    #[cfg(not(windows))] waitpid_id: FuncId,
+    #[cfg(not(windows))] exit_id: FuncId,
     fopen_id: FuncId,
     fwrite_id: FuncId,
     fclose_id: FuncId,
@@ -1455,7 +1539,16 @@ fn define_i64_function(
         let lseek_ref = module.declare_func_in_func(lseek_id, builder.func);
         let close_ref = module.declare_func_in_func(close_id, builder.func);
         let access_ref = module.declare_func_in_func(access_id, builder.func);
+        #[cfg(windows)]
         let system_ref = module.declare_func_in_func(system_id, builder.func);
+        #[cfg(not(windows))]
+        let fork_ref = module.declare_func_in_func(fork_id, builder.func);
+        #[cfg(not(windows))]
+        let execv_ref = module.declare_func_in_func(execv_id, builder.func);
+        #[cfg(not(windows))]
+        let waitpid_ref = module.declare_func_in_func(waitpid_id, builder.func);
+        #[cfg(not(windows))]
+        let exit_ref = module.declare_func_in_func(exit_id, builder.func);
         let fopen_ref = module.declare_func_in_func(fopen_id, builder.func);
         let fwrite_ref = module.declare_func_in_func(fwrite_id, builder.func);
         let fclose_ref = module.declare_func_in_func(fclose_id, builder.func);
@@ -1494,7 +1587,16 @@ fn define_i64_function(
             lseek: lseek_ref,
             close: close_ref,
             access: access_ref,
+            #[cfg(windows)]
             system: system_ref,
+            #[cfg(not(windows))]
+            fork: fork_ref,
+            #[cfg(not(windows))]
+            execv: execv_ref,
+            #[cfg(not(windows))]
+            waitpid: waitpid_ref,
+            #[cfg(not(windows))]
+            exit: exit_ref,
             fopen: fopen_ref,
             fwrite: fwrite_ref,
             fclose: fclose_ref,
@@ -5796,22 +5898,53 @@ fn emit_i64_process_status_expr(
     let access_result = builder.inst_results(access_call)[0];
 
     let missing_block = builder.create_block();
+    #[cfg(windows)]
     let system_block = builder.create_block();
+    #[cfg(not(windows))]
+    let fork_block = builder.create_block();
+    #[cfg(not(windows))]
+    let child_block = builder.create_block();
+    #[cfg(not(windows))]
+    let dispatch_block = builder.create_block();
+    #[cfg(not(windows))]
+    let wait_block = builder.create_block();
     let normalize_block = builder.create_block();
     let merge_block = builder.create_block();
+    #[cfg(windows)]
+    builder.append_block_param(normalize_block, types::I32);
+    #[cfg(not(windows))]
     builder.append_block_param(normalize_block, types::I32);
     builder.append_block_param(merge_block, types::I64);
 
     let access_failed = builder.ins().icmp_imm(IntCC::NotEqual, access_result, 0);
-    builder
-        .ins()
-        .brif(access_failed, missing_block, &[], system_block, &[]);
+    builder.ins().brif(
+        access_failed,
+        missing_block,
+        &[],
+        {
+            #[cfg(windows)]
+            {
+                system_block
+            }
+            #[cfg(not(windows))]
+            {
+                fork_block
+            }
+        },
+        &[],
+    );
 
+    #[cfg(windows)]
     builder.switch_to_block(system_block);
+    #[cfg(windows)]
     builder.seal_block(system_block);
+    #[cfg(windows)]
     let system_call = builder.ins().call(runtime_refs.system, &[command_ptr]);
+    #[cfg(windows)]
     let status = builder.inst_results(system_call)[0];
+    #[cfg(windows)]
     let system_failed = builder.ins().icmp_imm(IntCC::SignedLessThan, status, 0);
+    #[cfg(windows)]
     builder.ins().brif(
         system_failed,
         missing_block,
@@ -5820,12 +5953,84 @@ fn emit_i64_process_status_expr(
         &[BlockArg::Value(status)],
     );
 
+    #[cfg(not(windows))]
+    {
+        // The previous direct-native path called `system`, which reparsed the
+        // executable as shell source. Fork/execv keeps the executable as one
+        // argv element and therefore gives process_status the same no-shell
+        // contract as the generated Rust backend.
+        builder.switch_to_block(fork_block);
+        builder.seal_block(fork_block);
+        let pid = builder.ins().call(runtime_refs.fork, &[]);
+        let pid = builder.inst_results(pid)[0];
+        let fork_failed = builder.ins().icmp_imm(IntCC::SignedLessThan, pid, 0);
+        let is_child = builder.ins().icmp_imm(IntCC::Equal, pid, 0);
+        builder
+            .ins()
+            .brif(fork_failed, missing_block, &[], dispatch_block, &[]);
+
+        builder.switch_to_block(dispatch_block);
+        builder.seal_block(dispatch_block);
+        builder
+            .ins()
+            .brif(is_child, child_block, &[], wait_block, &[]);
+
+        builder.switch_to_block(child_block);
+        builder.seal_block(child_block);
+        let argv_slot =
+            builder.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 16, 0));
+        builder.ins().stack_store(command_ptr, argv_slot, 0);
+        let null = builder.ins().iconst(types::I64, 0);
+        builder.ins().stack_store(null, argv_slot, 8);
+        let argv_ptr = builder.ins().stack_addr(types::I64, argv_slot, 0);
+        let exec_call = builder
+            .ins()
+            .call(runtime_refs.execv, &[command_ptr, argv_ptr]);
+        let _ = builder.inst_results(exec_call)[0];
+        let exit_code = builder.ins().iconst(types::I32, 127);
+        builder.ins().call(runtime_refs.exit, &[exit_code]);
+        builder.ins().jump(missing_block, &[]);
+
+        builder.switch_to_block(wait_block);
+        builder.seal_block(wait_block);
+        let status_slot =
+            builder.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 4, 0));
+        let status_ptr = builder.ins().stack_addr(types::I64, status_slot, 0);
+        let options = builder.ins().iconst(types::I32, 0);
+        let wait_call = builder
+            .ins()
+            .call(runtime_refs.waitpid, &[pid, status_ptr, options]);
+        let waited_pid = builder.inst_results(wait_call)[0];
+        let wait_failed = builder.ins().icmp(IntCC::NotEqual, waited_pid, pid);
+        let status = builder.ins().stack_load(types::I32, status_slot, 0);
+        let signaled = builder.ins().band_imm(status, 0x7f);
+        let signaled = builder.ins().icmp_imm(IntCC::NotEqual, signaled, 0);
+        let failed = builder.ins().bor(wait_failed, signaled);
+        builder.ins().brif(
+            failed,
+            missing_block,
+            &[],
+            normalize_block,
+            &[BlockArg::Value(status)],
+        );
+    }
+
     builder.switch_to_block(normalize_block);
     builder.seal_block(normalize_block);
     let status = builder.block_params(normalize_block)[0];
     let status = builder.ins().sextend(types::I64, status);
-    let status_shift = builder.ins().iconst(types::I64, 256);
-    let exit_code = builder.ins().sdiv(status, status_shift);
+    #[cfg(windows)]
+    let exit_code = {
+        let status_shift = builder.ins().iconst(types::I64, 256);
+        builder.ins().sdiv(status, status_shift)
+    };
+    #[cfg(not(windows))]
+    let exit_code = {
+        let status_shift = builder.ins().iconst(types::I64, 8);
+        let status = builder.ins().ushr(status, status_shift);
+        let status_mask = builder.ins().iconst(types::I64, 0xff);
+        builder.ins().band(status, status_mask)
+    };
     builder
         .ins()
         .jump(merge_block, &[BlockArg::Value(exit_code)]);
