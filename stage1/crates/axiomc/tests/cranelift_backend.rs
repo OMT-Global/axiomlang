@@ -7458,7 +7458,7 @@ fn cranelift_backend_rejects_doc_precomputed_output_without_runtime_lowering() {
 
 #[cfg(not(windows))]
 #[test]
-fn cranelift_backend_rejects_cli_precomputed_output_without_runtime_lowering() {
+fn cranelift_backend_lowers_cli_args_at_runtime() {
     if which::which("cc").is_err() {
         eprintln!("skipping cranelift backend smoke test because cc is unavailable");
         return;
@@ -7478,8 +7478,38 @@ fn cranelift_backend_rejects_cli_precomputed_output_without_runtime_lowering() {
         ])
         .output()
         .expect("run axiomc build --backend cranelift");
-    // assert_runtime_lowering_required verifies generated_rust and binary are absent.
-    assert_runtime_lowering_required(&output, "cli-precomputed-output");
+    assert!(
+        output.status.success(),
+        "cranelift std/cli build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    let binary = payload["binary"].as_str().expect("binary path");
+
+    let no_args = Command::new(binary)
+        .output()
+        .expect("run cranelift std/cli binary without args");
+    assert!(
+        no_args.status.success(),
+        "cranelift std/cli binary without args failed: stderr={}",
+        String::from_utf8_lossy(&no_args.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&no_args.stdout), "0\n0\nmissing\n");
+
+    let with_args = Command::new(binary)
+        .args(["alpha", "beta"])
+        .output()
+        .expect("run cranelift std/cli binary with args");
+    assert!(
+        with_args.status.success(),
+        "cranelift std/cli binary with args failed: stderr={}",
+        String::from_utf8_lossy(&with_args.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&with_args.stdout), "2\n2\nalpha\n");
 }
 
 #[cfg(not(windows))]
