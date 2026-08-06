@@ -1454,6 +1454,7 @@
       ],
       "evidenceTier": "static_spike",
       "functions": [
+        "cwd",
         "get_env"
       ],
       "module": "std/env.ax",
@@ -1469,6 +1470,8 @@
       "functions": [
         "append_file",
         "create_file",
+        "file_exists",
+        "file_size",
         "mkdir",
         "mkdir_all",
         "read_file",
@@ -1884,7 +1887,7 @@
     },
     "runtimeAbiRows": 34,
     "schemas": 60,
-    "stdlibFunctions": 301,
+    "stdlibFunctions": 304,
     "stdlibModules": 34,
     "supportedNativeBackend": "cranelift"
   },

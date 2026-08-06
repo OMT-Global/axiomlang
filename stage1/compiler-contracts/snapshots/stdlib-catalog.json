@@ -1132,12 +1132,23 @@
       "module_loading": {
         "kind": "embedded_source",
         "source_path": "stage1/crates/axiomc/src/stdlib.rs",
-        "source_digest": "d1e5afc328dea72918a418669870437ec4552f71495f55d65244d27cab5237ce"
+        "source_digest": "0a60861766769c99230cf199e8c65a1bb721783e9f17adc74a31964b7ff4fe83"
       },
       "capabilities": [
         "env"
       ],
       "symbols": [
+        {
+          "name": "cwd",
+          "signature": "fn cwd(): Option<string>",
+          "effect": "capability:env",
+          "binding": "axiom://provider/stage1-v1/env/cwd",
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/env/cwd",
+            "kind": "declared_provider"
+          }
+        },
         {
           "name": "get_env",
           "signature": "fn get_env(key: string): Option<string>",
@@ -1157,7 +1168,7 @@
       "module_loading": {
         "kind": "embedded_source",
         "source_path": "stage1/crates/axiomc/src/stdlib.rs",
-        "source_digest": "768bc023c1641fc58a5c3b23141417e8703abd32b513592fd86754317847b22a"
+        "source_digest": "176d0a79bc2a261a8c9c9a4e2a0e0103903338e73a6e9a78ad75b8071f675df8"
       },
       "capabilities": [
         "fs",
@@ -1183,6 +1194,28 @@
           "binding_kind": "provider_contract",
           "provider": {
             "id": "axiom://provider/stage1-v1/fs/create_file",
+            "kind": "declared_provider"
+          }
+        },
+        {
+          "name": "file_exists",
+          "signature": "fn file_exists(path: string): bool",
+          "effect": "capability:fs,fs:write",
+          "binding": "axiom://provider/stage1-v1/fs/file_exists",
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/fs/file_exists",
+            "kind": "declared_provider"
+          }
+        },
+        {
+          "name": "file_size",
+          "signature": "fn file_size(path: string): int",
+          "effect": "capability:fs,fs:write",
+          "binding": "axiom://provider/stage1-v1/fs/file_size",
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/fs/file_size",
             "kind": "declared_provider"
           }
         },
@@ -3763,7 +3796,7 @@
       "symbols": []
     }
   ],
-  "release_digest": "c5e37dcdd84568751838dce6a92324144d2317d5620e5d205b8dc79deef34ceb",
+  "release_digest": "fb6f4db3b4c664f2b001edee117ffedae64d07af40eb05563e4ade7a2804758c",
   "rollback_boundary": "stage1/crates/axiomc/src/stdlib.rs remains the bootstrap loader until #1436 qualifies a catalog consumer.",
   "acceptance_boundary": {
     "status": "pending",

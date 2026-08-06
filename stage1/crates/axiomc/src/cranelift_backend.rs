@@ -82,6 +82,7 @@ pub(crate) struct I64StaticBindings {
     map_key_array_string_indexes: HashMap<String, I64MapKeyArrayStringIndex>,
     process_status_wrappers: HashSet<String>,
     env_get_wrappers: HashSet<String>,
+    env_cwd_wrappers: HashSet<String>,
     env_allowed_names: HashSet<String>,
     env_unrestricted: bool,
     time_wrappers: HashSet<String>,
@@ -703,6 +704,18 @@ fn lower_i64_top_level_output_program(
     static_bindings.fs_root = Some(fs_root.to_path_buf());
     static_bindings.env_allowed_names = capabilities.env_vars.iter().cloned().collect();
     static_bindings.env_unrestricted = capabilities.env_unrestricted;
+    static_bindings.env_get_wrappers = program
+        .functions
+        .iter()
+        .filter(|function| function.path == "<stdlib>/env.ax" && function.source_name == "get_env")
+        .map(|function| function.name.clone())
+        .collect();
+    static_bindings.env_cwd_wrappers = program
+        .functions
+        .iter()
+        .filter(|function| function.path == "<stdlib>/env.ax" && function.source_name == "cwd")
+        .map(|function| function.name.clone())
+        .collect();
     static_bindings.net_unrestricted = capabilities.net && capabilities.net_hosts.is_empty();
     static_bindings.net_allowed_hosts = capabilities.net_hosts.iter().cloned().collect();
     static_bindings.fs_read_wrappers = program
@@ -884,6 +897,12 @@ fn lower_i64_exit_program(
         .functions
         .iter()
         .filter(|function| function.path == "<stdlib>/env.ax" && function.source_name == "get_env")
+        .map(|function| function.name.clone())
+        .collect();
+    static_bindings.env_cwd_wrappers = program
+        .functions
+        .iter()
+        .filter(|function| function.path == "<stdlib>/env.ax" && function.source_name == "cwd")
         .map(|function| function.name.clone())
         .collect();
     static_bindings.time_wrappers = program
@@ -1372,6 +1391,7 @@ fn lower_i64_exit_program(
         .collect();
     let process_status_wrappers = &static_bindings.process_status_wrappers;
     let env_get_wrappers = &static_bindings.env_get_wrappers;
+    let env_cwd_wrappers = &static_bindings.env_cwd_wrappers;
     let time_wrappers = &static_bindings.time_wrappers;
     let fs_shim_wrappers = &static_bindings.fs_shim_wrappers;
     let net_shim_wrappers = &static_bindings.net_shim_wrappers;
@@ -1398,6 +1418,7 @@ fn lower_i64_exit_program(
             function.name != main.name
                 && !process_status_wrappers.contains(&function.name)
                 && !env_get_wrappers.contains(&function.name)
+                && !env_cwd_wrappers.contains(&function.name)
                 && !time_wrappers.contains(&function.name)
                 && !fs_shim_wrappers.contains(&function.name)
                 && !net_shim_wrappers.contains(&function.name)
@@ -7626,6 +7647,9 @@ fn lower_i64_runtime_string_option_len_expr(
     if let Some(key) = i64_env_get_key(expr, static_bindings) {
         return i64_env_len_expr(&key, static_bindings);
     }
+    if i64_env_cwd_call(expr, static_bindings) {
+        return i64_env_cwd_len_expr(static_bindings);
+    }
     let Expr::Call {
         name: call_name,
         args,
@@ -11913,6 +11937,14 @@ fn lower_i64_known_bool_intrinsic_condition(
     static_bindings: &I64StaticBindings,
 ) -> Option<CraneliftI64Condition> {
     match name {
+        "fs_file_exists" | "file_exists" | "std_fs_file_exists" => {
+            let value = lower_i64_fs_metadata_expr(name, args, static_bindings)?;
+            Some(CraneliftI64Condition::Compare(CraneliftI64Compare {
+                op: CraneliftI64CompareOp::Ne,
+                lhs: value,
+                rhs: CraneliftI64Expr::Literal(0),
+            }))
+        }
         "string_contains" | "string_starts_with" => {
             let [text, needle] = args else {
                 return None;
@@ -13251,6 +13283,7 @@ fn lower_i64_expr(
             )
             .or_else(|| lower_i64_process_intrinsic_expr(name, args, static_bindings))
             .or_else(|| lower_i64_fs_write_intrinsic_expr(name, args, static_bindings))
+            .or_else(|| lower_i64_fs_metadata_expr(name, args, static_bindings))
             .or_else(|| lower_i64_crypto_random_intrinsic_expr(name, args, static_bindings))
             .or_else(|| {
                 lower_i64_ffi_intrinsic_expr(

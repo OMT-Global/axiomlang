@@ -3983,7 +3983,7 @@ fn effect_for_call(name: &str) -> Option<(&'static str, &'static str, &'static s
             Some(("clock.now", "read", "clock"))
         }
         "clock_sleep_ms" | "sleep" => Some(("clock.sleep", "sleep", "clock")),
-        "env_get" | "get_env" => Some(("env.read", "read", "env")),
+        "env_get" | "get_env" | "env_cwd" | "cwd" => Some(("env.read", "read", "env")),
         "fs_read" | "read_file" => Some(("fs.read", "read", "fs")),
         "fs_write" | "fs_create" | "fs_append" | "fs_mkdir" | "fs_mkdir_all" | "fs_remove_file"
         | "fs_remove_dir" | "fs_replace" | "write_file" | "create_file" | "append_file"
@@ -6427,7 +6427,7 @@ fn capability_for_call(name: &str) -> Option<&'static str> {
     match name {
         "clock_now_ms" | "clock_elapsed_ms" | "clock_sleep_ms" | "now_ms" | "now"
         | "elapsed_ms" | "sleep" => Some("clock"),
-        "env_get" | "get_env" => Some("env"),
+        "env_get" | "get_env" | "env_cwd" | "cwd" => Some("env"),
         "fs_read" | "read_file" => Some("fs"),
         "fs_write" | "fs_create" | "fs_append" | "fs_mkdir" | "fs_mkdir_all" | "fs_remove_file"
         | "fs_remove_dir" | "fs_replace" | "write_file" | "create_file" | "append_file"

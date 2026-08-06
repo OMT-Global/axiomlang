@@ -24,8 +24,16 @@ pub(crate) fn lower_i64_env_option_match_stmt(
     if !matches!(inner.as_ref(), Type::String | Type::Str) {
         return None;
     }
-    let key = i64_env_get_key(expr, static_bindings)?;
-    let env_len = i64_env_len_expr(&key, static_bindings)?;
+    let key = i64_env_get_key(expr, static_bindings);
+    let cwd = i64_env_cwd_call(expr, static_bindings);
+    if key.is_none() && !cwd {
+        return None;
+    }
+    let env_len = if cwd {
+        i64_env_cwd_len_expr(static_bindings)?
+    } else {
+        i64_env_len_expr(key.as_deref()?, static_bindings)?
+    };
     let (some_arm, none_arm) = i64_option_stmt_match_arms(arms)?;
     let mut some_static_bindings = static_bindings.clone();
     if !some_arm.ignore_payloads
@@ -42,11 +50,18 @@ pub(crate) fn lower_i64_env_option_match_stmt(
                     lhs: env_len,
                     rhs: CraneliftI64Expr::Literal(0),
                 }),
-                then_body: vec![CraneliftI64Stmt::WriteEnvValue {
-                    stream: OutputStream::Stdout,
-                    key: key.clone(),
-                    append_newline: true,
-                }],
+                then_body: if cwd {
+                    vec![CraneliftI64Stmt::WriteCwdValue {
+                        stream: OutputStream::Stdout,
+                        append_newline: true,
+                    }]
+                } else {
+                    vec![CraneliftI64Stmt::WriteEnvValue {
+                        stream: OutputStream::Stdout,
+                        key: key.clone()?,
+                        append_newline: true,
+                    }]
+                },
                 else_body: lower_i64_runtime_stmts(
                     &none_arm.body,
                     locals,
@@ -242,17 +257,26 @@ pub(crate) fn lower_i64_env_option_match_value_expr(
     if !matches!(inner.as_ref(), Type::String | Type::Str) {
         return None;
     }
-    let key = i64_env_get_key(matched, static_bindings)?;
+    let key = i64_env_get_key(matched, static_bindings);
+    let cwd = i64_env_cwd_call(matched, static_bindings);
+    if key.is_none() && !cwd {
+        return None;
+    }
     let (some_arm, none_arm) = i64_option_match_arms(arms)?;
     let binding = some_arm
         .bindings
         .first()
         .filter(|binding| binding.as_str() != "_");
-    let env_len = i64_env_len_expr(&key, static_bindings)?;
+    let env_len = if cwd {
+        i64_env_cwd_len_expr(static_bindings)?
+    } else {
+        i64_env_len_expr(key.as_deref()?, static_bindings)?
+    };
     let then_result = lower_i64_env_some_arm_expr(
         &some_arm.expr,
         binding.map(String::as_str),
-        &key,
+        key.as_deref(),
+        cwd,
         local_indexes,
         local_conditions,
         helper_signatures,
@@ -279,7 +303,8 @@ pub(crate) fn lower_i64_env_option_match_value_expr(
 pub(crate) fn lower_i64_env_some_arm_expr(
     expr: &Expr,
     binding: Option<&str>,
-    key: &str,
+    key: Option<&str>,
+    cwd: bool,
     local_indexes: &HashMap<String, usize>,
     local_conditions: &HashMap<String, CraneliftI64Condition>,
     helper_signatures: &HashMap<&str, I64HelperSignature>,
@@ -291,7 +316,11 @@ pub(crate) fn lower_i64_env_some_arm_expr(
         && let [Expr::VarRef { name, .. }] = args.as_slice()
         && name == binding
     {
-        return i64_env_len_expr(key, static_bindings);
+        return if cwd {
+            i64_env_cwd_len_expr(static_bindings)
+        } else {
+            i64_env_len_expr(key?, static_bindings)
+        };
     }
     lower_i64_return_value_expr(
         expr,
@@ -320,6 +349,18 @@ pub(crate) fn i64_env_len_expr(key: &str, static_bindings: &I64StaticBindings) -
     )
 }
 
+pub(crate) fn i64_env_cwd_len_expr(
+    static_bindings: &I64StaticBindings,
+) -> Option<CraneliftI64Expr> {
+    i64_audited_env_expr(
+        "env_cwd",
+        0,
+        CraneliftI64Expr::CwdLen,
+        static_bindings,
+        CraneliftI64AuditSuccess::NonNegative,
+    )
+}
+
 pub(crate) fn i64_env_get_key(expr: &Expr, static_bindings: &I64StaticBindings) -> Option<String> {
     let Expr::Call { name, args, .. } = expr else {
         return None;
@@ -331,6 +372,13 @@ pub(crate) fn i64_env_get_key(expr: &Expr, static_bindings: &I64StaticBindings) 
         return None;
     };
     i64_string_text(key, static_bindings)
+}
+
+pub(crate) fn i64_env_cwd_call(expr: &Expr, static_bindings: &I64StaticBindings) -> bool {
+    let Expr::Call { name, args, .. } = expr else {
+        return false;
+    };
+    args.is_empty() && (name == "env_cwd" || static_bindings.env_cwd_wrappers.contains(name))
 }
 
 pub(crate) fn lower_i64_clock_intrinsic_expr(

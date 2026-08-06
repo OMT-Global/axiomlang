@@ -184,6 +184,13 @@ making Rust module paths canonical; this PR keeps the compiler semantic source
 of truth at the project boundary and refuses to weaken the public/private or
 doctest gates to avoid the ratchet.
 
+The runtime current-directory slice in #1477 adds capability-gated lowering
+across the HIR, direct-native evaluator, host environment lowering, generated
+Rust compatibility path, and native backend hub. Its measured growth is
+recorded in the ceilings below; the next extraction should move the shared
+current-directory lowering into a dedicated host sibling before another
+runtime-host surface grows these files.
+
 The Package Trust v1 runtime adds the target-neutral Ed25519 trust engine in
 `package_trust.rs`, migrates local publication and signed-index operations in
 `registry.rs`, and exposes the operator CLI in `main.rs`. The ceilings below
@@ -250,20 +257,20 @@ matching ceiling in this table in the same PR.
 | `summary.top_file_lines` | 71278 |
 | `stage1/crates/axiomc/src/cranelift_backend.rs` | 20120 |
 | `stage1/crates/axiomc/src/cranelift_backend/static_output_purity.rs` | 282 |
-| `stage1/crates/axiomc/src/cranelift_backend/host_env_proc_clock.rs` | 572 |
+| `stage1/crates/axiomc/src/cranelift_backend/host_env_proc_clock.rs` | 620 |
 | `stage1/crates/axiomc/src/cranelift_backend/host_json_serdes.rs` | 257 |
 | `stage1/crates/axiomc/src/cranelift_backend/intrinsics.rs` | 921 |
-| `stage1/crates/axiomc/src/cranelift_backend/evaluator.rs` | 4212 |
+| `stage1/crates/axiomc/src/cranelift_backend/evaluator.rs` | 4260 |
 | `stage1/crates/axiomc/src/cranelift_backend/host_fs.rs` | 984 |
 | `stage1/crates/axiomc/src/cranelift_backend/host_crypto.rs` | 783 |
 | `stage1/crates/axiomc/src/cranelift_backend/host_net_http.rs` | 1121 |
-| `stage1/crates/axiomc/src/hir.rs` | 5888 |
-| `stage1/crates/axiomc/src/project.rs` | 13560 |
+| `stage1/crates/axiomc/src/hir.rs` | 5904 |
+| `stage1/crates/axiomc/src/project.rs` | 13564 |
 | `stage1/crates/axiomc/src/project/build_contract.rs` | 118 |
 | `stage1/crates/axiomc/src/main.rs` | 11892 |
 | `stage1/crates/axiomc/src/formatter.rs` | 191 |
 | `stage1/crates/axiomc/src/formatter_tests.rs` | 122 |
-| `stage1/crates/axiomc/src/codegen.rs` | 8012 |
+| `stage1/crates/axiomc/src/codegen.rs` | 8020 |
 | `stage1/crates/axiomc/src/syntax.rs` | 6396 |
 | `stage1/crates/axiomc/src/hir/async_runtime.rs` | 188 |
 | `stage1/crates/axiomc/src/hir/capabilities.rs` | 773 |
