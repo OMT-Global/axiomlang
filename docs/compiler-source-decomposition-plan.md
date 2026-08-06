@@ -253,12 +253,12 @@ matching ceiling in this table in the same PR.
 | `stage1/crates/axiomc/src/cranelift_backend/host_env_proc_clock.rs` | 572 |
 | `stage1/crates/axiomc/src/cranelift_backend/host_json_serdes.rs` | 257 |
 | `stage1/crates/axiomc/src/cranelift_backend/intrinsics.rs` | 921 |
-| `stage1/crates/axiomc/src/cranelift_backend/evaluator.rs` | 4212 |
+| `stage1/crates/axiomc/src/cranelift_backend/evaluator.rs` | 4247 |
 | `stage1/crates/axiomc/src/cranelift_backend/host_fs.rs` | 984 |
 | `stage1/crates/axiomc/src/cranelift_backend/host_crypto.rs` | 783 |
 | `stage1/crates/axiomc/src/cranelift_backend/host_net_http.rs` | 1121 |
 | `stage1/crates/axiomc/src/hir.rs` | 5888 |
-| `stage1/crates/axiomc/src/project.rs` | 13560 |
+| `stage1/crates/axiomc/src/project.rs` | 13564 |
 | `stage1/crates/axiomc/src/project/build_contract.rs` | 118 |
 | `stage1/crates/axiomc/src/main.rs` | 11892 |
 | `stage1/crates/axiomc/src/formatter.rs` | 191 |
