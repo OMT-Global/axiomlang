@@ -3850,6 +3850,22 @@ fn lower_expr_with_expected_inner(
                     ty: Type::Option(Box::new(Type::String)),
                 });
             }
+            if name == "env_cwd" {
+                require_capability(ctx.capabilities, CapabilityKind::Env, name, *line, *column)?;
+                if !args.is_empty() {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!("env_cwd expects 0 arguments, got {}", args.len()),
+                    )
+                    .with_span(*line, *column));
+                }
+                return Ok(Expr::Call {
+                    span: SourceSpan::point(*line, *column),
+                    name: name.clone(),
+                    args: Vec::new(),
+                    ty: Type::Option(Box::new(Type::String)),
+                });
+            }
             if name == "crypto_sha256" {
                 require_capability(
                     ctx.capabilities,

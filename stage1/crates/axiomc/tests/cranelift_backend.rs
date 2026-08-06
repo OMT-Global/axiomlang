@@ -8556,6 +8556,70 @@ fn cranelift_backend_runtime_env_match_prints_string_payload_at_runtime() {
     assert!(!present_stdout.contains("build-time-sentinel"));
 }
 
+#[cfg(not(windows))]
+#[test]
+fn cranelift_backend_builds_once_and_reads_cwd_at_each_run() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend cwd smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("cwd-runtime");
+    write_env_cwd_project(&project);
+    let first_cwd = temp.path().join("first-run");
+    let second_cwd = temp.path().join("second-run");
+    fs::create_dir_all(&first_cwd).expect("create first cwd");
+    fs::create_dir_all(&second_cwd).expect("create second cwd");
+    let first_cwd = fs::canonicalize(&first_cwd).expect("canonicalize first cwd");
+    let second_cwd = fs::canonicalize(&second_cwd).expect("canonicalize second cwd");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift cwd build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    let binary = payload["binary"].as_str().expect("binary path");
+    let audit_log = temp.path().join("cwd-audit.jsonl");
+
+    let first = Command::new(binary)
+        .current_dir(&first_cwd)
+        .env("AXIOM_HOST_AUDIT_LOG", &audit_log)
+        .output()
+        .expect("run binary from first cwd");
+    assert!(first.status.success());
+    assert_eq!(String::from_utf8_lossy(&first.stdout), format!("{}\n", first_cwd.display()));
+
+    let second = Command::new(binary)
+        .current_dir(&second_cwd)
+        .env("AXIOM_HOST_AUDIT_LOG", &audit_log)
+        .output()
+        .expect("run binary from second cwd");
+    assert!(second.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&second.stdout),
+        format!("{}\n", second_cwd.display())
+    );
+
+    let audit = fs::read_to_string(&audit_log).expect("read cwd audit log");
+    assert!(audit.contains("\"intrinsic\":\"env_cwd\""), "{audit}");
+    assert!(audit.contains("\"outcome\":\"ok\""), "{audit}");
+}
+
 #[test]
 fn cranelift_backend_rejects_env_denial_before_backend_lowering() {
     let temp = tempfile::tempdir().expect("tempdir");
@@ -16321,6 +16385,25 @@ fn write_env_read_project(project: &Path) {
         "import \"std/env.ax\"\nmatch get_env(\"AXIOM_CRANELIFT_ENV_READ\") {\nSome(value) {\nprint value\n}\nNone {\nprint \"missing value\"\n}\n}\nmatch get_env(\"__AXIOM_CRANELIFT_ENV_MISSING__\") {\nSome(value) {\nprint value\n}\nNone {\nprint \"missing\"\n}\n}\n",
     )
     .expect("write env source");
+}
+
+fn write_env_cwd_project(project: &Path) {
+    fs::create_dir_all(project.join("src")).expect("create cwd project src");
+    fs::write(
+        project.join("axiom.toml"),
+        "[package]\nname = \"cranelift-env-cwd\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = true\nclock = false\ncrypto = false\n",
+    )
+    .expect("write cwd manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        "version = 1\n\n[[package]]\nname = \"cranelift-env-cwd\"\nversion = \"0.1.0\"\nsource = \"path\"\n",
+    )
+    .expect("write cwd lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        "import \"std/env.ax\"\nmatch cwd() {\nSome(value) {\nprint value\n}\nNone {\nprint \"missing\"\n}\n}\n",
+    )
+    .expect("write cwd source");
 }
 
 fn write_env_allowlist_output_project(project: &Path) {

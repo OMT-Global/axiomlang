@@ -1454,6 +1454,7 @@
       ],
       "evidenceTier": "static_spike",
       "functions": [
+        "cwd",
         "get_env"
       ],
       "module": "std/env.ax",
@@ -1886,7 +1887,7 @@
     },
     "runtimeAbiRows": 34,
     "schemas": 60,
-    "stdlibFunctions": 303,
+    "stdlibFunctions": 304,
     "stdlibModules": 34,
     "supportedNativeBackend": "cranelift"
   },

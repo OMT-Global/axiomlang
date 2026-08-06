@@ -852,6 +852,9 @@ pub(crate) fn eval_call(
     if name == "env_get" {
         return eval_env_get_call(args, functions, env, lines);
     }
+    if name == "env_cwd" {
+        return eval_env_cwd_call(args);
+    }
     if name == "fs_read" {
         return eval_fs_read_call(args, functions, env, lines);
     }
@@ -3314,6 +3317,16 @@ pub(crate) fn eval_env_get_call(
         return Ok(spike_option(None));
     }
     Ok(spike_option(env::var(name).ok().map(SpikeValue::Text)))
+}
+
+pub(crate) fn eval_env_cwd_call(args: &[Expr]) -> Result<SpikeValue, Diagnostic> {
+    if !args.is_empty() {
+        return Err(unsupported("env_cwd expects no arguments"));
+    }
+    Ok(spike_option(std::env::current_dir()
+        .ok()
+        .and_then(|path| path.into_os_string().into_string().ok())
+        .map(SpikeValue::Text)))
 }
 
 pub(crate) fn spike_env_name_allowed(env: &SpikeEnv, name: &str) -> bool {

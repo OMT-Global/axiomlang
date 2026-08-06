@@ -59,13 +59,13 @@
       "migration": {
         "action": "Existing stdlib modules and functions remain valid. Consumers adopting the Unicode scalar helpers should use scalar_count for code-point cardinality and scalar_at for bounds-checked scalar access."
       },
-      "signature": "axiom.compiler.stdlib_catalog.v1; catalog_semantic_digest=5ce3d78f5725c3ff1c663090e0ca116d5dff19c9c3b99d7577cc699ad7fe8ec5; modules=34; symbols=303",
+      "signature": "axiom.compiler.stdlib_catalog.v1; catalog_semantic_digest=d120dc235e4ecfc96b512e6c0c2f9d9a24f84dac800d04600c6d0782dd7716ee; modules=34; symbols=304",
       "sources": [
         {
           "path": "stage1/compiler-contracts/snapshots/stdlib-catalog.json",
           "role": "stdlib_catalog",
           "selector": "modules[*].name,symbols[*].signature",
-          "sha256": "365cfd5554c5a86bc15086735c6826e7e8dda6e670e882e8e504d3d9482c8b69"
+          "sha256": "1c1cb5b87d78f8b7ace5db35ceda705231afdc6e60c43c10d0d4293380d5d977"
         }
       ],
       "stability": "experimental",
@@ -95,13 +95,13 @@
           "path": "stage1/compiler-contracts/snapshots/capability-ledger.json",
           "role": "cli_top_level_parity",
           "selector": "commands[*].name",
-          "sha256": "687996cbcdc650ca77a3cd6e8a2493cd4a296e4a71cb51087f5274d796f8581a"
+          "sha256": "d0bc447b9116fc1e9ab918f6cbb2206ad0ec7b102491ef0a55501b142f74a799"
         },
         {
           "path": "stage1/crates/axiomc/src/main.rs",
           "role": "cli_command_graph_parity",
           "selector": "Command and nested command variant names",
-          "sha256": "e5f87856b59f0b8e130997e06f69043fa5434167582a93dbce45078023ea6c67"
+          "sha256": "e08158de6ab9be048749982a377a3888aaaa5b34905a03afe71bea52f042b6e2"
         }
       ],
       "stability": "experimental",
