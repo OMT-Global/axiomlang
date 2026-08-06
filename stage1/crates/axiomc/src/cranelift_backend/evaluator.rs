@@ -2116,7 +2116,13 @@ pub(crate) fn json_serdes_result(value: Result<SpikeValue, String>) -> SpikeValu
 }
 
 pub(crate) fn json_serdes_parse_document(text: &str) -> Result<SpikeValue, String> {
-    let (value, index) = json_serdes_parse_value(text, json_skip_ws(text, 0))?;
+    if text.len() > JSON_MAX_DOCUMENT_BYTES {
+        return Err(format!(
+            "JSON document exceeds {} byte limit",
+            JSON_MAX_DOCUMENT_BYTES
+        ));
+    }
+    let (value, index) = json_serdes_parse_value(text, json_skip_ws(text, 0), 0)?;
     if json_skip_ws(text, index) == text.len() {
         Ok(value)
     } else {
@@ -4186,6 +4192,53 @@ pub(crate) fn render_runtime_panic_message(value: SpikeValue) -> Result<String, 
         SpikeValue::ControlReturn(_) => Err(unsupported(
             "control return cannot be rendered as a panic message",
         )),
+    }
+}
+
+#[cfg(test)]
+mod json_limit_tests {
+    use super::json_serdes_parse_document;
+    use crate::cranelift_backend::{
+        JSON_MAX_COLLECTION_ITEMS, JSON_MAX_DEPTH, JSON_MAX_DOCUMENT_BYTES,
+        JSON_MAX_NUMBER_DIGITS,
+    };
+
+    #[test]
+    fn accepts_nested_json_within_limits() {
+        assert!(json_serdes_parse_document("{\"items\":[1,true,null]}").is_ok());
+    }
+
+    #[test]
+    fn rejects_documents_over_byte_limit() {
+        let document = "x".repeat(JSON_MAX_DOCUMENT_BYTES + 1);
+        let error = json_serdes_parse_document(&document).expect_err("oversized JSON");
+        assert!(error.contains("byte limit"));
+    }
+
+    #[test]
+    fn rejects_excessive_nesting() {
+        let document = "[".repeat(JSON_MAX_DEPTH + 1) + &"]".repeat(JSON_MAX_DEPTH + 1);
+        let error = json_serdes_parse_document(&document).expect_err("deep JSON");
+        assert!(error.contains("level limit"));
+    }
+
+    #[test]
+    fn rejects_excessive_collection_items() {
+        let document = format!(
+            "[{}]",
+            std::iter::repeat_n("0", JSON_MAX_COLLECTION_ITEMS + 1)
+                .collect::<Vec<_>>()
+                .join(",")
+        );
+        let error = json_serdes_parse_document(&document).expect_err("large JSON array");
+        assert!(error.contains("item limit"));
+    }
+
+    #[test]
+    fn rejects_excessive_number_digits() {
+        let document = "1".repeat(JSON_MAX_NUMBER_DIGITS + 1);
+        let error = json_serdes_parse_document(&document).expect_err("large JSON number");
+        assert!(error.contains("digit limit"));
     }
 }
 
