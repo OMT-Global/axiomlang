@@ -79,6 +79,7 @@ full_lib_suite_section="$(
   ' "$workflow"
 )"
 full_lib_suite_linker=$(printf '%s\n' "$full_lib_suite_section" | grep -F 'Ensure Rust linker availability' || true)
+axiomc_bin_suite=$(printf '%s\n' "$full_lib_suite_section" | grep -F -- 'cargo test --manifest-path stage1/Cargo.toml -p axiomc --bin axiomc --features run-native-tests' || true)
 proof_workload_test=$(grep -nF 'bash scripts/ci/run-stage1-proof-test.sh' "$fast_checks_script" || true)
 stdlib_catalog_check=$(grep -nF 'scripts/ci/check-stdlib-catalog.py' "$fast_checks_script" || true)
 stdlib_catalog_regression=$(grep -nF 'scripts/ci/test-check-stdlib-catalog.py' "$fast_checks_script" || true)
@@ -187,6 +188,11 @@ fi
 
 if [[ -z "$runtime_abi_coverage_check" ]]; then
   echo "run-fast-checks must validate the direct-native runtime ABI coverage matrix" >&2
+  exit 1
+fi
+
+if [[ -z "$axiomc_bin_suite" ]]; then
+  echo "fast-checks must execute the axiomc bin target so CLI/help tests cannot disappear from PR CI (#1542)" >&2
   exit 1
 fi
 
