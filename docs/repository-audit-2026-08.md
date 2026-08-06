@@ -98,7 +98,7 @@ number 41, concentrated in dynamic OpenSSL symbol loading
 
 ### 1. CI never ran the `axiomc` bin target — `main` was red under green checks
 
-Tracked as #1542, fixed in #1544.
+Tracked as #1542; fix proposed in #1544 (open, unmerged as of the audit date).
 
 `make stage1-test` failed on `main`:
 
@@ -173,12 +173,6 @@ CI property.
   #1491, #1503, and #1502. The `partial` status is defensible because the target is
   `production_qualified`, but the evidence arrays no longer point at the files that
   implement these surfaces.
-
-### 5. Dead code
-
-`project/module_parse_cache.rs` exports `parse_module_with_cache` and
-`module_parse_cache_key`; neither has callers. `cargo check` reports both. A
-module parse cache was added but never wired in.
 
 ## Readiness, quantified
 
