@@ -66,13 +66,13 @@ trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-# GitHub-hosted and self-hosted runners provide a job-scoped temporary root.
-# Prefer it in Actions because runner cleanup can reclaim nested TMPDIR paths
-# while the compiler subprocess is still producing its JSON report. Keep
-# TMPDIR as the local/test-harness default so the regression cases can inspect
-# and verify the cleanup boundary.
+# Keep the report directory under the checked-out workspace in Actions. The
+# runner fleet may reclaim nested RUNNER_TEMP paths while a long compiler
+# subprocess is still producing its JSON report. Keep TMPDIR as the
+# local/test-harness default so regression cases can inspect the cleanup
+# boundary.
 if [[ "${GITHUB_ACTIONS:-}" == "true" && -n "${RUNNER_TEMP:-}" ]]; then
-  report_parent="$RUNNER_TEMP"
+  report_parent="$repo_root"
 else
   report_parent="${TMPDIR:-/tmp}"
 fi

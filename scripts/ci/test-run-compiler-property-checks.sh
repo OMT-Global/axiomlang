@@ -62,6 +62,18 @@ if find "$run_tmp" -maxdepth 1 -name 'axiom-compiler-property-cranelift*' -print
   exit 1
 fi
 
+action_report_root="$harness_tmp/action-checkout"
+mkdir -p "$action_report_root/stage1/examples/compiler_properties/src"
+for index in $(seq 1 100); do
+  printf 'property fn fake_%s() { }\n' "$index" >>"$action_report_root/stage1/examples/compiler_properties/src/main.ax"
+done
+PATH="$fake_bin:$PATH" TMPDIR="$run_tmp" GITHUB_ACTIONS=true RUNNER_TEMP="$harness_tmp/runner-temp" AXIOM_CHECKOUT_PATH="$action_report_root" bash "$script" >/dev/null
+if find "$action_report_root" -maxdepth 1 -name 'axiom-compiler-property-cranelift*' -print -quit | grep -q .; then
+  echo "Actions-mode compiler property checks must remove workspace report directories after success" >&2
+  find "$action_report_root" -maxdepth 1 -name 'axiom-compiler-property-cranelift*' -print >&2
+  exit 1
+fi
+
 if PATH="$fake_bin:$PATH" TMPDIR="$run_tmp" AXIOM_FAKE_CARGO_JSON=invalid bash "$script" >/dev/null 2>&1; then
   echo "compiler property checks must fail on invalid JSON" >&2
   exit 1
