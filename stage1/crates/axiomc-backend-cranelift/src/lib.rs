@@ -103,6 +103,7 @@ struct I64RuntimeRefs {
     closedir: FuncRef,
     realpath: FuncRef,
     strncmp: FuncRef,
+    pointer_type: cranelift_codegen::ir::Type,
     getaddrinfo: Option<FuncRef>,
     freeaddrinfo: Option<FuncRef>,
     sockets: Option<I64SocketRefs>,
@@ -1251,6 +1252,7 @@ fn emit_i64_exit_object(
                     None
                 }
             },
+            pointer_type: module.target_config().pointer_type(),
             sockets: {
                 #[cfg(not(windows))]
                 {
@@ -1636,6 +1638,7 @@ fn define_i64_function(
                     None
                 }
             },
+            pointer_type: module.target_config().pointer_type(),
             sockets: {
                 #[cfg(not(windows))]
                 {
@@ -3181,6 +3184,7 @@ fn emit_i64_expr(
             builder,
             runtime_refs.realpath,
             runtime_refs.strlen,
+            runtime_refs.pointer_type,
         ),
         I64Expr::StdinLen { max_bytes } => {
             emit_i64_stdin_len_expr(builder, runtime_refs, *max_bytes)
@@ -4325,6 +4329,7 @@ fn emit_i64_cwd_len_expr(
     builder: &mut FunctionBuilder<'_>,
     realpath_ref: FuncRef,
     strlen_ref: FuncRef,
+    pointer_type: cranelift_codegen::ir::Type,
 ) -> Result<cranelift_codegen::ir::Value, CraneliftBackendError> {
     let path_ptr = emit_i64_path_ptr(builder, ".")?;
     let resolved_slot = builder.create_sized_stack_slot(StackSlotData::new(
@@ -4332,7 +4337,7 @@ fn emit_i64_cwd_len_expr(
         I64_REALPATH_BUFFER_BYTES,
         0,
     ));
-    let resolved_ptr = builder.ins().stack_addr(types::I64, resolved_slot, 0);
+    let resolved_ptr = builder.ins().stack_addr(pointer_type, resolved_slot, 0);
     let call = builder.ins().call(realpath_ref, &[path_ptr, resolved_ptr]);
     let value_ptr = builder.inst_results(call)[0];
 
