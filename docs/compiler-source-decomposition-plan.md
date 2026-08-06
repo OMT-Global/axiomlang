@@ -247,7 +247,7 @@ matching ceiling in this table in the same PR.
 | Tracked item | Ceiling |
 | --- | ---: |
 | `summary.top_file_line_share` | 0.5767 |
-| `summary.top_file_lines` | 71173 |
+| `summary.top_file_lines` | 71180 |
 | `stage1/crates/axiomc/src/cranelift_backend.rs` | 20078 |
 | `stage1/crates/axiomc/src/cranelift_backend/static_output_purity.rs` | 282 |
 | `stage1/crates/axiomc/src/cranelift_backend/host_env_proc_clock.rs` | 586 |
@@ -260,7 +260,7 @@ matching ceiling in this table in the same PR.
 | `stage1/crates/axiomc/src/hir.rs` | 5888 |
 | `stage1/crates/axiomc/src/project.rs` | 13560 |
 | `stage1/crates/axiomc/src/project/build_contract.rs` | 118 |
-| `stage1/crates/axiomc/src/main.rs` | 11885 |
+| `stage1/crates/axiomc/src/main.rs` | 11892 |
 | `stage1/crates/axiomc/src/formatter.rs` | 191 |
 | `stage1/crates/axiomc/src/formatter_tests.rs` | 122 |
 | `stage1/crates/axiomc/src/codegen.rs` | 7956 |
