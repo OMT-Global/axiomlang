@@ -27,9 +27,10 @@ use axiomc::package_trust::{
 use axiomc::project::{
     BuildOptions, BuildOutput, CheckOptions, RunLimits, RunOptions, TestOptions, TestOutput,
     build_project_with_options, capability_sbom, check_project_with_options,
-    documentation_packages, list_project_tests_with_options, package_graph_metadata,
-    project_capabilities, run_project_report_with_limits, run_project_report_with_options,
-    run_project_tests_with_options, run_project_with_options, trace_provenance,
+    documentation_packages, inspect_build_cache, list_project_tests_with_options,
+    package_graph_metadata, project_capabilities, run_project_report_with_limits,
+    run_project_report_with_options, run_project_tests_with_options, run_project_with_options,
+    trace_provenance,
 };
 use axiomc::registry::{
     PublishOptions, RegistryIndexOptions, RegistryServeOptions, load_registry_index,
@@ -135,6 +136,16 @@ enum Command {
         /// Resolve the build using only local path graph data and no network access.
         #[arg(long)]
         offline: bool,
+    },
+    /// Inspect or remove compiler cache artifacts for a stage1 package/workspace.
+    Cache {
+        path: PathBuf,
+        /// Emit an axiom.stage1.v1 JSON envelope for agent/tool consumption.
+        #[arg(long)]
+        json: bool,
+        /// Remove only compiler-owned cache metadata, generated source, and Cranelift objects.
+        #[arg(long)]
+        clean: bool,
     },
     /// Build and run a stage1 package through the default direct-native backend.
     Run {
@@ -758,6 +769,24 @@ fn main() {
                 Err(error) => print_error("build", error, false),
             }
         }
+        Command::Cache { path, json, clean } => match inspect_build_cache(&path, clean) {
+            Ok(output) if json => print_json_output_or_error(
+                "cache",
+                &json_contract::cache_success(&path, &output),
+                0,
+            ),
+            Ok(output) => {
+                println!(
+                    "cache: {} entries={} bytes={} removed={}",
+                    if clean { "cleaned" } else { "inspected" },
+                    output.entries.len(),
+                    output.bytes_after,
+                    output.removed
+                );
+                0
+            }
+            Err(error) => print_error("cache", error, json),
+        },
         Command::Run {
             path,
             json,
