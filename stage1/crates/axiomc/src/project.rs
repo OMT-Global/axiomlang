@@ -8,9 +8,9 @@ use crate::hir;
 use crate::lockfile::{ParsedLockfile, load_lockfile, validate_lockfile};
 use crate::manifest::{
     BuildSection, CapabilityConfig, CapabilityDescriptor, CapabilityKind, Manifest, PackageSection,
-    ProcessCommandPolicy, RuntimeConfig, TestKind, binary_path_for_target, capability_descriptors,
-    entry_path, generated_rust_path, load_manifest, manifest_path, out_dir_path,
-    parse_manifest_exact,
+    ProcessCommandPolicy, RuntimeConfig, TestKind, binary_path, binary_path_for_target,
+    capability_descriptors, entry_path, generated_rust_path, load_manifest, manifest_path,
+    out_dir_path, parse_manifest_exact,
 };
 use crate::mir;
 use crate::package_archive::{ArchiveLimits, parse_archive};
@@ -346,6 +346,25 @@ pub enum BuildCacheStatus {
     Miss,
 }
 
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct BuildCacheEntry {
+    pub package: String,
+    pub package_root: String,
+    pub path: String,
+    pub kind: String,
+    pub bytes: u64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct BuildCacheOutput {
+    pub project: String,
+    pub clean: bool,
+    pub entries: Vec<BuildCacheEntry>,
+    pub bytes_before: u64,
+    pub bytes_after: u64,
+    pub removed: usize,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct ListedTest {
     pub package_root: String,
@@ -639,6 +658,81 @@ pub fn build_project_with_options(
     let project_root = canonicalize_existing_path(&normalize_path(project_root), "project root")?;
     let graph = load_package_graph(&project_root)?;
     build_project_with_graph(&project_root, &graph, options)
+}
+
+pub fn inspect_build_cache(
+    project_root: &Path,
+    clean: bool,
+) -> Result<BuildCacheOutput, Diagnostic> {
+    let project_root = canonicalize_existing_path(&normalize_path(project_root), "project root")?;
+    let graph = load_package_graph(&project_root)?;
+    let mut entries = Vec::new();
+    for package_root in workspace_package_roots(&graph, &project_root, None)? {
+        let package = graph.context(&package_root)?;
+        let package_name = package
+            .manifest
+            .package
+            .as_ref()
+            .map(|section| section.name.clone())
+            .ok_or_else(|| {
+                Diagnostic::new(
+                    "cache",
+                    format!("package {} is missing package metadata", package_root.display()),
+                )
+            })?;
+        let generated_rust = generated_rust_path(&package_root, &package.manifest);
+        let binary = binary_path(&package_root, &package.manifest);
+        let cache_files = [
+            (build_cache_path(&generated_rust), "metadata"),
+            (binary.with_extension("cranelift.o"), "object"),
+            (generated_rust, "generated_source"),
+        ];
+        for (path, kind) in cache_files {
+            let metadata = match fs::symlink_metadata(&path) {
+                Ok(metadata) if metadata.file_type().is_file() => metadata,
+                Ok(_) => continue,
+                Err(error) if error.kind() == ErrorKind::NotFound => continue,
+                Err(error) => {
+                    return Err(Diagnostic::new(
+                        "cache",
+                        format!("failed to inspect cache artifact {}: {error}", path.display()),
+                    )
+                    .with_path(path.display().to_string()));
+                }
+            };
+            entries.push(BuildCacheEntry {
+                package: package_name.clone(),
+                package_root: package_root.display().to_string(),
+                path: path.display().to_string(),
+                kind: kind.to_string(),
+                bytes: metadata.len(),
+            });
+        }
+    }
+    entries.sort_by(|left, right| left.path.cmp(&right.path));
+    let bytes_before = entries.iter().map(|entry| entry.bytes).sum();
+    let mut removed = 0;
+    if clean {
+        for entry in &entries {
+            fs::remove_file(&entry.path).map_err(|error| {
+                Diagnostic::new(
+                    "cache",
+                    format!("failed to remove cache artifact {}: {error}", entry.path),
+                )
+                .with_path(entry.path.clone())
+            })?;
+            removed += 1;
+        }
+        entries.clear();
+    }
+    Ok(BuildCacheOutput {
+        project: project_root.display().to_string(),
+        clean,
+        entries,
+        bytes_before,
+        bytes_after: if clean { 0 } else { bytes_before },
+        removed,
+    })
 }
 
 fn build_project_with_graph(
@@ -12146,6 +12240,52 @@ return async_serve_route(1, "/", "ok", 1)
             ),
             "project-local cache metadata must not override trusted input fields"
         );
+    }
+
+    #[test]
+    fn inspect_build_cache_reports_and_cleans_only_compiler_cache_artifacts() {
+        let dir = tempdir().unwrap_or_else(|err| panic!("tempdir: {err}"));
+        let root = dir.path();
+        fs::create_dir_all(root.join("src")).expect("create src");
+        fs::write(
+            root.join("axiom.toml"),
+            "[package]\nname = \"cache-report\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n",
+        )
+        .expect("write manifest");
+        let manifest = load_manifest(root).expect("load manifest");
+        fs::write(
+            root.join("axiom.lock"),
+            crate::lockfile::render_lockfile(&manifest).expect("render lockfile"),
+        )
+        .expect("write lockfile");
+        fs::write(root.join("src/main.ax"), "print \"cache report\"\n").expect("write source");
+
+        let out_dir = out_dir_path(root, &manifest);
+        fs::create_dir_all(&out_dir).expect("create dist");
+        let generated_rust = generated_rust_path(root, &manifest);
+        let binary = binary_path(root, &manifest);
+        let object = binary.with_extension("cranelift.o");
+        let cache = build_cache_path(&generated_rust);
+        fs::write(&generated_rust, b"generated").expect("write generated source");
+        fs::write(&object, b"object").expect("write object");
+        fs::write(&cache, b"metadata").expect("write metadata");
+        fs::write(&binary, b"binary").expect("write binary");
+
+        let report = inspect_build_cache(root, false).expect("inspect cache");
+        assert_eq!(report.entries.len(), 3);
+        assert_eq!(report.bytes_before, 23);
+        assert_eq!(report.bytes_after, 23);
+        assert_eq!(report.removed, 0);
+
+        let cleaned = inspect_build_cache(root, true).expect("clean cache");
+        assert_eq!(cleaned.entries.len(), 0);
+        assert_eq!(cleaned.bytes_before, 23);
+        assert_eq!(cleaned.bytes_after, 0);
+        assert_eq!(cleaned.removed, 3);
+        assert!(!generated_rust.exists());
+        assert!(!object.exists());
+        assert!(!cache.exists());
+        assert!(binary.exists(), "cache clean must preserve the binary");
     }
 
     #[cfg(not(windows))]

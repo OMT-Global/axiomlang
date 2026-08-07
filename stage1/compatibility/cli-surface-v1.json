@@ -4,6 +4,7 @@
   "command_paths": [
     "bench",
     "build",
+    "cache",
     "caps",
     "caps diff",
     "check",
