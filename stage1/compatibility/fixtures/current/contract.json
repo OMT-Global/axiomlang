@@ -738,6 +738,21 @@
       "version": "0.1.0"
     },
     {
+      "id": "axiom://schema/axiom-stage1-parser-fuzz-v1",
+      "kind": "schema",
+      "signature": "published schema id=https://axiom.omt.global/schemas/axiom-stage1-parser-fuzz-v1.schema.json; semantic_digest=98c8168ff0485458d261a231080a6863f06be10ae89e387eac6c5ea38902e73f; envelope=axiom.stage1.parser_fuzz.v1",
+      "sources": [
+        {
+          "path": "stage1/schemas/axiom-stage1-parser-fuzz-v1.schema.json",
+          "role": "published_schema",
+          "selector": "$id,properties.schema_version.const",
+          "sha256": "b1ca712357d46a145f665ea6ea769102285014811dcfcc0154b5432b9e22d445"
+        }
+      ],
+      "stability": "experimental",
+      "version": "0.1.0"
+    },
+    {
       "id": "axiom://schema/axiom-target-support-v1",
       "kind": "schema",
       "signature": "published schema id=https://axiom.omt.global/schemas/axiom-target-support-v1.schema.json; semantic_digest=2f4e8d6479d32720e5125e3e176722dc9c87d5d1e0e395f65ebd656d20db4bbf; envelope=axiom.target_support.v1",

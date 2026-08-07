@@ -70,6 +70,7 @@ bash "$script_repo_root/scripts/ci/test-check-self-hosting-language-readiness.sh
 bash "$script_repo_root/scripts/ci/test-check-compatibility-v1.sh"
 bash "$script_repo_root/scripts/ci/test-check-package-trust-contract.sh"
 python3 "$script_repo_root/scripts/ci/test-run-stage1-quality-gate.py"
+python3 "$script_repo_root/scripts/ci/test-run-stage1-parser-fuzz.py"
 bash "$script_repo_root/scripts/ci/test-propose-stage1-crap-thresholds.sh"
 python3 "$script_repo_root/scripts/ci/test-run-toolchain-qualification.py"
 python3 "$script_repo_root/scripts/ci/test-report-toolchain-qualification.py"
