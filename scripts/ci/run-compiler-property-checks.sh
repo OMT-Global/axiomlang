@@ -90,7 +90,32 @@ import sys
 payload = json.load(open(sys.argv[1], encoding="utf-8"))
 if payload.get("backend") != "cranelift":
     raise SystemExit(f"compiler property tests must run on cranelift, got {payload.get('backend')!r}")
-for case in payload.get("cases", []):
+cases = payload.get("cases")
+if not isinstance(cases, list) or not cases:
+    raise SystemExit("compiler property test run produced no cases")
+for case in cases:
+    if case.get("kind") != "property":
+        raise SystemExit(f"non-property case in --properties output: {case.get('kind')!r}")
+    if not isinstance(case.get("name"), str) or not case["name"]:
+        raise SystemExit("property case has no stable name")
+    if not isinstance(case.get("duration_ms"), int) or case["duration_ms"] < 0:
+        raise SystemExit(f"property case {case.get('name')} has invalid duration")
+    error = case.get("error") or {}
+    tolerated_unexecuted = (
+        case.get("ok") is False
+        and error.get("code") == "backend.runtime_lowering_required"
+    )
+    if case.get("binary") is None:
+        lowering = case.get("lowering") or {}
+        if not tolerated_unexecuted:
+            raise SystemExit(f"property case {case.get('name')} was not executed")
+        if lowering.get("schema_version") != "axiom.build-lowering-evidence.v1":
+            raise SystemExit(f"unexecuted property case {case.get('name')} lacks bounded lowering evidence schema")
+        if lowering.get("lowering_mode") != "runtime_lowering_required" or lowering.get("execution_mode") != "not_produced":
+            raise SystemExit(f"unexecuted property case {case.get('name')} has inconsistent lowering evidence")
+    elif case.get("ok") is True and case.get("exit_code") != 0:
+        raise SystemExit(f"executed property case {case.get('name')} reported success without exit_code 0")
+for case in cases:
     if case.get("generated_rust") is not None:
         raise SystemExit(f"compiler property case {case.get('name')} used generated Rust")
     if case.get("ok") is False and case.get("error", {}).get("code") != "backend.runtime_lowering_required":

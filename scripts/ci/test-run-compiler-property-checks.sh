@@ -40,8 +40,14 @@ case "$mode" in
     fi
     if [[ "${AXIOM_FAKE_CARGO_JSON:-valid}" == "invalid" ]]; then
       printf '{"backend":"cranelift","ok":false'
+    elif [[ "${AXIOM_FAKE_CARGO_JSON:-valid}" == "missing-binary" ]]; then
+      printf '{"backend":"cranelift","ok":true,"cases":[{"kind":"property","name":"fake_property","generated_rust":null,"duration_ms":1,"binary":null}]}'
+    elif [[ "${AXIOM_FAKE_CARGO_JSON:-valid}" == "lowering-tolerated" ]]; then
+      printf '{"backend":"cranelift","ok":false,"cases":[{"kind":"property","name":"fake_property","generated_rust":null,"duration_ms":1,"binary":null,"ok":false,"error":{"code":"backend.runtime_lowering_required"},"lowering":{"schema_version":"axiom.build-lowering-evidence.v1","lowering_mode":"runtime_lowering_required","execution_mode":"not_produced"}}]}'
+    elif [[ "${AXIOM_FAKE_CARGO_JSON:-valid}" == "lowering-no-evidence" ]]; then
+      printf '{"backend":"cranelift","ok":false,"cases":[{"kind":"property","name":"fake_property","generated_rust":null,"duration_ms":1,"binary":null,"ok":false,"error":{"code":"backend.runtime_lowering_required"}}]}'
     else
-      printf '{"backend":"cranelift","ok":true,"cases":[{"name":"fake_property","generated_rust":null}]}'
+      printf '{"backend":"cranelift","ok":true,"cases":[{"kind":"property","name":"fake_property","generated_rust":null,"duration_ms":1,"binary":"/fake/property-bin"}]}'
     fi
     ;;
   *)
@@ -76,6 +82,21 @@ fi
 
 if PATH="$fake_bin:$PATH" TMPDIR="$run_tmp" AXIOM_FAKE_CARGO_JSON=invalid bash "$script" >/dev/null 2>&1; then
   echo "compiler property checks must fail on invalid JSON" >&2
+  exit 1
+fi
+
+if PATH="$fake_bin:$PATH" TMPDIR="$run_tmp" AXIOM_FAKE_CARGO_JSON=missing-binary bash "$script" >/dev/null 2>&1; then
+  echo "compiler property checks must fail when a property case was not executed" >&2
+  exit 1
+fi
+
+if ! PATH="$fake_bin:$PATH" TMPDIR="$run_tmp" AXIOM_FAKE_CARGO_JSON=lowering-tolerated bash "$script" >/dev/null 2>&1; then
+  echo "compiler property checks must accept tolerated unexecuted cases with bounded lowering evidence" >&2
+  exit 1
+fi
+
+if PATH="$fake_bin:$PATH" TMPDIR="$run_tmp" AXIOM_FAKE_CARGO_JSON=lowering-no-evidence bash "$script" >/dev/null 2>&1; then
+  echo "compiler property checks must fail tolerated failures that lack bounded lowering evidence" >&2
   exit 1
 fi
 
