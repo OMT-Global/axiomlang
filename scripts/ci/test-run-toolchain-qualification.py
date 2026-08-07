@@ -118,6 +118,22 @@ class QualificationTests(unittest.TestCase):
         )
         self.assertEqual(["go"], benchmark["requiredTools"])
 
+        parser_fuzz = next(
+            check
+            for check in toolchain_qualification.DEFAULT_CHECKS
+            if check["id"] == "parser_fuzz_smoke"
+        )
+        self.assertIn("--cases 64", parser_fuzz["command"])
+        self.assertIn("--timeout-ms 2000", parser_fuzz["command"])
+        self.assertIn(
+            '--expected-head "$AXIOM_QUALIFICATION_HEAD_SHA"',
+            parser_fuzz["command"],
+        )
+        self.assertEqual(
+            [".axiom-build/reports/stage1-parser-fuzz.json"],
+            parser_fuzz["artifactPaths"],
+        )
+
     def test_default_plan_exercises_all_cargo_targets_without_include_only_helpers(self):
         full_suite = next(
             check
