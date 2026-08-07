@@ -56,6 +56,7 @@ mod agent_task_cli;
 mod benchmark;
 mod formatter;
 mod formatter_cli;
+mod junit;
 mod intent_ir_cli;
 mod migration_plan_cli;
 mod verification_planner_cli;
@@ -164,6 +165,9 @@ enum Command {
         /// Emit an axiom.stage1.v1 JSON envelope for agent/tool consumption.
         #[arg(long)]
         json: bool,
+        /// Emit deterministic JUnit XML instead of human or JSON output.
+        #[arg(long, conflicts_with_all = ["json", "list"])]
+        junit: bool,
         /// Select the backend used to build executable test cases.
         /// Defaults to the supported direct-native `cranelift` backend.
         #[arg(long, default_value_t = NativeBackendKind::Cranelift)]
@@ -804,6 +808,7 @@ fn main() {
         Command::Test {
             path,
             json,
+            junit,
             backend,
             filter,
             properties,
@@ -859,7 +864,10 @@ fn main() {
                 match run_project_tests_with_options(&path, &options) {
                     Ok(output) => {
                         let ok = output.failed == 0;
-                        if json {
+                        if junit {
+                            print!("{}", junit::render_test_output(&path, &output));
+                            if ok { 0 } else { 1 }
+                        } else if json {
                             print_json_output_or_error(
                                 "test",
                                 &json_contract::test_success(
@@ -9674,6 +9682,23 @@ return "ok"
             }
             other => panic!("expected test command, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn test_accepts_junit_output_and_keeps_it_exclusive() {
+        let cli = Cli::parse_from(["axiomc", "test", ".", "--junit"]);
+        match cli.command {
+            Command::Test { junit, json, list, .. } => {
+                assert!(junit);
+                assert!(!json);
+                assert!(!list);
+            }
+            other => panic!("expected test command, got {other:?}"),
+        }
+
+        let error = Cli::try_parse_from(["axiomc", "test", ".", "--junit", "--json"])
+            .expect_err("JUnit and JSON output must not be combined");
+        assert!(error.to_string().contains("cannot be used with"));
     }
 
     #[test]
