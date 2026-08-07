@@ -13,6 +13,7 @@ from typing import Any
 REPO_ROOT = Path(__file__).resolve().parents[2]
 AXIOMC = ["cargo", "run", "--quiet", "--manifest-path", "stage1/Cargo.toml", "-p", "axiomc", "--"]
 DEFAULT_EXAMPLES = ["hello", "stdlib_time", "stdlib_sync"]
+BENCHMARK_PROJECT = Path("stage1/examples/benchmarks")
 
 
 def run_timed(cmd: list[str]) -> tuple[float, str]:
@@ -61,6 +62,45 @@ def measure(example: str, rounds: int) -> dict[str, Any]:
     return {"project": str(project), "timings": timings}
 
 
+def measure_benchmark_entrypoints(rounds: int) -> dict[str, Any]:
+    """Execute checked-in benchmark entrypoints and retain their structured report."""
+    command = AXIOMC + [
+        "bench",
+        str(BENCHMARK_PROJECT),
+        "--warmup",
+        "1",
+        "--iterations",
+        str(rounds),
+        "--retries",
+        "0",
+        "--json",
+    ]
+    elapsed_ms, stdout = run_timed(command)
+    try:
+        payload = json.loads(stdout)
+    except json.JSONDecodeError as exc:
+        raise SystemExit(f"axiomc bench returned invalid JSON: {exc}") from exc
+
+    if not isinstance(payload, dict):
+        raise SystemExit("axiomc bench returned a non-object report")
+    benches = payload.get("benches")
+    if payload.get("schema_version") != "axiom.stage1.bench.v1":
+        raise SystemExit("axiomc bench returned an unsupported report schema")
+    if not isinstance(benches, list) or not benches:
+        raise SystemExit("axiomc bench discovered no benchmark entrypoints")
+    if payload.get("failed") != 0 or any(
+        not isinstance(bench, dict) or bench.get("ok") is not True for bench in benches
+    ):
+        raise SystemExit("axiomc bench reported a failed benchmark entrypoint")
+
+    return {
+        "project": str(BENCHMARK_PROJECT),
+        "command": command,
+        "elapsed_ms": round(elapsed_ms, 3),
+        "report": payload,
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Record stage1 parser/check/build/run benchmark timings as JSON.")
     parser.add_argument("--rounds", type=int, default=3)
@@ -82,6 +122,7 @@ def main() -> int:
         "rounds": args.rounds,
         "commands": ["parse", "check", "build", "run"],
         "workloads": {example: measure(example, args.rounds) for example in args.examples},
+        "benchmark_entrypoints": measure_benchmark_entrypoints(args.rounds),
     }
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(report, indent=2) + "\n")
