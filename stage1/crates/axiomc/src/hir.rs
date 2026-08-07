@@ -1976,6 +1976,35 @@ fn lower_expr_with_expected_inner(
                     ty: Type::Int,
                 });
             }
+            if name == "io_println" {
+                // Ungated: stdout output is ambient, matching `print`'s
+                // ungated statement form. No capability check.
+                if args.len() != 1 {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!("io_println expects 1 argument, got {}", args.len()),
+                    )
+                    .with_span(*line, *column));
+                }
+                let lowered = lower_expr_with_expected(&args[0], Some(&Type::String), env, ctx)?;
+                if lowered.ty() != &Type::String {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!(
+                            "io_println expects a string argument, got {}",
+                            lowered.ty()
+                        ),
+                    )
+                    .with_span(args[0].line(), args[0].column()));
+                }
+                move_lowered_value(&lowered, env)?;
+                return Ok(Expr::Call {
+                    span: SourceSpan::point(*line, *column),
+                    name: name.clone(),
+                    args: vec![lowered],
+                    ty: Type::Int,
+                });
+            }
             if name == "io_readline" {
                 // Ungated: stdin input is ambient, matching `print` and
                 // `io_eprintln` for stdio access. No capability check.

@@ -1288,6 +1288,18 @@ fn axiom_async_recv<T: Send + 'static>(channel: AxiomChannel<T>) -> AxiomTask<Op
     out.push_str("    }\n");
     out.push_str("}\n\n");
     out.push_str("#[allow(dead_code)]\n");
+    out.push_str("fn axiom_io_println(text: String) -> i64 {\n");
+    out.push_str("    use std::io::Write;\n");
+    out.push_str("    let stdout = std::io::stdout();\n");
+    out.push_str("    let mut handle = stdout.lock();\n");
+    out.push_str(
+        "    match handle.write_all(text.as_bytes()).and_then(|_| handle.write_all(b\"\\n\")) {\n",
+    );
+    out.push_str("        Ok(()) => (text.len() as i64) + 1,\n");
+    out.push_str("        Err(_) => -1,\n");
+    out.push_str("    }\n");
+    out.push_str("}\n\n");
+    out.push_str("#[allow(dead_code)]\n");
     out.push_str("fn axiom_io_readline() -> Option<String> {\n");
     out.push_str("    let stdin = std::io::stdin();\n");
     out.push_str("    let mut handle = stdin.lock();\n");
@@ -6798,6 +6810,9 @@ fn render_expr(expr: &Expr) -> String {
         }
         Expr::Call { name, args, .. } if name == "io_eprintln" => {
             format!("axiom_io_eprintln({})", render_expr(&args[0]))
+        }
+        Expr::Call { name, args, .. } if name == "io_println" => {
+            format!("axiom_io_println({})", render_expr(&args[0]))
         }
         Expr::Call { name, args, .. } if name == "io_readline" => {
             debug_assert!(args.is_empty());

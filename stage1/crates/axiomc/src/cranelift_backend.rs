@@ -134,6 +134,7 @@ pub(crate) struct I64StaticBindings {
     json_stringify_bool_wrappers: HashSet<String>,
     json_stringify_string_wrappers: HashSet<String>,
     io_eprintln_wrappers: HashSet<String>,
+    io_println_wrappers: HashSet<String>,
     io_readline_wrappers: HashSet<String>,
     io_read_to_string_wrappers: HashSet<String>,
     log_wrappers: HashSet<String>,
@@ -1137,6 +1138,12 @@ fn lower_i64_exit_program(
         .functions
         .iter()
         .filter(|function| is_i64_std_io_wrapper(function, "eprintln"))
+        .flat_map(|function| [function.name.clone(), function.source_name.clone()])
+        .collect();
+    static_bindings.io_println_wrappers = program
+        .functions
+        .iter()
+        .filter(|function| is_i64_std_io_wrapper(function, "println"))
         .flat_map(|function| [function.name.clone(), function.source_name.clone()])
         .collect();
     static_bindings.io_readline_wrappers = program
@@ -6265,7 +6272,7 @@ fn lower_i64_eprintln_let_stmts(
     else {
         return None;
     };
-    if !is_i64_compatible_type(ty) || !is_i64_io_eprintln_name(call_name, static_bindings) {
+    if !is_i64_compatible_type(ty) || !is_i64_io_output_name(call_name, static_bindings) {
         if is_i64_log_info_attrs_name(call_name, static_bindings) {
             let [message, attributes] = args.as_slice() else {
                 return None;
@@ -6321,8 +6328,14 @@ fn lower_i64_eprintln_let_stmts(
     let [message] = args.as_slice() else {
         return None;
     };
-    let (mut stmts, written) = lower_i64_eprintln_message_stmts(
+    let stream = if is_i64_io_println_name(call_name, static_bindings) {
+        OutputStream::Stdout
+    } else {
+        OutputStream::Stderr
+    };
+    let (mut stmts, written) = lower_i64_io_output_message_stmts(
         message,
+        stream,
         local_indexes,
         local_conditions,
         helper_signatures,
@@ -6340,8 +6353,9 @@ fn lower_i64_eprintln_let_stmts(
     Some(stmts)
 }
 
-fn lower_i64_eprintln_message_stmts(
+fn lower_i64_io_output_message_stmts(
     message: &Expr,
+    stream: OutputStream,
     local_indexes: &HashMap<String, usize>,
     local_conditions: &HashMap<String, CraneliftI64Condition>,
     helper_signatures: &HashMap<&str, I64HelperSignature>,
@@ -6351,7 +6365,7 @@ fn lower_i64_eprintln_message_stmts(
         let written = i64::try_from(text.len()).ok()?.checked_add(1)?;
         return Some((
             vec![CraneliftI64Stmt::WriteLine {
-                stream: OutputStream::Stderr,
+                stream,
                 text,
             }],
             CraneliftI64Expr::Literal(written),
@@ -6359,7 +6373,7 @@ fn lower_i64_eprintln_message_stmts(
     }
     if let Some((stmts, written)) = lower_i64_dynamic_known_string_line_stmts_with_written(
         message,
-        OutputStream::Stderr,
+        stream,
         local_indexes,
         local_conditions,
         helper_signatures,
@@ -6376,7 +6390,7 @@ fn lower_i64_eprintln_message_stmts(
             let value = CraneliftI64Expr::Local(*local);
             return Some((
                 vec![CraneliftI64Stmt::WriteI64Line {
-                    stream: OutputStream::Stderr,
+                    stream,
                     value: value.clone(),
                 }],
                 CraneliftI64Expr::Binary {
@@ -6390,7 +6404,7 @@ fn lower_i64_eprintln_message_stmts(
             .get(i64_printable_bool_string_key(name).as_str())
             .cloned()
         {
-            return Some(lower_i64_eprintln_bool_message_stmts(cond));
+            return Some(lower_i64_io_output_bool_message_stmts(cond, stream));
         }
     }
     if let Expr::Call { name, args, .. } = message {
@@ -6403,7 +6417,7 @@ fn lower_i64_eprintln_message_stmts(
                 &level,
                 message,
                 Some(attributes),
-                OutputStream::Stderr,
+                stream,
                 local_indexes,
                 local_conditions,
                 helper_signatures,
@@ -6423,7 +6437,7 @@ fn lower_i64_eprintln_message_stmts(
             )?;
             return Some((
                 vec![CraneliftI64Stmt::WriteI64Line {
-                    stream: OutputStream::Stderr,
+                    stream,
                     value: value.clone(),
                 }],
                 CraneliftI64Expr::Binary {
@@ -6444,12 +6458,12 @@ fn lower_i64_eprintln_message_stmts(
                 helper_signatures,
                 static_bindings,
             )?;
-            return Some(lower_i64_eprintln_bool_message_stmts(cond));
+            return Some(lower_i64_io_output_bool_message_stmts(cond, stream));
         }
         if is_i64_json_stringify_string_name(name, static_bindings) {
             return lower_i64_json_stringify_string_line_stmts_with_written(
                 message,
-                OutputStream::Stderr,
+                stream,
                 local_indexes,
                 local_conditions,
                 helper_signatures,
@@ -6460,18 +6474,19 @@ fn lower_i64_eprintln_message_stmts(
     None
 }
 
-fn lower_i64_eprintln_bool_message_stmts(
+fn lower_i64_io_output_bool_message_stmts(
     cond: CraneliftI64Condition,
+    stream: OutputStream,
 ) -> (Vec<CraneliftI64Stmt>, CraneliftI64Expr) {
     (
         vec![CraneliftI64Stmt::If {
             cond: cond.clone(),
             then_body: vec![CraneliftI64Stmt::WriteLine {
-                stream: OutputStream::Stderr,
+                stream,
                 text: String::from("true"),
             }],
             else_body: vec![CraneliftI64Stmt::WriteLine {
-                stream: OutputStream::Stderr,
+                stream,
                 text: String::from("false"),
             }],
         }],
@@ -15420,6 +15435,15 @@ fn is_i64_std_io_wrapper(function: &Function, source_name: &str) -> bool {
 
 fn is_i64_io_eprintln_name(name: &str, static_bindings: &I64StaticBindings) -> bool {
     name == "io_eprintln" || static_bindings.io_eprintln_wrappers.contains(name)
+}
+
+fn is_i64_io_println_name(name: &str, static_bindings: &I64StaticBindings) -> bool {
+    name == "io_println" || static_bindings.io_println_wrappers.contains(name)
+}
+
+fn is_i64_io_output_name(name: &str, static_bindings: &I64StaticBindings) -> bool {
+    is_i64_io_eprintln_name(name, static_bindings)
+        || is_i64_io_println_name(name, static_bindings)
 }
 
 fn is_i64_io_readline_name(name: &str, static_bindings: &I64StaticBindings) -> bool {

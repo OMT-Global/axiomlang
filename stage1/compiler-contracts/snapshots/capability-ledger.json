@@ -1528,6 +1528,7 @@
       "evidenceTier": "static_spike",
       "functions": [
         "eprintln",
+        "println",
         "read_to_string",
         "readline"
       ],
@@ -1887,7 +1888,7 @@
     },
     "runtimeAbiRows": 34,
     "schemas": 60,
-    "stdlibFunctions": 304,
+    "stdlibFunctions": 305,
     "stdlibModules": 34,
     "supportedNativeBackend": "cranelift"
   },
