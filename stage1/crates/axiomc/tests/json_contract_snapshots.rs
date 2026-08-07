@@ -49,6 +49,43 @@ fn cli_json_outputs_match_checked_in_contract_snapshots() {
     }
 }
 
+#[test]
+fn seeded_test_json_reports_bounded_execution_metadata() {
+    let contracts = contract_root();
+    let schema = read_json(&contracts.join("schemas/axiom.stage1.command.schema.json"));
+    let validator = jsonschema::validator_for(&schema).expect("compile JSON contract schema");
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("seeded-test");
+    run_axiomc(&[
+        "new",
+        project.to_str().expect("project path"),
+        "--name",
+        "seeded-test",
+    ]);
+
+    let output = run_axiomc_json(&[
+        "test",
+        project.to_str().expect("project path"),
+        "--json",
+        "--seed",
+        "42",
+        "--retries",
+        "2",
+    ]);
+    assert_payload_matches_schema(&validator, "seeded test", &output);
+    assert_eq!(output["execution"]["seed"], 42);
+    assert_eq!(output["execution"]["max_retries"], 2);
+    let case = output["execution"]["cases"]
+        .as_object()
+        .expect("execution case map")
+        .values()
+        .next()
+        .expect("execution case");
+    assert_eq!(case["attempts"], 1);
+    assert_eq!(case["retries"], 0);
+    assert_eq!(case["flaky"], false);
+}
+
 #[cfg(not(windows))]
 #[test]
 fn cranelift_build_json_validates_against_command_schema() {

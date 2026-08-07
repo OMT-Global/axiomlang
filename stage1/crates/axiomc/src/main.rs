@@ -185,6 +185,12 @@ enum Command {
         list: bool,
         #[arg(short = 'p', long = "package")]
         package: Option<String>,
+        /// Stable base seed passed to each test as AXIOM_TEST_SEED.
+        #[arg(long)]
+        seed: Option<u64>,
+        /// Retry a failed test execution up to N additional attempts.
+        #[arg(long, default_value_t = 0)]
+        retries: usize,
     },
     /// Inspect manifest capability requirements.
     Caps {
@@ -816,6 +822,8 @@ fn main() {
             include_benchmarks,
             list,
             package,
+            seed,
+            retries,
         } => {
             let path = match (path, conformance) {
                 (Some(path), _) => path,
@@ -831,6 +839,8 @@ fn main() {
                 properties_only: properties,
                 conformance,
                 run_limits: None,
+                seed,
+                retries,
             };
             if list {
                 match list_project_tests_with_options(&path, &options) {
@@ -906,6 +916,16 @@ fn main() {
                                     .filter(|case| case.kind == TestKind::Property)
                                     .count();
                                 eprintln!("{passed}/{total} properties passed");
+                            }
+                            if let Some(execution) = &output.execution {
+                                for (case, report) in &execution.cases {
+                                    if report.attempts > 1 {
+                                        eprintln!(
+                                            "  attempts: {} retries: {} flaky: {} ({case})",
+                                            report.attempts, report.retries, report.flaky
+                                        );
+                                    }
+                                }
                             }
                             if ok { 0 } else { 1 }
                         }
@@ -9718,6 +9738,33 @@ return "ok"
         match cli.command {
             Command::Test { backend, .. } => {
                 assert_eq!(backend, NativeBackendKind::Cranelift);
+            }
+            other => panic!("expected test command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_accepts_seed_and_retry_controls() {
+        let cli = Cli::parse_from([
+            "axiomc",
+            "test",
+            ".",
+            "--properties",
+            "--seed",
+            "42",
+            "--retries",
+            "3",
+        ]);
+        match cli.command {
+            Command::Test {
+                properties,
+                seed,
+                retries,
+                ..
+            } => {
+                assert!(properties);
+                assert_eq!(seed, Some(42));
+                assert_eq!(retries, 3);
             }
             other => panic!("expected test command, got {other:?}"),
         }

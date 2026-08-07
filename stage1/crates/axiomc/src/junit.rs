@@ -151,6 +151,7 @@ mod tests {
             skipped: 0,
             kinds: BTreeMap::new(),
             duration_ms: 25,
+            execution: None,
         };
 
         let xml = render_test_output(Path::new("project<&"), &output);

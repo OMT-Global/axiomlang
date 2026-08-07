@@ -148,6 +148,11 @@ property migration has a seed package at `stage1/examples/compiler_properties`;
 capability-policy, and property-clause fixtures through both `axiomc
 check --properties` and `axiomc test --properties` on the direct-native
 Cranelift backend while the full 100-property suite remains tracked by #717.
+For reproducible property fixtures, pass `--seed N`; each case receives a
+stable derived `AXIOM_TEST_SEED` and every execution receives its one-based
+`AXIOM_TEST_ATTEMPT`. `--retries N` reruns failed executions up to `N` additional
+times without changing the seed, and JSON output records the bounded attempt
+count plus whether a case recovered as flaky under an `execution` report.
 The default CLI summary prints
 `passed` / `failed` / `skipped` counts. `axiomc test --list` exposes the same
 discovery pass without building or running the tests; text output emits package,
@@ -214,7 +219,8 @@ backend target contracts, generated-Rust compatibility, and direct-native
 evidence stay separate before the Rust-hosted backend path is removed.
 `axiomc test --json` additionally reports `filter`, `properties_only`,
 property totals, and per-run/per-case `duration_ms` plus `passed` / `failed` /
-`skipped`. Build payloads report the
+`skipped`. When `--seed` or `--retries` is supplied it also reports stable
+per-case execution attempts and flaky recovery metadata. Build payloads report the
 requested Rust target triple when `--target <triple>` is used and report
 `debug: true` when `axiomc build --debug` requests an unoptimized debuginfo build
 

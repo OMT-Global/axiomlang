@@ -464,6 +464,56 @@
         }
       }
     },
+    "testExecutionCase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "attempts",
+        "retries",
+        "flaky"
+      ],
+      "properties": {
+        "attempts": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "retries": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "flaky": {
+          "type": "boolean"
+        }
+      }
+    },
+    "testExecution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "seed",
+        "max_retries",
+        "cases"
+      ],
+      "properties": {
+        "seed": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "max_retries": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "cases": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/testExecutionCase"
+          }
+        }
+      }
+    },
     "testCase": {
       "type": "object",
       "additionalProperties": false,
@@ -1024,6 +1074,9 @@
         },
         "duration_ms": {
           "$ref": "#/$defs/durationMs"
+        },
+        "execution": {
+          "$ref": "#/$defs/testExecution"
         },
         "cases": {
           "type": "array",
