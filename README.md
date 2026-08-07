@@ -1,6 +1,6 @@
 # Axiom
 
-<!-- capability-ledger:v1 commands=31 stdlib_modules=34 stdlib_functions=304 capabilities=9 backend=cranelift -->
+<!-- capability-ledger:v1 commands=31 stdlib_modules=34 stdlib_functions=305 capabilities=9 backend=cranelift -->
 
 Axiom is an agent-native typed intent and semantic construction system. It
 defines what must be true, which effects are allowed, what evidence proves a
@@ -133,7 +133,7 @@ make smoke
 The checked
 [capability ledger](stage1/compiler-contracts/snapshots/capability-ledger.json)
 is the canonical machine-readable inventory. Its compiler-derived counts cover
-31 commands, 34 stdlib modules with 299 exported functions, and 9 manifest
+31 commands, 34 stdlib modules with 300 exported functions, and 9 manifest
 capabilities. These are discovered surfaces, not a production-readiness claim;
 the ledger currently records zero production-qualified rows.
 

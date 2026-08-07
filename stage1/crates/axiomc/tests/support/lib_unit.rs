@@ -7455,6 +7455,23 @@ fn stage1_project_imports_synthetic_stdlib_io_module() {
 }
 
 #[test]
+fn stage1_project_writes_stdout_from_stdlib_io_module() {
+    let dir = tempdir().expect("tempdir");
+    let project = dir.path().join("stdlib-io-stdout-app");
+    create_project(&project, Some("stdlib-io-stdout-app")).expect("create project");
+    let source = "import \"std/io.ax\"\nlet n: int = println(\"hello stdout\")\nprint n > 0\n";
+    fs::write(project.join("src/main.ax"), source).expect("write source");
+
+    let built = build_project(&project).expect("build project");
+    let output = compiled_binary_command(&built.binary)
+        .output()
+        .expect("run compiled binary");
+    assert!(output.status.success());
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "hello stdout\ntrue\n");
+    assert!(output.stderr.is_empty());
+}
+
+#[test]
 #[cfg_attr(not(feature = "run-native-tests"), ignore)]
 fn stage1_project_reads_lines_from_stdlib_io_module() {
     let dir = tempdir().expect("tempdir");
