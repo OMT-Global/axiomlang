@@ -1509,7 +1509,7 @@
       "module_loading": {
         "kind": "embedded_source",
         "source_path": "stage1/crates/axiomc/src/stdlib.rs",
-        "source_digest": "60a831734ea3df3069733921b377777215187dab48e58afe03fb0e9884a3f8e9"
+        "source_digest": "3e1ea308400d76932743bdc0cc14460149a489e8ebfddf62f0cb4dd4643718b5"
       },
       "capabilities": [],
       "symbols": [
@@ -1521,6 +1521,17 @@
           "binding_kind": "provider_contract",
           "provider": {
             "id": "axiom://provider/stage1-v1/io/eprintln",
+            "kind": "declared_provider"
+          }
+        },
+        {
+          "name": "println",
+          "signature": "fn println(text: string): int",
+          "effect": "pure",
+          "binding": "axiom://provider/stage1-v1/io/println",
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/io/println",
             "kind": "declared_provider"
           }
         },
@@ -3796,7 +3807,7 @@
       "symbols": []
     }
   ],
-  "release_digest": "fb6f4db3b4c664f2b001edee117ffedae64d07af40eb05563e4ade7a2804758c",
+  "release_digest": "3b3993c735a00011bb3fec83528f4a824f50662d2107408393016825b546476a",
   "rollback_boundary": "stage1/crates/axiomc/src/stdlib.rs remains the bootstrap loader until #1436 qualifies a catalog consumer.",
   "acceptance_boundary": {
     "status": "pending",
