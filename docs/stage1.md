@@ -1,6 +1,6 @@
 # Stage1 bootstrap
 
-<!-- capability-ledger:v1 commands=31 stdlib_modules=34 stdlib_functions=304 capabilities=9 backend=cranelift -->
+<!-- capability-ledger:v1 commands=31 stdlib_modules=34 stdlib_functions=305 capabilities=9 backend=cranelift -->
 
 The Rust bootstrap compiler in `stage1/` is the supported Axiom toolchain.
 The Python `stage0` interpreter, bytecode compiler, bytecode format, bytecode
@@ -17,7 +17,7 @@ compiler-owned tables and validated by
 `python3 scripts/ci/check-capability-ledger.py --check-docs --json`.
 
 The current inventory contains 31 CLI commands, 34 synthetic standard-library
-modules with 299 exported functions, and 9 manifest capability kinds. Cranelift
+modules with 300 exported functions, and 9 manifest capability kinds. Cranelift
 is the only supported CLI backend. Those counts describe discovered surfaces,
 not production qualification: the ledger currently records zero
 `production_qualified` rows and preserves narrower `direct_runtime`,
@@ -333,7 +333,7 @@ no row is currently production-qualified.
 - Packages: local packages, path dependencies, workspaces, lockfile validation,
   and local registry publication shapes are implemented as bootstrap/static
   evidence. Remote registry resolution remains unsupported.
-- Runtime and stdlib: 34 modules and 299 exported functions are compiler-owned
+- Runtime and stdlib: 34 modules and 300 exported functions are compiler-owned
   surfaces. Direct-runtime rows identify where native execution evidence exists;
   module rows stay partial because evidence covers bounded shapes rather than
   every legal input and composition.
@@ -372,7 +372,7 @@ Current proof points:
 - `stage1/examples/stdlib_crypto_hash` extends AG4.1 with `import "std/crypto_hash.ax"`, bringing `sha256(input)` into scope and staying subject to the importing package's `[capabilities] crypto` flag.
 - `stage1/examples/stdlib_crypto_mac` extends AG4.1 with `import "std/crypto_mac.ax"`, bringing `hmac_sha256(key, message)`, `hmac_sha512(key, message)`, `verify_sha256(tag, key, message)`, `verify_sha512(tag, key, message)`, `constant_time_eq(left, right)`, and `constant_time_eq_u8(left, right)` into scope and staying subject to the importing package's `[capabilities] crypto` flag. `std/crypto.ax` is the umbrella import for the landed hash, MAC, and constant-time comparison helpers.
 - `stage1/examples/stdlib_crypto_random`, `stage1/examples/stdlib_crypto_signature`, and `stage1/examples/stdlib_crypto_aead` extend AG4.1 with checked-in stdlib examples for `random_bytes(...)`/`random_u64()`, Ed25519 signing and verification, and AES-256-GCM seal/open round-trips. They stay subject to the importing package's `[capabilities] crypto` flag and are part of the focused direct-native example smoke.
-- `stage1/examples/stdlib_io` extends AG4.1 with `import "std/io.ax"`, bringing `eprintln(text)`, `readline()`, and `read_to_string()` into scope without any capability opt-in — `std/io.ax` is the first stdlib module not tied to a capability flag, matching the ambient status of the `print` statement.
+- `stage1/examples/stdlib_io` extends AG4.1 with `import "std/io.ax"`, bringing `println(text)`, `eprintln(text)`, `readline()`, and `read_to_string()` into scope without any capability opt-in — `std/io.ax` is the first stdlib module not tied to a capability flag, matching the ambient status of the `print` statement.
 - `stage1/examples/stdlib_json` extends AG4.1 with `import "std/json.ax"`, bringing ungated scalar/string JSON parsing and serialization helpers into scope without waiting for AG2 generics or a first-class JSON value type. It is part of the focused direct-native example smoke.
 - `stage1/examples/stdlib_serdes` adds `import "std/serdes.ax"` with a native `Value` union, `to_json`, `stringify`, and `from_json` coverage for object maps, arrays, scalars, surrogate-pair string escapes, scientific-notation numbers, and trailing whitespace.
 - `stage1/examples/stdlib_outcome` proves the public outcome/result helper surface and is part of the focused direct-native example smoke.
