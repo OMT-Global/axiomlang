@@ -152,7 +152,10 @@ The default CLI summary prints
 `passed` / `failed` / `skipped` counts. `axiomc test --list` exposes the same
 discovery pass without building or running the tests; text output emits package,
 test name, and entry path columns, while `--json` adds stable package
-membership plus golden-output and compile-fail markers for automation.
+membership plus golden-output and compile-fail markers for automation. Use
+`axiomc test <package> --junit` for deterministic JUnit XML suitable for CI
+test-report consumers; cases are ordered by package, name, and entry path, and
+failed cases include escaped diagnostics and stderr.
 Workspace-only roots are supported as long as build/run commands select a
 concrete member package with `-p/--package`.
 
