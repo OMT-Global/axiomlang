@@ -417,6 +417,8 @@ pub struct PackageGraphDependency {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub requested: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub selected_version: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
 }
 
@@ -1865,6 +1867,11 @@ fn package_graph_metadata_with_graph(
                     package_id: graph.package_id(dependency_root).map(str::to_owned),
                     source_kind: edge.map(|edge| edge.source_kind.clone()),
                     requested: edge.map(|edge| edge.requested.clone()),
+                    selected_version: dependency
+                        .manifest
+                        .package
+                        .as_ref()
+                        .map(|package| package.version.clone()),
                     reason: edge.map(|edge| edge.reason.clone()),
                 })
             })

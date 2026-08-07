@@ -66,8 +66,8 @@ Each package node has:
 - Registry dependency data, when applicable: canonical registry/source
   identity, namespace, selected version, archive digest, publisher/signers,
   trust decision, and cache or vendor evidence.
-- Resolver decisions: requested constraint, selected package ID, source kind,
-  stable reason, and candidate/yank disposition.
+- Resolver decisions: requested constraint, explicit selected version and
+  package ID, source kind, stable reason, and candidate/yank disposition.
 
 The root package appears first. Remaining package nodes are sorted by locked
 source and then package name so independent implementations can compare graphs

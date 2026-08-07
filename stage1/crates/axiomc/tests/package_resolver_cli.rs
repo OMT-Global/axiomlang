@@ -1358,6 +1358,15 @@ fn fetch_cache_vendor_and_offline_build_fail_closed_round_trip() {
         .find(|package| package["name"] == "core")
         .expect("core graph package");
     assert_eq!(core["source"], "registry:fixture/axiom/core");
+    assert_eq!(
+        app["dependencies"]
+            .as_array()
+            .expect("app dependencies")
+            .iter()
+            .find(|dependency| dependency["name"] == "core")
+            .expect("registry dependency")["selected_version"],
+        "1.2.3"
+    );
     assert!(core["trust"].is_object(), "registry package exposes trust");
     assert_eq!(
         core["materialization"]["package_trust_verified"], true,
