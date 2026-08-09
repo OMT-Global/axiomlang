@@ -144,6 +144,40 @@ jobs:
           --evidence artifacts/toolchain-qualification/toolchain-qualification.json
           --expected-head-sha '${{ github.sha }}'
 
+      - name: Collect readiness reports
+        if: always()
+        run: |
+          readiness_dir="artifacts/readiness"
+          mkdir -p "$readiness_dir"
+
+          run_report() {
+            local name="$1"
+            shift
+            set +e
+            "$@" >"$readiness_dir/$name.json" 2>"$readiness_dir/$name.stderr"
+            local status=$?
+            set -e
+            printf '%s\n' "$status" >"$readiness_dir/$name.exit-code"
+          }
+
+          # These gates intentionally report unmet roadmap blockers as red
+          # evidence. Their non-zero exits must not hide the report or mask
+          # the product qualification result above.
+          run_report rust-exit-readiness \
+            bash scripts/ci/check-rust-exit-readiness.sh --json
+          run_report self-hosting-language-readiness \
+            python3 scripts/ci/check-self-hosting-language-readiness.py --json
+          run_report snapshot-bootstrap-readiness \
+            python3 scripts/ci/check-snapshot-bootstrap-readiness.py --json
+
+      - name: Upload readiness reports
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v4 pinned 2026-04-19
+        with:
+          name: readiness-reports-${{ github.sha }}
+          path: artifacts/readiness
+          if-no-files-found: error
+
       - name: Upload qualification evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v4 pinned 2026-04-19

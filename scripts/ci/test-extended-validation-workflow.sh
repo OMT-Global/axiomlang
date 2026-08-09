@@ -103,6 +103,17 @@ summary_index = extended_job.find(summary_marker)
 upload_index = extended_job.find(qualification_upload_marker)
 if summary_index < 0 or upload_index < 0 or summary_index > upload_index:
     errors.append("extended-checks must summarize qualification evidence before uploading artifacts")
+if "- name: Collect readiness reports" not in extended_job:
+    errors.append("extended-checks must collect readiness reports")
+if "run_report rust-exit-readiness" not in extended_job:
+    errors.append("extended-checks must execute the Rust-exit readiness checker")
+if "run_report self-hosting-language-readiness" not in extended_job:
+    errors.append("extended-checks must execute the self-hosting readiness checker")
+if "run_report snapshot-bootstrap-readiness" not in extended_job:
+    errors.append("extended-checks must execute the snapshot-bootstrap readiness checker")
+if "- name: Upload readiness reports" not in extended_job or "path: artifacts/readiness" not in extended_job:
+    errors.append("extended-checks must upload readiness reports even after failures")
+
 job_preamble = extended_job.split("\n    steps:\n", 1)[0]
 if re.search(r"\$\{\{\s*runner\s*(?:\.|\[)", job_preamble):
     errors.append("extended-checks must not use the runner context before step execution")
