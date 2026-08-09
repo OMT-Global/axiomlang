@@ -1,8 +1,8 @@
 use axiomc::{
     json_contract,
     manifest::{
-        DEPENDENCY_VERSION_PATTERN, KNOWN_CAPABILITIES, PER_TEST_CAPABILITIES_SUPPORTED,
-        TEST_KIND_NAMES,
+        parse_manifest_exact, DEPENDENCY_VERSION_PATTERN, KNOWN_CAPABILITIES,
+        PER_TEST_CAPABILITIES_SUPPORTED, TEST_KIND_NAMES,
     },
 };
 use jsonschema::Validator;
@@ -19,6 +19,11 @@ fn schema_dir() -> std::path::PathBuf {
 
 fn compile_validator(schema: &Value) -> Validator {
     jsonschema::validator_for(schema).expect("compile JSON schema")
+}
+
+fn decoded_manifest(source: &str) -> Value {
+    let value: toml::Value = toml::from_str(source).expect("manifest fixture is valid TOML");
+    serde_json::to_value(value).expect("TOML manifest fixture serializes to JSON")
 }
 
 #[test]
@@ -1072,6 +1077,97 @@ fn editor_metadata_schemas_are_parseable_and_current() {
         assert!(
             descriptor_names.iter().any(|value| value == capability),
             "compiler schema capability descriptors include {capability}"
+        );
+    }
+}
+
+#[test]
+fn manifest_schema_and_parser_share_requiredness_and_empty_value_contract() {
+    let manifest_schema: Value = serde_json::from_str(
+        &fs::read_to_string(schema_dir().join("axiom.toml.schema.json"))
+            .expect("read manifest JSON schema"),
+    )
+    .expect("manifest schema is valid JSON");
+    let validator = compile_validator(&manifest_schema);
+
+    let schema_and_parser_valid = [
+        r#"[package]
+name = "demo"
+version = "0.1.0"
+"#,
+        r#"[workspace]
+"#,
+        r#"[package]
+name = "demo"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+"#,
+        r#"[package]
+name = "demo"
+version = "0.1.0"
+
+[dependencies]
+dep = "../dep"
+"#,
+        r#"[package]
+name = "demo"
+version = "0.1.0"
+
+[dependencies.dep]
+path = "../dep"
+version = "^1.2.3"
+"#,
+    ];
+    for source in schema_and_parser_valid {
+        let decoded = decoded_manifest(source);
+        validator
+            .validate(&decoded)
+            .unwrap_or_else(|error| panic!("schema rejected parser-valid manifest: {error}"));
+        parse_manifest_exact(source.as_bytes(), Path::new("axiom.toml"))
+            .unwrap_or_else(|error| panic!("parser rejected schema-valid manifest: {error:?}"));
+    }
+
+    let both_invalid = [
+        r#"[package]
+name = "demo"
+version = "0.1.0"
+
+[build]
+"#,
+        r#"[package]
+name = "demo"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+"#,
+        r#"[package]
+name = "demo"
+version = "0.1.0"
+
+[dependencies]
+dep = ""
+"#,
+        r#"[package]
+name = "demo"
+version = "0.1.0"
+
+[dependencies.dep]
+path = ""
+"#,
+    ];
+    for source in both_invalid {
+        let decoded = decoded_manifest(source);
+        assert!(
+            !validator.is_valid(&decoded),
+            "schema accepted parser-invalid manifest: {source}"
+        );
+        assert!(
+            parse_manifest_exact(source.as_bytes(), Path::new("axiom.toml")).is_err(),
+            "parser accepted schema-invalid manifest: {source}"
         );
     }
 }

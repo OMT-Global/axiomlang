@@ -149,7 +149,7 @@
       "migration": {
         "action": "Existing path dependencies remain valid. Registry consumers add one root [registry] table with index, trust_roots, and expectation paths, then use the closed registry dependency form with registry, namespace, package, and an exact or caret version requirement before running axiomc pkg fetch."
       },
-      "signature": "axiom.toml schema=https://axiom.omt.global/schemas/axiom.toml.schema.json; semantic_digest=fe45690ed5f1217eb0a3461e106573f13d1159d2d694843f9be3c08ba0099b6d; fields=build,capabilities,dependencies,package,publish,registry,runtime,tests,workspace; edition_selector=unavailable",
+      "signature": "axiom.toml schema=https://axiom.omt.global/schemas/axiom.toml.schema.json; semantic_digest=dc17b3bb6cc0e1abafb957376a74e2c7c5b7d26e5729c39b9ed98c4b1afcb91d; fields=build,capabilities,dependencies,package,publish,registry,runtime,tests,workspace; edition_selector=unavailable",
       "sources": [
         {
           "path": "stage1/compatibility/manifest-parser-contract-v1.json",
@@ -167,7 +167,7 @@
           "path": "stage1/schemas/axiom.toml.schema.json",
           "role": "package_manifest_schema",
           "selector": "$id,properties",
-          "sha256": "de567ce7d89ae36558c21922ea61d661f9f372ccd194365bfba5d7d4b756147f"
+          "sha256": "0d765b7987eefa94ba7735fc4e062921e94f56d21ef38bbf6402672fab3e6821"
         }
       ],
       "stability": "experimental",
@@ -1127,13 +1127,13 @@
       "migration": {
         "action": "Existing path-only manifests remain valid. To adopt registry dependencies, add the root registry configuration and use the closed registry dependency object documented by the 0.2 schema, then run axiomc pkg fetch to create axiom.lock version 2."
       },
-      "signature": "published schema id=https://axiom.omt.global/schemas/axiom.toml.schema.json; semantic_digest=e0d385251a6ba1c8aae6ff2641e89cb5e29d8ceba0d724f07bf7ba2f7a621e8a",
+      "signature": "published schema id=https://axiom.omt.global/schemas/axiom.toml.schema.json; semantic_digest=2c24f905b8b3fd7cf05b56577eb8c1803c8815475320e715302b5aebb9f24c48",
       "sources": [
         {
           "path": "stage1/schemas/axiom.toml.schema.json",
           "role": "published_schema",
           "selector": "$id,properties.schema_version.const",
-          "sha256": "de567ce7d89ae36558c21922ea61d661f9f372ccd194365bfba5d7d4b756147f"
+          "sha256": "0d765b7987eefa94ba7735fc4e062921e94f56d21ef38bbf6402672fab3e6821"
         }
       ],
       "stability": "experimental",

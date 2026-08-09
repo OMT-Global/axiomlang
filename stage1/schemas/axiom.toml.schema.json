@@ -25,9 +25,6 @@
     },
     "workspace": {
       "type": "object",
-      "required": [
-        "members"
-      ],
       "properties": {
         "members": {
           "type": "array",
@@ -42,13 +39,19 @@
     },
     "build": {
       "type": "object",
+      "required": [
+        "entry",
+        "out_dir"
+      ],
       "properties": {
         "entry": {
           "type": "string",
+          "minLength": 1,
           "default": "src/main.ax"
         },
         "out_dir": {
           "type": "string",
+          "minLength": 1,
           "default": "dist"
         }
       },
@@ -105,7 +108,8 @@
       "additionalProperties": {
         "oneOf": [
           {
-            "type": "string"
+            "type": "string",
+            "minLength": 1
           },
           {
             "type": "object",
