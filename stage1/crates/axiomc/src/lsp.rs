@@ -4,10 +4,10 @@ use crate::manifest::load_manifest;
 use crate::mir;
 use crate::project::{analyze_package_for_lsp, package_graph_metadata, project_capabilities};
 use crate::syntax;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fs;
-use std::io::{BufRead, Write};
+use std::io::{BufRead, Read, Write};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
@@ -708,16 +708,18 @@ fn workspace_files(
     document_limit: usize,
 ) -> BTreeMap<String, String> {
     let mut documents = BTreeMap::new();
-    let mut pending = roots.iter().cloned().collect::<Vec<_>>();
+    let mut pending = roots.iter().cloned().collect::<VecDeque<_>>();
     let mut bytes = 0usize;
-    while let Some(path) = pending.pop() {
+    while let Some(path) = pending.pop_front() {
         if documents.len() >= document_limit || bytes >= byte_limit {
             break;
         }
         let Ok(entries) = fs::read_dir(&path) else {
             continue;
         };
-        for entry in entries.flatten() {
+        let mut entries = entries.filter_map(Result::ok).collect::<Vec<_>>();
+        entries.sort_by_key(|entry| entry.path());
+        for entry in entries {
             if documents.len() >= document_limit || bytes >= byte_limit {
                 break;
             }
@@ -730,8 +732,14 @@ fn workspace_files(
             }
             if file_type.is_dir() {
                 if !matches!(entry.file_name().to_str(), Some("target" | ".git" | "dist")) {
-                    pending.push(entry_path);
+                    pending.push_back(entry_path);
                 }
+                continue;
+            }
+            let Ok(metadata) = entry.metadata() else {
+                continue;
+            };
+            if !metadata.file_type().is_file() {
                 continue;
             }
             if entry_path
@@ -741,12 +749,31 @@ fn workspace_files(
             {
                 continue;
             }
-            let Ok(text) = fs::read_to_string(&entry_path) else {
+            let uri = uri_for_path(&entry_path);
+            let file_size = usize::try_from(metadata.len()).unwrap_or(usize::MAX);
+            let reserved = DOCUMENT_METADATA_BYTES.saturating_add(uri.len());
+            if file_size > MAX_DOCUMENT_BYTES
+                || bytes.saturating_add(reserved).saturating_add(file_size) > byte_limit
+            {
+                continue;
+            }
+            let Ok(mut file) = fs::File::open(&entry_path) else {
                 continue;
             };
-            let uri = uri_for_path(&entry_path);
+            let mut source = Vec::with_capacity(file_size.min(MAX_DOCUMENT_BYTES));
+            if Read::by_ref(&mut file)
+                .take((MAX_DOCUMENT_BYTES as u64).saturating_add(1))
+                .read_to_end(&mut source)
+                .is_err()
+                || source.len() > MAX_DOCUMENT_BYTES
+            {
+                continue;
+            }
+            let Ok(text) = String::from_utf8(source) else {
+                continue;
+            };
             let storage_bytes = document_memory_bytes(&uri, &text);
-            if text.len() > MAX_DOCUMENT_BYTES || bytes.saturating_add(storage_bytes) > byte_limit {
+            if bytes.saturating_add(storage_bytes) > byte_limit {
                 continue;
             }
             bytes += storage_bytes;
@@ -2032,5 +2059,36 @@ mod tests {
                     .is_some_and(|items| !items.is_empty())),
             "{capability:?}"
         );
+    }
+
+    #[test]
+    fn workspace_files_selects_entries_in_path_order() {
+        let directory = tempfile::tempdir().expect("workspace");
+        let first = directory.path().join("a.ax");
+        let second = directory.path().join("z.ax");
+        fs::write(&second, "pub fn later(): int {\nreturn 2\n}\n").expect("later");
+        fs::write(&first, "pub fn first(): int {\nreturn 1\n}\n").expect("first");
+
+        let roots = BTreeSet::from([directory.path().to_path_buf()]);
+        let documents = workspace_files(&roots, MAX_WORKSPACE_BYTES, 1);
+        assert_eq!(documents.len(), 1);
+        assert!(documents.contains_key(&uri_for_path(&first)));
+        assert!(!documents.contains_key(&uri_for_path(&second)));
+    }
+
+    #[test]
+    fn workspace_files_checks_metadata_before_reading_oversized_sources() {
+        let directory = tempfile::tempdir().expect("workspace");
+        let oversized = directory.path().join("a-oversized.ax");
+        let small = directory.path().join("small.ax");
+        let file = fs::File::create(&oversized).expect("oversized source");
+        file.set_len((MAX_DOCUMENT_BYTES as u64) + 1)
+            .expect("set oversized source length");
+        fs::write(&small, "pub fn small(): int {\nreturn 1\n}\n").expect("small source");
+
+        let roots = BTreeSet::from([directory.path().to_path_buf()]);
+        let documents = workspace_files(&roots, MAX_WORKSPACE_BYTES, 2);
+        assert!(!documents.contains_key(&uri_for_path(&oversized)));
+        assert!(documents.contains_key(&uri_for_path(&small)));
     }
 }
