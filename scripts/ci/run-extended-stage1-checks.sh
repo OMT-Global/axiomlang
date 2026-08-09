@@ -34,9 +34,9 @@ import json
 import sys
 
 payload = json.load(open(sys.argv[1], encoding="utf-8"))
-message = payload.get("error", {}).get("message", "")
 if payload.get("ok") is not False:
     raise SystemExit("targeted build failure must return ok=false")
-if "cranelift backend spike currently supports only the host target" not in message:
-    raise SystemExit(f"unexpected targeted build failure: {message}")
+error = payload.get("error", {})
+if error.get("code") != "target.unsupported":
+    raise SystemExit(f"unexpected targeted build error code: {error.get('code')!r}")
 PY
