@@ -3,6 +3,7 @@ use crate::hir;
 use crate::manifest::load_manifest;
 use crate::mir;
 use crate::project::{analyze_package_for_lsp, package_graph_metadata, project_capabilities};
+use crate::protocol_framing;
 use crate::syntax;
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
@@ -1094,38 +1095,8 @@ fn read_message<R>(input: &mut R) -> Result<Option<String>, Diagnostic>
 where
     R: BufRead,
 {
-    let mut content_length = None;
-    loop {
-        let mut line = String::new();
-        let bytes = input
-            .read_line(&mut line)
-            .map_err(|err| Diagnostic::new("lsp", format!("failed to read LSP header: {err}")))?;
-        if bytes == 0 {
-            return Ok(None);
-        }
-        let trimmed = line.trim_end_matches(['\r', '\n']);
-        if trimmed.is_empty() {
-            break;
-        }
-        if let Some((name, value)) = trimmed.split_once(':') {
-            if !name.trim().eq_ignore_ascii_case("Content-Length") {
-                continue;
-            }
-            content_length = Some(value.trim().parse::<usize>().map_err(|err| {
-                Diagnostic::new("lsp", format!("invalid Content-Length header: {err}"))
-            })?);
-        }
-    }
-
-    let length = content_length
-        .ok_or_else(|| Diagnostic::new("lsp", "missing Content-Length header in LSP message"))?;
-    let mut body = vec![0; length];
-    input
-        .read_exact(&mut body)
-        .map_err(|err| Diagnostic::new("lsp", format!("failed to read LSP body: {err}")))?;
-    String::from_utf8(body)
-        .map(Some)
-        .map_err(|err| Diagnostic::new("lsp", format!("LSP body is not UTF-8: {err}")))
+    protocol_framing::read_message(input)
+        .map_err(|error| Diagnostic::new("lsp", format!("invalid LSP frame: {error}")))
 }
 
 fn write_message<W>(output: &mut W, payload: &Value) -> Result<(), Diagnostic>
@@ -1244,6 +1215,12 @@ fn percent_decode(input: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn lsp_frame_error(input: impl Into<Vec<u8>>) -> String {
+        read_message(&mut std::io::Cursor::new(input.into()))
+            .expect_err("frame should be rejected")
+            .message
+    }
 
     fn notification(method: &str, params: Value) -> String {
         json!({
@@ -1620,6 +1597,88 @@ mod tests {
         let output = String::from_utf8(output).expect("utf8 output");
         assert!(output.starts_with("Content-Length: "));
         assert!(output.contains(r#""id":8"#));
+    }
+
+    #[test]
+    fn stdio_framing_rejects_invalid_content_lengths_before_allocation() {
+        let cases = [
+            (
+                b"Content-Length: 1\r\ncontent-length: 1\r\n\r\nx".to_vec(),
+                "invalid LSP frame: duplicate Content-Length header".to_string(),
+            ),
+            (
+                b"X-Axiom: test\r\n\r\n".to_vec(),
+                "invalid LSP frame: missing Content-Length header".to_string(),
+            ),
+            (
+                b"Content-Length: nope\r\n\r\n".to_vec(),
+                "invalid LSP frame: malformed Content-Length header".to_string(),
+            ),
+            (
+                format!("Content-Length: {}\r\n\r\n", "9".repeat(100)).into_bytes(),
+                "invalid LSP frame: Content-Length header overflows usize".to_string(),
+            ),
+            (
+                b"Content-Length: 4\r\n\r\nabc".to_vec(),
+                "invalid LSP frame: truncated body: expected 4 bytes".to_string(),
+            ),
+            (
+                format!(
+                    "Content-Length: {}\r\n\r\n",
+                    protocol_framing::MAX_BODY_BYTES + 1
+                )
+                .into_bytes(),
+                format!(
+                    "invalid LSP frame: Content-Length {} exceeds {} byte limit",
+                    protocol_framing::MAX_BODY_BYTES + 1,
+                    protocol_framing::MAX_BODY_BYTES
+                ),
+            ),
+        ];
+
+        for (input, expected) in cases {
+            assert_eq!(lsp_frame_error(input), expected);
+        }
+    }
+
+    #[test]
+    fn stdio_framing_bounds_each_header_total_headers_and_header_count() {
+        let oversized_line = format!(
+            "X:{}\r\nContent-Length: 0\r\n\r\n",
+            "x".repeat(protocol_framing::MAX_HEADER_LINE_BYTES)
+        );
+        assert_eq!(
+            lsp_frame_error(oversized_line.into_bytes()),
+            format!(
+                "invalid LSP frame: header line exceeds {} byte limit",
+                protocol_framing::MAX_HEADER_LINE_BYTES
+            )
+        );
+
+        let maximum_line = format!(
+            "X:{}\r\n",
+            "x".repeat(protocol_framing::MAX_HEADER_LINE_BYTES - 4)
+        );
+        let mut oversized_headers = maximum_line
+            .repeat(protocol_framing::MAX_HEADER_BYTES / protocol_framing::MAX_HEADER_LINE_BYTES);
+        oversized_headers.push_str("\r\n");
+        assert_eq!(
+            lsp_frame_error(oversized_headers.into_bytes()),
+            format!(
+                "invalid LSP frame: headers exceed {} byte limit",
+                protocol_framing::MAX_HEADER_BYTES
+            )
+        );
+
+        let mut too_many_headers = "X-Axiom: test\r\n".repeat(protocol_framing::MAX_HEADER_COUNT);
+        too_many_headers.push_str("Content-Length: 0\r\n\r\n");
+        assert_eq!(
+            lsp_frame_error(too_many_headers.into_bytes()),
+            format!(
+                "invalid LSP frame: header count exceeds {}",
+                protocol_framing::MAX_HEADER_COUNT
+            )
+        );
     }
 
     #[test]
