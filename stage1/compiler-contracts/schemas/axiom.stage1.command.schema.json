@@ -11,16 +11,34 @@
       "$ref": "#/$defs/build"
     },
     {
+      "$ref": "#/$defs/buildFailure"
+    },
+    {
+      "$ref": "#/$defs/checkFailure"
+    },
+    {
       "$ref": "#/$defs/run"
     },
     {
       "$ref": "#/$defs/test"
     },
     {
+      "$ref": "#/$defs/runFailure"
+    },
+    {
+      "$ref": "#/$defs/testFailure"
+    },
+    {
       "$ref": "#/$defs/caps"
     },
     {
+      "$ref": "#/$defs/capsFailure"
+    },
+    {
       "$ref": "#/$defs/mutationReport"
+    },
+    {
+      "$ref": "#/$defs/mutationReportFailure"
     }
   ],
   "$defs": {
@@ -119,6 +137,75 @@
           "type": "array",
           "items": {
             "$ref": "#/$defs/diagnostic"
+          }
+        },
+        "repair": {
+          "$ref": "#/$defs/diagnosticRepair"
+        }
+      }
+    },
+    "commandError": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "message"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "minLength": 1
+        },
+        "code": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "message": {
+          "type": "string"
+        },
+        "help": {
+          "type": "string"
+        },
+        "path": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "line": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "column": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "end_line": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "end_column": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "related": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/commandError"
           }
         },
         "repair": {
@@ -836,6 +923,153 @@
         },
         "lowering": {
           "$ref": "#/$defs/buildLoweringEvidence"
+        }
+      }
+    },
+    "buildFailure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "ok",
+        "command",
+        "error"
+      ],
+      "properties": {
+        "schema_version": {
+          "$ref": "#/$defs/schemaVersion"
+        },
+        "ok": {
+          "const": false
+        },
+        "command": {
+          "const": "build"
+        },
+        "error": {
+          "$ref": "#/$defs/commandError"
+        },
+        "lowering": {
+          "$ref": "#/$defs/buildLoweringEvidence"
+        }
+      }
+    },
+    "checkFailure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "ok",
+        "command",
+        "error"
+      ],
+      "properties": {
+        "schema_version": {
+          "$ref": "#/$defs/schemaVersion"
+        },
+        "ok": {
+          "const": false
+        },
+        "command": {
+          "const": "check"
+        },
+        "error": {
+          "$ref": "#/$defs/commandError"
+        }
+      }
+    },
+    "runFailure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "ok",
+        "command",
+        "error"
+      ],
+      "properties": {
+        "schema_version": {
+          "$ref": "#/$defs/schemaVersion"
+        },
+        "ok": {
+          "const": false
+        },
+        "command": {
+          "const": "run"
+        },
+        "error": {
+          "$ref": "#/$defs/commandError"
+        }
+      }
+    },
+    "testFailure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "ok",
+        "command",
+        "error"
+      ],
+      "properties": {
+        "schema_version": {
+          "$ref": "#/$defs/schemaVersion"
+        },
+        "ok": {
+          "const": false
+        },
+        "command": {
+          "const": "test"
+        },
+        "error": {
+          "$ref": "#/$defs/commandError"
+        }
+      }
+    },
+    "capsFailure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "ok",
+        "command",
+        "error"
+      ],
+      "properties": {
+        "schema_version": {
+          "$ref": "#/$defs/schemaVersion"
+        },
+        "ok": {
+          "const": false
+        },
+        "command": {
+          "const": "caps"
+        },
+        "error": {
+          "$ref": "#/$defs/commandError"
+        }
+      }
+    },
+    "mutationReportFailure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "ok",
+        "command",
+        "error"
+      ],
+      "properties": {
+        "schema_version": {
+          "$ref": "#/$defs/schemaVersion"
+        },
+        "ok": {
+          "const": false
+        },
+        "command": {
+          "const": "mutation-report"
+        },
+        "error": {
+          "$ref": "#/$defs/commandError"
         }
       }
     },
