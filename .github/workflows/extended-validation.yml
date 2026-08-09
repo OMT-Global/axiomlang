@@ -170,6 +170,13 @@ jobs:
           run_report snapshot-bootstrap-readiness \
             python3 scripts/ci/check-snapshot-bootstrap-readiness.py --json
 
+      - name: Summarize qualification evidence
+        if: always()
+        run: >-
+          python3 scripts/ci/report-toolchain-qualification.py
+          --evidence artifacts/toolchain-qualification/toolchain-qualification.json
+          --expected-head-sha '${{ github.sha }}'
+
       - name: Upload readiness reports
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v4 pinned 2026-04-19

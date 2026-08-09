@@ -111,6 +111,18 @@ if "run_report self-hosting-language-readiness" not in extended_job:
     errors.append("extended-checks must execute the self-hosting readiness checker")
 if "run_report snapshot-bootstrap-readiness" not in extended_job:
     errors.append("extended-checks must execute the snapshot-bootstrap readiness checker")
+if "- name: Summarize qualification evidence" not in extended_job:
+    errors.append("extended-checks must summarize qualification evidence")
+if "scripts/ci/report-toolchain-qualification.py" not in extended_job:
+    errors.append("extended-checks must invoke the metadata-only qualification reporter")
+if "--expected-head-sha '${{ github.sha }}'" not in extended_job:
+    errors.append("extended-checks must bind the qualification summary to the workflow head")
+summary_marker = "- name: Summarize qualification evidence"
+qualification_upload_marker = "- name: Upload qualification evidence"
+summary_index = extended_job.find(summary_marker)
+upload_index = extended_job.find(qualification_upload_marker)
+if summary_index < 0 or upload_index < 0 or summary_index > upload_index:
+    errors.append("extended-checks must summarize qualification evidence before uploading artifacts")
 if "- name: Upload readiness reports" not in extended_job or "path: artifacts/readiness" not in extended_job:
     errors.append("extended-checks must upload readiness reports even after failures")
 
