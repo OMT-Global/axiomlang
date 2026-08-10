@@ -206,6 +206,49 @@ fn interrupted_transaction_is_inspectable_and_can_resume_or_roll_back() {
 }
 
 #[test]
+fn policy_scoped_fingerprint_updates_authorized_paths_but_ignores_unrelated_changes() {
+    let (root, source, sha) = fixture();
+    let worktree = root.path().join("transaction");
+    let mut transaction =
+        TransactionalWorkspace::create(&source, &worktree, &sha, policy()).expect("create");
+    let initial_fingerprint = transaction.state().workspace_fingerprint.clone();
+    let initial_cache = transaction.state().authorized_path_fingerprints.clone();
+
+    transaction
+        .write("allowed.txt", b"changed")
+        .expect("update authorized path");
+    let after_allowed_fingerprint = transaction.state().workspace_fingerprint.clone();
+    assert_ne!(after_allowed_fingerprint, initial_fingerprint);
+    assert_ne!(
+        transaction.state().authorized_path_fingerprints["allowed.txt"],
+        initial_cache["allowed.txt"]
+    );
+    assert_eq!(
+        transaction.state().authorized_path_fingerprints["created.txt"],
+        initial_cache["created.txt"]
+    );
+
+    transaction
+        .write("created.txt", b"created")
+        .expect("create authorized path");
+    let after_created_fingerprint = transaction.state().workspace_fingerprint.clone();
+    assert_ne!(after_created_fingerprint, after_allowed_fingerprint);
+    assert_ne!(
+        transaction.state().authorized_path_fingerprints["created.txt"],
+        initial_cache["created.txt"]
+    );
+
+    fs::write(worktree.join("owned.txt"), b"unrelated change").expect("change unrelated path");
+    assert_eq!(
+        transaction.state().workspace_fingerprint,
+        after_created_fingerprint,
+        "unrelated worktree content is outside the policy-scoped fingerprint"
+    );
+    drop(transaction);
+    assert!(TransactionalWorkspace::recover(&worktree).is_err());
+}
+
+#[test]
 fn recovery_claims_a_new_owner_epoch_and_durable_generation() {
     let (root, source, sha) = fixture();
     let worktree = root.path().join("transaction");
