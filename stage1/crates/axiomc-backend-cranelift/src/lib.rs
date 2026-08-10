@@ -80,6 +80,8 @@ struct I64RuntimeRefs {
     open: FuncRef,
     creat: FuncRef,
     lseek: FuncRef,
+    #[cfg(not(windows))]
+    fstat: FuncRef,
     close: FuncRef,
     access: FuncRef,
     #[cfg(windows)]
@@ -242,6 +244,11 @@ pub enum I64Expr {
     FileLen {
         path: String,
         max_bytes: u64,
+    },
+    /// Runtime file metadata length. Unlike `FileLen`, this is a stat-style
+    /// probe: it never reads file contents and has no read-size cap.
+    FileMetadataLen {
+        path: String,
     },
     AuditFs {
         intrinsic: String,
@@ -798,6 +805,20 @@ fn emit_i64_exit_object(
         .map_err(|message| {
             CraneliftBackendError::new(format!("declare lseek import: {message}"))
         })?;
+    #[cfg(not(windows))]
+    let mut fstat_sig = module.make_signature();
+    #[cfg(not(windows))]
+    fstat_sig.params.push(AbiParam::new(types::I32));
+    #[cfg(not(windows))]
+    fstat_sig.params.push(AbiParam::new(pointer_type));
+    #[cfg(not(windows))]
+    fstat_sig.returns.push(AbiParam::new(types::I32));
+    #[cfg(not(windows))]
+    let fstat_id = module
+        .declare_function("fstat", Linkage::Import, &fstat_sig)
+        .map_err(|message| {
+            CraneliftBackendError::new(format!("declare fstat import: {message}"))
+        })?;
     let mut close_sig = module.make_signature();
     close_sig.params.push(AbiParam::new(types::I32));
     close_sig.returns.push(AbiParam::new(types::I32));
@@ -1059,6 +1080,7 @@ fn emit_i64_exit_object(
                 open_id,
                 creat_id,
                 lseek_id,
+                fstat_id,
                 close_id,
                 access_id,
                 fork_id,
@@ -1161,6 +1183,8 @@ fn emit_i64_exit_object(
         let open_ref = module.declare_func_in_func(open_id, builder.func);
         let creat_ref = module.declare_func_in_func(creat_id, builder.func);
         let lseek_ref = module.declare_func_in_func(lseek_id, builder.func);
+        #[cfg(not(windows))]
+        let fstat_ref = module.declare_func_in_func(fstat_id, builder.func);
         let close_ref = module.declare_func_in_func(close_id, builder.func);
         let access_ref = module.declare_func_in_func(access_id, builder.func);
         #[cfg(windows)]
@@ -1209,6 +1233,8 @@ fn emit_i64_exit_object(
             open: open_ref,
             creat: creat_ref,
             lseek: lseek_ref,
+            #[cfg(not(windows))]
+            fstat: fstat_ref,
             close: close_ref,
             access: access_ref,
             #[cfg(windows)]
@@ -1477,6 +1503,7 @@ fn define_i64_function(
     open_id: FuncId,
     creat_id: FuncId,
     lseek_id: FuncId,
+    #[cfg(not(windows))] fstat_id: FuncId,
     close_id: FuncId,
     access_id: FuncId,
     #[cfg(windows)] system_id: FuncId,
@@ -1547,6 +1574,8 @@ fn define_i64_function(
         let open_ref = module.declare_func_in_func(open_id, builder.func);
         let creat_ref = module.declare_func_in_func(creat_id, builder.func);
         let lseek_ref = module.declare_func_in_func(lseek_id, builder.func);
+        #[cfg(not(windows))]
+        let fstat_ref = module.declare_func_in_func(fstat_id, builder.func);
         let close_ref = module.declare_func_in_func(close_id, builder.func);
         let access_ref = module.declare_func_in_func(access_id, builder.func);
         #[cfg(windows)]
@@ -1595,6 +1624,8 @@ fn define_i64_function(
             open: open_ref,
             creat: creat_ref,
             lseek: lseek_ref,
+            #[cfg(not(windows))]
+            fstat: fstat_ref,
             close: close_ref,
             access: access_ref,
             #[cfg(windows)]
@@ -3293,6 +3324,16 @@ fn emit_i64_expr(
         I64Expr::FileLen { path, max_bytes } => {
             emit_i64_file_len_expr(builder, runtime_refs, path, *max_bytes)
         }
+        I64Expr::FileMetadataLen { path } => {
+            #[cfg(not(windows))]
+            {
+                emit_i64_file_metadata_len_expr(builder, runtime_refs, path)
+            }
+            #[cfg(windows)]
+            {
+                emit_i64_file_len_expr(builder, runtime_refs, path, i64::MAX as u64)
+            }
+        }
         I64Expr::AuditFs {
             intrinsic,
             package,
@@ -4833,6 +4874,105 @@ fn emit_i64_file_len_expr(
     builder
         .ins()
         .jump(merge_block, &[BlockArg::Value(missing_result)]);
+
+    builder.switch_to_block(present_block);
+    builder.seal_block(present_block);
+    builder.ins().jump(merge_block, &[BlockArg::Value(length)]);
+
+    builder.switch_to_block(missing_block);
+    builder.seal_block(missing_block);
+    let missing_result = builder.ins().iconst(types::I64, -1);
+    builder
+        .ins()
+        .jump(merge_block, &[BlockArg::Value(missing_result)]);
+
+    builder.switch_to_block(merge_block);
+    builder.seal_block(merge_block);
+    Ok(builder.block_params(merge_block)[0])
+}
+
+#[cfg(not(windows))]
+fn emit_i64_file_metadata_len_expr(
+    builder: &mut FunctionBuilder<'_>,
+    runtime_refs: I64RuntimeRefs,
+    path: &str,
+) -> Result<cranelift_codegen::ir::Value, CraneliftBackendError> {
+    if path.as_bytes().contains(&0) {
+        return Err(CraneliftBackendError::new(
+            "filesystem path contains an interior null byte",
+        ));
+    }
+    let path_ptr = emit_i64_path_ptr(builder, path)?;
+    let stat_slot =
+        builder.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 512, 0));
+    let stat_ptr = builder.ins().stack_addr(types::I64, stat_slot, 0);
+    let open_flags = builder.ins().iconst(types::I32, 0);
+    let open_call = builder
+        .ins()
+        .call(runtime_refs.open, &[path_ptr, open_flags]);
+    let fd = builder.inst_results(open_call)[0];
+
+    let missing_block = builder.create_block();
+    let stat_block = builder.create_block();
+    let fstat_block = builder.create_block();
+    let stat_failed_block = builder.create_block();
+    let directory_block = builder.create_block();
+    let seek_block = builder.create_block();
+    let merge_block = builder.create_block();
+    builder.append_block_param(merge_block, types::I64);
+
+    let open_failed = builder.ins().icmp_imm(IntCC::SignedLessThan, fd, 0);
+    builder
+        .ins()
+        .brif(open_failed, missing_block, &[], stat_block, &[]);
+
+    builder.switch_to_block(stat_block);
+    builder.seal_block(stat_block);
+    let directory_call = builder.ins().call(runtime_refs.opendir, &[path_ptr]);
+    let directory_handle = builder.inst_results(directory_call)[0];
+    let directory_present = builder.ins().icmp_imm(IntCC::NotEqual, directory_handle, 0);
+    builder
+        .ins()
+        .brif(directory_present, directory_block, &[], fstat_block, &[]);
+
+    builder.switch_to_block(fstat_block);
+    builder.seal_block(fstat_block);
+    let stat_call = builder.ins().call(runtime_refs.fstat, &[fd, stat_ptr]);
+    let stat_status = builder.inst_results(stat_call)[0];
+    let stat_failed = builder
+        .ins()
+        .icmp_imm(IntCC::SignedLessThan, stat_status, 0);
+    builder
+        .ins()
+        .brif(stat_failed, stat_failed_block, &[], seek_block, &[]);
+
+    builder.switch_to_block(stat_failed_block);
+    builder.seal_block(stat_failed_block);
+    builder.ins().call(runtime_refs.close, &[fd]);
+    builder.ins().jump(missing_block, &[]);
+
+    builder.switch_to_block(directory_block);
+    builder.seal_block(directory_block);
+    builder
+        .ins()
+        .call(runtime_refs.closedir, &[directory_handle]);
+    builder.ins().call(runtime_refs.close, &[fd]);
+    builder.ins().jump(missing_block, &[]);
+
+    builder.switch_to_block(seek_block);
+    builder.seal_block(seek_block);
+    let zero = builder.ins().iconst(types::I64, 0);
+    let seek_end = builder.ins().iconst(types::I32, 2);
+    let seek_call = builder
+        .ins()
+        .call(runtime_refs.lseek, &[fd, zero, seek_end]);
+    let length = builder.inst_results(seek_call)[0];
+    builder.ins().call(runtime_refs.close, &[fd]);
+    let seek_failed = builder.ins().icmp_imm(IntCC::SignedLessThan, length, 0);
+    let present_block = builder.create_block();
+    builder
+        .ins()
+        .brif(seek_failed, missing_block, &[], present_block, &[]);
 
     builder.switch_to_block(present_block);
     builder.seal_block(present_block);
