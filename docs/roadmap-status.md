@@ -5,6 +5,10 @@ agent-native, and governance work. GitHub issues remain the source of execution
 authority; this ledger records which issue family is current and which gates
 define completion.
 
+For the dependency-ordered execution path to host exit specifically — what is on
+the critical path, what runs in parallel, and what is adjacent work — see
+[`rust-independence-path.md`](rust-independence-path.md).
+
 ## Control Plane
 
 - `project.bootstrap.yaml` is the source of truth for repository governance,
