@@ -502,7 +502,7 @@ pub(crate) fn lower_i64_fs_write_intrinsic_expr(
             );
         };
         let temp_path = parent.join(format!(
-            ".{}.axiom-replace.tmp",
+            ".{}.axiom-replace.XXXXXX",
             file_name.to_string_lossy()
         ));
         return i64_audited_fs_expr(
