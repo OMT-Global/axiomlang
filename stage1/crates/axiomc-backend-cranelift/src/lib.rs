@@ -6075,6 +6075,7 @@ fn emit_i64_replace_file_expr(
 
         let failed_block = builder.create_block();
         let create_block = builder.create_block();
+        let create_failed_block = builder.create_block();
         let chmod_block = builder.create_block();
         let write_block = builder.create_block();
         let sync_block = builder.create_block();
@@ -6106,7 +6107,13 @@ fn emit_i64_replace_file_expr(
         let create_failed = builder.ins().icmp_imm(IntCC::SignedLessThan, file, 0);
         builder
             .ins()
-            .brif(create_failed, failed_block, &[], chmod_block, &[]);
+            .brif(create_failed, create_failed_block, &[], chmod_block, &[]);
+
+        builder.switch_to_block(create_failed_block);
+        builder.seal_block(create_failed_block);
+        builder.ins().call(runtime_refs.close, &[parent_fd]);
+        let failed = builder.ins().iconst(types::I64, -1);
+        builder.ins().jump(merge_block, &[BlockArg::Value(failed)]);
 
         builder.switch_to_block(chmod_block);
         builder.seal_block(chmod_block);
@@ -7215,6 +7222,54 @@ mod tests {
         assert!(
             !temp_fixture.exists(),
             "runtime replace should not leave the temp fixture"
+        );
+    }
+
+    #[test]
+    fn links_i64_exit_program_with_replace_file_rejects_temp_collision() {
+        if std::env::var_os("AXIOM_SKIP_CRANELIFT_LINK_TEST").is_some() {
+            return;
+        }
+        if Command::new("cc").arg("--version").output().is_err() {
+            eprintln!("skipping cranelift link test because cc is unavailable");
+            return;
+        }
+        let temp = tempfile::tempdir().expect("tempdir");
+        let fixture = temp.path().join("fixture.txt");
+        let collision = temp.path().join(".axiom-replace-0000000000001234");
+        fs::write(&fixture, "base").expect("write replace base fixture");
+        fs::write(&collision, "collision").expect("plant colliding temp fixture");
+        let object = temp.path().join("i64-exit-replace-collision.o");
+        let binary = temp.path().join("i64-exit-replace-collision");
+        compile_i64_exit_program(
+            I64ExitProgram {
+                functions: Vec::new(),
+                locals: Vec::new(),
+                stmts: Vec::new(),
+                body: I64ExitBody::Return(I64Expr::ReplaceFile {
+                    root: temp.path().display().to_string(),
+                    parent_components: Vec::new(),
+                    destination_name: "fixture.txt".to_string(),
+                    content: String::from("runtime-replace"),
+                }),
+            },
+            &object,
+            &binary,
+        )
+        .expect("compile i64 replace collision exit program");
+
+        let output = Command::new(&binary)
+            .env("AXIOM_TEST_RANDOM_U64", "4660")
+            .output()
+            .expect("run replace collision binary");
+        assert_eq!(output.status.code(), Some(255));
+        assert_eq!(
+            fs::read_to_string(&fixture).expect("read unchanged replace fixture"),
+            "base"
+        );
+        assert_eq!(
+            fs::read_to_string(&collision).expect("read colliding temp fixture"),
+            "collision"
         );
     }
 
