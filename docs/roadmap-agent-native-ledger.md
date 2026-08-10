@@ -23,9 +23,9 @@ canonical issue has already shipped or has an active PR.
 
 | Family | Canonical issue | Duplicate / related issues | Disposition | Agent instruction |
 |---|---:|---|---|---|
-| Direct native backend | #1124 | #105, #627-#630, #652-#656, #691-#694, #927-#929, #1191, #1255, #1434 | structurally shipped; runtime-truth correction active | Keep generated Rust outside the CLI and execute the compile-time replay correction from #1434. Existing green ABI rows do not supersede it. |
+| Direct native backend | #1124 | #105, #627-#630, #652-#656, #691-#694, #927-#929, #1191, #1255, #1434 | structurally shipped; runtime-completeness active | #1485 shipped the #1434 compile-time replay correction. Keep generated Rust outside the CLI and route remaining runtime proof through #1436 and #1438-#1440. |
 | Production language readiness | #1432 | #1433-#1467, #1476-#1477, #1481 | active dependency-ordered program | Dispatch from the leaf order in `docs/production-language-roadmap.md`; require the row's evidence tier before closure. |
-| Rust bootstrap removal / self-hosting | #721 | #565, #1254, #1366, #1425-#1428, #1434, #1436-#1440, #1468-#1475, #1478-#1479 | active final gate | Execute from the leaf issues. Runtime truth, compiler-source ownership, and snapshot evidence are all required. |
+| Rust bootstrap removal / self-hosting | #721 | #565, #1254, #1366, #1425-#1428, #1436, #1438-#1440, #1468-#1475, #1478-#1479 | active final gate | Execute from the leaf issues. Runtime truth, compiler-source ownership, and snapshot evidence are all required. |
 | Property testing | #715 | #560, #561, #637, #639, #640, #641, #642, #672, #676, #678, #679, #680, #706, #711, #712, #714 | shipped as the Phase-I property gate | #715, #714, and #712 are the shipped property-gate record. Close older Phase-I duplicate trackers such as #561 against this evidence when explicitly assigned; route remaining Cargo/Rust-bootstrap removal to #719 and #721. |
 | Doc/LSP self-hosting | #731 | #563, #564, #646, #647, #648, #649, #651, #689, #723, #725, #727, #728 | #731 is closed; use it as the completed doc/LSP-owned readiness proof and treat #563/#564 as historical slices | Do not infer full self-hosting completion from doc/LSP readiness. Final compiler-source migration and snapshot bootstrap remain with #721. |
 | Numeric tower | #716 | #681, #683, #685, #686, #688, #690, #718, #720, #722, #724, #726 | closed historical family | Open a source-grounded leaf for any missing numeric behavior; do not revive the duplicate phase stack. |
@@ -74,9 +74,9 @@ phase scheme in #565 where they disagree.
 - **Backend-exit** — make `rustc`/Cargo unnecessary to build *user programs* by
   defaulting to the direct-native Cranelift backend and removing the
   generated-Rust backend. The structural track is shipped, but runtime
-  completeness is not: unsupported programs can still fall into compiler-side
-  evaluation and replay. #1434 must close before treating backend exit as a
-  semantic execution proof.
+  completeness is not: the unsupported-program evaluation and replay path was
+  closed by #1485. Treat #1436 and #1438-#1440 as the remaining semantic
+  execution proof path.
   Note: Cranelift is itself a Rust crate linked into `axiomc`, so backend-exit
   removes the `rustc` *step*, not Rust from the toolchain.
 - **Host-exit (self-hosting)** — rewrite `axiomc` itself in AxiOM and prove a
@@ -84,7 +84,7 @@ phase scheme in #565 where they disagree.
   This is #565's thesis ("Rust is not the product"). It is active but early:
   existing AxiOM compiler spikes prove static/bootstrap shapes, while the
   compiler remains roughly 90k lines of hand-written Rust source. The leaf path
-  is #1254, #1425-#1428, #1434, #1436-#1440, and #1468-#1479, with #721 as the
+  is #1254, #1425-#1428, #1436, #1438-#1440, and #1468-#1479, with #721 as the
   final policy gate.
 
 | Concern | Canonical issue | Disposition | Agent instruction |
@@ -92,9 +92,9 @@ phase scheme in #565 where they disagree.
 | Self-hosting master thesis | #565 | keep open; **historical phase scheme — do not execute from its checkboxes** | #565's Phase-G checkboxes are stale (conformance corpus and `check --properties` shipped) and its phase letters collide with the active `phase-j`/`phase-l` labels. Treat #565 as intent narrative; take execution gates from this ledger. |
 | Feasibility and design | #1253 | closed as completed | The diagnostics spikes and snapshot-chain design shipped; execute from the leaf issues below. |
 | Monolith decomposition | #1254 | keep open | Prerequisite for package-by-package porting. #930/#936–#940 closed the *boundary contracts* (snapshot fixtures + validators), **not** source migration — do not infer decomposition is done from their closed state. |
-| Self-hosting language readiness | #1366 | keep open | Defer to `docs/self-hosting-language-readiness.json`: build purity #1434, executable MIR/lifecycle/ownership #1436-#1440, runtime sequences/text #1425-#1426, maps/sets #1476, program host ABI #1477, runtime crypto #1481, and compiler proof #1427 remain before migration entry. |
-| Effect-pure compilation | #1434 | first implementation task | Reject unsupported runtime lowering; no environment, filesystem, process, network, clock, randomness, or other runtime effect may execute during build. |
-| Executable MIR and lifecycle | #1436-#1440 | design then implementation | Establish backend-neutral control/value/effect/lifecycle semantics before expanding native shapes. |
+| Self-hosting language readiness | #1366 | keep open | Defer to `docs/self-hosting-language-readiness.json`: the #1485 purity guard is complete; executable MIR/lifecycle/ownership #1436 and #1438-#1440, runtime sequences/text #1425-#1426, maps/sets #1476, program host ABI #1477, runtime crypto #1481, and compiler proof #1427 remain before migration entry. |
+| Effect-pure compilation | #1434 | shipped in #1485 | Preserve fail-closed unsupported lowering and treat #1434 as historical proof, not an active dependency. |
+| Executable MIR and lifecycle | #1436-#1440 | design complete; implementation active | The #1437 contract is complete; establish backend-neutral control/value/effect/lifecycle semantics in #1436 and #1438-#1440 before expanding native shapes. |
 | Runtime-sized compiler collections | #1425 | ready for planning | Land Axiom-neutral language/stdlib/backend contracts with conformance and runtime evidence. |
 | String and slice parameter ABI | #1426 | ready for planning | Prove owned/borrowed values and mutable write-through across direct-native function boundaries. |
 | Compiler-scale AxiOM proof | #1427 | ready after runtime foundation | Build once, run with different runtime inputs, and prove output/effects change without compiler-side execution. |

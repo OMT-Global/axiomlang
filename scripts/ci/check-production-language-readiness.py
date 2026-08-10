@@ -68,10 +68,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--issue-state-file", help="file containing '<issue> <state>' rows"
     )
-    parser.add_argument(
+    issue_state_group = parser.add_mutually_exclusive_group()
+    issue_state_group.add_argument(
         "--require-issue-states",
         action="store_true",
-        help="load blocker issue state from GitHub and fail when unavailable",
+        help="load all referenced issue states from GitHub and require them closed",
+    )
+    issue_state_group.add_argument(
+        "--validate-live-issue-states",
+        action="store_true",
+        help=(
+            "validate live issue availability and require active blockerIssues "
+            "to remain open; readiness remains report-only"
+        ),
     )
     return parser.parse_args()
 
@@ -640,6 +649,17 @@ def main() -> int:
             )
 
     issue_states: dict[int, str] = {}
+    active_blocker_issues: set[int] = set()
+    for row in rows:
+        if row.get("required_for_production") is not True:
+            continue
+        blockers = row.get("blocker_issues", [])
+        if isinstance(blockers, list):
+            active_blocker_issues.update(
+                issue
+                for issue in blockers
+                if isinstance(issue, int) and not isinstance(issue, bool) and issue > 0
+            )
     issue_source = "not required"
     if args.issue_state_file:
         issue_path = Path(args.issue_state_file)
@@ -662,13 +682,13 @@ def main() -> int:
                     f"issue state file does not exist: {issue_path}",
                 )
             )
-    elif args.require_issue_states:
+    elif args.require_issue_states or args.validate_live_issue_states:
         issue_source = "GitHub"
         checks.append(
             check(
                 "production_readiness_issue_state_source",
                 "pass",
-                "blocker issue states requested from GitHub",
+                "referenced issue states requested from GitHub",
             )
         )
     else:
@@ -680,12 +700,23 @@ def main() -> int:
             )
         )
 
-    if args.issue_state_file or args.require_issue_states:
+    live_state_failures = False
+    if (
+        args.issue_state_file
+        or args.require_issue_states
+        or args.validate_live_issue_states
+    ):
         for issue in sorted(required_issues):
             state = issue_states.get(issue)
-            if state is None and args.require_issue_states and not args.issue_state_file:
+            if (
+                state is None
+                and (args.require_issue_states or args.validate_live_issue_states)
+                and not args.issue_state_file
+            ):
                 state = issue_state_from_github(issue)
             if state is None:
+                if args.validate_live_issue_states:
+                    live_state_failures = True
                 checks.append(
                     check(
                         f"production_readiness_issue_{issue}_closed",
@@ -694,11 +725,20 @@ def main() -> int:
                     )
                 )
             else:
+                state_ok = state == "CLOSED"
+                if args.validate_live_issue_states:
+                    state_ok = issue not in active_blocker_issues or state == "OPEN"
+                    if not state_ok:
+                        live_state_failures = True
                 checks.append(
                     check(
                         f"production_readiness_issue_{issue}_closed",
-                        "pass" if state == "CLOSED" else "fail",
-                        f"issue #{issue} is {state}",
+                        "pass" if state_ok else "fail",
+                        (
+                            f"issue #{issue} is {state}; active blocker state is valid"
+                            if args.validate_live_issue_states and state_ok
+                            else f"issue #{issue} is {state}"
+                        ),
                     )
                 )
 
@@ -738,7 +778,7 @@ def main() -> int:
         if item["name"] != "production_readiness_required_rows"
         and not re.fullmatch(r"production_readiness_issue_\d+_closed", item["name"])
     ]
-    valid = all(item["status"] == "pass" for item in validation_checks)
+    valid = all(item["status"] == "pass" for item in validation_checks) and not live_state_failures
     ready = all(check_item["status"] == "pass" for check_item in checks)
     summary = {
         "total": len(rows),
@@ -778,7 +818,7 @@ def main() -> int:
         )
         for failed in (item for item in checks if item["status"] == "fail"):
             print(f"- {failed['name']}: {failed['detail']}", file=sys.stderr)
-    return 0 if (valid if args.validate_only else ready) else 1
+    return 0 if (valid if args.validate_only or args.validate_live_issue_states else ready) else 1
 
 
 if __name__ == "__main__":

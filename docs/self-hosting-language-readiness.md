@@ -20,12 +20,16 @@ make self-hosting-language-readiness
 
 It emits `axiom.self_hosting.language_readiness.v0` JSON and fails while any
 required row is not `implemented` or while row evidence is missing. For release
-or rewrite-decision PRs, require live issue state so open blocker issues also
-keep the gate red:
+or rewrite-decision PRs, validate live issue state so active blocker issues are
+still open while ordinary not-ready status remains a report:
 
 ```bash
 make self-hosting-language-readiness-github
 ```
+
+The live mode requires every referenced issue state to be available. It treats
+`blockerIssues` as active execution contracts that must remain `OPEN`; closed
+governing or historical evidence issues are allowed.
 
 The self-hosting gate is a prerequisite for the Rust bootstrap exit in
 [#721](https://github.com/OMT-Global/axiomlang/issues/721) and the broader
@@ -37,8 +41,8 @@ language and backend surface are adequate to start the compiler rewrite.
 
 | Row | Required surface | Current status | Governing issue |
 | --- | --- | --- | --- |
-| `build_effect_purity` | Compilation never executes runtime effects or freezes runtime inputs into emitted replay output. | Blocked; effectful evaluator fallback remains reachable. | [#1434](https://github.com/OMT-Global/axiomlang/issues/1434) |
-| `executable_mir_runtime` | Backend-neutral MIR drives runtime control, values, effects, ownership, and provenance. | Blocked on MIR contract and first vertical slice. | [#1436](https://github.com/OMT-Global/axiomlang/issues/1436), [#1437](https://github.com/OMT-Global/axiomlang/issues/1437) |
+| `build_effect_purity` | Compilation never executes runtime effects or freezes runtime inputs into emitted replay output. | Purity guard shipped in #1485; runtime-complete proof remains blocked on the executable vertical slice. | [#1436](https://github.com/OMT-Global/axiomlang/issues/1436) |
+| `executable_mir_runtime` | Backend-neutral MIR drives runtime control, values, effects, ownership, and provenance. | Blocked on the first executable vertical slice; the #1437 contract is complete. | [#1436](https://github.com/OMT-Global/axiomlang/issues/1436) |
 | `runtime_lifecycle` | Allocations, owned values, borrows, drops, and resource handles have deterministic runtime semantics. | Blocked on the lifecycle ABI. | [#1438](https://github.com/OMT-Global/axiomlang/issues/1438) |
 | `error_handling_try` | Option/Result propagation and diagnostics for recoverable compiler errors. | Implemented for current stage1 and direct-native evidence. | [#1256](https://github.com/OMT-Global/axiomlang/issues/1256) |
 | `compiler_data_shapes` | Scalars, tuples, arrays, maps, structs, enums, `Option`, `Result`, and ownership-sensitive aggregate movement. | Partial; static shapes work, but dynamic non-Copy aggregate ABI/lifecycle and runtime map/set proof are open. | [#1439](https://github.com/OMT-Global/axiomlang/issues/1439), [#1476](https://github.com/OMT-Global/axiomlang/issues/1476) |
@@ -47,7 +51,7 @@ language and backend surface are adequate to start the compiler rewrite.
 | `runtime_string_slice_parameter_abi` | Runtime strings and immutable/mutable slices cross function boundaries with defined ownership, length, aliasing, and write-through behavior. | Partial locally; blocked across direct-native calls. | [#1426](https://github.com/OMT-Global/axiomlang/issues/1426) |
 | `generics_traits_static_dispatch` | Explicit generics and static trait-bounded dispatch for reusable typed helpers. | Implemented for static dispatch; dynamic dispatch is intentionally not required by this row. | [#216](https://github.com/OMT-Global/axiomlang/issues/216) |
 | `strings_diagnostics_and_text` | String building, byte inspection, substring search, JSON, regex, logging, and deterministic text processing for lexer/parser/diagnostics work. | Partial; bootstrap helpers exist, but runtime-origin text and dynamic codec behavior are not complete. | [#1426](https://github.com/OMT-Global/axiomlang/issues/1426), [#1441](https://github.com/OMT-Global/axiomlang/issues/1441) |
-| `host_io_capabilities` | Scoped filesystem, environment, clock, process, networking, crypto, JSON, and regex surfaces through capability-gated stdlib modules. | Blocked as runtime proof because effectful fallback remains and runtime-origin crypto is incomplete. | [#1434](https://github.com/OMT-Global/axiomlang/issues/1434), [#1443](https://github.com/OMT-Global/axiomlang/issues/1443), [#1444](https://github.com/OMT-Global/axiomlang/issues/1444), [#1481](https://github.com/OMT-Global/axiomlang/issues/1481) |
+| `host_io_capabilities` | Scoped filesystem, environment, clock, process, networking, crypto, JSON, and regex surfaces through capability-gated stdlib modules. | Blocked as runtime proof because runtime-origin host ABI and crypto remain incomplete; the effectful fallback was closed by #1485. | [#1443](https://github.com/OMT-Global/axiomlang/issues/1443), [#1444](https://github.com/OMT-Global/axiomlang/issues/1444), [#1477](https://github.com/OMT-Global/axiomlang/issues/1477), [#1481](https://github.com/OMT-Global/axiomlang/issues/1481) |
 | `program_host_abi` | The running compiler receives argv, scoped environment, stdin/cwd, separate output streams, exit status, and cleanup at runtime. | Partial shapes exist; build-once/run-many host ABI proof is blocked. | [#1477](https://github.com/OMT-Global/axiomlang/issues/1477) |
 | `packages_modules_and_workspace` | Package-local modules, local dependencies, workspaces, and deterministic lockfile validation. | Implemented as a language/package surface; source migration remains separate. | [#721](https://github.com/OMT-Global/axiomlang/issues/721) |
 | `compiler_command_surface` | AxiOM-owned check/build/run/test/doc/LSP-facing command packages. | Blocked until the compiler-scale proof owns the command surface. | [#1427](https://github.com/OMT-Global/axiomlang/issues/1427) |
