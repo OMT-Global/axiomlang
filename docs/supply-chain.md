@@ -39,6 +39,13 @@ The target runs `scripts/ci/run-toolchain-supply-chain.sh`.
   resolution does not drift outside `stage1/Cargo.lock`.
 - `cargo metadata --manifest-path stage1/Cargo.toml --format-version 1 --locked
   --offline` proves the locked graph can be inspected without network access.
+- `cargo audit --file stage1/Cargo.lock --json` runs the pinned RustSec scanner;
+  the raw report is retained at `stage1/target/sbom/stage1.cargo-audit.json`.
+- `scripts/ci/check-cargo-audit-policy.py` fails every active vulnerability,
+  unsoundness, unmaintained-crate warning, or yanked-package warning unless
+  `stage1/supply-chain/cargo-audit-policy.json` contains a matching exception.
+  Exceptions must link an Axiomlang issue, explain the temporary decision, and
+  expire in the future; orphaned and expired exceptions fail the gate.
 - `cargo vet --manifest-path stage1/Cargo.toml --locked --frozen` enforces the
   pinned cargo-vet policy and imports under `stage1/supply-chain/`.
 - When the repository root has `package-lock.json`, the gate runs
@@ -49,8 +56,8 @@ The target runs `scripts/ci/run-toolchain-supply-chain.sh`.
   `--remap-path-prefix` `RUSTFLAGS` entry so build metadata does not depend on
   the runner's absolute checkout path or wall clock.
 - `scripts/ci/emit-stage1-sbom.py` emits an SPDX JSON document at
-  `stage1/target/sbom/stage1.spdx.json`, and CI uploads that file as the
-  `stage1-sbom` artifact.
+  `stage1/target/sbom/stage1.spdx.json`; CI uploads both that document and the
+  RustSec report as the `stage1-sbom` artifact.
 - `make stage1-package-trust-contract` and its regression target validate the
   RFC 8032 Ed25519 + SHA-256 transcript, threshold trust/root and index
   metadata, package publication floors, exact current-index/offline pins,
