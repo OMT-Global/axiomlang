@@ -22,18 +22,7 @@ pub(crate) fn i64_fs_read_path(
     let Expr::Call { name, args, .. } = expr else {
         return None;
     };
-    if !matches!(
-        name.as_str(),
-        "fs_read"
-            | "read_file"
-            | "std_fs_read_file"
-            | "fs_file_exists"
-            | "file_exists"
-            | "std_fs_file_exists"
-            | "fs_file_size"
-            | "file_size"
-            | "std_fs_file_size"
-    )
+    if !matches!(name.as_str(), "fs_read" | "read_file" | "std_fs_read_file")
         && !static_bindings.fs_read_wrappers.contains(name)
     {
         return None;
@@ -108,9 +97,6 @@ pub(crate) fn lower_i64_fs_metadata_expr(
     ) {
         return None;
     }
-    if static_bindings.has_fs_write_calls {
-        return None;
-    }
     let path = i64_fs_path(args, static_bindings)?;
     let package_root = static_bindings.package_root.as_deref()?;
     let fs_root = static_bindings.fs_root.as_deref()?;
@@ -125,19 +111,49 @@ pub(crate) fn lower_i64_fs_metadata_expr(
     } else {
         "fs_file_size"
     };
-    let file_len =
-        i64_fs_file_len_expr(intrinsic, &candidate.display().to_string(), path.len(), static_bindings)?;
+    let file_stat = i64_fs_file_stat_expr(
+        intrinsic,
+        &candidate.display().to_string(),
+        path.len(),
+        static_bindings,
+    )?;
     if intrinsic == "fs_file_exists" {
         Some(CraneliftI64Expr::ConditionValue(Box::new(
             CraneliftI64Condition::Compare(CraneliftI64Compare {
                 op: CraneliftI64CompareOp::Ge,
-                lhs: file_len,
+                lhs: file_stat,
                 rhs: CraneliftI64Expr::Literal(0),
             }),
         )))
     } else {
-        Some(file_len)
+        Some(file_stat)
     }
+}
+
+fn i64_fs_file_stat_expr(
+    intrinsic: &str,
+    path: &str,
+    path_len: usize,
+    static_bindings: &I64StaticBindings,
+) -> Option<CraneliftI64Expr> {
+    let fs_root = static_bindings.fs_root.as_deref()?;
+    let path = Path::new(path);
+    let guarded = i64_runtime_fs_guard_expr(
+        fs_root,
+        path,
+        i64_fs_runtime_parent_fallback(path)?.as_path(),
+        CraneliftI64Expr::FileStat {
+            path: path.display().to_string(),
+        },
+    )?;
+    i64_audited_fs_expr_with_success(
+        intrinsic,
+        path_len,
+        None,
+        guarded,
+        static_bindings,
+        CraneliftI64AuditSuccess::NonNegative,
+    )
 }
 
 pub(crate) fn i64_stmts_have_fs_write_call(
@@ -296,18 +312,7 @@ pub(crate) fn i64_expr_has_fs_write_call(expr: &Expr, static_bindings: &I64Stati
 pub(crate) fn i64_expr_has_fs_read_call(expr: &Expr, static_bindings: &I64StaticBindings) -> bool {
     match expr {
         Expr::Call { name, args, .. } => {
-            matches!(
-                name.as_str(),
-                "fs_read"
-                    | "read_file"
-                    | "std_fs_read_file"
-                    | "fs_file_exists"
-                    | "file_exists"
-                    | "std_fs_file_exists"
-                    | "fs_file_size"
-                    | "file_size"
-                    | "std_fs_file_size"
-            )
+            matches!(name.as_str(), "fs_read" | "read_file" | "std_fs_read_file")
                 || static_bindings.fs_read_wrappers.contains(name)
                 || args
                     .iter()

@@ -6,7 +6,7 @@ use cranelift_codegen::isa;
 use cranelift_codegen::isa::CallConv;
 use cranelift_codegen::settings::{self, Configurable};
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Variable};
-use cranelift_module::{DataDescription, FuncId, Linkage, Module, default_libcall_names};
+use cranelift_module::{default_libcall_names, DataDescription, FuncId, Linkage, Module};
 use cranelift_object::{ObjectBuilder, ObjectModule};
 
 // Socket option constants (SOL_SOCKET / SO_REUSEADDR) differ between Linux and
@@ -252,6 +252,9 @@ pub enum I64Expr {
     FileLen {
         path: String,
         max_bytes: u64,
+    },
+    FileStat {
+        path: String,
     },
     AuditFs {
         intrinsic: String,
@@ -3490,6 +3493,7 @@ fn emit_i64_expr(
         I64Expr::FileLen { path, max_bytes } => {
             emit_i64_file_len_expr(builder, runtime_refs, path, *max_bytes)
         }
+        I64Expr::FileStat { path } => emit_i64_file_stat_expr(builder, runtime_refs, path),
         I64Expr::AuditFs {
             intrinsic,
             package,
@@ -5041,6 +5045,122 @@ fn emit_i64_file_len_expr(
 
     builder.switch_to_block(present_block);
     builder.seal_block(present_block);
+    builder.ins().jump(merge_block, &[BlockArg::Value(length)]);
+
+    builder.switch_to_block(missing_block);
+    builder.seal_block(missing_block);
+    let missing_result = builder.ins().iconst(types::I64, -1);
+    builder
+        .ins()
+        .jump(merge_block, &[BlockArg::Value(missing_result)]);
+
+    builder.switch_to_block(merge_block);
+    builder.seal_block(merge_block);
+    Ok(builder.block_params(merge_block)[0])
+}
+
+fn emit_i64_file_stat_expr(
+    builder: &mut FunctionBuilder<'_>,
+    runtime_refs: I64RuntimeRefs,
+    path: &str,
+) -> Result<cranelift_codegen::ir::Value, CraneliftBackendError> {
+    if path.as_bytes().contains(&0) {
+        return Err(CraneliftBackendError::new(
+            "filesystem path contains an interior null byte",
+        ));
+    }
+    let path_len = u32::try_from(path.len() + 1)
+        .map_err(|_| CraneliftBackendError::new("filesystem path is too large"))?;
+    let path_slot = builder.create_sized_stack_slot(StackSlotData::new(
+        StackSlotKind::ExplicitSlot,
+        path_len,
+        0,
+    ));
+    for (offset, byte) in path.bytes().chain(std::iter::once(0)).enumerate() {
+        let byte_value = builder.ins().iconst(types::I8, i64::from(byte));
+        builder
+            .ins()
+            .stack_store(byte_value, path_slot, offset as i32);
+    }
+
+    let byte_slot =
+        builder.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 1, 0));
+    let path_ptr = builder.ins().stack_addr(types::I64, path_slot, 0);
+    let byte_ptr = builder.ins().stack_addr(types::I64, byte_slot, 0);
+    let open_flags = builder.ins().iconst(types::I32, 0);
+    let open_call = builder
+        .ins()
+        .call(runtime_refs.open, &[path_ptr, open_flags]);
+    let fd = builder.inst_results(open_call)[0];
+
+    let missing_block = builder.create_block();
+    let probe_block = builder.create_block();
+    let seek_block = builder.create_block();
+    let present_block = builder.create_block();
+    let merge_block = builder.create_block();
+    builder.append_block_param(probe_block, types::I32);
+    builder.append_block_param(seek_block, types::I32);
+    builder.append_block_param(present_block, types::I64);
+    builder.append_block_param(merge_block, types::I64);
+
+    let open_failed = builder.ins().icmp_imm(IntCC::SignedLessThan, fd, 0);
+    builder.ins().brif(
+        open_failed,
+        missing_block,
+        &[],
+        probe_block,
+        &[BlockArg::Value(fd)],
+    );
+
+    builder.switch_to_block(probe_block);
+    builder.seal_block(probe_block);
+    let fd = builder.block_params(probe_block)[0];
+    let requested = builder.ins().iconst(types::I64, 1);
+    let probe_call = builder
+        .ins()
+        .call(runtime_refs.read, &[fd, byte_ptr, requested]);
+    let probe_result = builder.inst_results(probe_call)[0];
+    let probe_failed = builder
+        .ins()
+        .icmp_imm(IntCC::SignedLessThan, probe_result, 0);
+    let probe_failed_block = builder.create_block();
+    builder.append_block_param(probe_failed_block, types::I32);
+    builder.ins().brif(
+        probe_failed,
+        probe_failed_block,
+        &[BlockArg::Value(fd)],
+        seek_block,
+        &[BlockArg::Value(fd)],
+    );
+
+    builder.switch_to_block(probe_failed_block);
+    builder.seal_block(probe_failed_block);
+    let failed_fd = builder.block_params(probe_failed_block)[0];
+    builder.ins().call(runtime_refs.close, &[failed_fd]);
+    builder.ins().jump(missing_block, &[]);
+
+    builder.switch_to_block(seek_block);
+    builder.seal_block(seek_block);
+    let fd = builder.block_params(seek_block)[0];
+    let zero = builder.ins().iconst(types::I64, 0);
+    let seek_end = builder.ins().iconst(types::I32, 2);
+    let seek_call = builder
+        .ins()
+        .call(runtime_refs.lseek, &[fd, zero, seek_end]);
+    let length = builder.inst_results(seek_call)[0];
+    builder.ins().call(runtime_refs.close, &[fd]);
+    let seek_failed = builder.ins().icmp_imm(IntCC::SignedLessThan, length, 0);
+    builder.ins().brif(
+        seek_failed,
+        missing_block,
+        &[],
+        present_block,
+        &[BlockArg::Value(length)],
+    );
+
+    builder.switch_to_block(present_block);
+    builder.seal_block(present_block);
+    let length = builder.block_params(present_block)[0];
     builder.ins().jump(merge_block, &[BlockArg::Value(length)]);
 
     builder.switch_to_block(missing_block);
@@ -7145,6 +7265,111 @@ mod tests {
             .output()
             .expect("run missing file len binary");
         assert_eq!(output.status.code(), Some(255));
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn links_i64_exit_program_with_file_stat_edges() {
+        if std::env::var_os("AXIOM_SKIP_CRANELIFT_LINK_TEST").is_some() {
+            return;
+        }
+        if Command::new("cc").arg("--version").output().is_err() {
+            eprintln!("skipping cranelift file stat link test because cc is unavailable");
+            return;
+        }
+        let temp = tempfile::tempdir().expect("tempdir");
+        let empty = temp.path().join("empty.txt");
+        let target = temp.path().join("target.txt");
+        let directory = temp.path().join("directory");
+        let link = temp.path().join("link.txt");
+        let large = temp.path().join("large.txt");
+        fs::write(&empty, "").expect("write empty file");
+        fs::write(&target, "target").expect("write target file");
+        fs::create_dir(&directory).expect("create directory");
+        std::os::unix::fs::symlink(&target, &link).expect("create file symlink");
+        fs::write(&large, vec![b'x'; 64 * 1024 * 1024 + 1]).expect("write large file");
+
+        let compile_and_run = |body: I64Expr, name: &str| {
+            let object = temp.path().join(format!("{name}.o"));
+            let binary = temp.path().join(name);
+            compile_i64_exit_program(
+                I64ExitProgram {
+                    functions: Vec::new(),
+                    locals: Vec::new(),
+                    stmts: Vec::new(),
+                    body: I64ExitBody::Return(body),
+                },
+                &object,
+                &binary,
+            )
+            .expect("compile file stat edge program");
+            Command::new(binary)
+                .output()
+                .expect("run file stat edge program")
+                .status
+                .code()
+                .expect("file stat edge exit code")
+        };
+        assert_eq!(
+            compile_and_run(
+                I64Expr::FileStat {
+                    path: empty.display().to_string(),
+                },
+                "file-stat-empty",
+            ),
+            0
+        );
+        assert_eq!(
+            compile_and_run(
+                I64Expr::Select {
+                    cond: Box::new(I64Condition::Compare(I64Compare {
+                        op: I64CompareOp::Eq,
+                        lhs: I64Expr::FileStat {
+                            path: directory.display().to_string(),
+                        },
+                        rhs: I64Expr::Literal(-1),
+                    })),
+                    then_result: Box::new(I64Expr::Literal(42)),
+                    else_result: Box::new(I64Expr::Literal(41)),
+                },
+                "file-stat-directory",
+            ),
+            42
+        );
+        assert_eq!(
+            compile_and_run(
+                I64Expr::Select {
+                    cond: Box::new(I64Condition::Compare(I64Compare {
+                        op: I64CompareOp::Eq,
+                        lhs: I64Expr::FileStat {
+                            path: link.display().to_string(),
+                        },
+                        rhs: I64Expr::Literal(6),
+                    })),
+                    then_result: Box::new(I64Expr::Literal(42)),
+                    else_result: Box::new(I64Expr::Literal(41)),
+                },
+                "file-stat-symlink",
+            ),
+            42
+        );
+        assert_eq!(
+            compile_and_run(
+                I64Expr::Select {
+                    cond: Box::new(I64Condition::Compare(I64Compare {
+                        op: I64CompareOp::Ge,
+                        lhs: I64Expr::FileStat {
+                            path: large.display().to_string(),
+                        },
+                        rhs: I64Expr::Literal(64 * 1024 * 1024 + 1),
+                    })),
+                    then_result: Box::new(I64Expr::Literal(42)),
+                    else_result: Box::new(I64Expr::Literal(41)),
+                },
+                "file-stat-large",
+            ),
+            42
+        );
     }
 
     #[test]

@@ -4422,9 +4422,6 @@ fn cranelift_backend_reports_scoped_file_metadata_at_runtime() {
     let temp = tempfile::tempdir().expect("tempdir");
     let project = temp.path().join("fs-file-metadata");
     write_fs_file_metadata_project(&project);
-    let runtime_content = "runtime-metadata\n";
-    fs::write(project.join("src/metadata.txt"), runtime_content)
-        .expect("rewrite metadata fixture for runtime");
 
     let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
         .args([
@@ -4447,6 +4444,7 @@ fn cranelift_backend_reports_scoped_file_metadata_at_runtime() {
     assert_eq!(payload["backend"], "cranelift");
     assert_eq!(payload["generated_rust"], Value::Null);
     let binary = payload["binary"].as_str().expect("binary path");
+    let runtime_content = "runtime-metadata\n";
     let audit_log = project.join("native-fs-metadata-audit.jsonl");
     assert!(
         !audit_log.exists(),
@@ -4457,14 +4455,15 @@ fn cranelift_backend_reports_scoped_file_metadata_at_runtime() {
         .env("AXIOM_HOST_AUDIT_LOG", &audit_log)
         .output()
         .expect("run cranelift file metadata binary");
+    let audit = fs::read_to_string(&audit_log).expect("read native fs metadata audit log");
     assert_eq!(
         run.status.code(),
         Some(runtime_content.len() as i32),
-        "runtime metadata should determine the exit code: stdout={} stderr={}",
+        "runtime metadata should determine the exit code: stdout={} stderr={} audit={}",
         String::from_utf8_lossy(&run.stdout),
-        String::from_utf8_lossy(&run.stderr)
+        String::from_utf8_lossy(&run.stderr),
+        audit
     );
-    let audit = fs::read_to_string(&audit_log).expect("read native fs metadata audit log");
     assert!(audit.contains("\"intrinsic\":\"fs_file_exists\""));
     assert!(audit.contains("\"intrinsic\":\"fs_file_size\""));
     assert!(audit.contains("\"outcome\":\"ok\""));
@@ -4976,12 +4975,10 @@ fn cranelift_backend_debug_build_emits_sidecars_without_axiom_dwarf() {
     assert_eq!(manifest["native_debug"]["debuginfo"], 0);
     assert_eq!(manifest["native_debug"]["opt_level"], 0);
     assert_eq!(manifest["native_debug"]["axiom_dwarf"], false);
-    assert!(
-        manifest["native_debug"]["native_debug_info"]
-            .as_str()
-            .expect("native debug info")
-            .contains("does not emit native Axiom DWARF yet")
-    );
+    assert!(manifest["native_debug"]["native_debug_info"]
+        .as_str()
+        .expect("native debug info")
+        .contains("does not emit native Axiom DWARF yet"));
     assert!(
         manifest.get("rustc").is_none(),
         "cranelift debug manifests should not claim rustc debug settings"
@@ -16033,6 +16030,7 @@ out_dir = "dist"
 
 [capabilities]
 fs = true
+"fs:write" = true
 net = false
 process = false
 env = false
@@ -16113,6 +16111,7 @@ out_dir = "dist"
 
 [capabilities]
 fs = true
+"fs:write" = true
 net = false
 process = false
 env = false
@@ -16138,15 +16137,13 @@ source = "path"
         project.join("src/main.ax"),
         r#"import "std/fs.ax"
 
-static METADATA_PATH: string = "src/metadata.txt"
-
 fn main(): int {
-let exists: bool = file_exists(METADATA_PATH)
-let missing: bool = file_exists("src/missing.txt")
-let size: int = file_size(METADATA_PATH)
+let wrote: int = write_file("src/metadata.txt", "runtime-metadata\n")
+let replaced: int = replace_file("src/metadata.txt", "runtime-replaced\n")
+let exists: bool = file_exists("src/metadata.txt")
 let missing_size: int = file_size("src/missing.txt")
-if exists == true && missing == false && size > 0 && missing_size == -1 {
-return size
+if wrote == 0 && replaced == 0 && exists == true && missing_size == -1 {
+return file_size("src/metadata.txt")
 } else {
 return 1
 }
