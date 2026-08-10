@@ -8,12 +8,17 @@
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use std::fs::{self, File, OpenOptions};
-use std::io::Write;
+use std::io::{self, Write};
 use std::path::{Component, Path, PathBuf};
 use std::process::Command;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 const STATE_FILE: &str = ".axiom-transaction.json";
+const LEASE_FILE: &str = ".axiom-transaction.lock";
 const AUDIT_SCHEMA: &str = "axiom.transactional_workspace.v0";
+static OWNER_EPOCH_COUNTER: AtomicU64 = AtomicU64::new(0);
+static TEMP_FILE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct WorkspacePolicy {
@@ -64,6 +69,14 @@ pub struct TransactionState {
     pub pending_effect: Option<String>,
     pub workspace_fingerprint: String,
     pub source_fingerprint: String,
+    /// A unique durable owner epoch. Recovery claims a new epoch while its
+    /// exclusive lease is held, so stale writers cannot be silently merged.
+    #[serde(default)]
+    pub owner_epoch: String,
+    /// Monotonically increasing compare-and-swap generation for the state
+    /// file. It advances on every durable state replacement.
+    #[serde(default)]
+    pub generation: u64,
     /// The one candidate commit proven to contain the executor's exact
     /// authorized bytes. Active recovery may accept this head in addition to
     /// `base_sha`; arbitrary descendants remain forbidden.
@@ -158,6 +171,9 @@ pub enum TransactionPhase {
 pub struct TransactionalWorkspace {
     state_path: PathBuf,
     state: TransactionState,
+    /// Held for the complete lifetime of this object. Closing the descriptor
+    /// releases the OS-level cross-process lease.
+    _lease: File,
 }
 
 impl TransactionalWorkspace {
@@ -241,6 +257,7 @@ impl TransactionalWorkspace {
         let canonical_worktree = worktree
             .canonicalize()
             .map_err(|e| format!("cannot canonicalize transaction worktree: {e}"))?;
+        let lease = acquire_lease(&canonical_worktree.join(LEASE_FILE))?;
         let checkpoint_tree = git(&canonical_worktree, &["rev-parse", "HEAD^{tree}"])?
             .trim()
             .to_string();
@@ -270,8 +287,11 @@ impl TransactionalWorkspace {
                 pending_effect: None,
                 workspace_fingerprint,
                 source_fingerprint,
+                owner_epoch: new_owner_epoch(),
+                generation: 0,
                 authorized_candidate_head: None,
             },
+            _lease: lease,
         };
         this.record("checkpoint", exact_sha, "created")?;
         Ok(this)
@@ -284,9 +304,10 @@ impl TransactionalWorkspace {
             .canonicalize()
             .map_err(|e| format!("cannot canonicalize worktree: {e}"))?;
         let state_path = root.join(STATE_FILE);
+        let lease = acquire_lease(&root.join(LEASE_FILE))?;
         let bytes =
             fs::read(&state_path).map_err(|e| format!("cannot read transaction state: {e}"))?;
-        let state: TransactionState = serde_json::from_slice(&bytes)
+        let mut state: TransactionState = serde_json::from_slice(&bytes)
             .map_err(|e| format!("invalid transaction state: {e}"))?;
         let expected = state_checksum(&state)?;
         if state.checksum != expected {
@@ -295,6 +316,7 @@ impl TransactionalWorkspace {
         if state.worktree != normalized(&root) {
             return Err("transaction state belongs to another worktree".into());
         }
+        validate_owner_epoch(&state.owner_epoch)?;
         let observed_head = git(&root, &["rev-parse", "HEAD"])?;
         let observed_head = observed_head.trim();
         let authorized_candidate = state
@@ -323,7 +345,19 @@ impl TransactionalWorkspace {
         {
             return Err("transaction worktree does not match its durable journal".into());
         }
-        Ok(Self { state_path, state })
+        let previous_epoch = state.owner_epoch.clone();
+        let previous_generation = state.generation;
+        state.owner_epoch = new_owner_epoch();
+        persist_state(
+            &state_path,
+            &mut state,
+            Some((&previous_epoch, previous_generation)),
+        )?;
+        Ok(Self {
+            state_path,
+            state,
+            _lease: lease,
+        })
     }
 
     pub fn state(&self) -> &TransactionState {
@@ -559,7 +593,17 @@ impl TransactionalWorkspace {
         }
         let root = PathBuf::from(&self.state.worktree);
         git(&root, &["reset", "--hard", &self.state.base_sha])?;
-        git(&root, &["clean", "-fd", "--exclude", STATE_FILE])?;
+        git(
+            &root,
+            &[
+                "clean",
+                "-fd",
+                "--exclude",
+                STATE_FILE,
+                "--exclude",
+                LEASE_FILE,
+            ],
+        )?;
         self.state.phase = TransactionPhase::Aborted;
         self.state.rollback_result = Some("restored_to_base_sha".into());
         self.state.pending_effect = None;
@@ -792,7 +836,18 @@ impl TransactionalWorkspace {
             subject: redact(subject),
             result: redact(result),
         });
-        persist(&self.state_path, &mut self.state)
+        self.persist()
+    }
+
+    fn persist(&mut self) -> Result<(), String> {
+        let expected_owner = self.state.owner_epoch.clone();
+        let expected_generation = self.state.generation;
+        let expected = if expected_generation == 0 && !self.state_path.exists() {
+            None
+        } else {
+            Some((expected_owner.as_str(), expected_generation))
+        };
+        persist_state(&self.state_path, &mut self.state, expected)
     }
 
     fn begin_effect(&mut self, effect: &str) -> Result<(), String> {
@@ -800,7 +855,7 @@ impl TransactionalWorkspace {
             return Err("another filesystem effect is pending".into());
         }
         self.state.pending_effect = Some(effect.into());
-        persist(&self.state_path, &mut self.state)
+        self.persist()
     }
 
     fn finish_effect(
@@ -812,7 +867,7 @@ impl TransactionalWorkspace {
         self.record(operation, subject, result)?;
         self.state.pending_effect = None;
         self.state.workspace_fingerprint = checkout_fingerprint(&self.root(), &self.state.policy)?;
-        persist(&self.state_path, &mut self.state)
+        self.persist()
     }
 }
 
@@ -855,6 +910,22 @@ fn validate_digest(digest: &str) -> Result<(), String> {
     } else {
         Err("digest must use sha256:<64 lowercase hex> form".into())
     }
+}
+
+fn validate_owner_epoch(epoch: &str) -> Result<(), String> {
+    if epoch.is_empty() || epoch.len() > 160 || epoch.contains(char::is_whitespace) {
+        return Err("transaction owner epoch is invalid".into());
+    }
+    Ok(())
+}
+
+fn new_owner_epoch() -> String {
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or_default();
+    let counter = OWNER_EPOCH_COUNTER.fetch_add(1, Ordering::Relaxed);
+    format!("owner-{}-{nanos}-{counter}", std::process::id())
 }
 
 fn sha256_digest(bytes: &[u8]) -> String {
@@ -941,7 +1012,11 @@ fn validate_relative(path: &str) -> Result<(), String> {
     {
         return Err("path must be a normalized relative path without traversal".into());
     }
-    if path == STATE_FILE || path.starts_with(".git") || path.starts_with(".codex/policies/") {
+    if path == STATE_FILE
+        || path == LEASE_FILE
+        || path.starts_with(".git")
+        || path.starts_with(".codex/policies/")
+    {
         return Err("protected transaction or policy path".into());
     }
     Ok(())
@@ -1000,7 +1075,10 @@ fn tree_fingerprint(root: &Path) -> Result<String, String> {
         for entry in entries {
             let child = entry.path();
             let relative = child.strip_prefix(root).map_err(|e| e.to_string())?;
-            if relative == Path::new(".git") || relative == Path::new(STATE_FILE) {
+            if relative == Path::new(".git")
+                || relative == Path::new(STATE_FILE)
+                || relative == Path::new(LEASE_FILE)
+            {
                 continue;
             }
             let metadata = fs::symlink_metadata(&child).map_err(|e| e.to_string())?;
@@ -1063,7 +1141,160 @@ fn git(dir: &Path, args: &[&str]) -> Result<String, String> {
     String::from_utf8(output.stdout).map_err(|e| format!("git output is not UTF-8: {e}"))
 }
 
-fn persist(path: &Path, state: &mut TransactionState) -> Result<(), String> {
+fn acquire_lease(path: &Path) -> Result<File, String> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| "transaction lease path has no parent".to_string())?;
+    fs::create_dir_all(parent)
+        .map_err(|e| format!("cannot create transaction lease parent: {e}"))?;
+    let file = open_lease(path).map_err(|e| format!("cannot open transaction lease: {e}"))?;
+    lock_lease(&file).map_err(|e| format!("transaction lease unavailable: {e}"))?;
+    Ok(file)
+}
+
+#[cfg(unix)]
+fn open_lease(path: &Path) -> io::Result<File> {
+    use std::os::unix::fs::OpenOptionsExt;
+
+    OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
+        .open(path)
+}
+
+#[cfg(windows)]
+fn open_lease(path: &Path) -> io::Result<File> {
+    use std::os::windows::fs::OpenOptionsExt;
+
+    const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
+    OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)
+        .open(path)
+}
+
+#[cfg(not(any(unix, windows)))]
+fn open_lease(_path: &Path) -> io::Result<File> {
+    Err(io::Error::new(
+        io::ErrorKind::Unsupported,
+        "transaction leases require platform file-lock support",
+    ))
+}
+
+#[cfg(unix)]
+fn lock_lease(file: &File) -> io::Result<()> {
+    use std::os::unix::io::AsRawFd;
+
+    if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } < 0 {
+        Err(io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
+}
+
+#[cfg(windows)]
+fn lock_lease(file: &File) -> io::Result<()> {
+    use std::os::windows::io::AsRawHandle;
+    use std::ptr;
+
+    #[repr(C)]
+    struct Overlapped {
+        internal: usize,
+        internal_high: usize,
+        offset: u32,
+        offset_high: u32,
+        event: *mut std::ffi::c_void,
+    }
+
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn LockFileEx(
+            file: *mut std::ffi::c_void,
+            flags: u32,
+            reserved: u32,
+            bytes_low: u32,
+            bytes_high: u32,
+            overlapped: *mut Overlapped,
+        ) -> i32;
+    }
+
+    const LOCKFILE_EXCLUSIVE_LOCK: u32 = 0x0000_0002;
+    const LOCKFILE_FAIL_IMMEDIATELY: u32 = 0x0000_0001;
+    let mut overlapped = Overlapped {
+        internal: 0,
+        internal_high: 0,
+        offset: 0,
+        offset_high: 0,
+        event: ptr::null_mut(),
+    };
+    if unsafe {
+        LockFileEx(
+            file.as_raw_handle(),
+            LOCKFILE_EXCLUSIVE_LOCK | LOCKFILE_FAIL_IMMEDIATELY,
+            0,
+            u32::MAX,
+            u32::MAX,
+            &mut overlapped,
+        )
+    } == 0
+    {
+        Err(io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
+}
+
+#[cfg(not(any(unix, windows)))]
+fn lock_lease(_file: &File) -> io::Result<()> {
+    Err(io::Error::new(
+        io::ErrorKind::Unsupported,
+        "transaction leases require platform file-lock support",
+    ))
+}
+
+fn persist_state(
+    path: &Path,
+    state: &mut TransactionState,
+    expected: Option<(&str, u64)>,
+) -> Result<(), String> {
+    match expected {
+        Some((expected_owner, expected_generation)) => {
+            let bytes = fs::read(path).map_err(|e| {
+                format!("cannot read durable transaction state for compare-and-swap: {e}")
+            })?;
+            let durable: TransactionState = serde_json::from_slice(&bytes).map_err(|e| {
+                format!("invalid durable transaction state for compare-and-swap: {e}")
+            })?;
+            let durable_checksum = state_checksum(&durable)?;
+            if durable.checksum != durable_checksum {
+                return Err("transaction state checksum mismatch during compare-and-swap".into());
+            }
+            if durable.transaction_id != state.transaction_id
+                || durable.owner_epoch != expected_owner
+                || durable.generation != expected_generation
+            {
+                return Err(
+                    "transaction state owner/generation conflict; refusing to merge stale state"
+                        .into(),
+                );
+            }
+        }
+        None if path.exists() => {
+            return Err("transaction state appeared during creation".into());
+        }
+        None => {}
+    }
+
+    state.generation = match expected {
+        Some((_, generation)) => generation
+            .checked_add(1)
+            .ok_or_else(|| "transaction state generation overflow".to_string())?,
+        None => 1,
+    };
     state.checksum.clear();
     state.checksum = state_checksum(state)?;
     let bytes = serde_json::to_vec_pretty(state).map_err(|e| e.to_string())?;
@@ -1082,24 +1313,45 @@ fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), String> {
         .parent()
         .ok_or_else(|| "state path has no parent".to_string())?;
     fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-    let tmp = parent.join(format!(
-        ".{}.tmp",
-        path.file_name()
-            .and_then(|v| v.to_str())
-            .unwrap_or("transaction")
-    ));
-    let mut file = OpenOptions::new()
-        .create(true)
-        .truncate(true)
-        .write(true)
-        .open(&tmp)
-        .map_err(|e| e.to_string())?;
-    file.write_all(bytes).map_err(|e| e.to_string())?;
-    file.sync_all().map_err(|e| e.to_string())?;
-    fs::rename(&tmp, path).map_err(|e| e.to_string())?;
-    File::open(parent)
-        .and_then(|f| f.sync_all())
-        .map_err(|e| e.to_string())
+    let name = path
+        .file_name()
+        .and_then(|v| v.to_str())
+        .unwrap_or("transaction");
+    let pid = std::process::id();
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or_default();
+    for _ in 0..32 {
+        let counter = TEMP_FILE_COUNTER.fetch_add(1, Ordering::Relaxed);
+        let tmp = parent.join(format!(".{name}.{pid}.{nanos}.{counter}.tmp"));
+        let mut file = match OpenOptions::new().create_new(true).write(true).open(&tmp) {
+            Ok(file) => file,
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(error) => {
+                return Err(format!(
+                    "cannot create unique transaction temp file: {error}"
+                ))
+            }
+        };
+        let result = file
+            .write_all(bytes)
+            .and_then(|()| file.sync_all())
+            .map_err(|e| e.to_string());
+        drop(file);
+        if let Err(error) = result {
+            let _ = fs::remove_file(&tmp);
+            return Err(error);
+        }
+        let result = fs::rename(&tmp, path)
+            .and_then(|()| File::open(parent).and_then(|file| file.sync_all()))
+            .map_err(|e| e.to_string());
+        if result.is_err() {
+            let _ = fs::remove_file(&tmp);
+        }
+        return result;
+    }
+    Err("could not allocate a unique transaction temp file".into())
 }
 
 fn normalized(path: &Path) -> String {
@@ -1214,7 +1466,7 @@ mod tests {
         let mut txn = TransactionalWorkspace::create(&source, &worktree, &sha, policy()).unwrap();
         txn.state.pending_effect = Some("write:allowed.txt".into());
         txn.state.phase = TransactionPhase::Interrupted;
-        persist(&txn.state_path, &mut txn.state).unwrap();
+        txn.persist().unwrap();
         drop(txn);
         let mut recovered = TransactionalWorkspace::recover(&worktree).unwrap();
         assert!(!recovered.execution_audit().recovery.resumable);
@@ -1256,10 +1508,9 @@ mod tests {
         let (repo, source, sha) = fixture();
         let worktree = repo.path().join("txn");
         let mut txn = TransactionalWorkspace::create(&source, &worktree, &sha, policy()).unwrap();
-        assert!(
-            txn.authorize_external("secret://broker/key", false)
-                .is_err()
-        );
+        assert!(txn
+            .authorize_external("secret://broker/key", false)
+            .is_err());
         let first = txn.deterministic_audit_json().unwrap();
         let second = txn.deterministic_audit_json().unwrap();
         assert_eq!(first, second);
