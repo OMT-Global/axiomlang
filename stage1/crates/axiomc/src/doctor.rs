@@ -80,7 +80,7 @@ struct DoctorPackage {
 pub fn doctor_report(project: &Path, command_count: usize) -> DoctorReport {
     let rustc = probe_tool("rustc", &["-vV"]);
     let cargo = probe_tool("cargo", &["--version"]);
-    let target_triple = rustc.version.as_deref().and_then(parse_rustc_host_target);
+    let target_triple = target_support::host_target();
     let target_support = target_support_report(target_triple.clone());
     let check = check_project_with_options(project, &CheckOptions::default());
     let (ok, lockfile_status, capabilities, workspace_graph, error) = match check {
@@ -191,10 +191,6 @@ fn probe_tool(program: &str, args: &[&str]) -> ToolProbe {
     }
 }
 
-fn parse_rustc_host_target(version: &str) -> Option<String> {
-    target_support::parse_rustc_host_target(version)
-}
-
 pub fn doctor_text(report: &DoctorReport) -> String {
     let mut lines = vec![
         format!("project: {}", report.project),
@@ -247,7 +243,7 @@ fn tool_text(tool: &ToolProbe) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{CheckedCapabilityLedger, doctor_report, parse_rustc_host_target};
+    use super::{CheckedCapabilityLedger, doctor_report};
     use crate::json_contract;
     use crate::new_project::{WorkloadTemplate, create_project_with_template};
 
@@ -333,12 +329,4 @@ mod tests {
         );
     }
 
-    #[test]
-    fn rustc_host_target_parser_reads_verbose_version_output() {
-        let version = "rustc 1.90.0\nhost: aarch64-apple-darwin\nrelease: 1.90.0\n";
-        assert_eq!(
-            parse_rustc_host_target(version).as_deref(),
-            Some("aarch64-apple-darwin")
-        );
-    }
 }

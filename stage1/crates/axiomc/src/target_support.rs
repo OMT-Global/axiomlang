@@ -6,7 +6,6 @@
 
 use crate::diagnostics::Diagnostic;
 use serde::Serialize;
-use std::process::Command;
 
 pub const TARGET_SUPPORT_SCHEMA_VERSION: &str = "axiom.target_support.v1";
 pub const SUPPORTED_NATIVE_BACKEND: &str = "cranelift";
@@ -56,14 +55,29 @@ pub fn supported_targets() -> Vec<SupportedTarget> {
 }
 
 pub fn host_target() -> Option<String> {
-    let output = Command::new("rustc").args(["-vV"]).output().ok()?;
-    if !output.status.success() {
-        return None;
-    }
-    parse_rustc_host_target(&String::from_utf8_lossy(&output.stdout))
+    compiled_host_target().map(str::to_owned)
 }
 
-pub fn parse_rustc_host_target(version: &str) -> Option<String> {
+#[cfg(all(target_arch = "x86_64", target_os = "linux", target_env = "gnu"))]
+fn compiled_host_target() -> Option<&'static str> {
+    Some("x86_64-unknown-linux-gnu")
+}
+
+#[cfg(all(target_arch = "aarch64", target_os = "macos"))]
+fn compiled_host_target() -> Option<&'static str> {
+    Some("aarch64-apple-darwin")
+}
+
+#[cfg(not(any(
+    all(target_arch = "x86_64", target_os = "linux", target_env = "gnu"),
+    all(target_arch = "aarch64", target_os = "macos")
+)))]
+fn compiled_host_target() -> Option<&'static str> {
+    None
+}
+
+#[cfg(test)]
+fn parse_rustc_host_target(version: &str) -> Option<String> {
     version
         .lines()
         .find_map(|line| line.strip_prefix("host: "))
@@ -71,7 +85,9 @@ pub fn parse_rustc_host_target(version: &str) -> Option<String> {
 }
 
 pub fn is_known_supported_target(target: &str) -> bool {
-    matches!(target, "x86_64-unknown-linux-gnu" | "aarch64-apple-darwin")
+    supported_targets()
+        .iter()
+        .any(|supported| supported.target == target)
 }
 
 pub fn is_host_target(target: &str) -> bool {
@@ -79,22 +95,20 @@ pub fn is_host_target(target: &str) -> bool {
 }
 
 pub fn resolve_requested_target(target: Option<&str>) -> Result<Option<String>, Diagnostic> {
-    let Some(target) = target else {
-        return Ok(None);
-    };
+    let host = host_target().ok_or_else(|| {
+        Diagnostic::new(
+            "target",
+            "the compiler host is not one of the supported direct-native targets",
+        )
+        .with_code("target.unsupported")
+        .with_help("use a prebuilt compiler for a supported Linux x86_64 or macOS arm64 host")
+    })?;
+    let target = target.unwrap_or(&host);
     let target = match target {
         "wasm32" | "wasm32-wasi" => "wasm32-wasip1",
         target => target,
     };
-    let host = host_target().ok_or_else(|| {
-        Diagnostic::new(
-            "target",
-            "cannot resolve the Rust host target for direct-native compilation",
-        )
-        .with_code("target.host_unavailable")
-        .with_help("install a usable rustc toolchain, or omit --target")
-    })?;
-    if target != host {
+    if !is_known_supported_target(target) || target != host {
         return Err(Diagnostic::new(
             "target",
             format!(
@@ -173,6 +187,13 @@ mod tests {
     }
 
     #[test]
+    fn compiled_host_identity_matches_the_supported_catalog() {
+        let host = host_target().expect("test target must be a supported host");
+        assert!(is_known_supported_target(&host));
+        assert_eq!(report(Some(host.clone())).host_target, Some(host));
+    }
+
+    #[test]
     fn unknown_hosts_are_not_reported_as_supported() {
         assert!(!is_known_supported_target("x86_64-unknown-linux-musl"));
         assert!(!report(Some(String::from("x86_64-unknown-linux-musl"))).host_supported);
@@ -181,10 +202,14 @@ mod tests {
     #[test]
     fn explicit_host_target_is_accepted_and_non_host_target_fails_closed() {
         let host = host_target().expect("test environment must expose a rustc host target");
+        assert_eq!(resolve_requested_target(None), Ok(Some(host.clone())));
         assert_eq!(resolve_requested_target(Some(&host)), Ok(Some(host)));
         let error = resolve_requested_target(Some("wasm32"))
             .expect_err("non-host targets must not silently use host codegen");
         assert_eq!(error.code.as_deref(), Some("target.unsupported"));
+        let malformed = resolve_requested_target(Some("not-a-target"))
+            .expect_err("malformed targets must fail closed");
+        assert_eq!(malformed.code.as_deref(), Some("target.unsupported"));
     }
 
     #[test]
