@@ -26,7 +26,10 @@ DEFAULT_CHECKS = [
     {"id": "schemas_protocol", "command": "cargo test --manifest-path stage1/Cargo.toml -p axiomc --test schema_metadata --test json_command_fixtures --test json_contract_snapshots --locked && bash scripts/ci/validate-capability-manifests.sh"},
     {"id": "lsp_protocol_smoke", "command": "cargo test --manifest-path stage1/Cargo.toml -p axiomc --lib --test lsp_stdio --locked lsp -- --test-threads=1 && python3 scripts/ci/check-command-lsp-boundary.py"},
     {"id": "direct_native_abi", "command": "CARGO_TARGET_DIR=stage1/target/direct-native-runtime-abi bash scripts/ci/run-direct-native-runtime-abi-evidence.sh"},
-    {"id": "runtime_sensitivity", "command": "cargo test --manifest-path stage1/Cargo.toml -p axiomc --test cranelift_backend --locked -- --test-threads=1"},
+    {
+        "id": "cranelift_backend_integration",
+        "command": "cargo test --manifest-path stage1/Cargo.toml -p axiomc --test cranelift_backend --locked -- --test-threads=1",
+    },
     {
         "id": "benchmark_comparison",
         "command": "python3 scripts/ci/check-stage1-benchmarks.py && python3 scripts/ci/report-stage1-reference-comparison.py",
