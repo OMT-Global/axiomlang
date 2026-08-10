@@ -1041,6 +1041,21 @@
       "version": "0.1.0"
     },
     {
+      "id": "axiom://schema/axiom.runtime_observability.v1",
+      "kind": "schema",
+      "signature": "published schema id=https://axiom-lang.org/schemas/axiom.runtime_observability.v1.schema.json; semantic_digest=0483299a6e3c2b0f224aaaeff368d9b24be7d210e29b51ed91716f18f12b682e; envelope=axiom.runtime_observability.v1",
+      "sources": [
+        {
+          "path": "stage1/compiler-contracts/schemas/axiom.runtime_observability.v1.schema.json",
+          "role": "published_schema",
+          "selector": "$id,properties.schema_version.const",
+          "sha256": "bc172efa5cf1f3ef7f5e3caa87ac83aff7c4cfe8d382732cb3a82ffb045e9fa8"
+        }
+      ],
+      "stability": "experimental",
+      "version": "0.1.0"
+    },
+    {
       "id": "axiom://schema/axiom.semantic_mir.v1",
       "kind": "schema",
       "signature": "published schema id=https://omt-global.github.io/axiom/schemas/axiom.semantic_mir.v1.schema.json; semantic_digest=3b96a52b476fdc6e39f6a51542d6d8bf841634ad06af6f907aa9151368df667c; envelope=axiom.semantic_mir.v1",
