@@ -36,30 +36,29 @@ Hermetic fixture validation does not require GitHub access:
 python3 scripts/ci/test-remote-branch-prune-plan.py
 ```
 
-## Review snapshot: 2026-07-29
+## Report shape
 
-The live repository had 90 remote branches: 17 exact-head candidates, 68 held
-for manual review, and 5 preserved automatically. Automatic head deletion was
-enabled and `main` was the only protected branch reported by GitHub. This table
-is evidence for review, not deletion authority; every row must be regenerated
-and matched by SHA immediately before an approved prune.
+The JSON report contains a `review_manifest` with one entry per candidate:
 
-| Branch | Exact SHA | Associated terminal PR |
-| --- | --- | --- |
-| `codex/issue-780-effect-model` | `fa100fc44a2f1f3f85eb5b82b9ebf13e5e8033b9` | [#806](https://github.com/OMT-Global/axiomlang/pull/806) merged |
-| `codex/issue-783-artifact-plan` | `14ce8c97eaa525ad0945a2f6c460b1fcc75dc99d` | [#804](https://github.com/OMT-Global/axiomlang/pull/804) merged |
-| `codex/issue-784-repair-plan` | `9a1b413af3f9f65b557287773709daefc52986fe` | [#807](https://github.com/OMT-Global/axiomlang/pull/807) merged |
-| `codex/rust-exit-runtime-serve` | `11317d5dc794ee66e47a1f0e80905593095947bf` | [#1290](https://github.com/OMT-Global/axiomlang/pull/1290) closed |
-| `codex/rust-exit-unsupported-runtime-triage` | `673d6277a381e365576dbe35290e4193f57df737` | [#1263](https://github.com/OMT-Global/axiomlang/pull/1263) closed |
-| `daedalus/1204-cranelift-duplicate-arms` | `15ca7b24e9f3f01debb5406ce83f0fdf9b43ef73` | [#1413](https://github.com/OMT-Global/axiomlang/pull/1413) closed |
-| `daedalus/issue-111` | `41406c86a8265a17965669a845f3559a79b2aaec` | [#496](https://github.com/OMT-Global/axiomlang/pull/496) closed |
-| `daedalus/issue-153` | `43429d54735b09c87f2fa8a77e0d875875943a96` | [#188](https://github.com/OMT-Global/axiomlang/pull/188) merged |
-| `daedalus/issue-218` | `b4d9f7d22a56f6938a222ab2ed89f95dc25425cc` | [#493](https://github.com/OMT-Global/axiomlang/pull/493) closed |
-| `daedalus/issue-219` | `68384126d18f8a0386c6e0f386936514fdf813e7` | [#492](https://github.com/OMT-Global/axiomlang/pull/492) closed |
-| `daedalus/issue-220` | `4c6ae9b673a4a4fb1f95668f5ecee5ad43783d90` | [#491](https://github.com/OMT-Global/axiomlang/pull/491) closed |
-| `daedalus/issue-221` | `30c50f6df601c8dc05278e99e5767631f4d9779a` | [#490](https://github.com/OMT-Global/axiomlang/pull/490) closed |
-| `daedalus/issue-225` | `fdc344ba225b554d0fbafedf13b91ba9e120b4aa` | [#486](https://github.com/OMT-Global/axiomlang/pull/486) closed |
-| `daedalus/issue-226` | `4de9442a589e1dbf42fabd7a37a5dec0dc5cbc97` | [#485](https://github.com/OMT-Global/axiomlang/pull/485) closed |
-| `daedalus/issue-231` | `3f91e6af526dce52095ddcf55fb7eddd46a1f9cf` | [#482](https://github.com/OMT-Global/axiomlang/pull/482) closed |
-| `daedalus/issue-88` | `76eacda191cc1fb7ce8480f4685a1c3b7dd1b345` | [#200](https://github.com/OMT-Global/axiomlang/pull/200) merged |
-| `jmcte/codex/bootstrap-axiom` | `48c3fe5245d7d9720ee734950bf37650fc665272` | [#73](https://github.com/OMT-Global/axiomlang/pull/73) closed |
+```json
+{
+  "branch": "codex/example",
+  "sha": "0123456789abcdef0123456789abcdef01234567",
+  "associated_pull_requests": [
+    {
+      "number": 123,
+      "state": "MERGED",
+      "head_sha": "0123456789abcdef0123456789abcdef01234567",
+      "title": "Example change",
+      "url": "https://github.com/OMT-Global/axiomlang/pull/123"
+    }
+  ]
+}
+```
+
+This keeps the branch, exact head SHA, and associated terminal pull-request
+evidence together in the review artifact. Counts and branch dispositions remain
+available in `summary` and `branches`. Do not check in a live candidate table:
+remote refs and PR state change, so an approval must use a freshly generated
+report and recheck the exact SHAs immediately before any separately authorized
+deletion.
