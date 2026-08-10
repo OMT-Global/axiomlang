@@ -1,0 +1,45 @@
+{
+  "schema_version": "axiom.runtime_associative_collections.v1",
+  "contract": "runtime.associative_collections",
+  "issue": 1476,
+  "status": "contract_only",
+  "key_types": ["bool", "int", "text"],
+  "operations": [
+    {"id": "axiom://collections/map/lookup", "kind": "lookup", "collection": "map", "failure": "missing_key"},
+    {"id": "axiom://collections/map/insert", "kind": "insert", "collection": "map", "failure": "allocation_failure"},
+    {"id": "axiom://collections/map/replace", "kind": "replace", "collection": "map", "failure": "allocation_failure"},
+    {"id": "axiom://collections/map/remove", "kind": "remove", "collection": "map", "failure": "missing_key"},
+    {"id": "axiom://collections/both/contains", "kind": "contains", "collection": "both", "failure": "unsupported_key"},
+    {"id": "axiom://collections/both/length", "kind": "length", "collection": "both", "failure": "none"},
+    {"id": "axiom://collections/both/iterate", "kind": "iterate", "collection": "both", "failure": "mutation_during_iteration"},
+    {"id": "axiom://collections/both/clear", "kind": "clear", "collection": "both", "failure": "none"},
+    {"id": "axiom://collections/both/reserve", "kind": "reserve", "collection": "both", "failure": "limit_exceeded"},
+    {"id": "axiom://collections/set/insert", "kind": "insert", "collection": "set", "failure": "allocation_failure"},
+    {"id": "axiom://collections/set/remove", "kind": "remove", "collection": "set", "failure": "missing_key"},
+    {"id": "axiom://collections/set/hash", "kind": "hash", "collection": "set", "failure": "unsupported_key"}
+  ],
+  "equality": {"mode": "semantic_key_equality", "type_aware": true, "hashing": "deterministic_per_contract_version", "hash_visibility": "implementation_detail"},
+  "ordering": {"iteration": "insertion_order", "replace_existing_position": "preserve", "remove_then_insert": "append"},
+  "limits": {"element_limit": "explicit", "operation_limit": "explicit", "failure_behavior": "preserve_existing_entries"},
+  "lifecycle": {"ownership": "collection_owns_entries", "cleanup": "exactly_once", "borrow": "declared_extent", "authority": "cannot_escape_creator_authority"},
+  "fixtures": [
+    {"id": "axiom://collections/fixture/map-lookup", "kind": "positive", "scenario": "map lookup returns the value for a supported runtime key", "expected": "value or missing_key"},
+    {"id": "axiom://collections/fixture/map-replace", "kind": "positive", "scenario": "replacing a key preserves its insertion position", "expected": "one value and original position"},
+    {"id": "axiom://collections/fixture/set-idempotent", "kind": "positive", "scenario": "set insertion of an existing key is idempotent", "expected": "length unchanged"},
+    {"id": "axiom://collections/fixture/type-aware-equality", "kind": "positive", "scenario": "bool, int, and text keys remain type-aware", "expected": "similar text forms do not alias"},
+    {"id": "axiom://collections/fixture/deterministic-iteration", "kind": "positive", "scenario": "iteration follows insertion order", "expected": "repeatable key sequence"},
+    {"id": "axiom://collections/fixture/remove-reinsert", "kind": "positive", "scenario": "remove then insert appends the key", "expected": "new final position"},
+    {"id": "axiom://collections/fixture/runtime-origin", "kind": "positive", "scenario": "key and value originate from a prior runtime result", "expected": "build-once run-many observes different entries"},
+    {"id": "axiom://collections/fixture/allocation-failure", "kind": "negative", "scenario": "allocation fails during insertion", "expected": "existing entries preserved"},
+    {"id": "axiom://collections/fixture/unsupported-key", "kind": "negative", "scenario": "an unsupported key shape is inserted", "expected": "collections.unsupported_key"},
+    {"id": "axiom://collections/fixture/limit-exceeded", "kind": "negative", "scenario": "element or operation limit is exceeded", "expected": "collections.limit_exceeded"},
+    {"id": "axiom://collections/fixture/mutation-during-iteration", "kind": "negative", "scenario": "a collection mutates during an active iterator", "expected": "collections.mutation_during_iteration"},
+    {"id": "axiom://collections/fixture/borrow-escape", "kind": "negative", "scenario": "a collection or iterator outlives its authority", "expected": "collections.borrow_escape"}
+  ],
+  "migration": {
+    "semantic_input": "Axiom semantic collection operations and lifecycle provenance",
+    "dependencies": [1425, 1438, 1440],
+    "out_of_scope": ["runtime lowering", "allocator implementation", "host container layout", "readiness completion"],
+    "forbidden_terms": ["Rust HashMap", "Rust HashSet", "Cargo", "Cranelift instruction", "host address"]
+  }
+}

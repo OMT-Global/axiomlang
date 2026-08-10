@@ -80,10 +80,9 @@ release history or a previous compiler.
 `previous-contract-fixture/` remains sparse synthetic checker input and is not
 used as the canonical ratchet.
 
-The current source contract is version `0.5.0` with 69 surfaces. Its changes
+The current source contract is version `0.6.0` with 70 surfaces. Its changes
 from the byte-frozen 52-surface `0.1.0` accepted baseline include the five
-Package Trust v1 schemas, seven additive base-contract schemas (Filesystem v1,
-Provider ABI, runtime observability, Semantic MIR, runtime lifecycle, target support, and persistent LSP), two quality
+Package Trust v1 schemas, eight additive base-contract schemas (Filesystem v1, Provider ABI, runtime observability, Semantic MIR, runtime lifecycle, associative collections, target support, and persistent LSP), two quality
 schemas (quality policy and quality report), and three package-resolver schemas.
 The existing CLI, manifest, lockfile, `axiom.toml` schema, and stage1
 JSON-envelope schema surfaces also carry their governed package-resolver
