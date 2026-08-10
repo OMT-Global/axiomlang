@@ -5,7 +5,12 @@ script_repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 repo_root="${AXIOM_CHECKOUT_PATH:-$script_repo_root}"
 cd "$repo_root"
 
-target_dir="${CARGO_TARGET_DIR:-${RUNNER_TEMP:-/tmp}/axiom-fast-ci-target}"
+if [[ -n "${CARGO_TARGET_DIR:-}" ]]; then
+  target_dir="$CARGO_TARGET_DIR"
+else
+  checkout_head="$(git rev-parse --verify HEAD)"
+  target_dir="${RUNNER_TEMP:-/tmp}/axiom-fast-ci-target-${checkout_head:0:12}"
+fi
 mkdir -p "$target_dir"
 export CARGO_TARGET_DIR="$target_dir"
 
