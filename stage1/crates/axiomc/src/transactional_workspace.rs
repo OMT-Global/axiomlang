@@ -6,7 +6,7 @@
 //! independently established a verified sandbox.
 
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Write};
 use std::path::{Component, Path, PathBuf};
@@ -68,6 +68,14 @@ pub struct TransactionState {
     pub branch: String,
     pub pending_effect: Option<String>,
     pub workspace_fingerprint: String,
+    /// Per-path cache for the policy-scoped workspace fingerprint. The cache
+    /// is updated only for paths affected by a durable filesystem effect.
+    #[serde(default)]
+    pub authorized_path_fingerprints: BTreeMap<String, String>,
+    /// Full-verification baseline for everything outside the authorized path
+    /// scope. Recovery recomputes this; effect completion does not.
+    #[serde(default)]
+    pub unscoped_workspace_fingerprint: String,
     pub source_fingerprint: String,
     /// A unique durable owner epoch. Recovery claims a new epoch while its
     /// exclusive lease is held, so stale writers cannot be silently merged.
@@ -264,7 +272,12 @@ impl TransactionalWorkspace {
         let txn_digest = sha256_digest(
             format!("{exact_sha}\0{task_contract_digest}\0{policy_digest}\0{branch}").as_bytes(),
         );
-        let workspace_fingerprint = checkout_fingerprint(&canonical_worktree, &policy)?;
+        let authorized_path_fingerprints =
+            authorized_path_fingerprint_cache(&canonical_worktree, &policy)?;
+        let workspace_fingerprint =
+            policy_scoped_fingerprint(&canonical_worktree, &policy, &authorized_path_fingerprints)?;
+        let unscoped_workspace_fingerprint =
+            unscoped_workspace_fingerprint(&canonical_worktree, &policy)?;
         let source_fingerprint = source_fingerprint(&source)?;
         let mut this = Self {
             state_path: canonical_worktree.join(STATE_FILE),
@@ -286,6 +299,8 @@ impl TransactionalWorkspace {
                 branch: branch.into(),
                 pending_effect: None,
                 workspace_fingerprint,
+                authorized_path_fingerprints,
+                unscoped_workspace_fingerprint,
                 source_fingerprint,
                 owner_epoch: new_owner_epoch(),
                 generation: 0,
@@ -340,9 +355,7 @@ impl TransactionalWorkspace {
         {
             return Err("transaction journal sequence is corrupt".into());
         }
-        if state.pending_effect.is_none()
-            && checkout_fingerprint(&root, &state.policy)? != state.workspace_fingerprint
-        {
+        if state.pending_effect.is_none() && !workspace_matches_state(&root, &state)? {
             return Err("transaction worktree does not match its durable journal".into());
         }
         let previous_epoch = state.owner_epoch.clone();
@@ -379,9 +392,7 @@ impl TransactionalWorkspace {
                 "an interrupted filesystem effect is ambiguous; rollback is required".into(),
             );
         }
-        if checkout_fingerprint(&self.root(), &self.state.policy)?
-            != self.state.workspace_fingerprint
-        {
+        if !workspace_matches_state(&self.root(), &self.state)? {
             return Err("transaction worktree changed after its last durable event".into());
         }
         self.state.phase = TransactionPhase::Active;
@@ -493,8 +504,20 @@ impl TransactionalWorkspace {
         if sha256_digest(&candidate) != candidate_digest {
             return Err("delivered head does not contain the exact candidate bytes".into());
         }
+        let root = self.root();
+        if unscoped_workspace_fingerprint(&root, &self.state.policy)?
+            != self.state.unscoped_workspace_fingerprint
+        {
+            return Err("transaction worktree changed outside task scope".into());
+        }
         self.state.authorized_candidate_head = Some(commit_sha.into());
-        self.state.workspace_fingerprint = checkout_fingerprint(&self.root(), &self.state.policy)?;
+        self.state.authorized_path_fingerprints =
+            authorized_path_fingerprint_cache(&root, &self.state.policy)?;
+        self.state.workspace_fingerprint = policy_scoped_fingerprint(
+            &root,
+            &self.state.policy,
+            &self.state.authorized_path_fingerprints,
+        )?;
         self.record("candidate_head_authorized", commit_sha, candidate_digest)
     }
 
@@ -512,6 +535,7 @@ impl TransactionalWorkspace {
             "write",
             path,
             &format!("{}|{}", optional_digest(&before), sha256_digest(bytes)),
+            &[path],
         )
     }
 
@@ -527,7 +551,12 @@ impl TransactionalWorkspace {
             fs::remove_file(&target)
         }
         .map_err(|e| format!("delete failed: {e}"))?;
-        self.finish_effect("delete", path, &format!("{}|-", optional_digest(&before)))
+        self.finish_effect(
+            "delete",
+            path,
+            &format!("{}|-", optional_digest(&before)),
+            &[path],
+        )
     }
 
     pub fn rename(&mut self, from: &str, to: &str) -> Result<(), String> {
@@ -542,6 +571,7 @@ impl TransactionalWorkspace {
             "rename",
             &format!("{from}->{to}"),
             &format!("{}|{}", optional_digest(&before), optional_digest(&before)),
+            &[from, to],
         )
     }
 
@@ -562,6 +592,7 @@ impl TransactionalWorkspace {
             "chmod",
             path,
             &format!("{}|{}", optional_digest(&digest), optional_digest(&digest)),
+            &[path],
         )
     }
 
@@ -607,7 +638,15 @@ impl TransactionalWorkspace {
         self.state.phase = TransactionPhase::Aborted;
         self.state.rollback_result = Some("restored_to_base_sha".into());
         self.state.pending_effect = None;
-        self.state.workspace_fingerprint = checkout_fingerprint(&root, &self.state.policy)?;
+        self.state.authorized_path_fingerprints =
+            authorized_path_fingerprint_cache(&root, &self.state.policy)?;
+        self.state.workspace_fingerprint = policy_scoped_fingerprint(
+            &root,
+            &self.state.policy,
+            &self.state.authorized_path_fingerprints,
+        )?;
+        self.state.unscoped_workspace_fingerprint =
+            unscoped_workspace_fingerprint(&root, &self.state.policy)?;
         self.record("rollback", &self.state.base_sha.clone(), "succeeded")
     }
 
@@ -754,8 +793,8 @@ impl TransactionalWorkspace {
         }
         .into();
         let journal = serde_json::to_vec(&self.state.events).unwrap_or_default();
-        let workspace_matches = checkout_fingerprint(&self.root(), &self.state.policy)
-            .is_ok_and(|fingerprint| fingerprint == self.state.workspace_fingerprint);
+        let workspace_matches =
+            workspace_matches_state(&self.root(), &self.state).is_ok_and(|matches| matches);
         ExecutionTransactionAudit {
             schema_version: "axiom.execution_transaction.v0".into(),
             transaction_id: self.state.transaction_id.clone(),
@@ -863,10 +902,23 @@ impl TransactionalWorkspace {
         operation: &str,
         subject: &str,
         result: &str,
+        changed_paths: &[&str],
     ) -> Result<(), String> {
         self.record(operation, subject, result)?;
         self.state.pending_effect = None;
-        self.state.workspace_fingerprint = checkout_fingerprint(&self.root(), &self.state.policy)?;
+        let root = self.root();
+        update_authorized_path_fingerprint_cache(
+            &root,
+            &self.state.policy,
+            &mut self.state.authorized_path_fingerprints,
+            changed_paths,
+        )?;
+        let head = git(&root, &["rev-parse", "HEAD"])?;
+        self.state.workspace_fingerprint = policy_scoped_fingerprint_from_head(
+            head.trim(),
+            &self.state.policy,
+            &self.state.authorized_path_fingerprints,
+        )?;
         self.persist()
     }
 }
@@ -1051,11 +1103,120 @@ fn file_digest(path: &Path) -> Result<Option<String>, String> {
         .map_err(|e| format!("cannot hash {}: {e}", path.display()))
 }
 
-fn checkout_fingerprint(root: &Path, _policy: &WorkspacePolicy) -> Result<String, String> {
+fn authorized_path_fingerprint_cache(
+    root: &Path,
+    policy: &WorkspacePolicy,
+) -> Result<BTreeMap<String, String>, String> {
+    policy_paths(policy)
+        .into_iter()
+        .map(|path| {
+            let fingerprint = path_fingerprint(root, &path)?;
+            Ok((path, fingerprint))
+        })
+        .collect()
+}
+
+fn update_authorized_path_fingerprint_cache(
+    root: &Path,
+    policy: &WorkspacePolicy,
+    cache: &mut BTreeMap<String, String>,
+    changed_paths: &[&str],
+) -> Result<(), String> {
+    for path in policy_paths(policy) {
+        if !cache.contains_key(&path)
+            || changed_paths
+                .iter()
+                .any(|changed| paths_overlap(&path, changed))
+        {
+            cache.insert(path.clone(), path_fingerprint(root, &path)?);
+        }
+    }
+    Ok(())
+}
+
+fn policy_paths(policy: &WorkspacePolicy) -> BTreeSet<String> {
+    policy
+        .allowed_read_paths
+        .iter()
+        .chain(&policy.allowed_write_paths)
+        .cloned()
+        .collect()
+}
+
+fn paths_overlap(left: &str, right: &str) -> bool {
+    left == right
+        || left.starts_with(&format!("{right}/"))
+        || right.starts_with(&format!("{left}/"))
+}
+
+fn policy_scoped_fingerprint(
+    root: &Path,
+    policy: &WorkspacePolicy,
+    cache: &BTreeMap<String, String>,
+) -> Result<String, String> {
     let head = git(root, &["rev-parse", "HEAD"])?;
+    policy_scoped_fingerprint_from_head(head.trim(), policy, cache)
+}
+
+fn policy_scoped_fingerprint_from_head(
+    head: &str,
+    policy: &WorkspacePolicy,
+    cache: &BTreeMap<String, String>,
+) -> Result<String, String> {
+    let policy_bytes = serde_json::to_vec(policy).map_err(|e| e.to_string())?;
+    let rows = cache
+        .iter()
+        .map(|(path, fingerprint)| format!("{path}\0{fingerprint}"))
+        .collect::<Vec<_>>();
     Ok(sha256_digest(
-        format!("{}\0{}", head.trim(), tree_fingerprint(root)?).as_bytes(),
+        format!(
+            "{head}\0{}\0{}",
+            sha256_digest(&policy_bytes),
+            rows.join("\n")
+        )
+        .as_bytes(),
     ))
+}
+
+fn path_fingerprint(root: &Path, relative: &str) -> Result<String, String> {
+    let target = root.join(relative);
+    let mut rows = Vec::new();
+    match fs::symlink_metadata(&target) {
+        Ok(_) => collect_entry_rows(root, &target, &mut rows)?,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            rows.push(format!("M\0{relative}"));
+        }
+        Err(error) => return Err(format!("cannot inspect {}: {error}", target.display())),
+    }
+    Ok(sha256_digest(rows.join("\n").as_bytes()))
+}
+
+fn unscoped_workspace_fingerprint(root: &Path, policy: &WorkspacePolicy) -> Result<String, String> {
+    let scopes = policy_paths(policy);
+    let mut rows = Vec::new();
+    collect_tree_rows(root, root, &mut rows, &|relative| {
+        relative == Path::new(".git")
+            || relative == Path::new(STATE_FILE)
+            || relative == Path::new(LEASE_FILE)
+            || scopes
+                .iter()
+                .any(|scope| path_is_within_scope(relative, scope))
+    })?;
+    Ok(sha256_digest(rows.join("\n").as_bytes()))
+}
+
+fn workspace_matches_state(root: &Path, state: &TransactionState) -> Result<bool, String> {
+    let current_cache = authorized_path_fingerprint_cache(root, &state.policy)?;
+    let current_scoped = policy_scoped_fingerprint(root, &state.policy, &current_cache)?;
+    let current_unscoped = unscoped_workspace_fingerprint(root, &state.policy)?;
+    Ok(current_cache == state.authorized_path_fingerprints
+        && current_scoped == state.workspace_fingerprint
+        && current_unscoped == state.unscoped_workspace_fingerprint)
+}
+
+fn path_is_within_scope(path: &Path, scope: &str) -> bool {
+    let scope = Path::new(scope);
+    path == scope || path.starts_with(scope)
 }
 
 fn source_fingerprint(root: &Path) -> Result<String, String> {
@@ -1066,45 +1227,77 @@ fn source_fingerprint(root: &Path) -> Result<String, String> {
 }
 
 fn tree_fingerprint(root: &Path) -> Result<String, String> {
-    fn visit(root: &Path, path: &Path, rows: &mut Vec<String>) -> Result<(), String> {
-        let mut entries = fs::read_dir(path)
-            .map_err(|e| format!("cannot inspect {}: {e}", path.display()))?
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| e.to_string())?;
-        entries.sort_by_key(|entry| entry.file_name());
-        for entry in entries {
-            let child = entry.path();
-            let relative = child.strip_prefix(root).map_err(|e| e.to_string())?;
-            if relative == Path::new(".git")
-                || relative == Path::new(STATE_FILE)
-                || relative == Path::new(LEASE_FILE)
-            {
-                continue;
-            }
-            let metadata = fs::symlink_metadata(&child).map_err(|e| e.to_string())?;
-            let mode = metadata_mode(&metadata);
-            if metadata.file_type().is_symlink() {
-                let target = fs::read_link(&child).map_err(|e| e.to_string())?;
-                rows.push(format!(
-                    "L\0{}\0{mode:o}\0{}",
-                    normalized(relative),
-                    normalized(&target)
-                ));
-            } else if metadata.is_dir() {
-                rows.push(format!("D\0{}\0{mode:o}", normalized(relative)));
-                visit(root, &child, rows)?;
-            } else if metadata.is_file() {
-                let digest = sha256_digest(&fs::read(&child).map_err(|e| e.to_string())?);
-                rows.push(format!("F\0{}\0{mode:o}\0{digest}", normalized(relative)));
-            } else {
-                return Err(format!("unsupported filesystem object {}", child.display()));
-            }
-        }
-        Ok(())
-    }
     let mut rows = Vec::new();
-    visit(root, root, &mut rows)?;
+    collect_tree_rows(root, root, &mut rows, &|relative| {
+        relative == Path::new(".git")
+            || relative == Path::new(STATE_FILE)
+            || relative == Path::new(LEASE_FILE)
+    })?;
     Ok(sha256_digest(rows.join("\n").as_bytes()))
+}
+
+fn collect_tree_rows<F>(
+    root: &Path,
+    path: &Path,
+    rows: &mut Vec<String>,
+    skip: &F,
+) -> Result<(), String>
+where
+    F: Fn(&Path) -> bool,
+{
+    let mut entries = fs::read_dir(path)
+        .map_err(|e| format!("cannot inspect {}: {e}", path.display()))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+    entries.sort_by_key(|entry| entry.file_name());
+    for entry in entries {
+        let child = entry.path();
+        let relative = child.strip_prefix(root).map_err(|e| e.to_string())?;
+        if skip(relative) {
+            continue;
+        }
+        append_entry_row(root, &child, rows)?;
+        if fs::symlink_metadata(&child)
+            .map_err(|e| e.to_string())?
+            .is_dir()
+        {
+            collect_tree_rows(root, &child, rows, skip)?;
+        }
+    }
+    Ok(())
+}
+
+fn collect_entry_rows(root: &Path, path: &Path, rows: &mut Vec<String>) -> Result<(), String> {
+    append_entry_row(root, path, rows)?;
+    if fs::symlink_metadata(path)
+        .map_err(|e| e.to_string())?
+        .is_dir()
+    {
+        collect_tree_rows(root, path, rows, &|_| false)?;
+    }
+    Ok(())
+}
+
+fn append_entry_row(root: &Path, child: &Path, rows: &mut Vec<String>) -> Result<(), String> {
+    let relative = child.strip_prefix(root).map_err(|e| e.to_string())?;
+    let metadata = fs::symlink_metadata(child).map_err(|e| e.to_string())?;
+    let mode = metadata_mode(&metadata);
+    if metadata.file_type().is_symlink() {
+        let target = fs::read_link(child).map_err(|e| e.to_string())?;
+        rows.push(format!(
+            "L\0{}\0{mode:o}\0{}",
+            normalized(relative),
+            normalized(&target)
+        ));
+    } else if metadata.is_dir() {
+        rows.push(format!("D\0{}\0{mode:o}", normalized(relative)));
+    } else if metadata.is_file() {
+        let digest = sha256_digest(&fs::read(child).map_err(|e| e.to_string())?);
+        rows.push(format!("F\0{}\0{mode:o}\0{digest}", normalized(relative)));
+    } else {
+        return Err(format!("unsupported filesystem object {}", child.display()));
+    }
+    Ok(())
 }
 
 #[cfg(unix)]
