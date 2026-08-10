@@ -1,0 +1,104 @@
+{
+  "schema_version": "axiom.runtime_concurrency.v1",
+  "contract": "runtime.concurrency",
+  "issue": 1445,
+  "semantic_mir_version": "axiom.semantic_mir.v1",
+  "features": [
+    "bounded_channels",
+    "cancellation",
+    "fair_select",
+    "join",
+    "resource_budgets",
+    "structured_children",
+    "task_scopes",
+    "timeouts",
+    "waiter_fairness",
+    "wake_on_close"
+  ],
+  "operations": [
+    {"id": "axiom://concurrency/operation/spawn", "kind": "spawn", "ownership": "creates_task", "effects": ["task.create"], "source": "axiom://concurrency/semantic/spawn"},
+    {"id": "axiom://concurrency/operation/join", "kind": "join", "ownership": "consumes_join_handle", "effects": ["task.wait"], "source": "axiom://concurrency/semantic/join"},
+    {"id": "axiom://concurrency/operation/cancel", "kind": "cancel", "ownership": "propagates_cancellation", "effects": ["task.cancel"], "source": "axiom://concurrency/semantic/cancel"},
+    {"id": "axiom://concurrency/operation/timeout", "kind": "timeout", "ownership": "bounds_wait", "effects": ["task.deadline"], "source": "axiom://concurrency/semantic/timeout"},
+    {"id": "axiom://concurrency/operation/channel-create", "kind": "channel_create", "ownership": "creates_channel", "effects": ["channel.create"], "source": "axiom://concurrency/semantic/channel"},
+    {"id": "axiom://concurrency/operation/send", "kind": "send", "ownership": "transfers_value", "effects": ["channel.send"], "source": "axiom://concurrency/semantic/send"},
+    {"id": "axiom://concurrency/operation/receive", "kind": "receive", "ownership": "receives_value", "effects": ["channel.receive"], "source": "axiom://concurrency/semantic/receive"},
+    {"id": "axiom://concurrency/operation/close", "kind": "close", "ownership": "wakes_waiters", "effects": ["channel.close"], "source": "axiom://concurrency/semantic/close"},
+    {"id": "axiom://concurrency/operation/select", "kind": "select", "ownership": "selects_ready_arm", "effects": ["task.select"], "source": "axiom://concurrency/semantic/select"},
+    {"id": "axiom://concurrency/operation/task-scope", "kind": "task_scope", "ownership": "owns_children", "effects": ["task.scope"], "source": "axiom://concurrency/semantic/scope"}
+  ],
+  "task_model": {
+    "hierarchy": "structured_children_do_not_outlive_parent_scope",
+    "join": "explicit_join_or_scope_exit_join",
+    "cancellation": "cooperative_and_propagated_to_descendants",
+    "timeout": "deadline_cancels_then_joins_children",
+    "scheduler": "fair_bounded_ready_queue",
+    "budgets": ["channel_capacity", "child_tasks", "in_flight_work", "task_depth", "wait_duration"]
+  },
+  "channel_model": {
+    "kind": "bounded_mpmc",
+    "capacity": "explicit_positive_capacity",
+    "ordering": "fifo_enqueue_order",
+    "send_full": "backpressure_or_cancellation",
+    "receive_closed": "drain_then_closed",
+    "close": "single_discharge_wakes_waiters",
+    "fairness": "round_robin_waiters"
+  },
+  "select": {
+    "fairness": "rotating_ready_arm",
+    "cancellation": "cancellation_is_ready_arm",
+    "empty": "wait_or_timeout",
+    "max_arms": 64
+  },
+  "cleanup": {
+    "exit_reasons": ["cancellation", "early_return", "error_return", "normal_return", "panic_unwind"],
+    "defer_order": "last_in_first_out_before_child_join",
+    "child_order": "join_children_before_parent_scope_release",
+    "cancellation_order": "signal_descendants_then_join",
+    "exactly_once": true
+  },
+  "diagnostics": {
+    "required_codes": [
+      "concurrency.channel_closed",
+      "concurrency.channel_full",
+      "concurrency.child_budget_exceeded",
+      "concurrency.detached_child",
+      "concurrency.join_timeout",
+      "concurrency.task_cancelled",
+      "concurrency.task_depth_exceeded",
+      "concurrency.use_after_close"
+    ],
+    "source_fields": ["column", "line", "path"],
+    "redacted_fields": ["capability_secret", "host_handle", "raw_thread_identity", "scheduler_address"]
+  },
+  "inspection_fields": [
+    "cancellation_state",
+    "child_task_count",
+    "deadline",
+    "join_obligation",
+    "resource_budget",
+    "source_provenance",
+    "waiter_count",
+    "wakeup_reason"
+  ],
+  "fixtures": [
+    {"id": "axiom://concurrency/fixture/spawn-join", "kind": "positive", "scenario": "child completes before explicit join", "expected": "join returns child result once"},
+    {"id": "axiom://concurrency/fixture/nested-scope", "kind": "positive", "scenario": "nested task scope exits normally", "expected": "children join before parent scope release"},
+    {"id": "axiom://concurrency/fixture/cancel-tree", "kind": "positive", "scenario": "parent cancellation reaches descendants", "expected": "descendants observe cooperative cancellation"},
+    {"id": "axiom://concurrency/fixture/timeout", "kind": "positive", "scenario": "deadline expires while child waits", "expected": "child is cancelled and joined"},
+    {"id": "axiom://concurrency/fixture/channel-order", "kind": "positive", "scenario": "multiple senders enqueue values", "expected": "receiver observes enqueue order"},
+    {"id": "axiom://concurrency/fixture/channel-drain", "kind": "positive", "scenario": "closed channel contains buffered values", "expected": "buffer drains before closed result"},
+    {"id": "axiom://concurrency/fixture/select-fairness", "kind": "positive", "scenario": "multiple arms remain ready", "expected": "rotating selection prevents starvation"},
+    {"id": "axiom://concurrency/fixture/bounded-send", "kind": "positive", "scenario": "sender reaches channel capacity", "expected": "send applies backpressure or cancellation"},
+    {"id": "axiom://concurrency/fixture/detached-child", "kind": "negative", "scenario": "child escapes its parent scope", "expected": "concurrency.detached_child diagnostic"},
+    {"id": "axiom://concurrency/fixture/join-timeout", "kind": "negative", "scenario": "join deadline expires", "expected": "concurrency.join_timeout diagnostic"},
+    {"id": "axiom://concurrency/fixture/channel-closed", "kind": "negative", "scenario": "send occurs after channel close", "expected": "concurrency.channel_closed diagnostic"},
+    {"id": "axiom://concurrency/fixture/task-budget", "kind": "negative", "scenario": "task scope exceeds declared budget", "expected": "concurrency.child_budget_exceeded diagnostic"},
+    {"id": "axiom://concurrency/fixture/use-after-close", "kind": "negative", "scenario": "closed task resource is used", "expected": "concurrency.use_after_close diagnostic"}
+  ],
+  "migration": {
+    "semantic_input": "Semantic MIR v1 task, scope, wait, cancellation, and channel operations with source provenance are the executable input for concurrency analysis.",
+    "out_of_scope": ["network readiness adapters", "HTTP lifecycle", "database integration", "scheduler implementation", "host thread representation"],
+    "forbidden_terms": ["Cargo", "Cranelift", "Rust", "Tokio", "mpsc", "thread-local scheduler"]
+  }
+}
