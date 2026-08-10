@@ -64,6 +64,14 @@ fast_checks_trusted_base_ref=$(awk '
     exit
   }
 ' "$workflow")
+fast_checks_head_checkout=$(awk '
+  /^  fast-checks:$/ { in_job=1; next }
+  in_job && /^  [A-Za-z0-9_-]+:$/ { exit }
+  in_job && /ref: \$\{\{ github\.event\.pull_request\.head\.sha \}\}/ { print NR }
+' "$workflow" | head -n1)
+fast_checks_data_path=$(grep -nF 'AXIOM_CHECKOUT_PATH="$GITHUB_WORKSPACE"' "$workflow" || true)
+fast_checks_target_dir=$(grep -nF 'CARGO_TARGET_DIR: ${{ runner.temp }}/axiom-fast-ci-target-${{ github.run_id }}-${{ github.run_attempt }}' "$workflow" || true)
+fast_checks_root_target=$(grep -nF 'target_dir="${CARGO_TARGET_DIR:-$repo_root/target/fast-ci}"' "$fast_checks_script" || true)
 benchmark_gate_reference=$(grep -nE 'check-stage1-benchmarks\.py|stage1-comparison-report\.json' "$workflow" || true)
 runtime_abi_status_check=$(grep -nF 'scripts/ci/render-direct-native-runtime-abi-status.py' "$fast_checks_script" || true)
 runtime_abi_coverage_check=$(grep -nF -- '--coverage-matrix' "$fast_checks_script" || true)
@@ -154,6 +162,30 @@ if [[ -z "$fast_checks_trusted_base_ref" ]]; then
   echo "fast-checks must pin the .trusted-ci checkout to github.event.pull_request.base.sha; pinning it to head.sha runs PR-authored scripts under a trusted label (#1543 regression of #1211)" >&2
   exit 1
 fi
+
+if [[ -z "$fast_checks_head_checkout" || -z "$fast_checks_data_path" ]]; then
+  echo "fast-checks must check out the PR head as data and pass GITHUB_WORKSPACE as AXIOM_CHECKOUT_PATH" >&2
+  exit 1
+fi
+
+if [[ -z "$fast_checks_target_dir" || -z "$fast_checks_root_target" ]]; then
+  echo "fast-checks must isolate Cargo targets per workflow attempt and use a checkout-local fallback" >&2
+  exit 1
+fi
+
+for checker in \
+  check-provider-abi-v1.py \
+  check-stdlib-catalog.py \
+  check-semantic-mir-v1.py \
+  check-runtime-lifecycle-v1.py \
+  run-agent-autonomy-benchmark.py \
+  check-compatibility-v1.py \
+  check-compatibility-corpus-v1.py; do
+  if ! grep -qF 'AXIOM_CHECKOUT_PATH' "$repo_root/scripts/ci/$checker"; then
+    echo "$checker must honor AXIOM_CHECKOUT_PATH so Fast Checks read PR data" >&2
+    exit 1
+  fi
+done
 
 RESULTS='changes=success fast-checks=skipped validate-pr-description=skipped validate-secrets=skipped' \
   IS_FORK_PR=false \

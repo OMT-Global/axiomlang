@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """Validate the deterministic, target-neutral Runtime Lifecycle ABI v1 fixture."""
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Any
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(os.environ.get("AXIOM_CHECKOUT_PATH", Path(__file__).resolve().parents[2])).resolve()
 SCHEMA = ROOT / "stage1/compiler-contracts/schemas/axiom.runtime_lifecycle.v1.schema.json"
 SNAPSHOT = ROOT / "stage1/compiler-contracts/snapshots/runtime-lifecycle-v1.json"
 FEATURES = {"aggregate_cleanup", "allocation", "allocation_failure", "backend_declaration", "borrow_extent", "capability_resource", "clone", "copy", "defer", "deterministic_cleanup", "diagnostic", "drop", "inspection", "move", "panic_unwind", "recursive_destroy", "resize"}

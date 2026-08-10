@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
 from collections import Counter
@@ -16,7 +17,7 @@ from compatibility_v1_common import SEMVER, reject_rust_detail
 from json_schema_v1 import validate_draft_2020_12
 
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(os.environ.get("AXIOM_CHECKOUT_PATH", Path(__file__).resolve().parents[2])).resolve()
 PUBLIC_CONTRACT_SCHEMA = "axiom.public_contract.v1"
 POLICY_SCHEMA = "axiom.compatibility_policy.v1"
 REPORT_SCHEMA = "axiom.compatibility_report.v1"

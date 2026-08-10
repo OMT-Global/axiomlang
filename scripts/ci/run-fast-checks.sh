@@ -3,11 +3,24 @@ set -euo pipefail
 
 script_repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 repo_root="${AXIOM_CHECKOUT_PATH:-$script_repo_root}"
+repo_root="$(cd "$repo_root" && pwd)"
+
+if [[ ! -f "$repo_root/stage1/Cargo.toml" ]]; then
+  echo "error: AXIOM_CHECKOUT_PATH must identify an axiomlang checkout: $repo_root" >&2
+  exit 1
+fi
+
 cd "$repo_root"
 
-target_dir="${CARGO_TARGET_DIR:-${RUNNER_TEMP:-/tmp}/axiom-fast-ci-target}"
+target_dir="${CARGO_TARGET_DIR:-$repo_root/target/fast-ci}"
+if [[ "$target_dir" != /* ]]; then
+  target_dir="$repo_root/$target_dir"
+fi
 mkdir -p "$target_dir"
+target_dir="$(cd "$target_dir" && pwd)"
 export CARGO_TARGET_DIR="$target_dir"
+echo "Fast Checks data checkout: $repo_root"
+echo "Fast Checks Cargo target directory: $CARGO_TARGET_DIR"
 
 bash "$script_repo_root/scripts/ci/check-python-exit-docs.sh"
 bash "$script_repo_root/scripts/ci/validate-capability-manifests.sh"
