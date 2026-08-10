@@ -788,18 +788,50 @@ fn validate_project_paths(project: &Path, source: &AgentTaskSpec) -> Result<(), 
         "agent_task_project_path",
         "task project root must be a directory",
     )?;
-    for path in source.scope.allowed_files.iter().chain(
-        source
-            .repair_plan
-            .iter()
-            .flat_map(|repair| &repair.allowed_files),
-    ) {
+    for path in source
+        .scope
+        .allowed_files
+        .iter()
+        .chain(&source.scope.denied_files)
+        .chain(
+            source
+                .repair_plan
+                .iter()
+                .flat_map(|repair| &repair.allowed_files),
+        )
+    {
         validate_path_boundary(&root, path)?;
     }
     Ok(())
 }
 
 fn validate_path_boundary(root: &Path, relative: &str) -> Result<(), Diagnostic> {
+    let mut current = root.to_path_buf();
+    for component in Path::new(relative).components() {
+        current.push(component);
+        let metadata = match fs::symlink_metadata(&current) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => break,
+            Err(error) => {
+                return Err(task_error(
+                    "agent_task_path",
+                    format!("failed to inspect scope path {relative}: {error}"),
+                ));
+            }
+        };
+        if metadata.file_type().is_symlink() {
+            let resolved = current.canonicalize().ok();
+            let code = if resolved.as_ref().is_some_and(|path| path.starts_with(root)) {
+                "agent_task_path_alias"
+            } else {
+                "agent_task_path_escape"
+            };
+            return Err(task_error(
+                code,
+                format!("scope path {relative} contains a symlink or reparse component"),
+            ));
+        }
+    }
     let mut candidate = root.join(relative);
     let mut unresolved = Vec::new();
     while !candidate.exists() {
@@ -1277,6 +1309,33 @@ mod tests {
                 .code
                 .as_deref(),
             Some("agent_task_path_escape")
+        );
+
+        symlink(root.path().join("src"), root.path().join("src-alias")).unwrap();
+        task.scope.allowed_files = vec!["src-alias/main.ax".into()];
+        assert_eq!(
+            validate_project_paths(root.path(), &task)
+                .unwrap_err()
+                .code
+                .as_deref(),
+            Some("agent_task_path_alias")
+        );
+
+        fs::create_dir_all(root.path().join(".codex/policies")).unwrap();
+        fs::write(root.path().join(".codex/policies/secret.ax"), "protected\n").unwrap();
+        symlink(
+            root.path().join(".codex/policies"),
+            root.path().join("protected-alias"),
+        )
+        .unwrap();
+        task.scope.allowed_files = vec!["src/main.ax".into()];
+        task.scope.denied_files = vec!["protected-alias/secret.ax".into()];
+        assert_eq!(
+            validate_project_paths(root.path(), &task)
+                .unwrap_err()
+                .code
+                .as_deref(),
+            Some("agent_task_path_alias")
         );
     }
 }

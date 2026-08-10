@@ -8,9 +8,22 @@
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use std::fs::{self, File, OpenOptions};
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::{Component, Path, PathBuf};
 use std::process::Command;
+
+#[cfg(unix)]
+use std::ffi::CString;
+#[cfg(unix)]
+use std::io;
+#[cfg(unix)]
+use std::os::fd::{AsRawFd, FromRawFd};
+#[cfg(unix)]
+use std::os::unix::ffi::OsStrExt;
+#[cfg(unix)]
+use std::os::unix::fs::OpenOptionsExt;
+#[cfg(unix)]
+use std::sync::atomic::{AtomicU64, Ordering};
 
 const STATE_FILE: &str = ".axiom-transaction.json";
 const AUDIT_SCHEMA: &str = "axiom.transactional_workspace.v0";
@@ -158,6 +171,8 @@ pub enum TransactionPhase {
 pub struct TransactionalWorkspace {
     state_path: PathBuf,
     state: TransactionState,
+    #[cfg(unix)]
+    root_dir: File,
 }
 
 impl TransactionalWorkspace {
@@ -241,6 +256,8 @@ impl TransactionalWorkspace {
         let canonical_worktree = worktree
             .canonicalize()
             .map_err(|e| format!("cannot canonicalize transaction worktree: {e}"))?;
+        #[cfg(unix)]
+        let root_dir = open_root_directory(&canonical_worktree)?;
         let checkpoint_tree = git(&canonical_worktree, &["rev-parse", "HEAD^{tree}"])?
             .trim()
             .to_string();
@@ -272,6 +289,8 @@ impl TransactionalWorkspace {
                 source_fingerprint,
                 authorized_candidate_head: None,
             },
+            #[cfg(unix)]
+            root_dir,
         };
         this.record("checkpoint", exact_sha, "created")?;
         Ok(this)
@@ -284,8 +303,20 @@ impl TransactionalWorkspace {
             .canonicalize()
             .map_err(|e| format!("cannot canonicalize worktree: {e}"))?;
         let state_path = root.join(STATE_FILE);
-        let bytes =
-            fs::read(&state_path).map_err(|e| format!("cannot read transaction state: {e}"))?;
+        #[cfg(unix)]
+        let root_dir = open_root_directory(&root)?;
+        let bytes = {
+            #[cfg(unix)]
+            {
+                secure_read(&root_dir, STATE_FILE)
+                    .map_err(|error| format!("cannot read transaction state: {error}"))?
+            }
+            #[cfg(not(unix))]
+            {
+                fs::read(&state_path)
+                    .map_err(|error| format!("cannot read transaction state: {error}"))?
+            }
+        };
         let state: TransactionState = serde_json::from_slice(&bytes)
             .map_err(|e| format!("invalid transaction state: {e}"))?;
         let expected = state_checksum(&state)?;
@@ -323,7 +354,12 @@ impl TransactionalWorkspace {
         {
             return Err("transaction worktree does not match its durable journal".into());
         }
-        Ok(Self { state_path, state })
+        Ok(Self {
+            state_path,
+            state,
+            #[cfg(unix)]
+            root_dir,
+        })
     }
 
     pub fn state(&self) -> &TransactionState {
@@ -357,7 +393,7 @@ impl TransactionalWorkspace {
     pub fn read(&mut self, path: &str) -> Result<Vec<u8>, String> {
         self.require_active()?;
         let target = self.authorize_existing(path, &self.state.policy.allowed_read_paths)?;
-        let result = fs::read(&target).map_err(|e| format!("read failed: {e}"));
+        let result = self.read_authorized(path, &target);
         let audit_result = result
             .as_ref()
             .map(|bytes| sha256_digest(bytes))
@@ -467,13 +503,10 @@ impl TransactionalWorkspace {
     pub fn write(&mut self, path: &str, bytes: &[u8]) -> Result<(), String> {
         self.require_active()?;
         let target = self.authorize_write(path)?;
-        let before = file_digest(&target)?;
+        let before = self.file_digest_authorized(path, &target)?;
         self.record("checkpoint", path, "before_write")?;
         self.begin_effect(&format!("write:{path}"))?;
-        if let Some(parent) = target.parent() {
-            fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-        }
-        atomic_write(&target, bytes)?;
+        self.write_authorized(path, &target, bytes)?;
         self.finish_effect(
             "write",
             path,
@@ -484,15 +517,10 @@ impl TransactionalWorkspace {
     pub fn delete(&mut self, path: &str) -> Result<(), String> {
         self.require_active()?;
         let target = self.authorize_existing(path, &self.state.policy.allowed_write_paths)?;
-        let before = file_digest(&target)?;
+        let before = self.file_digest_authorized(path, &target)?;
         self.record("checkpoint", path, "before_delete")?;
         self.begin_effect(&format!("delete:{path}"))?;
-        if target.is_dir() {
-            fs::remove_dir(&target)
-        } else {
-            fs::remove_file(&target)
-        }
-        .map_err(|e| format!("delete failed: {e}"))?;
+        self.delete_authorized(path, &target)?;
         self.finish_effect("delete", path, &format!("{}|-", optional_digest(&before)))
     }
 
@@ -500,10 +528,10 @@ impl TransactionalWorkspace {
         self.require_active()?;
         let source = self.authorize_existing(from, &self.state.policy.allowed_write_paths)?;
         let target = self.authorize_write(to)?;
-        let before = file_digest(&source)?;
+        let before = self.file_digest_authorized(from, &source)?;
         self.record("checkpoint", &format!("{from}->{to}"), "before_rename")?;
         self.begin_effect(&format!("rename:{from}->{to}"))?;
-        fs::rename(source, target).map_err(|e| format!("rename failed: {e}"))?;
+        self.rename_authorized(from, &source, to, &target)?;
         self.finish_effect(
             "rename",
             &format!("{from}->{to}"),
@@ -513,17 +541,15 @@ impl TransactionalWorkspace {
 
     #[cfg(unix)]
     pub fn chmod(&mut self, path: &str, mode: u32) -> Result<(), String> {
-        use std::os::unix::fs::PermissionsExt;
         self.require_active()?;
         if mode & !0o777 != 0 {
             return Err("special permission bits are forbidden".into());
         }
         let target = self.authorize_existing(path, &self.state.policy.allowed_write_paths)?;
-        let digest = file_digest(&target)?;
+        let digest = self.file_digest_authorized(path, &target)?;
         self.record("checkpoint", path, "before_chmod")?;
         self.begin_effect(&format!("chmod:{path}"))?;
-        fs::set_permissions(target, fs::Permissions::from_mode(mode))
-            .map_err(|e| format!("chmod failed: {e}"))?;
+        self.chmod_authorized(path, &target, mode)?;
         self.finish_effect(
             "chmod",
             path,
@@ -542,7 +568,9 @@ impl TransactionalWorkspace {
 
     pub fn record_artifact(&mut self, path: &str) -> Result<(), String> {
         let target = self.authorize_existing(path, &self.state.policy.allowed_read_paths)?;
-        let digest = file_digest(&target)?.ok_or_else(|| "artifact is not a file".to_string())?;
+        let digest = self
+            .file_digest_authorized(path, &target)?
+            .ok_or_else(|| "artifact is not a file".to_string())?;
         self.state.artifacts.insert(path.into());
         self.record("artifact", path, &digest)
     }
@@ -760,7 +788,16 @@ impl TransactionalWorkspace {
         if !self.state.policy.allowed_write_paths.contains(path) {
             return Err("write path is outside task scope".into());
         }
-        canonical_target(&self.root(), path)
+        #[cfg(unix)]
+        validate_anchored_write_path(&self.root_dir, path)?;
+        #[cfg(not(unix))]
+        {
+            return Err("transactional path authority is unavailable on this platform".into());
+        }
+        #[cfg(unix)]
+        {
+            Ok(self.root().join(path))
+        }
     }
 
     fn authorize_existing(
@@ -772,17 +809,81 @@ impl TransactionalWorkspace {
         if !allowed.contains(path) {
             return Err("path is outside task scope".into());
         }
-        let target = canonical_target(&self.root(), path)?;
-        target
-            .canonicalize()
-            .map_err(|e| format!("path does not exist: {e}"))
-            .and_then(|p| {
-                if p.starts_with(self.root()) {
-                    Ok(p)
-                } else {
-                    Err("symlink escapes transaction worktree".into())
-                }
-            })
+        #[cfg(unix)]
+        {
+            validate_anchored_existing_path(&self.root_dir, path)?;
+            return Ok(self.root().join(path));
+        }
+        #[cfg(not(unix))]
+        Err("transactional path authority is unavailable on this platform".into())
+    }
+
+    fn read_authorized(&self, path: &str, _target: &Path) -> Result<Vec<u8>, String> {
+        #[cfg(unix)]
+        {
+            return secure_read(&self.root_dir, path);
+        }
+        #[cfg(not(unix))]
+        fs::read(_target).map_err(|e| format!("read failed: {e}"))
+    }
+
+    fn file_digest_authorized(&self, path: &str, _target: &Path) -> Result<Option<String>, String> {
+        #[cfg(unix)]
+        {
+            return secure_file_digest(&self.root_dir, path);
+        }
+        #[cfg(not(unix))]
+        file_digest(_target)
+    }
+
+    fn write_authorized(&self, path: &str, _target: &Path, bytes: &[u8]) -> Result<(), String> {
+        #[cfg(unix)]
+        {
+            return secure_write(&self.root_dir, path, bytes);
+        }
+        #[cfg(not(unix))]
+        {
+            if let Some(parent) = _target.parent() {
+                fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+            }
+            atomic_write(_target, bytes)
+        }
+    }
+
+    fn delete_authorized(&self, path: &str, _target: &Path) -> Result<(), String> {
+        #[cfg(unix)]
+        {
+            return secure_delete(&self.root_dir, path);
+        }
+        #[cfg(not(unix))]
+        {
+            if _target.is_dir() {
+                fs::remove_dir(_target)
+            } else {
+                fs::remove_file(_target)
+            }
+            .map_err(|e| format!("delete failed: {e}"))
+        }
+    }
+
+    fn rename_authorized(
+        &self,
+        from: &str,
+        _source: &Path,
+        to: &str,
+        _target: &Path,
+    ) -> Result<(), String> {
+        #[cfg(unix)]
+        {
+            return secure_rename(&self.root_dir, from, to);
+        }
+        #[cfg(not(unix))]
+        fs::rename(_source, _target).map_err(|e| format!("rename failed: {e}"))
+    }
+
+    #[cfg(unix)]
+    fn chmod_authorized(&self, path: &str, _target: &Path, mode: u32) -> Result<(), String> {
+        secure_chmod(&self.root_dir, path, mode)
     }
 
     fn record(&mut self, operation: &str, subject: &str, result: &str) -> Result<(), String> {
@@ -792,7 +893,7 @@ impl TransactionalWorkspace {
             subject: redact(subject),
             result: redact(result),
         });
-        persist(&self.state_path, &mut self.state)
+        self.persist_state()
     }
 
     fn begin_effect(&mut self, effect: &str) -> Result<(), String> {
@@ -800,7 +901,7 @@ impl TransactionalWorkspace {
             return Err("another filesystem effect is pending".into());
         }
         self.state.pending_effect = Some(effect.into());
-        persist(&self.state_path, &mut self.state)
+        self.persist_state()
     }
 
     fn finish_effect(
@@ -812,7 +913,18 @@ impl TransactionalWorkspace {
         self.record(operation, subject, result)?;
         self.state.pending_effect = None;
         self.state.workspace_fingerprint = checkout_fingerprint(&self.root(), &self.state.policy)?;
-        persist(&self.state_path, &mut self.state)
+        self.persist_state()
+    }
+
+    fn persist_state(&mut self) -> Result<(), String> {
+        #[cfg(unix)]
+        {
+            persist(&self.state_path, &mut self.state, Some(&self.root_dir))
+        }
+        #[cfg(not(unix))]
+        {
+            persist(&self.state_path, &mut self.state)
+        }
     }
 }
 
@@ -947,6 +1059,7 @@ fn validate_relative(path: &str) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(not(unix))]
 fn canonical_target(root: &Path, relative: &str) -> Result<PathBuf, String> {
     let target = root.join(relative);
     let mut ancestor = target.as_path();
@@ -964,6 +1077,325 @@ fn canonical_target(root: &Path, relative: &str) -> Result<PathBuf, String> {
     Ok(target)
 }
 
+#[cfg(unix)]
+static SECURE_TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
+#[cfg(unix)]
+const PATH_AUTHORITY_SYMLINK: &str = "path contains a symlink or reparse component";
+
+#[cfg(unix)]
+fn path_authority_error(prefix: &str, error: io::Error) -> String {
+    if error.raw_os_error() == Some(libc::ELOOP) {
+        PATH_AUTHORITY_SYMLINK.into()
+    } else if error.kind() == io::ErrorKind::NotFound {
+        "path does not exist".into()
+    } else {
+        format!("{prefix}: {error}")
+    }
+}
+
+#[cfg(unix)]
+fn open_root_directory(root: &Path) -> Result<File, String> {
+    OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC)
+        .open(root)
+        .map_err(|error| format!("cannot safely open transaction worktree root: {error}"))
+}
+
+#[cfg(unix)]
+fn relative_components(relative: &str) -> Result<Vec<CString>, String> {
+    let path = Path::new(relative);
+    if relative.is_empty()
+        || path.is_absolute()
+        || path
+            .components()
+            .any(|component| !matches!(component, Component::Normal(_)))
+    {
+        return Err("path must be a normalized relative path without traversal".into());
+    }
+    Path::new(relative)
+        .components()
+        .map(|component| match component {
+            Component::Normal(name) => CString::new(name.as_bytes())
+                .map_err(|_| "path contains an embedded NUL".to_string()),
+            _ => Err("path must contain only normal components".into()),
+        })
+        .collect()
+}
+
+#[cfg(unix)]
+fn open_anchored_parent(
+    root: &File,
+    relative: &str,
+    create_missing: bool,
+) -> Result<(File, CString), String> {
+    let mut components = relative_components(relative)?;
+    let leaf = components
+        .pop()
+        .ok_or_else(|| "path has no leaf component".to_string())?;
+    let mut parent = root
+        .try_clone()
+        .map_err(|error| format!("cannot duplicate worktree root descriptor: {error}"))?;
+    for component in components {
+        let existing = anchored_entry_stat(&parent, &component)?;
+        if existing.is_none() && !create_missing {
+            return Err("path does not exist".into());
+        }
+        if existing.is_none() {
+            let result = unsafe { libc::mkdirat(parent.as_raw_fd(), component.as_ptr(), 0o755) };
+            if result < 0 {
+                let error = io::Error::last_os_error();
+                if error.kind() != io::ErrorKind::AlreadyExists {
+                    return Err(format!("cannot create transaction path component: {error}"));
+                }
+            }
+        }
+        let descriptor = unsafe {
+            libc::openat(
+                parent.as_raw_fd(),
+                component.as_ptr(),
+                libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+            )
+        };
+        if descriptor < 0 {
+            return Err(path_authority_error(
+                "path authority rejected parent component",
+                io::Error::last_os_error(),
+            ));
+        }
+        parent = unsafe { File::from_raw_fd(descriptor) };
+    }
+    Ok((parent, leaf))
+}
+
+#[cfg(unix)]
+fn anchored_entry_stat(parent: &File, leaf: &CString) -> Result<Option<libc::stat>, String> {
+    let mut value = std::mem::MaybeUninit::<libc::stat>::uninit();
+    let result = unsafe {
+        libc::fstatat(
+            parent.as_raw_fd(),
+            leaf.as_ptr(),
+            value.as_mut_ptr(),
+            libc::AT_SYMLINK_NOFOLLOW,
+        )
+    };
+    if result < 0 {
+        let error = io::Error::last_os_error();
+        if error.kind() == io::ErrorKind::NotFound {
+            return Ok(None);
+        }
+        return Err(format!("cannot inspect authorized path: {error}"));
+    }
+    let value = unsafe { value.assume_init() };
+    if (value.st_mode & libc::S_IFMT) == libc::S_IFLNK {
+        return Err(PATH_AUTHORITY_SYMLINK.into());
+    }
+    if (value.st_mode & libc::S_IFMT) == libc::S_IFREG && value.st_nlink > 1 {
+        return Err("path authority rejects multiply-linked file identity".into());
+    }
+    Ok(Some(value))
+}
+
+#[cfg(unix)]
+fn validate_anchored_existing_path(root: &File, relative: &str) -> Result<(), String> {
+    let (parent, leaf) = open_anchored_parent(root, relative, false)?;
+    anchored_entry_stat(&parent, &leaf)?.ok_or_else(|| "path does not exist".to_string())?;
+    Ok(())
+}
+
+#[cfg(unix)]
+fn validate_anchored_write_path(root: &File, relative: &str) -> Result<(), String> {
+    match open_anchored_parent(root, relative, false) {
+        Ok((parent, leaf)) => {
+            let _ = anchored_entry_stat(&parent, &leaf)?;
+            Ok(())
+        }
+        Err(error) if error == "path does not exist" || error.contains("not found") => Ok(()),
+        Err(error) => Err(error),
+    }
+}
+
+#[cfg(unix)]
+fn open_anchored_file(root: &File, relative: &str) -> Result<File, String> {
+    let (parent, leaf) = open_anchored_parent(root, relative, false)?;
+    anchored_entry_stat(&parent, &leaf)?.ok_or_else(|| "path does not exist".to_string())?;
+    let descriptor = unsafe {
+        libc::openat(
+            parent.as_raw_fd(),
+            leaf.as_ptr(),
+            libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+        )
+    };
+    if descriptor < 0 {
+        return Err(path_authority_error(
+            "path authority rejected final component",
+            io::Error::last_os_error(),
+        ));
+    }
+    Ok(unsafe { File::from_raw_fd(descriptor) })
+}
+
+#[cfg(unix)]
+fn secure_read(root: &File, relative: &str) -> Result<Vec<u8>, String> {
+    let mut file = open_anchored_file(root, relative)?;
+    let mut bytes = Vec::new();
+    file.read_to_end(&mut bytes)
+        .map_err(|error| format!("read failed: {error}"))?;
+    Ok(bytes)
+}
+
+#[cfg(unix)]
+fn secure_file_digest(root: &File, relative: &str) -> Result<Option<String>, String> {
+    let mut file = match open_anchored_file(root, relative) {
+        Ok(file) => file,
+        Err(error) if error == "path does not exist" => return Ok(None),
+        Err(error) => return Err(error),
+    };
+    let mut bytes = Vec::new();
+    file.read_to_end(&mut bytes)
+        .map_err(|error| format!("cannot hash authorized path: {error}"))?;
+    Ok(Some(sha256_digest(&bytes)))
+}
+
+#[cfg(unix)]
+fn secure_write(root: &File, relative: &str, bytes: &[u8]) -> Result<(), String> {
+    let (parent, leaf) = open_anchored_parent(root, relative, true)?;
+    let _ = anchored_entry_stat(&parent, &leaf)?;
+    let pid = std::process::id();
+    let mut last_error = None;
+    for attempt in 0..32u64 {
+        let sequence = SECURE_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+        let name = CString::new(format!(
+            ".{}.axiom-tmp-{pid}-{sequence}-{attempt}",
+            leaf.to_string_lossy()
+        ))
+        .map_err(|_| "path contains an embedded NUL".to_string())?;
+        let descriptor = unsafe {
+            libc::openat(
+                parent.as_raw_fd(),
+                name.as_ptr(),
+                libc::O_WRONLY | libc::O_CREAT | libc::O_EXCL | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+                0o600,
+            )
+        };
+        if descriptor < 0 {
+            let error = io::Error::last_os_error();
+            if error.kind() == io::ErrorKind::AlreadyExists {
+                last_error = Some(error);
+                continue;
+            }
+            return Err(format!(
+                "cannot create exclusive transaction temp file: {error}"
+            ));
+        }
+        let mut file = unsafe { File::from_raw_fd(descriptor) };
+        let result = file
+            .write_all(bytes)
+            .and_then(|()| file.sync_all())
+            .map_err(|error| format!("cannot persist authorized write: {error}"));
+        drop(file);
+        if let Err(error) = result {
+            let _ = unsafe { libc::unlinkat(parent.as_raw_fd(), name.as_ptr(), 0) };
+            return Err(error);
+        }
+        if let Err(error) = anchored_entry_stat(&parent, &leaf) {
+            let _ = unsafe { libc::unlinkat(parent.as_raw_fd(), name.as_ptr(), 0) };
+            return Err(error);
+        }
+        let renamed = unsafe {
+            libc::renameat(
+                parent.as_raw_fd(),
+                name.as_ptr(),
+                parent.as_raw_fd(),
+                leaf.as_ptr(),
+            )
+        };
+        if renamed < 0 {
+            let error = io::Error::last_os_error();
+            let _ = unsafe { libc::unlinkat(parent.as_raw_fd(), name.as_ptr(), 0) };
+            return Err(format!(
+                "cannot atomically publish authorized write: {error}"
+            ));
+        }
+        if unsafe { libc::fsync(parent.as_raw_fd()) } < 0 {
+            return Err(format!(
+                "authorized write published but parent sync failed: {}",
+                io::Error::last_os_error()
+            ));
+        }
+        return Ok(());
+    }
+    Err(format!(
+        "cannot allocate exclusive transaction temp file: {}",
+        last_error
+            .map(|error| error.to_string())
+            .unwrap_or_else(|| "temporary file collision".into())
+    ))
+}
+
+#[cfg(unix)]
+fn secure_delete(root: &File, relative: &str) -> Result<(), String> {
+    let (parent, leaf) = open_anchored_parent(root, relative, false)?;
+    let value =
+        anchored_entry_stat(&parent, &leaf)?.ok_or_else(|| "path does not exist".to_string())?;
+    let flags = if (value.st_mode & libc::S_IFMT) == libc::S_IFDIR {
+        libc::AT_REMOVEDIR
+    } else {
+        0
+    };
+    let result = unsafe { libc::unlinkat(parent.as_raw_fd(), leaf.as_ptr(), flags) };
+    if result < 0 {
+        return Err(format!("delete failed: {}", io::Error::last_os_error()));
+    }
+    if unsafe { libc::fsync(parent.as_raw_fd()) } < 0 {
+        return Err(format!(
+            "delete completed but parent sync failed: {}",
+            io::Error::last_os_error()
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn secure_rename(root: &File, from: &str, to: &str) -> Result<(), String> {
+    let (source_parent, source_leaf) = open_anchored_parent(root, from, false)?;
+    let _ = anchored_entry_stat(&source_parent, &source_leaf)?
+        .ok_or_else(|| "rename source does not exist".to_string())?;
+    let (target_parent, target_leaf) = open_anchored_parent(root, to, false)?;
+    let _ = anchored_entry_stat(&target_parent, &target_leaf)?;
+    let result = unsafe {
+        libc::renameat(
+            source_parent.as_raw_fd(),
+            source_leaf.as_ptr(),
+            target_parent.as_raw_fd(),
+            target_leaf.as_ptr(),
+        )
+    };
+    if result < 0 {
+        return Err(format!("rename failed: {}", io::Error::last_os_error()));
+    }
+    if unsafe { libc::fsync(source_parent.as_raw_fd()) } < 0
+        || unsafe { libc::fsync(target_parent.as_raw_fd()) } < 0
+    {
+        return Err(format!(
+            "rename completed but parent sync failed: {}",
+            io::Error::last_os_error()
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn secure_chmod(root: &File, relative: &str, mode: u32) -> Result<(), String> {
+    let file = open_anchored_file(root, relative)?;
+    if unsafe { libc::fchmod(file.as_raw_fd(), mode as libc::mode_t) } < 0 {
+        return Err(format!("chmod failed: {}", io::Error::last_os_error()));
+    }
+    Ok(())
+}
+
+#[cfg(not(unix))]
 fn file_digest(path: &Path) -> Result<Option<String>, String> {
     if !path.exists() {
         return Ok(None);
@@ -1063,6 +1495,18 @@ fn git(dir: &Path, args: &[&str]) -> Result<String, String> {
     String::from_utf8(output.stdout).map_err(|e| format!("git output is not UTF-8: {e}"))
 }
 
+#[cfg(unix)]
+fn persist(path: &Path, state: &mut TransactionState, root: Option<&File>) -> Result<(), String> {
+    state.checksum.clear();
+    state.checksum = state_checksum(state)?;
+    let bytes = serde_json::to_vec_pretty(state).map_err(|e| e.to_string())?;
+    match root {
+        Some(root) => secure_write(root, STATE_FILE, &bytes),
+        None => atomic_write(path, &bytes),
+    }
+}
+
+#[cfg(not(unix))]
 fn persist(path: &Path, state: &mut TransactionState) -> Result<(), String> {
     state.checksum.clear();
     state.checksum = state_checksum(state)?;
@@ -1214,6 +1658,9 @@ mod tests {
         let mut txn = TransactionalWorkspace::create(&source, &worktree, &sha, policy()).unwrap();
         txn.state.pending_effect = Some("write:allowed.txt".into());
         txn.state.phase = TransactionPhase::Interrupted;
+        #[cfg(unix)]
+        persist(&txn.state_path, &mut txn.state, None).unwrap();
+        #[cfg(not(unix))]
         persist(&txn.state_path, &mut txn.state).unwrap();
         drop(txn);
         let mut recovered = TransactionalWorkspace::recover(&worktree).unwrap();
