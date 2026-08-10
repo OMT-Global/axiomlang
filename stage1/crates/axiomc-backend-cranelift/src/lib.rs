@@ -1,5 +1,5 @@
 use cranelift_codegen::ir::{
-    AbiParam, ArgumentPurpose, BlockArg, FuncRef, InstBuilder, MemFlags, StackSlotData,
+    AbiParam, ArgumentPurpose, Block, BlockArg, FuncRef, InstBuilder, MemFlags, StackSlotData,
     StackSlotKind, TrapCode, Value, condcodes::IntCC, types,
 };
 use cranelift_codegen::isa;
@@ -507,6 +507,8 @@ pub enum I64Stmt {
         cond: I64Condition,
         body: Vec<I64Stmt>,
     },
+    Break,
+    Continue,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1287,6 +1289,7 @@ fn emit_i64_exit_object(
             write_ref,
             &output_data_ids,
             &program.stmts,
+            None,
         )?;
         emit_i64_exit_body(
             &mut module,
@@ -1386,7 +1389,10 @@ fn collect_i64_output_lines(stmts: &[I64Stmt], lines: &mut Vec<(OutputStream, St
                 collect_i64_output_lines(else_body, lines);
             }
             I64Stmt::While { body, .. } => collect_i64_output_lines(body, lines),
-            I64Stmt::Assign(_) | I64Stmt::CallAssign { .. } => {}
+            I64Stmt::Assign(_)
+            | I64Stmt::CallAssign { .. }
+            | I64Stmt::Break
+            | I64Stmt::Continue => {}
         }
     }
 }
@@ -1688,6 +1694,7 @@ fn define_i64_function(
             write_ref,
             output_data_ids,
             &function.stmts,
+            None,
         )?;
         emit_i64_value_body(
             module,
@@ -1726,6 +1733,12 @@ fn i64_function_refs(
         .collect()
 }
 
+#[derive(Clone, Copy)]
+struct I64LoopTargets {
+    break_block: Block,
+    continue_block: Block,
+}
+
 fn emit_i64_stmts(
     module: &mut ObjectModule,
     builder: &mut FunctionBuilder<'_>,
@@ -1736,8 +1749,13 @@ fn emit_i64_stmts(
     write_ref: FuncRef,
     output_data_ids: &[I64OutputData],
     stmts: &[I64Stmt],
-) -> Result<(), CraneliftBackendError> {
+    loop_targets: Option<I64LoopTargets>,
+) -> Result<bool, CraneliftBackendError> {
+    let mut reachable = true;
     for stmt in stmts {
+        if !reachable {
+            break;
+        }
         emit_i64_stmt(
             module,
             builder,
@@ -1748,9 +1766,27 @@ fn emit_i64_stmts(
             write_ref,
             output_data_ids,
             stmt,
+            loop_targets,
         )?;
+        reachable = i64_stmt_can_fall_through(stmt);
     }
-    Ok(())
+    Ok(reachable)
+}
+
+fn i64_stmt_can_fall_through(stmt: &I64Stmt) -> bool {
+    match stmt {
+        I64Stmt::Break | I64Stmt::Continue => false,
+        I64Stmt::If {
+            then_body,
+            else_body,
+            ..
+        } => {
+            then_body.last().is_none_or(i64_stmt_can_fall_through)
+                || else_body.last().is_none_or(i64_stmt_can_fall_through)
+        }
+        I64Stmt::While { .. } => true,
+        _ => true,
+    }
 }
 
 fn emit_i64_stmt(
@@ -1763,6 +1799,7 @@ fn emit_i64_stmt(
     write_ref: FuncRef,
     output_data_ids: &[I64OutputData],
     stmt: &I64Stmt,
+    loop_targets: Option<I64LoopTargets>,
 ) -> Result<(), CraneliftBackendError> {
     match stmt {
         I64Stmt::Assign(assign) => {
@@ -1908,7 +1945,7 @@ fn emit_i64_stmt(
 
             builder.switch_to_block(then_block);
             builder.seal_block(then_block);
-            emit_i64_stmts(
+            let then_reachable = emit_i64_stmts(
                 module,
                 builder,
                 locals,
@@ -1918,12 +1955,15 @@ fn emit_i64_stmt(
                 write_ref,
                 output_data_ids,
                 then_body,
+                loop_targets,
             )?;
-            builder.ins().jump(after_if, &[]);
+            if then_reachable {
+                builder.ins().jump(after_if, &[]);
+            }
 
             builder.switch_to_block(else_block);
             builder.seal_block(else_block);
-            emit_i64_stmts(
+            let else_reachable = emit_i64_stmts(
                 module,
                 builder,
                 locals,
@@ -1933,8 +1973,11 @@ fn emit_i64_stmt(
                 write_ref,
                 output_data_ids,
                 else_body,
+                loop_targets,
             )?;
-            builder.ins().jump(after_if, &[]);
+            if else_reachable {
+                builder.ins().jump(after_if, &[]);
+            }
 
             builder.switch_to_block(after_if);
             builder.seal_block(after_if);
@@ -1954,7 +1997,7 @@ fn emit_i64_stmt(
 
             builder.switch_to_block(loop_body);
             builder.seal_block(loop_body);
-            emit_i64_stmts(
+            let body_reachable = emit_i64_stmts(
                 module,
                 builder,
                 locals,
@@ -1964,12 +2007,30 @@ fn emit_i64_stmt(
                 write_ref,
                 output_data_ids,
                 body,
+                Some(I64LoopTargets {
+                    break_block: after_loop,
+                    continue_block: loop_header,
+                }),
             )?;
-            builder.ins().jump(loop_header, &[]);
+            if body_reachable {
+                builder.ins().jump(loop_header, &[]);
+            }
             builder.seal_block(loop_header);
 
             builder.switch_to_block(after_loop);
             builder.seal_block(after_loop);
+            Ok(())
+        }
+        I64Stmt::Break => {
+            let targets = loop_targets
+                .ok_or_else(|| CraneliftBackendError::new("break is outside a loop"))?;
+            builder.ins().jump(targets.break_block, &[]);
+            Ok(())
+        }
+        I64Stmt::Continue => {
+            let targets = loop_targets
+                .ok_or_else(|| CraneliftBackendError::new("continue is outside a loop"))?;
+            builder.ins().jump(targets.continue_block, &[]);
             Ok(())
         }
     }
@@ -2769,6 +2830,7 @@ fn emit_i64_exit_body(
                 write_ref,
                 output_data_ids,
                 &block.stmts,
+                None,
             )?;
             emit_i64_return(builder, locals, function_refs, runtime_refs, &block.result)
         }
@@ -2820,6 +2882,7 @@ fn emit_i64_exit_body(
                 write_ref,
                 output_data_ids,
                 &then_block.stmts,
+                None,
             )?;
             emit_i64_return(
                 builder,
@@ -2841,6 +2904,7 @@ fn emit_i64_exit_body(
                 write_ref,
                 output_data_ids,
                 &else_block.stmts,
+                None,
             )?;
             emit_i64_return(
                 builder,
@@ -2887,6 +2951,7 @@ fn emit_i64_value_body(
                 write_ref,
                 output_data_ids,
                 &block.stmts,
+                None,
             )?;
             emit_i64_value_return(
                 builder,
@@ -2962,6 +3027,7 @@ fn emit_i64_value_body(
                 write_ref,
                 output_data_ids,
                 &then_block.stmts,
+                None,
             )?;
             emit_i64_value_return(
                 builder,
@@ -2985,6 +3051,7 @@ fn emit_i64_value_body(
                 write_ref,
                 output_data_ids,
                 &else_block.stmts,
+                None,
             )?;
             emit_i64_value_return(
                 builder,
@@ -4318,7 +4385,9 @@ fn emit_i64_env_len_expr(
     builder.seal_block(present_block);
     let call = builder.ins().call(strlen_ref, &[value_ptr]);
     let length = builder.inst_results(call)[0];
-    builder.ins().jump(merge_block, &[BlockArg::Value(length)]);
+    builder
+        .ins()
+        .jump(merge_block, &[BlockArg::Value(length)]);
 
     builder.switch_to_block(merge_block);
     builder.seal_block(merge_block);
@@ -4362,9 +4431,7 @@ fn emit_i64_cwd_len_expr(
     builder.seal_block(present_block);
     let call = builder.ins().call(strlen_ref, &[value_ptr]);
     let length = builder.inst_results(call)[0];
-    builder
-        .ins()
-        .jump(merge_block, &[BlockArg::Value(length)]);
+    builder.ins().jump(merge_block, &[BlockArg::Value(length)]);
 
     builder.switch_to_block(merge_block);
     builder.seal_block(merge_block);

@@ -1055,6 +1055,54 @@ print demo()
 }
 
 #[test]
+fn generated_rust_unwinds_only_the_loop_scope_on_control_edges() {
+    let source = r#"fn trace(label: string): int {
+print label
+return 0
+}
+
+fn demo(): int {
+defer trace("outer")
+let index: int = 0
+while index < 2 {
+defer trace("loop")
+index = index + 1
+if index == 1 {
+continue
+}
+break
+}
+return 0
+}
+
+print demo()
+"#;
+    let parsed = parse_program(source, Path::new("main.ax")).expect("parse");
+    let hir = hir::lower(&parsed).expect("lower");
+    let mir = mir::lower(&hir);
+    let rendered = render_rust(&mir);
+    let demo_pos = rendered.find("fn demo").expect("demo rendered");
+    let continue_pos = rendered[demo_pos..]
+        .find("continue;")
+        .map(|offset| demo_pos + offset)
+        .expect("continue rendered");
+    let break_pos = rendered[demo_pos..]
+        .find("break;")
+        .map(|offset| demo_pos + offset)
+        .expect("break rendered");
+    let outer_pos = rendered
+        .rfind("let _ = trace(String::from(\"outer\"));")
+        .expect("outer defer rendered");
+    assert!(rendered[..continue_pos].contains("let _ = trace(String::from(\"loop\"));"));
+    assert!(rendered[..break_pos].contains("let _ = trace(String::from(\"loop\"));"));
+    assert!(!rendered[continue_pos..break_pos].contains("trace(String::from(\"outer\"))"));
+    assert!(
+        outer_pos > break_pos,
+        "outer defer must remain at function exit"
+    );
+}
+
+#[test]
 fn run_project_executes_defer_on_return_panic_and_nested_scope() {
     let dir = tempdir().expect("tempdir");
     fs::write(dir.path().join("axiom.toml"), render_manifest("defer-demo"))
