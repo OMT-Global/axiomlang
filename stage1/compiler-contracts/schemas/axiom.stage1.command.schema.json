@@ -21,6 +21,9 @@
     },
     {
       "$ref": "#/$defs/mutationReport"
+    },
+    {
+      "$ref": "#/$defs/commandFailure"
     }
   ],
   "$defs": {
@@ -34,6 +37,92 @@
     "durationMs": {
       "type": "integer",
       "minimum": 0
+    },
+    "failureEnvelope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "ok",
+        "command",
+        "error"
+      ],
+      "properties": {
+        "schema_version": {
+          "$ref": "#/$defs/schemaVersion"
+        },
+        "ok": {
+          "const": false
+        },
+        "command": {
+          "type": "string",
+          "minLength": 1
+        },
+        "error": {
+          "$ref": "#/$defs/diagnostic"
+        },
+        "lowering": {
+          "$ref": "#/$defs/buildLoweringEvidence"
+        }
+      }
+    },
+    "commandFailure": {
+      "oneOf": [
+        {
+          "allOf": [
+            { "$ref": "#/$defs/failureEnvelope" },
+            { "properties": { "command": { "const": "check" } } }
+          ]
+        },
+        {
+          "allOf": [
+            { "$ref": "#/$defs/failureEnvelope" },
+            { "properties": { "command": { "const": "build" } } }
+          ]
+        },
+        {
+          "allOf": [
+            { "$ref": "#/$defs/failureEnvelope" },
+            { "properties": { "command": { "const": "run" } } }
+          ]
+        },
+        {
+          "allOf": [
+            { "$ref": "#/$defs/failureEnvelope" },
+            { "properties": { "command": { "const": "test" } } }
+          ]
+        },
+        {
+          "allOf": [
+            { "$ref": "#/$defs/failureEnvelope" },
+            { "properties": { "command": { "const": "caps" } } }
+          ]
+        },
+        {
+          "allOf": [
+            { "$ref": "#/$defs/failureEnvelope" },
+            { "properties": { "command": { "const": "mutation-report" } } }
+          ]
+        },
+        {
+          "allOf": [
+            { "$ref": "#/$defs/failureEnvelope" },
+            { "properties": { "command": { "const": "parse" } } }
+          ]
+        },
+        {
+          "allOf": [
+            { "$ref": "#/$defs/failureEnvelope" },
+            { "properties": { "command": { "const": "doc" } } }
+          ]
+        },
+        {
+          "allOf": [
+            { "$ref": "#/$defs/failureEnvelope" },
+            { "properties": { "command": { "const": "lsp" } } }
+          ]
+        }
+      ]
     },
     "diagnosticRepair": {
       "type": "object",
@@ -59,10 +148,7 @@
       "additionalProperties": false,
       "required": [
         "kind",
-        "message",
-        "path",
-        "line",
-        "column"
+        "message"
       ],
       "properties": {
         "kind": {
