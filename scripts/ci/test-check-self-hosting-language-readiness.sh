@@ -44,10 +44,12 @@ cat > "$manifest" <<JSON
 JSON
 
 cat > "$issues_open" <<'STATES'
+1256 CLOSED
 721 OPEN
 STATES
 
 cat > "$issues_closed" <<'STATES'
+1256 CLOSED
 721 CLOSED
 STATES
 
@@ -152,5 +154,53 @@ if python3 scripts/ci/check-self-hosting-language-readiness.py \
 fi
 
 grep -Fq "missing evidence: missing.ax" "$tmpdir/missing-evidence.json"
+
+python3 - "$manifest" <<'PY'
+import json
+import sys
+
+path = sys.argv[1]
+with open(path, encoding="utf-8") as handle:
+    payload = json.load(handle)
+
+payload["rows"][0]["evidence"] = payload["rows"][1]["evidence"]
+payload["rows"][0]["blockerIssues"] = [721]
+payload["rows"][0]["status"] = "blocked"
+payload["rows"][0]["directNativeStatus"] = "partial"
+with open(path, "w", encoding="utf-8") as handle:
+    json.dump(payload, handle)
+PY
+
+python3 scripts/ci/check-self-hosting-language-readiness.py \
+  --json \
+  --validate-live-issue-states \
+  --manifest "$manifest" \
+  --doc "$doc" \
+  --issue-state-file "$issues_open" > "$tmpdir/live-blocked.json"
+
+python3 - "$tmpdir/live-blocked.json" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    payload = json.load(handle)
+
+assert payload["valid"] is True
+assert payload["ready"] is False
+statuses = {check["name"]: check["status"] for check in payload["checks"]}
+assert statuses["language_readiness_issue_721_closed"] == "pass"
+assert statuses["language_readiness_rows_implemented"] == "fail"
+PY
+
+if python3 scripts/ci/check-self-hosting-language-readiness.py \
+  --json \
+  --validate-live-issue-states \
+  --manifest "$manifest" \
+  --doc "$doc" \
+  --issue-state-file "$issues_closed" > "$tmpdir/live-closed-blocker.json"; then
+  echo "expected live validation to reject a closed active blocker" >&2
+  exit 1
+fi
+grep -Fq "expected OPEN" "$tmpdir/live-closed-blocker.json"
 
 echo "check-self-hosting-language-readiness regression cases passed"
