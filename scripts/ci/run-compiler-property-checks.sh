@@ -66,13 +66,13 @@ trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-# Keep the report directory under the checked-out workspace in Actions. The
-# runner fleet may reclaim nested RUNNER_TEMP paths while a long compiler
-# subprocess is still producing its JSON report. Keep TMPDIR as the
-# local/test-harness default so regression cases can inspect the cleanup
-# boundary.
+# Keep the report directory under the trusted script checkout in Actions. The
+# runner fleet may reclaim the AXIOM_CHECKOUT_PATH data checkout while a long
+# compiler subprocess is still producing its JSON report, so that path is not
+# a durable report parent. Keep TMPDIR as the local/test-harness default so
+# regression cases can inspect the cleanup boundary.
 if [[ "${GITHUB_ACTIONS:-}" == "true" && -n "${RUNNER_TEMP:-}" ]]; then
-  report_parent="$repo_root"
+  report_parent="$script_repo_root"
 else
   report_parent="${TMPDIR:-/tmp}"
 fi

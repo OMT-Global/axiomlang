@@ -81,11 +81,26 @@ mkdir -p "$action_report_root/stage1/examples/compiler_properties/src"
 for index in $(seq 1 100); do
   printf 'property fn fake_%s() { }\n' "$index" >>"$action_report_root/stage1/examples/compiler_properties/src/main.ax"
 done
-PATH="$fake_bin:$PATH" TMPDIR="$run_tmp" GITHUB_ACTIONS=true RUNNER_TEMP="$harness_tmp/runner-temp" AXIOM_CHECKOUT_PATH="$action_report_root" bash "$script" >/dev/null
+action_report_log="$harness_tmp/action-report-path.txt"
+PATH="$fake_bin:$PATH" TMPDIR="$run_tmp" GITHUB_ACTIONS=true RUNNER_TEMP="$harness_tmp/runner-temp" AXIOM_CHECKOUT_PATH="$action_report_root" AXIOM_FAKE_CARGO_REPORT_LOG="$action_report_log" bash "$script" >/dev/null
 if find "$action_report_root" -maxdepth 1 -name 'axiom-compiler-property-cranelift*' -print -quit | grep -q .; then
   echo "Actions-mode compiler property checks must remove workspace report directories after success" >&2
   find "$action_report_root" -maxdepth 1 -name 'axiom-compiler-property-cranelift*' -print >&2
   exit 1
+fi
+if [[ -s "$action_report_log" ]]; then
+  if grep -Fq "$action_report_root" "$action_report_log"; then
+    echo "Actions-mode compiler property checks must not place reports under the reclaimable data checkout" >&2
+    cat "$action_report_log" >&2
+    exit 1
+  fi
+else
+  # macOS has no /proc fd links for the fake cargo helper, so retain a
+  # source-level assertion when the runtime report-path probe is unavailable.
+  grep -Fq 'report_parent="$script_repo_root"' "$script" || {
+    echo "Actions-mode compiler property checks must use the trusted script checkout for reports" >&2
+    exit 1
+  }
 fi
 
 if PATH="$fake_bin:$PATH" TMPDIR="$run_tmp" AXIOM_FAKE_CARGO_JSON=invalid bash "$script" >/dev/null 2>&1; then
