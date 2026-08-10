@@ -8,6 +8,8 @@ project:
   defaultBranch: main
 repo:
   class: tooling
+  classMigration:
+    target: cli
   managedPaths:
     - project.bootstrap.yaml
     - AGENTS.md
@@ -296,6 +298,9 @@ github:
     hasWiki: false
     hasDiscussions: false
 ci:
+  codeqlLanguages:
+    - python
+    - rust
   runnerPolicy: hybrid-safe
   nodeVersion: "20"
   pythonVersion: "3.12"
