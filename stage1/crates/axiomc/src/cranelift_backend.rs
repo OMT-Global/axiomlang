@@ -12700,6 +12700,8 @@ fn i64_known_pure_intrinsic_call(name: &str, static_bindings: &I64StaticBindings
             | "string_trim_start"
             | "string_line_at"
             | "string_byte_at"
+            | "string_scalar_count"
+            | "string_scalar_at"
             | "encoding_url_component_encode"
             | "encoding_url_component_decode"
             | "encoding_path_segment_encode"
@@ -12824,6 +12826,21 @@ fn i64_string_option_text(
                 text.lines()
                     .nth(index as usize)
                     .map(std::string::ToString::to_string),
+            )
+        }
+        "string_scalar_at" => {
+            let [text, index] = args.as_slice() else {
+                return None;
+            };
+            let text = i64_string_text(text, static_bindings)?;
+            let index = i64_static_scalar_value(index, static_bindings)?;
+            if index < 0 {
+                return Some(None);
+            }
+            Some(
+                text.chars()
+                    .nth(index as usize)
+                    .map(|scalar| scalar.to_string()),
             )
         }
         name if is_i64_encoding_url_component_decode_name(name, static_bindings) => {
