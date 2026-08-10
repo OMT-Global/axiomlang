@@ -4452,7 +4452,7 @@ fn cranelift_backend_lowers_fs_write_to_runtime_exit_code() {
     let runtime_file = project.join("scratch/data.txt");
     let append_file = project.join("scratch/append.txt");
     let replace_file = project.join("scratch/replace.txt");
-    let replace_temp_file = project.join("scratch/.replace.txt.axiom-replace.tmp");
+    let replace_temp_file = project.join("scratch/.replace.txt.axiom-replace-XXXXXX");
     let removed_file = project.join("scratch/remove.txt");
     let created_file = project.join("scratch/created.txt");
     let runtime_dir = project.join("scratch/native-dir");
@@ -4495,6 +4495,19 @@ fn cranelift_backend_lowers_fs_write_to_runtime_exit_code() {
         !audit_log.exists(),
         "build should not create the native fs audit log"
     );
+    #[cfg(unix)]
+    let replace_sentinel = project
+        .parent()
+        .expect("project parent")
+        .join("replace-sentinel.txt");
+    #[cfg(unix)]
+    let planted_temp = project.join("scratch/.replace.txt.axiom-replace.tmp");
+    #[cfg(unix)]
+    {
+        fs::write(&replace_sentinel, "sentinel-safe").expect("write replace sentinel");
+        std::os::unix::fs::symlink(&replace_sentinel, &planted_temp)
+            .expect("plant legacy replace temp symlink");
+    }
     let run = Command::new(binary)
         .env("AXIOM_HOST_AUDIT_LOG", &audit_log)
         .output()
@@ -4512,6 +4525,19 @@ fn cranelift_backend_lowers_fs_write_to_runtime_exit_code() {
     assert_eq!(
         fs::read_to_string(&replace_file).expect("read fs_replace runtime fixture"),
         "runtime-replace"
+    );
+    #[cfg(unix)]
+    assert_eq!(
+        fs::read_to_string(&replace_sentinel).expect("read replace sentinel"),
+        "sentinel-safe"
+    );
+    #[cfg(unix)]
+    assert!(
+        fs::symlink_metadata(&planted_temp)
+            .expect("stat planted replace temp")
+            .file_type()
+            .is_symlink(),
+        "a preplanted legacy temp symlink must never be followed"
     );
     assert!(
         !removed_file.exists(),

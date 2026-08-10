@@ -79,8 +79,12 @@ struct I64RuntimeRefs {
     atoll: FuncRef,
     open: FuncRef,
     creat: FuncRef,
+    #[cfg(not(windows))]
+    mkstemp: FuncRef,
     lseek: FuncRef,
     close: FuncRef,
+    #[cfg(not(windows))]
+    fsync: FuncRef,
     access: FuncRef,
     #[cfg(windows)]
     system: FuncRef,
@@ -788,6 +792,17 @@ fn emit_i64_exit_object(
         .map_err(|message| {
             CraneliftBackendError::new(format!("declare creat import: {message}"))
         })?;
+    #[cfg(not(windows))]
+    let mkstemp_id = {
+        let mut signature = module.make_signature();
+        signature.params.push(AbiParam::new(pointer_type));
+        signature.returns.push(AbiParam::new(types::I32));
+        module
+            .declare_function("mkstemp", Linkage::Import, &signature)
+            .map_err(|message| {
+                CraneliftBackendError::new(format!("declare mkstemp import: {message}"))
+            })?
+    };
     let mut lseek_sig = module.make_signature();
     lseek_sig.params.push(AbiParam::new(types::I32));
     lseek_sig.params.push(AbiParam::new(types::I64));
@@ -806,6 +821,17 @@ fn emit_i64_exit_object(
         .map_err(|message| {
             CraneliftBackendError::new(format!("declare close import: {message}"))
         })?;
+    #[cfg(not(windows))]
+    let fsync_id = {
+        let mut signature = module.make_signature();
+        signature.params.push(AbiParam::new(types::I32));
+        signature.returns.push(AbiParam::new(types::I32));
+        module
+            .declare_function("fsync", Linkage::Import, &signature)
+            .map_err(|message| {
+                CraneliftBackendError::new(format!("declare fsync import: {message}"))
+            })?
+    };
     let mut access_sig = module.make_signature();
     access_sig.params.push(AbiParam::new(pointer_type));
     access_sig.params.push(AbiParam::new(types::I32));
@@ -1058,8 +1084,10 @@ fn emit_i64_exit_object(
                 atoll_id,
                 open_id,
                 creat_id,
+                mkstemp_id,
                 lseek_id,
                 close_id,
+                fsync_id,
                 access_id,
                 fork_id,
                 execv_id,
@@ -1160,8 +1188,12 @@ fn emit_i64_exit_object(
         let atoll_ref = module.declare_func_in_func(atoll_id, builder.func);
         let open_ref = module.declare_func_in_func(open_id, builder.func);
         let creat_ref = module.declare_func_in_func(creat_id, builder.func);
+        #[cfg(not(windows))]
+        let mkstemp_ref = module.declare_func_in_func(mkstemp_id, builder.func);
         let lseek_ref = module.declare_func_in_func(lseek_id, builder.func);
         let close_ref = module.declare_func_in_func(close_id, builder.func);
+        #[cfg(not(windows))]
+        let fsync_ref = module.declare_func_in_func(fsync_id, builder.func);
         let access_ref = module.declare_func_in_func(access_id, builder.func);
         #[cfg(windows)]
         let system_ref = module.declare_func_in_func(system_id, builder.func);
@@ -1208,8 +1240,12 @@ fn emit_i64_exit_object(
             atoll: atoll_ref,
             open: open_ref,
             creat: creat_ref,
+            #[cfg(not(windows))]
+            mkstemp: mkstemp_ref,
             lseek: lseek_ref,
             close: close_ref,
+            #[cfg(not(windows))]
+            fsync: fsync_ref,
             access: access_ref,
             #[cfg(windows)]
             system: system_ref,
@@ -1476,8 +1512,12 @@ fn define_i64_function(
     atoll_id: FuncId,
     open_id: FuncId,
     creat_id: FuncId,
+    #[cfg(not(windows))]
+    mkstemp_id: FuncId,
     lseek_id: FuncId,
     close_id: FuncId,
+    #[cfg(not(windows))]
+    fsync_id: FuncId,
     access_id: FuncId,
     #[cfg(windows)] system_id: FuncId,
     #[cfg(not(windows))] fork_id: FuncId,
@@ -1546,8 +1586,12 @@ fn define_i64_function(
         let atoll_ref = module.declare_func_in_func(atoll_id, builder.func);
         let open_ref = module.declare_func_in_func(open_id, builder.func);
         let creat_ref = module.declare_func_in_func(creat_id, builder.func);
+        #[cfg(not(windows))]
+        let mkstemp_ref = module.declare_func_in_func(mkstemp_id, builder.func);
         let lseek_ref = module.declare_func_in_func(lseek_id, builder.func);
         let close_ref = module.declare_func_in_func(close_id, builder.func);
+        #[cfg(not(windows))]
+        let fsync_ref = module.declare_func_in_func(fsync_id, builder.func);
         let access_ref = module.declare_func_in_func(access_id, builder.func);
         #[cfg(windows)]
         let system_ref = module.declare_func_in_func(system_id, builder.func);
@@ -1594,8 +1638,12 @@ fn define_i64_function(
             atoll: atoll_ref,
             open: open_ref,
             creat: creat_ref,
+            #[cfg(not(windows))]
+            mkstemp: mkstemp_ref,
             lseek: lseek_ref,
             close: close_ref,
+            #[cfg(not(windows))]
+            fsync: fsync_ref,
             access: access_ref,
             #[cfg(windows)]
             system: system_ref,
@@ -5829,47 +5877,126 @@ fn emit_i64_replace_file_expr(
     temp_path: &str,
     content: &str,
 ) -> Result<cranelift_codegen::ir::Value, CraneliftBackendError> {
-    let write_result = emit_i64_write_file_expr(builder, runtime_refs, temp_path, content)?;
+    #[cfg(windows)]
+    {
+        let _ = (runtime_refs, path, temp_path, content);
+        return Ok(builder.ins().iconst(types::I64, -1));
+    }
 
-    let rename_block = builder.create_block();
-    let success_block = builder.create_block();
-    let failed_block = builder.create_block();
-    let merge_block = builder.create_block();
-    builder.append_block_param(merge_block, types::I64);
+    #[cfg(not(windows))]
+    {
+        let temp_ptr = emit_i64_path_ptr(builder, temp_path)?;
+        let path_ptr = emit_i64_path_ptr(builder, path)?;
+        let content_len = u32::try_from(content.len())
+            .map_err(|_| CraneliftBackendError::new("filesystem replace content is too large"))?;
+        let content_slot = builder.create_sized_stack_slot(StackSlotData::new(
+            StackSlotKind::ExplicitSlot,
+            content_len.max(1),
+            0,
+        ));
+        for (offset, byte) in content.bytes().enumerate() {
+            let byte_value = builder.ins().iconst(types::I8, i64::from(byte));
+            builder
+                .ins()
+                .stack_store(byte_value, content_slot, offset as i32);
+        }
+        let content_ptr = builder.ins().stack_addr(types::I64, content_slot, 0);
+        let content_count = builder.ins().iconst(types::I64, i64::from(content_len));
 
-    let write_ok = builder.ins().icmp_imm(IntCC::Equal, write_result, 0);
-    builder
-        .ins()
-        .brif(write_ok, rename_block, &[], failed_block, &[]);
+        // mkstemp replaces the XXXXXX suffix with a random, exclusive 0600
+        // inode and never follows a pre-existing symlink at that name.
+        let create_call = builder.ins().call(runtime_refs.mkstemp, &[temp_ptr]);
+        let file = builder.inst_results(create_call)[0];
+        let failed_block = builder.create_block();
+        let write_block = builder.create_block();
+        let sync_block = builder.create_block();
+        let close_block = builder.create_block();
+        let rename_block = builder.create_block();
+        let success_block = builder.create_block();
+        let merge_block = builder.create_block();
+        builder.append_block_param(close_block, types::I64);
+        builder.append_block_param(merge_block, types::I64);
 
-    builder.switch_to_block(rename_block);
-    builder.seal_block(rename_block);
-    let temp_ptr = emit_i64_path_ptr(builder, temp_path)?;
-    let path_ptr = emit_i64_path_ptr(builder, path)?;
-    let rename_call = builder
-        .ins()
-        .call(runtime_refs.rename, &[temp_ptr, path_ptr]);
-    let rename_result = builder.inst_results(rename_call)[0];
-    let rename_ok = builder.ins().icmp_imm(IntCC::Equal, rename_result, 0);
-    builder
-        .ins()
-        .brif(rename_ok, success_block, &[], failed_block, &[]);
+        let create_failed = builder.ins().icmp_imm(IntCC::SignedLessThan, file, 0);
+        builder
+            .ins()
+            .brif(create_failed, failed_block, &[], write_block, &[]);
 
-    builder.switch_to_block(success_block);
-    builder.seal_block(success_block);
-    let success = builder.ins().iconst(types::I64, 0);
-    builder.ins().jump(merge_block, &[BlockArg::Value(success)]);
+        builder.switch_to_block(write_block);
+        builder.seal_block(write_block);
+        let write_call = builder
+            .ins()
+            .call(runtime_refs.write, &[file, content_ptr, content_count]);
+        let written = builder.inst_results(write_call)[0];
+        let full_write = builder.ins().icmp(IntCC::Equal, written, content_count);
+        let failed = builder.ins().iconst(types::I64, -1);
+        builder.ins().brif(
+            full_write,
+            sync_block,
+            &[],
+            close_block,
+            &[BlockArg::Value(failed)],
+        );
 
-    builder.switch_to_block(failed_block);
-    builder.seal_block(failed_block);
-    let temp_ptr = emit_i64_path_ptr(builder, temp_path)?;
-    builder.ins().call(runtime_refs.unlink, &[temp_ptr]);
-    let failed = builder.ins().iconst(types::I64, -1);
-    builder.ins().jump(merge_block, &[BlockArg::Value(failed)]);
+        builder.switch_to_block(sync_block);
+        builder.seal_block(sync_block);
+        let sync_call = builder.ins().call(runtime_refs.fsync, &[file]);
+        let sync_result = builder.inst_results(sync_call)[0];
+        let sync_ok = builder.ins().icmp_imm(IntCC::Equal, sync_result, 0);
+        let success_value = builder.ins().iconst(types::I64, 0);
+        let failed_value = builder.ins().iconst(types::I64, -1);
+        builder.ins().brif(
+            sync_ok,
+            close_block,
+            &[BlockArg::Value(success_value)],
+            close_block,
+            &[BlockArg::Value(failed_value)],
+        );
 
-    builder.switch_to_block(merge_block);
-    builder.seal_block(merge_block);
-    Ok(builder.block_params(merge_block)[0])
+        builder.switch_to_block(close_block);
+        builder.seal_block(close_block);
+        let close_result = builder.block_params(close_block)[0];
+        let close_call = builder.ins().call(runtime_refs.close, &[file]);
+        let close_status = builder.inst_results(close_call)[0];
+        let close_ok = builder
+            .ins()
+            .icmp_imm(IntCC::Equal, close_status, 0);
+        let effect_ok = builder.ins().icmp_imm(IntCC::Equal, close_result, 0);
+        let ready_to_rename = builder.ins().band(close_ok, effect_ok);
+        builder.ins().brif(
+            ready_to_rename,
+            rename_block,
+            &[],
+            failed_block,
+            &[],
+        );
+
+        builder.switch_to_block(rename_block);
+        builder.seal_block(rename_block);
+        let rename_call = builder
+            .ins()
+            .call(runtime_refs.rename, &[temp_ptr, path_ptr]);
+        let rename_result = builder.inst_results(rename_call)[0];
+        let rename_ok = builder.ins().icmp_imm(IntCC::Equal, rename_result, 0);
+        builder
+            .ins()
+            .brif(rename_ok, success_block, &[], failed_block, &[]);
+
+        builder.switch_to_block(success_block);
+        builder.seal_block(success_block);
+        let success = builder.ins().iconst(types::I64, 0);
+        builder.ins().jump(merge_block, &[BlockArg::Value(success)]);
+
+        builder.switch_to_block(failed_block);
+        builder.seal_block(failed_block);
+        builder.ins().call(runtime_refs.unlink, &[temp_ptr]);
+        let failed = builder.ins().iconst(types::I64, -1);
+        builder.ins().jump(merge_block, &[BlockArg::Value(failed)]);
+
+        builder.switch_to_block(merge_block);
+        builder.seal_block(merge_block);
+        Ok(builder.block_params(merge_block)[0])
+    }
 }
 
 fn emit_i64_remove_file_expr(
@@ -6832,7 +6959,7 @@ mod tests {
         }
         let temp = tempfile::tempdir().expect("tempdir");
         let fixture = temp.path().join("fixture.txt");
-        let temp_fixture = temp.path().join(".fixture.txt.axiom-replace.tmp");
+        let temp_fixture = temp.path().join(".fixture.txt.axiom-replace-XXXXXX");
         fs::write(&fixture, "base").expect("write replace base fixture");
         let object = temp.path().join("i64-exit-replace-file.o");
         let binary = temp.path().join("i64-exit-replace-file");
