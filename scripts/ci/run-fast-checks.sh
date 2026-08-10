@@ -74,7 +74,7 @@ bash "$script_repo_root/scripts/ci/test-propose-stage1-crap-thresholds.sh"
 python3 "$script_repo_root/scripts/ci/test-run-toolchain-qualification.py"
 python3 "$script_repo_root/scripts/ci/test-report-toolchain-qualification.py"
 cargo test --manifest-path "$repo_root/stage1/Cargo.toml" -p axiomc \
-  --test schema_metadata --locked
+  --bin axiomc --test schema_metadata --locked
 cargo test --manifest-path "$repo_root/stage1/Cargo.toml" -p axiomc \
   --test migration_plan_cli --locked
 python3 "$script_repo_root/scripts/ci/check-capability-ledger.py" \
