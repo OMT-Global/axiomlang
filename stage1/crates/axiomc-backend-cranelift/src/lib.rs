@@ -80,7 +80,13 @@ struct I64RuntimeRefs {
     open: FuncRef,
     creat: FuncRef,
     #[cfg(not(windows))]
-    mkstemp: FuncRef,
+    openat: FuncRef,
+    #[cfg(not(windows))]
+    fchmod: FuncRef,
+    #[cfg(not(windows))]
+    renameat: FuncRef,
+    #[cfg(not(windows))]
+    unlinkat: FuncRef,
     lseek: FuncRef,
     close: FuncRef,
     #[cfg(not(windows))]
@@ -270,8 +276,9 @@ pub enum I64Expr {
         content: String,
     },
     ReplaceFile {
-        path: String,
-        temp_path: String,
+        root: String,
+        parent_components: Vec<String>,
+        destination_name: String,
         content: String,
     },
     CreateFile {
@@ -793,14 +800,56 @@ fn emit_i64_exit_object(
             CraneliftBackendError::new(format!("declare creat import: {message}"))
         })?;
     #[cfg(not(windows))]
-    let mkstemp_id = {
+    let openat_id = {
         let mut signature = module.make_signature();
+        signature.params.push(AbiParam::new(types::I32));
+        signature.params.push(AbiParam::new(pointer_type));
+        signature.params.push(AbiParam::new(types::I32));
+        signature.params.push(AbiParam::new(types::I32));
+        signature.returns.push(AbiParam::new(types::I32));
+        module
+            .declare_function("openat", Linkage::Import, &signature)
+            .map_err(|message| {
+                CraneliftBackendError::new(format!("declare openat import: {message}"))
+            })?
+    };
+    #[cfg(not(windows))]
+    let renameat_id = {
+        let mut signature = module.make_signature();
+        signature.params.push(AbiParam::new(types::I32));
+        signature.params.push(AbiParam::new(pointer_type));
+        signature.params.push(AbiParam::new(types::I32));
         signature.params.push(AbiParam::new(pointer_type));
         signature.returns.push(AbiParam::new(types::I32));
         module
-            .declare_function("mkstemp", Linkage::Import, &signature)
+            .declare_function("renameat", Linkage::Import, &signature)
             .map_err(|message| {
-                CraneliftBackendError::new(format!("declare mkstemp import: {message}"))
+                CraneliftBackendError::new(format!("declare renameat import: {message}"))
+            })?
+    };
+    #[cfg(not(windows))]
+    let fchmod_id = {
+        let mut signature = module.make_signature();
+        signature.params.push(AbiParam::new(types::I32));
+        signature.params.push(AbiParam::new(types::I32));
+        signature.returns.push(AbiParam::new(types::I32));
+        module
+            .declare_function("fchmod", Linkage::Import, &signature)
+            .map_err(|message| {
+                CraneliftBackendError::new(format!("declare fchmod import: {message}"))
+            })?
+    };
+    #[cfg(not(windows))]
+    let unlinkat_id = {
+        let mut signature = module.make_signature();
+        signature.params.push(AbiParam::new(types::I32));
+        signature.params.push(AbiParam::new(pointer_type));
+        signature.params.push(AbiParam::new(types::I32));
+        signature.returns.push(AbiParam::new(types::I32));
+        module
+            .declare_function("unlinkat", Linkage::Import, &signature)
+            .map_err(|message| {
+                CraneliftBackendError::new(format!("declare unlinkat import: {message}"))
             })?
     };
     let mut lseek_sig = module.make_signature();
@@ -1084,7 +1133,10 @@ fn emit_i64_exit_object(
                 atoll_id,
                 open_id,
                 creat_id,
-                mkstemp_id,
+                openat_id,
+                fchmod_id,
+                renameat_id,
+                unlinkat_id,
                 lseek_id,
                 close_id,
                 fsync_id,
@@ -1189,7 +1241,13 @@ fn emit_i64_exit_object(
         let open_ref = module.declare_func_in_func(open_id, builder.func);
         let creat_ref = module.declare_func_in_func(creat_id, builder.func);
         #[cfg(not(windows))]
-        let mkstemp_ref = module.declare_func_in_func(mkstemp_id, builder.func);
+        let openat_ref = module.declare_func_in_func(openat_id, builder.func);
+        #[cfg(not(windows))]
+        let fchmod_ref = module.declare_func_in_func(fchmod_id, builder.func);
+        #[cfg(not(windows))]
+        let renameat_ref = module.declare_func_in_func(renameat_id, builder.func);
+        #[cfg(not(windows))]
+        let unlinkat_ref = module.declare_func_in_func(unlinkat_id, builder.func);
         let lseek_ref = module.declare_func_in_func(lseek_id, builder.func);
         let close_ref = module.declare_func_in_func(close_id, builder.func);
         #[cfg(not(windows))]
@@ -1241,7 +1299,13 @@ fn emit_i64_exit_object(
             open: open_ref,
             creat: creat_ref,
             #[cfg(not(windows))]
-            mkstemp: mkstemp_ref,
+            openat: openat_ref,
+            #[cfg(not(windows))]
+            fchmod: fchmod_ref,
+            #[cfg(not(windows))]
+            renameat: renameat_ref,
+            #[cfg(not(windows))]
+            unlinkat: unlinkat_ref,
             lseek: lseek_ref,
             close: close_ref,
             #[cfg(not(windows))]
@@ -1513,7 +1577,13 @@ fn define_i64_function(
     open_id: FuncId,
     creat_id: FuncId,
     #[cfg(not(windows))]
-    mkstemp_id: FuncId,
+    openat_id: FuncId,
+    #[cfg(not(windows))]
+    fchmod_id: FuncId,
+    #[cfg(not(windows))]
+    renameat_id: FuncId,
+    #[cfg(not(windows))]
+    unlinkat_id: FuncId,
     lseek_id: FuncId,
     close_id: FuncId,
     #[cfg(not(windows))]
@@ -1587,7 +1657,13 @@ fn define_i64_function(
         let open_ref = module.declare_func_in_func(open_id, builder.func);
         let creat_ref = module.declare_func_in_func(creat_id, builder.func);
         #[cfg(not(windows))]
-        let mkstemp_ref = module.declare_func_in_func(mkstemp_id, builder.func);
+        let openat_ref = module.declare_func_in_func(openat_id, builder.func);
+        #[cfg(not(windows))]
+        let fchmod_ref = module.declare_func_in_func(fchmod_id, builder.func);
+        #[cfg(not(windows))]
+        let renameat_ref = module.declare_func_in_func(renameat_id, builder.func);
+        #[cfg(not(windows))]
+        let unlinkat_ref = module.declare_func_in_func(unlinkat_id, builder.func);
         let lseek_ref = module.declare_func_in_func(lseek_id, builder.func);
         let close_ref = module.declare_func_in_func(close_id, builder.func);
         #[cfg(not(windows))]
@@ -1639,7 +1715,13 @@ fn define_i64_function(
             open: open_ref,
             creat: creat_ref,
             #[cfg(not(windows))]
-            mkstemp: mkstemp_ref,
+            openat: openat_ref,
+            #[cfg(not(windows))]
+            fchmod: fchmod_ref,
+            #[cfg(not(windows))]
+            renameat: renameat_ref,
+            #[cfg(not(windows))]
+            unlinkat: unlinkat_ref,
             lseek: lseek_ref,
             close: close_ref,
             #[cfg(not(windows))]
@@ -3382,10 +3464,18 @@ fn emit_i64_expr(
             emit_i64_append_file_expr(builder, runtime_refs, path, content)
         }
         I64Expr::ReplaceFile {
-            path,
-            temp_path,
+            root,
+            parent_components,
+            destination_name,
             content,
-        } => emit_i64_replace_file_expr(builder, runtime_refs, path, temp_path, content),
+        } => emit_i64_replace_file_expr(
+            builder,
+            runtime_refs,
+            root,
+            parent_components,
+            destination_name,
+            content,
+        ),
         I64Expr::CreateFile { path } => emit_i64_create_file_expr(builder, runtime_refs, path),
         I64Expr::RemoveFile { path } => emit_i64_remove_file_expr(builder, runtime_refs, path),
         I64Expr::MakeDir { path } => emit_i64_make_dir_expr(builder, runtime_refs, path),
@@ -5873,20 +5963,100 @@ fn emit_i64_create_file_expr(
 fn emit_i64_replace_file_expr(
     builder: &mut FunctionBuilder<'_>,
     runtime_refs: I64RuntimeRefs,
-    path: &str,
-    temp_path: &str,
+    root: &str,
+    parent_components: &[String],
+    destination_name: &str,
     content: &str,
 ) -> Result<cranelift_codegen::ir::Value, CraneliftBackendError> {
     #[cfg(windows)]
     {
-        let _ = (runtime_refs, path, temp_path, content);
+        let _ = (runtime_refs, root, parent_components, destination_name, content);
         return Ok(builder.ins().iconst(types::I64, -1));
     }
 
     #[cfg(not(windows))]
     {
-        let temp_ptr = emit_i64_path_ptr(builder, temp_path)?;
-        let path_ptr = emit_i64_path_ptr(builder, path)?;
+        // Keep every operation anchored to a descriptor opened beneath the
+        // authorized root.  In particular, do not construct a pathname for
+        // the temporary file: the final create and publish both use *at(2)
+        // and therefore cannot be redirected by a concurrent rename or a
+        // pre-planted symlink.
+        let root_ptr = emit_i64_path_ptr(builder, root)?;
+        let destination_ptr = emit_i64_path_ptr(builder, destination_name)?;
+        let temp_slot = builder.create_sized_stack_slot(StackSlotData::new(
+            StackSlotKind::ExplicitSlot,
+            32,
+            0,
+        ));
+        let temp_ptr = builder.ins().stack_addr(types::I64, temp_slot, 0);
+        for (offset, byte) in b".axiom-replace-".iter().enumerate() {
+            let value = builder.ins().iconst(types::I8, i64::from(*byte));
+            builder.ins().stack_store(value, temp_slot, offset as i32);
+        }
+        let random = emit_i64_random_u64_expr(
+            builder,
+            runtime_refs,
+            "fs_replace",
+            "axiomc",
+        )?;
+        for index in 0..16 {
+            let shift = 60 - index * 4;
+            let nibble = builder.ins().ushr_imm(random, shift);
+            let nibble = builder.ins().band_imm(nibble, 0x0f);
+            let decimal = builder.ins().iadd_imm(nibble, i64::from(b'0'));
+            let alpha = builder.ins().iadd_imm(nibble, i64::from(b'a' - 10));
+            let is_decimal = builder.ins().icmp_imm(IntCC::UnsignedLessThan, nibble, 10);
+            let value = builder.ins().select(is_decimal, decimal, alpha);
+            let value = builder.ins().ireduce(types::I8, value);
+            builder
+                .ins()
+                .stack_store(value, temp_slot, (15 + index) as i32);
+        }
+        let terminator = builder.ins().iconst(types::I8, 0);
+        builder.ins().stack_store(terminator, temp_slot, 31);
+
+        let directory_flag = if cfg!(target_os = "macos") {
+            0x0010_0000
+        } else {
+            0x0001_0000
+        };
+        let nofollow_flag = if cfg!(target_os = "macos") {
+            0x0000_0100
+        } else {
+            0x0002_0000
+        };
+        let create_flag = if cfg!(target_os = "macos") {
+            0x0000_0200
+        } else {
+            0x0000_0040
+        };
+        let exclusive_flag = if cfg!(target_os = "macos") {
+            0x0000_0800
+        } else {
+            0x0000_0080
+        };
+        let root_flags = builder.ins().iconst(
+            types::I32,
+            i64::from(directory_flag | nofollow_flag),
+        );
+        let root_open = builder.ins().call(runtime_refs.open, &[root_ptr, root_flags]);
+        let mut parent_fd = builder.inst_results(root_open)[0];
+        let walk_flags = builder.ins().iconst(
+            types::I32,
+            i64::from(directory_flag | nofollow_flag),
+        );
+        for component in parent_components {
+            let component_ptr = emit_i64_path_ptr(builder, component)?;
+            let zero_mode = builder.ins().iconst(types::I32, 0);
+            let next_open = builder.ins().call(
+                runtime_refs.openat,
+                &[parent_fd, component_ptr, walk_flags, zero_mode],
+            );
+            let next_fd = builder.inst_results(next_open)[0];
+            builder.ins().call(runtime_refs.close, &[parent_fd]);
+            parent_fd = next_fd;
+        }
+
         let content_len = u32::try_from(content.len())
             .map_err(|_| CraneliftBackendError::new("filesystem replace content is too large"))?;
         let content_slot = builder.create_sized_stack_slot(StackSlotData::new(
@@ -5903,24 +6073,50 @@ fn emit_i64_replace_file_expr(
         let content_ptr = builder.ins().stack_addr(types::I64, content_slot, 0);
         let content_count = builder.ins().iconst(types::I64, i64::from(content_len));
 
-        // mkstemp replaces the XXXXXX suffix with a random, exclusive 0600
-        // inode and never follows a pre-existing symlink at that name.
-        let create_call = builder.ins().call(runtime_refs.mkstemp, &[temp_ptr]);
-        let file = builder.inst_results(create_call)[0];
         let failed_block = builder.create_block();
+        let create_block = builder.create_block();
+        let chmod_block = builder.create_block();
         let write_block = builder.create_block();
         let sync_block = builder.create_block();
         let close_block = builder.create_block();
         let rename_block = builder.create_block();
+        let publish_sync_block = builder.create_block();
         let success_block = builder.create_block();
         let merge_block = builder.create_block();
-        builder.append_block_param(close_block, types::I64);
+        builder.append_block_param(close_block, types::I32);
         builder.append_block_param(merge_block, types::I64);
 
+        let parent_valid = builder.ins().icmp_imm(IntCC::SignedGreaterThanOrEqual, parent_fd, 0);
+        builder
+            .ins()
+            .brif(parent_valid, create_block, &[], failed_block, &[]);
+
+        builder.switch_to_block(create_block);
+        builder.seal_block(create_block);
+        let create_flags = builder.ins().iconst(
+            types::I32,
+            i64::from(1 | create_flag | exclusive_flag | nofollow_flag),
+        );
+        let create_mode = builder.ins().iconst(types::I32, 0o600);
+        let create_call = builder.ins().call(
+            runtime_refs.openat,
+            &[parent_fd, temp_ptr, create_flags, create_mode],
+        );
+        let file = builder.inst_results(create_call)[0];
         let create_failed = builder.ins().icmp_imm(IntCC::SignedLessThan, file, 0);
         builder
             .ins()
-            .brif(create_failed, failed_block, &[], write_block, &[]);
+            .brif(create_failed, failed_block, &[], chmod_block, &[]);
+
+        builder.switch_to_block(chmod_block);
+        builder.seal_block(chmod_block);
+        let restrictive_mode = builder.ins().iconst(types::I32, 0o600);
+        let chmod_call = builder
+            .ins()
+            .call(runtime_refs.fchmod, &[file, restrictive_mode]);
+        let chmod_result = builder.inst_results(chmod_call)[0];
+        let chmod_ok = builder.ins().icmp_imm(IntCC::Equal, chmod_result, 0);
+        builder.ins().brif(chmod_ok, write_block, &[], failed_block, &[]);
 
         builder.switch_to_block(write_block);
         builder.seal_block(write_block);
@@ -5929,7 +6125,7 @@ fn emit_i64_replace_file_expr(
             .call(runtime_refs.write, &[file, content_ptr, content_count]);
         let written = builder.inst_results(write_call)[0];
         let full_write = builder.ins().icmp(IntCC::Equal, written, content_count);
-        let failed = builder.ins().iconst(types::I64, -1);
+        let failed = builder.ins().iconst(types::I32, -1);
         builder.ins().brif(
             full_write,
             sync_block,
@@ -5943,8 +6139,8 @@ fn emit_i64_replace_file_expr(
         let sync_call = builder.ins().call(runtime_refs.fsync, &[file]);
         let sync_result = builder.inst_results(sync_call)[0];
         let sync_ok = builder.ins().icmp_imm(IntCC::Equal, sync_result, 0);
-        let success_value = builder.ins().iconst(types::I64, 0);
-        let failed_value = builder.ins().iconst(types::I64, -1);
+        let success_value = builder.ins().iconst(types::I32, 0);
+        let failed_value = builder.ins().iconst(types::I32, -1);
         builder.ins().brif(
             sync_ok,
             close_block,
@@ -5973,14 +6169,24 @@ fn emit_i64_replace_file_expr(
 
         builder.switch_to_block(rename_block);
         builder.seal_block(rename_block);
-        let rename_call = builder
-            .ins()
-            .call(runtime_refs.rename, &[temp_ptr, path_ptr]);
+        let rename_call = builder.ins().call(
+            runtime_refs.renameat,
+            &[parent_fd, temp_ptr, parent_fd, destination_ptr],
+        );
         let rename_result = builder.inst_results(rename_call)[0];
         let rename_ok = builder.ins().icmp_imm(IntCC::Equal, rename_result, 0);
         builder
             .ins()
-            .brif(rename_ok, success_block, &[], failed_block, &[]);
+            .brif(rename_ok, publish_sync_block, &[], failed_block, &[]);
+
+        builder.switch_to_block(publish_sync_block);
+        builder.seal_block(publish_sync_block);
+        let parent_sync = builder.ins().call(runtime_refs.fsync, &[parent_fd]);
+        let parent_sync_result = builder.inst_results(parent_sync)[0];
+        let parent_sync_ok = builder.ins().icmp_imm(IntCC::Equal, parent_sync_result, 0);
+        builder
+            .ins()
+            .brif(parent_sync_ok, success_block, &[], failed_block, &[]);
 
         builder.switch_to_block(success_block);
         builder.seal_block(success_block);
@@ -5989,7 +6195,11 @@ fn emit_i64_replace_file_expr(
 
         builder.switch_to_block(failed_block);
         builder.seal_block(failed_block);
-        builder.ins().call(runtime_refs.unlink, &[temp_ptr]);
+        let unlink_flags = builder.ins().iconst(types::I32, 0);
+        builder
+            .ins()
+            .call(runtime_refs.unlinkat, &[parent_fd, temp_ptr, unlink_flags]);
+        builder.ins().call(runtime_refs.close, &[parent_fd]);
         let failed = builder.ins().iconst(types::I64, -1);
         builder.ins().jump(merge_block, &[BlockArg::Value(failed)]);
 
@@ -6969,8 +7179,9 @@ mod tests {
                 locals: Vec::new(),
                 stmts: Vec::new(),
                 body: I64ExitBody::Return(I64Expr::ReplaceFile {
-                    path: fixture.display().to_string(),
-                    temp_path: temp_fixture.display().to_string(),
+                    root: temp.path().display().to_string(),
+                    parent_components: Vec::new(),
+                    destination_name: "fixture.txt".to_string(),
                     content: String::from("runtime-replace"),
                 }),
             },
@@ -6990,7 +7201,13 @@ mod tests {
         let output = Command::new(&binary)
             .output()
             .expect("run replace file binary");
-        assert_eq!(output.status.code(), Some(0));
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "stdout={} stderr={}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
         assert_eq!(
             fs::read_to_string(&fixture).expect("read runtime replace fixture"),
             "runtime-replace"
