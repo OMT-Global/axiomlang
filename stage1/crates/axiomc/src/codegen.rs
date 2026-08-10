@@ -5229,6 +5229,7 @@ unsafe extern "C" {
         debug,
         &[],
         &main_mutable_locals,
+        None,
     );
     out.push_str("    });\n");
     out.push_str("    match result {\n");
@@ -6053,6 +6054,7 @@ fn render_function(
             debug,
             &[],
             &mutable_locals,
+            None,
         );
         out.push_str("    })\n");
     } else {
@@ -6066,6 +6068,7 @@ fn render_function(
             debug,
             &[],
             &mutable_locals,
+            None,
         );
     }
     out.push_str("}\n");
@@ -6360,6 +6363,7 @@ fn render_stmt_block(
     debug: bool,
     active_defers: &[(String, SourceSpan)],
     mutable_locals: &HashSet<String>,
+    loop_defer_floor: Option<usize>,
 ) {
     let mut local_defers: Vec<(String, SourceSpan)> = Vec::new();
     for stmt in stmts {
@@ -6373,6 +6377,7 @@ fn render_stmt_block(
             debug,
             active_defers,
             mutable_locals,
+            loop_defer_floor,
             &mut local_defers,
         );
     }
@@ -6406,6 +6411,7 @@ fn render_stmt(
     debug: bool,
     active_defers: &[(String, SourceSpan)],
     mutable_locals: &HashSet<String>,
+    loop_defer_floor: Option<usize>,
     local_defers: &mut Vec<(String, SourceSpan)>,
 ) {
     let pad = "    ".repeat(indent);
@@ -6502,6 +6508,7 @@ fn render_stmt(
                 debug,
                 &scoped_defers,
                 mutable_locals,
+                loop_defer_floor,
             );
             if let Some(else_block) = else_block {
                 out.push_str(&format!(
@@ -6518,6 +6525,7 @@ fn render_stmt(
                     debug,
                     &scoped_defers,
                     mutable_locals,
+                    loop_defer_floor,
                 );
                 out.push_str(&format!(
                     "{pad}}}
@@ -6539,6 +6547,7 @@ fn render_stmt(
 ",
                 render_expr(cond)
             ));
+            let loop_defer_floor = Some(scoped_defers.len());
             render_stmt_block(
                 body,
                 type_context,
@@ -6549,6 +6558,7 @@ fn render_stmt(
                 debug,
                 &scoped_defers,
                 mutable_locals,
+                loop_defer_floor,
             );
             out.push_str(&format!(
                 "{pad}}}
@@ -6558,13 +6568,19 @@ fn render_stmt(
         Stmt::Break { span } => {
             render_source_marker(source_path, *span, out, indent, debug);
             render_deferred_exprs(out, indent, source_path, debug, local_defers);
-            render_deferred_exprs(out, indent, source_path, debug, active_defers);
+            let loop_defers = loop_defer_floor
+                .and_then(|floor| active_defers.get(floor..))
+                .unwrap_or(&[]);
+            render_deferred_exprs(out, indent, source_path, debug, loop_defers);
             out.push_str(&format!("{pad}break;\n"));
         }
         Stmt::Continue { span } => {
             render_source_marker(source_path, *span, out, indent, debug);
             render_deferred_exprs(out, indent, source_path, debug, local_defers);
-            render_deferred_exprs(out, indent, source_path, debug, active_defers);
+            let loop_defers = loop_defer_floor
+                .and_then(|floor| active_defers.get(floor..))
+                .unwrap_or(&[]);
+            render_deferred_exprs(out, indent, source_path, debug, loop_defers);
             out.push_str(&format!("{pad}continue;\n"));
         }
         Stmt::Match { expr, arms, span } => {
@@ -6587,6 +6603,7 @@ fn render_stmt(
                     debug,
                     &scoped_defers,
                     mutable_locals,
+                    loop_defer_floor,
                 );
             }
             if arms.iter().all(|arm| arm.enum_name.is_empty()) {
@@ -6643,6 +6660,7 @@ fn render_match_arm(
     debug: bool,
     active_defers: &[(String, SourceSpan)],
     mutable_locals: &HashSet<String>,
+    loop_defer_floor: Option<usize>,
 ) {
     let pad = "    ".repeat(indent);
     if arm.enum_name.is_empty() {
@@ -6657,6 +6675,7 @@ fn render_match_arm(
             debug,
             active_defers,
             mutable_locals,
+            loop_defer_floor,
         );
         out.push_str(&format!("{pad}}},\n"));
         return;
@@ -6695,6 +6714,7 @@ fn render_match_arm(
         debug,
         active_defers,
         mutable_locals,
+        loop_defer_floor,
     );
     out.push_str(&format!("{pad}}},\n"));
 }

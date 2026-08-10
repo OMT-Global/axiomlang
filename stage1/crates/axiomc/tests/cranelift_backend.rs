@@ -83,6 +83,113 @@ fn cranelift_backend_builds_hello_binary() {
 
 #[cfg(not(windows))]
 #[test]
+fn cranelift_backend_lowers_nested_break_and_continue() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift loop-control test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("loop-control");
+    fs::create_dir_all(project.join("src")).expect("create project src");
+    fs::write(
+        project.join("axiom.toml"),
+        r#"[package]
+name = "cranelift-loop-control"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[[tests]]
+name = "loop-control"
+entry = "src/main_test.ax"
+stdout = "src/main_test.stdout"
+kind = "unit"
+"#,
+    )
+    .expect("write manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        r#"version = 1
+
+[[package]]
+name = "cranelift-loop-control"
+version = "0.1.0"
+source = "path"
+"#,
+    )
+    .expect("write lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        r#"let outer: int = 0
+while outer < 2 {
+let inner: int = 0
+while inner < 3 {
+inner = inner + 1
+if inner == 1 {
+continue
+}
+break
+}
+outer = outer + 1
+}
+print outer
+"#,
+    )
+    .expect("write source");
+    fs::write(
+        project.join("src/main_test.ax"),
+        "let value: int = 0\nwhile value < 1 {\nvalue = value + 1\ncontinue\n}\nprint value\n",
+    )
+    .expect("write test source");
+    fs::write(project.join("src/main_test.stdout"), "1\n").expect("write test golden");
+
+    let check = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args(["check", project.to_str().expect("project path"), "--json"])
+        .output()
+        .expect("run default axiomc check");
+    assert!(
+        check.status.success(),
+        "default Cranelift check failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&check.stdout),
+        String::from_utf8_lossy(&check.stderr)
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args(["build", project.to_str().expect("project path"), "--json"])
+        .output()
+        .expect("run default axiomc build");
+    assert!(
+        output.status.success(),
+        "default Cranelift build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run loop-control binary");
+    assert!(run.status.success(), "loop-control binary failed: {run:?}");
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "2\n");
+
+    let test = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args(["test", project.to_str().expect("project path"), "--json"])
+        .output()
+        .expect("run default axiomc test");
+    assert!(
+        test.status.success(),
+        "default Cranelift test failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&test.stdout),
+        String::from_utf8_lossy(&test.stderr)
+    );
+}
+
+#[cfg(not(windows))]
+#[test]
 fn cranelift_backend_pure_artifact_is_invariant_to_build_env_and_stdin() {
     if which::which("cc").is_err() {
         eprintln!("skipping cranelift backend smoke test because cc is unavailable");
@@ -8602,7 +8709,10 @@ fn cranelift_backend_builds_once_and_reads_cwd_at_each_run() {
         .output()
         .expect("run binary from first cwd");
     assert!(first.status.success());
-    assert_eq!(String::from_utf8_lossy(&first.stdout), format!("{}\n", first_cwd.display()));
+    assert_eq!(
+        String::from_utf8_lossy(&first.stdout),
+        format!("{}\n", first_cwd.display())
+    );
 
     let second = Command::new(binary)
         .current_dir(&second_cwd)

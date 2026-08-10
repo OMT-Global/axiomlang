@@ -5,6 +5,61 @@ fn parse(source: &str) -> syntax::Program {
     syntax::parse_program(source, Path::new("main.ax")).expect("parse fixture")
 }
 
+#[test]
+fn hir_propagates_move_state_from_break_edges() {
+    let parsed = parse(
+        r#"
+fn main(): int {
+let value: string = "owned"
+while true {
+let moved: string = value
+break
+}
+print value
+return 0
+}
+"#,
+    );
+
+    let error = lower(&parsed).expect_err("break exit must preserve moved state");
+    assert!(error.message.contains("use of moved value \"value\""));
+}
+
+#[test]
+fn hir_rejects_move_on_continue_backedge_and_unreachable_statements() {
+    let parsed = parse(
+        r#"
+fn main(): int {
+let value: string = "owned"
+while true {
+let moved: string = value
+continue
+print 1
+}
+return 0
+}
+"#,
+    );
+
+    let error = lower(&parsed).expect_err("continue backedge must not reuse a moved value");
+    assert!(error.message.contains("unreachable statements"));
+
+    let parsed = parse(
+        r#"
+fn main(): int {
+let value: string = "owned"
+while true {
+let moved: string = value
+continue
+}
+return 0
+}
+"#,
+    );
+    let error = lower(&parsed).expect_err("continue backedge must reject the move");
+    assert!(error.message.contains("cannot move non-copy value"));
+}
+
 fn collect_borrow_region_facts(stmts: &[Stmt]) -> Vec<BorrowRegionFact> {
     let mut facts = Vec::new();
     for stmt in stmts {

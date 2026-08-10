@@ -55,6 +55,7 @@ pub(super) fn lower_match_stmt(
     column: usize,
     env: &mut HashMap<String, Binding>,
     ctx: &LowerContext<'_>,
+    mut loop_flow: Option<&mut LoopFlow>,
 ) -> Result<Stmt, Diagnostic> {
     let lowered_expr = lower_expr(expr, env, ctx)?;
     let match_borrowed_owners = expr_borrowed_owners(&lowered_expr, env, ctx);
@@ -80,14 +81,13 @@ pub(super) fn lower_match_stmt(
             match_borrow_kind,
             match_borrowed_owners,
             reuse_existing_match_binding,
+            loop_flow,
         );
     };
     let before = env.clone();
     let mut seen = HashMap::new();
     let mut lowered_arms = Vec::new();
     let mut arm_states = Vec::new();
-    let mut ignored_body_cache: HashMap<String, (Vec<Stmt>, HashMap<String, Binding>, bool)> =
-        HashMap::new();
     for arm in arms {
         let variant_def = variant_defs
             .iter()
@@ -272,18 +272,8 @@ pub(super) fn lower_match_stmt(
                 },
             );
         }
-        let (body, after, returns) = if arm.ignore_payloads && arm.bindings.is_empty() {
-            let cache_key = format!("{:?}", arm.body);
-            if let Some((body, after, returns)) = ignored_body_cache.get(&cache_key) {
-                (body.clone(), after.clone(), *returns)
-            } else {
-                let lowered = lower_block(&arm.body, &mut arm_env, ctx)?;
-                ignored_body_cache.insert(cache_key, lowered.clone());
-                lowered
-            }
-        } else {
-            lower_block(&arm.body, &mut arm_env, ctx)?
-        };
+        let (body, after, flow) =
+            lower_block(&arm.body, &mut arm_env, ctx, loop_flow.as_deref_mut())?;
         lowered_arms.push(MatchArm {
             enum_name: enum_name.clone(),
             variant: arm.variant.clone(),
@@ -293,7 +283,7 @@ pub(super) fn lower_match_stmt(
             borrow_region_facts: arm_borrow_region_facts,
             body,
         });
-        arm_states.push((after, returns));
+        arm_states.push((after, flow));
     }
     let missing = variant_defs
         .iter()
@@ -334,6 +324,7 @@ fn lower_const_match_stmt(
     match_borrow_kind: Option<BorrowKind>,
     match_borrowed_owners: HashSet<BorrowedOwner>,
     reuse_existing_match_binding: bool,
+    mut loop_flow: Option<&mut LoopFlow>,
 ) -> Result<Stmt, Diagnostic> {
     if lowered_expr.ty() != &Type::Int {
         return Err(Diagnostic::new(
@@ -368,7 +359,8 @@ fn lower_const_match_stmt(
             );
         }
         let mut arm_env = before.clone();
-        let (body, after, returns) = lower_block(&arm.body, &mut arm_env, ctx)?;
+        let (body, after, flow) =
+            lower_block(&arm.body, &mut arm_env, ctx, loop_flow.as_deref_mut())?;
         lowered_arms.push(MatchArm {
             enum_name: String::new(),
             variant: value.to_string(),
@@ -378,7 +370,7 @@ fn lower_const_match_stmt(
             borrow_region_facts: Vec::new(),
             body,
         });
-        arm_states.push((after, returns));
+        arm_states.push((after, flow));
     }
     merge_match_state(env, &before, &arm_states);
     if let Some(borrow_kind) = match_borrow_kind
@@ -541,7 +533,7 @@ pub(super) fn lower_match_expr(
             is_named: arm.is_named,
             expr: lowered_arm_expr,
         });
-        arm_states.push((arm_env, false));
+        arm_states.push((arm_env, ControlFlow::fallthrough()));
     }
     let missing = variant_defs
         .iter()
