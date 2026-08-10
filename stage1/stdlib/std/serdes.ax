@@ -2,6 +2,8 @@ import "std/collections.ax"
 
 pub struct ParseError {
 message: string
+offset: int
+path: string
 }
 
 pub enum Value {
@@ -32,6 +34,14 @@ return json_serdes_parse_str(text)
 
 pub fn parse_error_message(error: ParseError): string {
 return error.message
+}
+
+pub fn parse_error_offset(error: ParseError): int {
+return error.offset
+}
+
+pub fn parse_error_path(error: ParseError): string {
+return error.path
 }
 
 pub fn is_null(value: Value): bool {
