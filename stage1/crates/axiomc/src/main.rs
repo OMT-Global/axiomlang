@@ -485,6 +485,7 @@ enum InspectCommand {
         #[arg(long)]
         json: bool,
     },
+    Evidence { path: PathBuf, #[arg(long)] json: bool },
     /// Emit planned and generated artifact records for a package.
     Artifacts {
         path: PathBuf,
@@ -1157,6 +1158,9 @@ fn main() {
                 }
                 Err(error) => print_error("inspect effects", error, json),
             },
+            InspectCommand::Evidence { path, json } => match inspect_evidence(&path) {
+                Ok(report) => if json { print_json("inspect evidence", &report) } else { for item in &report.evidence { println!("{} {} {} {}", item.kind, item.name, item.path, item.status); } 0 },
+                Err(error) => print_error("inspect evidence", error, json), },
             InspectCommand::Artifacts { path, json } => match inspect_artifacts(&path) {
                 Ok(report) => {
                     if json {
@@ -8284,8 +8288,6 @@ fn collect_program_type_refs(program: &axiomc::syntax::Program) -> Vec<String> {
     }
     refs.into_iter().collect()
 }
-
-#[cfg(test)]
 #[derive(Debug, Clone, Serialize)]
 struct InspectEvidenceReport {
     schema_version: &'static str,
@@ -8296,7 +8298,6 @@ struct InspectEvidenceReport {
     evidence: Vec<EvidenceNode>,
 }
 
-#[cfg(test)]
 #[derive(Debug, Clone, Serialize)]
 struct EvidenceNode {
     kind: &'static str,
@@ -8306,7 +8307,6 @@ struct EvidenceNode {
     status: String,
 }
 
-#[cfg(test)]
 fn inspect_evidence(project: &Path) -> Result<InspectEvidenceReport, Diagnostic> {
     let manifest = load_manifest(project)?;
     let lockfile_status = match validate_lockfile(project, &manifest) {
