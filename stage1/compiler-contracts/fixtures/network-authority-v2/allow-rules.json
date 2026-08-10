@@ -1,0 +1,1 @@
+{"direction":"dns","host":"api.service.internal","resolved_ip":"10.2.3.4","port":53,"decision":"allow","rule":"service-dns"}
