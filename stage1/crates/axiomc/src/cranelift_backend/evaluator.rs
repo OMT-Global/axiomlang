@@ -4268,6 +4268,15 @@ mod json_limit_tests {
     }
 
     #[test]
+    fn rejects_control_characters_inside_json_strings() {
+        let error = json_serdes_parse_document("\"line\nbreak\"")
+            .expect_err("raw control character in JSON string");
+        assert_eq!(error.message, "invalid JSON string");
+        assert_eq!(error.offset, 0);
+        assert_eq!(error.path, "$");
+    }
+
+    #[test]
     fn reports_structured_nested_json_error_location() {
         let error = json_serdes_parse_document("{\"outer\":[true,}")
             .expect_err("malformed nested JSON");
