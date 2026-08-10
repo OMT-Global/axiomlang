@@ -2382,6 +2382,44 @@ fn build_project_supports_break_and_continue_in_while_loops() {
 }
 
 #[test]
+fn build_project_cranelift_supports_break_and_continue_in_while_loops() {
+    let dir = tempdir().expect("tempdir");
+    let project = dir.path().join("while-control-cranelift");
+    create_project(&project, Some("while-control-cranelift-app")).expect("create project");
+    fs::write(
+        project.join("src/main.ax"),
+        "let outer: int = 0\nwhile outer < 2 {\nouter = outer + 1\nlet inner: int = 0\nwhile inner < 4 {\ninner = inner + 1\nif inner == 2 {\ncontinue\n}\nprint inner\nif inner == 4 {\nbreak\n}\n}\nif outer == 2 {\nbreak\n}\n}\n",
+    )
+    .expect("write source");
+
+    let built = build_project_cranelift(&project).expect("build project with Cranelift");
+    let output = compiled_binary_command(&built.binary)
+        .output()
+        .expect("run compiled Cranelift binary");
+    assert!(output.status.success(), "binary failed: {output:?}");
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "1\n3\n4\n1\n3\n4\n");
+}
+
+#[test]
+fn generated_rust_unwinds_only_loop_local_defers_on_break() {
+    let dir = tempdir().expect("tempdir");
+    let project = dir.path().join("loop-defer-break");
+    create_project(&project, Some("loop-defer-break-app")).expect("create project");
+    fs::write(
+        project.join("src/main.ax"),
+        "fn trace(label: string): int {\nprint label\nreturn 0\n}\n\nfn run(): int {\ndefer trace(\"outer\")\nwhile true {\ndefer trace(\"loop\")\nbreak\n}\nreturn 0\n}\n\nprint run()\n",
+    )
+    .expect("write source");
+
+    let built = build_project(&project).expect("build project");
+    let output = compiled_binary_command(&built.binary)
+        .output()
+        .expect("run generated Rust binary");
+    assert!(output.status.success(), "binary failed: {output:?}");
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "loop\nouter\n0\n");
+}
+
+#[test]
 fn check_project_rejects_loop_control_outside_while() {
     let dir = tempdir().expect("tempdir");
     let project = dir.path().join("invalid-loop-control");

@@ -4391,6 +4391,8 @@ fn lower_i64_runtime_stmt(
                 allow_stdio_effects,
             )?,
         }),
+        Stmt::Break { .. } => Some(CraneliftI64Stmt::Break),
+        Stmt::Continue { .. } => Some(CraneliftI64Stmt::Continue),
         _ => None,
     }
 }
