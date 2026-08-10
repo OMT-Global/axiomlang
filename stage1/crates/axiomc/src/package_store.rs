@@ -25,7 +25,6 @@ const TRANSACTION_MARKER_NAME: &str = ".axiom-transaction";
 const MAX_EVIDENCE_BYTES: usize = 16 * 1024 * 1024;
 const MAX_VENDOR_PACKAGES: usize = 4_096;
 const MAX_VENDOR_BYTES: u64 = 512 * 1024 * 1024;
-const MAX_TRANSACTION_SCAN_ENTRIES: usize = 1_024;
 const STALE_TRANSACTION_AGE_NANOS: u128 = 24 * 60 * 60 * 1_000_000_000;
 const EVIDENCE_NAMES: [&str; 6] = [
     "integrity.json",
@@ -430,6 +429,20 @@ impl PackageStore {
         ensure_directory_tree(vendor_root)?;
         ensure_directory_tree(&vendor_root.join("snapshots/sha256"))?;
         ensure_directory_tree(&vendor_root.join(".transactions"))?;
+        let (manifest_bytes, digest) = self.preflight_vendor_snapshot(&expected)?;
+        let final_snapshot = vendor_root.join("snapshots/sha256").join(&digest);
+        if let Ok(verified) = verify_vendor_snapshot_at(
+            &final_snapshot,
+            &digest,
+            &expected,
+            self.vendor_limits,
+        ) {
+            atomic_replace_file(
+                &vendor_root.join("CURRENT"),
+                format!("{digest}\n").as_bytes(),
+            )?;
+            return Ok(verified);
+        }
         let transaction = unique_transaction(&vendor_root.join(".transactions"), "vendor")?;
         let result = (|| {
             let snapshot = transaction.join("snapshot");
@@ -437,11 +450,10 @@ impl PackageStore {
             let package_root = snapshot.join("packages/sha256");
             ensure_directory_tree(&package_root)?;
 
-            let mut records = Vec::with_capacity(expected.len());
             let mut budget = VendorBudget::new(self.vendor_limits, expected.len())?;
             let mut copied_digests = BTreeSet::new();
             let mut copied_evidence = BTreeSet::new();
-            for (package_id, archive_sha256, registry_index_sha256, verification_sha256) in
+            for (_package_id, archive_sha256, registry_index_sha256, verification_sha256) in
                 &expected
             {
                 let package = self.load_verified_exact(
@@ -454,16 +466,6 @@ impl PackageStore {
                 let new_evidence =
                     copied_evidence.insert((archive_sha256.clone(), identity.clone()));
                 budget.account_package(&package, new_archive, new_evidence)?;
-                records.push(VendorManifestPackage {
-                    package_id: package_id.clone(),
-                    content_key: format!("sha256:{archive_sha256}"),
-                    archive_sha256: archive_sha256.clone(),
-                    registry_index_sha256: registry_index_sha256.clone(),
-                    verification_sha256: verification_sha256.clone(),
-                    evidence_identity: identity.clone(),
-                    tree_manifest_sha256: package.commit.tree_manifest_sha256.clone(),
-                });
-
                 let artifacts = package.verified_artifacts()?;
                 let destination = package_root.join(&package.archive_sha256);
                 if new_archive {
@@ -500,16 +502,9 @@ impl PackageStore {
             sync_directory(&package_root)?;
             sync_directory(&snapshot.join("packages"))?;
 
-            let manifest = VendorManifest {
-                schema_version: VENDOR_MANIFEST_SCHEMA.to_owned(),
-                packages: records,
-            };
-            let manifest_bytes = canonical_json_bytes(&manifest)?;
             budget.account_bytes(manifest_bytes.len() as u64)?;
             write_new_file(&snapshot.join("vendor-manifest.json"), &manifest_bytes)?;
             sync_directory(&snapshot)?;
-            let digest = sha256_hex(&manifest_bytes);
-            let final_snapshot = vendor_root.join("snapshots/sha256").join(&digest);
             publish_directory(&snapshot, &final_snapshot)?;
             let verified =
                 verify_vendor_snapshot_at(&final_snapshot, &digest, &expected, self.vendor_limits)?;
@@ -520,6 +515,45 @@ impl PackageStore {
             Ok(verified)
         })();
         finish_transaction(result, &transaction)
+    }
+
+    fn preflight_vendor_snapshot(
+        &self,
+        expected: &[ExpectedVendorPackage],
+    ) -> Result<(Vec<u8>, String), StoreError> {
+        let mut budget = VendorBudget::new(self.vendor_limits, expected.len())?;
+        let mut copied_digests = BTreeSet::new();
+        let mut copied_evidence = BTreeSet::new();
+        let mut records = Vec::with_capacity(expected.len());
+        for (package_id, archive_sha256, registry_index_sha256, verification_sha256) in expected {
+            let package = self.load_verified_exact(
+                archive_sha256,
+                registry_index_sha256,
+                verification_sha256,
+            )?;
+            let identity = evidence_identity(registry_index_sha256, verification_sha256);
+            let new_archive = copied_digests.insert(archive_sha256.clone());
+            let new_evidence =
+                copied_evidence.insert((archive_sha256.clone(), identity.clone()));
+            budget.account_package(&package, new_archive, new_evidence)?;
+            records.push(VendorManifestPackage {
+                package_id: package_id.clone(),
+                content_key: format!("sha256:{archive_sha256}"),
+                archive_sha256: archive_sha256.clone(),
+                registry_index_sha256: registry_index_sha256.clone(),
+                verification_sha256: verification_sha256.clone(),
+                evidence_identity: identity,
+                tree_manifest_sha256: package.commit.tree_manifest_sha256.clone(),
+            });
+        }
+        let manifest = VendorManifest {
+            schema_version: VENDOR_MANIFEST_SCHEMA.to_owned(),
+            packages: records,
+        };
+        let manifest_bytes = canonical_json_bytes(&manifest)?;
+        budget.account_bytes(manifest_bytes.len() as u64)?;
+        let digest = sha256_hex(&manifest_bytes);
+        Ok((manifest_bytes, digest))
     }
 
     /// Rehash the current snapshot and require the caller's exact locked
@@ -1633,23 +1667,10 @@ fn reap_stale_transactions(parent: &Path, now: u128) -> Result<(), StoreError> {
             ),
         )
     })?;
-    let mut bounded_entries = Vec::with_capacity(MAX_TRANSACTION_SCAN_ENTRIES);
     for entry in entries {
-        if bounded_entries.len() == MAX_TRANSACTION_SCAN_ENTRIES {
-            return Err(StoreError::new(
-                "store_transaction_scan_exceeded",
-                format!(
-                    "{} contains more than {} transaction entries",
-                    parent.display(),
-                    MAX_TRANSACTION_SCAN_ENTRIES
-                ),
-            ));
-        }
-        bounded_entries.push(entry.map_err(|error| {
+        let entry = entry.map_err(|error| {
             StoreError::new("store_transaction_cleanup_failed", error.to_string())
-        })?);
-    }
-    for entry in bounded_entries {
+        })?;
         let Ok(name) = entry.file_name().into_string() else {
             continue;
         };
@@ -2164,6 +2185,9 @@ mod tests {
         }];
         let vendor = temp.path().join("vendor");
         let snapshot = store.vendor_snapshot(&vendor, &expected).unwrap();
+        let reused = store.vendor_snapshot(&vendor, &expected).unwrap();
+        assert_eq!(reused.digest, snapshot.digest);
+        assert_eq!(vendor.join("snapshots/sha256").read_dir().unwrap().count(), 1);
         assert_eq!(
             fs::read(
                 snapshot
@@ -2367,24 +2391,22 @@ mod tests {
     }
 
     #[test]
-    fn stale_transaction_scan_has_a_deterministic_cardinality_bound() {
+    fn stale_transaction_cleanup_streams_past_1024_entries() {
         let temp = tempfile::tempdir().unwrap();
         let store = PackageStore::open(&temp.path().join("cache")).unwrap();
         let transactions = store.root().join(".transactions");
-        for index in 0..=MAX_TRANSACTION_SCAN_ENTRIES {
-            fs::write(transactions.join(format!("unowned-{index:04}")), b"x").unwrap();
-        }
-        let error =
-            reap_stale_transactions(&transactions, unix_epoch_nanos().unwrap()).unwrap_err();
-        assert_eq!(error.code, "store_transaction_scan_exceeded");
-        assert_eq!(
-            error.message,
-            format!(
-                "{} contains more than {} transaction entries",
-                transactions.display(),
-                MAX_TRANSACTION_SCAN_ENTRIES
+        let stale_pid = 2_000_000_000u32;
+        for index in 0..=1_024 {
+            let path = transactions.join(format!(".vendor-{stale_pid}-0-{index}"));
+            fs::create_dir(&path).unwrap();
+            write_new_file(
+                &path.join(TRANSACTION_MARKER_NAME),
+                &transaction_marker_bytes(stale_pid, 0, index),
             )
-        );
+            .unwrap();
+        }
+        reap_stale_transactions(&transactions, unix_epoch_nanos().unwrap()).unwrap();
+        assert_eq!(transactions.read_dir().unwrap().count(), 0);
     }
 
     #[cfg(unix)]
