@@ -133,7 +133,8 @@ def blocker_issue_states(
         )
 
     issue_states_available = True
-    for issue in sorted(issues):
+    issues_to_check = issues if validate_live_issue_states else active_blockers
+    for issue in sorted(issues_to_check):
         state = file_states.get(issue)
         if state is None and (
             require_issue_states or validate_live_issue_states or issue_state_file
