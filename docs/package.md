@@ -371,6 +371,16 @@ locked and offline consumers reverify it exactly as they reverify the shared
 cache. Local path dependencies remain paths and are never copied into the
 registry store or vendor tree.
 
+Vendor lifecycle is crash-safe and reader-aware. The store retains the current
+snapshot and any snapshot with an active reader lease; completed, unleased
+older snapshots are reclaimed after publication. Reader leases are acquired
+under the same lifecycle lock as `CURRENT` replacement and garbage collection,
+so an in-flight locked/offline operation cannot lose its tree. A failure after
+immutable snapshot publication but before `CURRENT` replacement leaves a
+verified orphan that the next matching vendor operation adopts without
+rewriting content. Vendor JSON reports include stable lifecycle counters and
+reason maps for reused, created, reclaimed, and deferred snapshots.
+
 The stable operator surface is:
 
 ```bash

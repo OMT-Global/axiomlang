@@ -22,6 +22,10 @@ const CACHE_COMMIT_SCHEMA: &str = "axiom.package_cache_commit.v1";
 const VENDOR_MANIFEST_SCHEMA: &str = "axiom.vendor_manifest.v1";
 const TRANSACTION_MARKER_SCHEMA: &str = "axiom.store_transaction.v1";
 const TRANSACTION_MARKER_NAME: &str = ".axiom-transaction";
+const VENDOR_LEASE_MARKER_SCHEMA: &str = "axiom.vendor_snapshot_lease.v1";
+const VENDOR_LIFECYCLE_LOCK_MARKER_SCHEMA: &str = "axiom.vendor_lifecycle_lock.v1";
+const VENDOR_LIFECYCLE_LOCK_DIR: &str = ".lifecycle-lock";
+const VENDOR_LEASES_DIR: &str = ".leases";
 const MAX_EVIDENCE_BYTES: usize = 16 * 1024 * 1024;
 const MAX_VENDOR_PACKAGES: usize = 4_096;
 const MAX_VENDOR_BYTES: u64 = 512 * 1024 * 1024;
@@ -35,6 +39,103 @@ const EVIDENCE_NAMES: [&str; 6] = [
     "verification",
 ];
 static TRANSACTION_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum VendorSnapshotFault {
+    AfterSnapshotPublication,
+}
+
+struct VendorLifecycleLock {
+    path: PathBuf,
+}
+
+impl VendorLifecycleLock {
+    fn acquire(vendor_root: &Path) -> Result<Self, StoreError> {
+        let path = vendor_root.join(VENDOR_LIFECYCLE_LOCK_DIR);
+        for _ in 0..256 {
+            match fs::create_dir(&path) {
+                Ok(()) => {
+                    let now = unix_epoch_nanos()?;
+                    let marker = format!(
+                        "{VENDOR_LIFECYCLE_LOCK_MARKER_SCHEMA}\npid={}\ncreated_unix_nanos={now}\n",
+                        std::process::id()
+                    );
+                    if let Err(error) = write_new_file(&path.join("owner"), marker.as_bytes()) {
+                        let _ = fs::remove_dir_all(&path);
+                        return Err(error);
+                    }
+                    if let Err(error) = sync_directory(&path) {
+                        let _ = fs::remove_dir_all(&path);
+                        return Err(error);
+                    }
+                    return Ok(Self { path });
+                }
+                Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+                    if stale_vendor_lifecycle_lock(&path)? {
+                        let _ = fs::remove_dir_all(&path);
+                    } else {
+                        std::thread::yield_now();
+                    }
+                }
+                Err(error) => {
+                    return Err(StoreError::new(
+                        "vendor_lifecycle_lock_failed",
+                        format!("failed to acquire {}: {error}", path.display()),
+                    ));
+                }
+            }
+        }
+        Err(StoreError::new(
+            "vendor_lifecycle_busy",
+            "vendor snapshot lifecycle lock remained held after bounded retries",
+        ))
+    }
+}
+
+impl Drop for VendorLifecycleLock {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.path);
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct VendorLifecycleEvidence {
+    pub schema_version: String,
+    pub reused: u64,
+    pub created: u64,
+    pub reclaimed: u64,
+    pub deferred: u64,
+    pub reused_reasons: BTreeMap<String, u64>,
+    pub created_reasons: BTreeMap<String, u64>,
+    pub reclaimed_reasons: BTreeMap<String, u64>,
+    pub deferred_reasons: BTreeMap<String, u64>,
+}
+
+impl VendorLifecycleEvidence {
+    fn new() -> Self {
+        Self {
+            schema_version: "axiom.vendor_lifecycle_evidence.v1".to_owned(),
+            ..Self::default()
+        }
+    }
+
+    fn count(map: &mut BTreeMap<String, u64>, reason: &str) {
+        *map.entry(reason.to_owned()).or_default() += 1;
+    }
+
+    fn reused(mut self, reason: &str) -> Self {
+        self.reused += 1;
+        Self::count(&mut self.reused_reasons, reason);
+        self
+    }
+
+    fn created(mut self, reason: &str) -> Self {
+        self.created += 1;
+        Self::count(&mut self.created_reasons, reason);
+        self
+    }
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StoreError {
@@ -181,6 +282,17 @@ pub struct VendorSnapshot {
     pub root: PathBuf,
     pub manifest: VendorManifest,
     pub packages: BTreeMap<String, VendorPackagePaths>,
+    pub lifecycle: VendorLifecycleEvidence,
+}
+
+pub struct VendorSnapshotLease {
+    path: PathBuf,
+}
+
+impl Drop for VendorSnapshotLease {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.path);
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -425,12 +537,28 @@ impl PackageStore {
         vendor_root: &Path,
         packages: &[VendorPackage<'_>],
     ) -> Result<VendorSnapshot, StoreError> {
+        self.vendor_snapshot_with_fault(vendor_root, packages, None)
+    }
+
+    fn vendor_snapshot_with_fault(
+        &self,
+        vendor_root: &Path,
+        packages: &[VendorPackage<'_>],
+        fault: Option<VendorSnapshotFault>,
+    ) -> Result<VendorSnapshot, StoreError> {
         let expected = canonical_expected_packages(packages, self.vendor_limits)?;
         ensure_directory_tree(vendor_root)?;
         ensure_directory_tree(&vendor_root.join("snapshots/sha256"))?;
         ensure_directory_tree(&vendor_root.join(".transactions"))?;
+        ensure_directory_tree(&vendor_root.join(VENDOR_LEASES_DIR))?;
+        let _lifecycle_lock = VendorLifecycleLock::acquire(vendor_root)?;
+        reap_stale_transactions(
+            &vendor_root.join(".transactions"),
+            unix_epoch_nanos()?,
+        )?;
         let (manifest_bytes, digest) = self.preflight_vendor_snapshot(&expected)?;
         let final_snapshot = vendor_root.join("snapshots/sha256").join(&digest);
+        let previous_digest = read_current_digest(vendor_root)?;
         if let Ok(verified) = verify_vendor_snapshot_at(
             &final_snapshot,
             &digest,
@@ -441,7 +569,14 @@ impl PackageStore {
                 &vendor_root.join("CURRENT"),
                 format!("{digest}\n").as_bytes(),
             )?;
-            return Ok(verified);
+            let lifecycle = VendorLifecycleEvidence::new().reused(if previous_digest.as_deref()
+                == Some(digest.as_str())
+            {
+                "manifest_match"
+            } else {
+                "crash_recovery"
+            });
+            return self.finish_vendor_snapshot(verified, vendor_root, &digest, lifecycle);
         }
         let transaction = unique_transaction(&vendor_root.join(".transactions"), "vendor")?;
         let result = (|| {
@@ -508,13 +643,76 @@ impl PackageStore {
             publish_directory(&snapshot, &final_snapshot)?;
             let verified =
                 verify_vendor_snapshot_at(&final_snapshot, &digest, &expected, self.vendor_limits)?;
+            if fault == Some(VendorSnapshotFault::AfterSnapshotPublication) {
+                return Err(StoreError::new(
+                    "vendor_snapshot_injected_crash",
+                    "injected failure after immutable snapshot publication",
+                ));
+            }
             atomic_replace_file(
                 &vendor_root.join("CURRENT"),
                 format!("{digest}\n").as_bytes(),
             )?;
-            Ok(verified)
+            self.finish_vendor_snapshot(
+                verified,
+                vendor_root,
+                &digest,
+                VendorLifecycleEvidence::new().created(if previous_digest.is_some() {
+                    "manifest_changed"
+                } else {
+                    "initial_snapshot"
+                }),
+            )
         })();
         finish_transaction(result, &transaction)
+    }
+
+    fn finish_vendor_snapshot(
+        &self,
+        mut snapshot: VendorSnapshot,
+        vendor_root: &Path,
+        current_digest: &str,
+        mut lifecycle: VendorLifecycleEvidence,
+    ) -> Result<VendorSnapshot, StoreError> {
+        reclaim_vendor_snapshots(vendor_root, current_digest, &mut lifecycle)?;
+        snapshot.lifecycle = lifecycle;
+        Ok(snapshot)
+    }
+
+    /// Acquire an active-reader lease for a verified snapshot. The lease is
+    /// established under the same lifecycle lock used by GC and only succeeds
+    /// while the snapshot is still CURRENT, closing the verify-to-read race.
+    pub fn lease_vendor_snapshot(
+        vendor_root: &Path,
+        snapshot: &VendorSnapshot,
+    ) -> Result<VendorSnapshotLease, StoreError> {
+        validate_digest(&snapshot.digest)?;
+        require_safe_directory(&snapshot.root)?;
+        ensure_directory_tree(&vendor_root.join(VENDOR_LEASES_DIR))?;
+        let _lifecycle_lock = VendorLifecycleLock::acquire(vendor_root)?;
+        let current = read_current_digest(vendor_root)?.ok_or_else(|| {
+            StoreError::new(
+                "vendor_current_invalid",
+                "cannot lease a snapshot without CURRENT",
+            )
+        })?;
+        if current != snapshot.digest {
+            return Err(StoreError::new(
+                "vendor_snapshot_changed",
+                "CURRENT changed before the vendor snapshot reader lease was acquired",
+            ));
+        }
+        let leases = vendor_root.join(VENDOR_LEASES_DIR).join(&snapshot.digest);
+        ensure_directory_tree(&leases)?;
+        let sequence = TRANSACTION_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+        let now = unix_epoch_nanos()?;
+        let path = leases.join(format!("{}-{now}-{sequence}", std::process::id()));
+        write_new_file(
+            &path,
+            &vendor_lease_marker_bytes(std::process::id(), now, sequence),
+        )?;
+        sync_directory(&leases)?;
+        Ok(VendorSnapshotLease { path })
     }
 
     fn preflight_vendor_snapshot(
@@ -886,6 +1084,7 @@ fn verify_vendor_snapshot_at(
         root: root.to_path_buf(),
         manifest,
         packages,
+        lifecycle: VendorLifecycleEvidence::new(),
     })
 }
 
@@ -1572,6 +1771,200 @@ fn require_safe_directory(path: &Path) -> Result<(), StoreError> {
     Ok(())
 }
 
+fn read_current_digest(vendor_root: &Path) -> Result<Option<String>, StoreError> {
+    let path = vendor_root.join("CURRENT");
+    let bytes = match read_regular_file(&path, 65) {
+        Ok(bytes) => bytes,
+        Err(error) if error.code == "store_file_unavailable" && !path.exists() => return Ok(None),
+        Err(error) => return Err(error),
+    };
+    let text = std::str::from_utf8(&bytes)
+        .map_err(|_| StoreError::new("vendor_current_invalid", "CURRENT is not UTF-8"))?;
+    let digest = text.strip_suffix('\n').ok_or_else(|| {
+        StoreError::new(
+            "vendor_current_invalid",
+            "CURRENT must end in one canonical newline",
+        )
+    })?;
+    validate_digest(digest)?;
+    Ok(Some(digest.to_owned()))
+}
+
+fn vendor_lease_marker_bytes(pid: u32, epoch_nanos: u128, sequence: u64) -> Vec<u8> {
+    format!(
+        "{VENDOR_LEASE_MARKER_SCHEMA}\npid={pid}\ncreated_unix_nanos={epoch_nanos}\nsequence={sequence}\n"
+    )
+    .into_bytes()
+}
+
+fn parse_vendor_lease_name(name: &str) -> Option<(u32, u128, u64)> {
+    let (pid, rest) = name.split_once('-')?;
+    let (epoch_nanos, sequence) = rest.rsplit_once('-')?;
+    Some((pid.parse().ok()?, epoch_nanos.parse().ok()?, sequence.parse().ok()?))
+}
+
+fn stale_vendor_lifecycle_lock(path: &Path) -> Result<bool, StoreError> {
+    let owner = match read_regular_file(&path.join("owner"), 256) {
+        Ok(owner) => owner,
+        Err(_) => return Ok(true),
+    };
+    let text = String::from_utf8(owner)
+        .map_err(|_| StoreError::new("vendor_lifecycle_lock_invalid", "lock owner is not UTF-8"))?;
+    let mut pid = None;
+    let mut created = None;
+    for line in text.lines().skip(1) {
+        let Some((key, value)) = line.split_once('=') else {
+            return Ok(true);
+        };
+        match key {
+            "pid" => pid = value.parse().ok(),
+            "created_unix_nanos" => created = value.parse().ok(),
+            _ => {}
+        }
+    }
+    let (Some(pid), Some(created)) = (pid, created) else {
+        return Ok(true);
+    };
+    Ok(unix_epoch_nanos()?.saturating_sub(created) >= STALE_TRANSACTION_AGE_NANOS
+        && !process_is_alive(pid))
+}
+
+fn reclaim_vendor_snapshots(
+    vendor_root: &Path,
+    current_digest: &str,
+    lifecycle: &mut VendorLifecycleEvidence,
+) -> Result<(), StoreError> {
+    let snapshots = vendor_root.join("snapshots/sha256");
+    let leases_root = vendor_root.join(VENDOR_LEASES_DIR);
+    let entries = fs::read_dir(&snapshots).map_err(|error| {
+        StoreError::new(
+            "vendor_snapshot_cleanup_failed",
+            format!("failed to inspect snapshots in {}: {error}", snapshots.display()),
+        )
+    })?;
+    for entry in entries {
+        let entry = entry.map_err(|error| {
+            StoreError::new("vendor_snapshot_cleanup_failed", error.to_string())
+        })?;
+        let Ok(name) = entry.file_name().into_string() else {
+            continue;
+        };
+        if name == current_digest || validate_digest(&name).is_err() {
+            continue;
+        }
+        let snapshot = entry.path();
+        let metadata = match fs::symlink_metadata(&snapshot) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+            Err(error) => {
+                return Err(StoreError::new(
+                    "vendor_snapshot_cleanup_failed",
+                    format!("failed to inspect {}: {error}", snapshot.display()),
+                ));
+            }
+        };
+        if metadata.file_type().is_symlink() || !metadata.is_dir() {
+            lifecycle.deferred += 1;
+            VendorLifecycleEvidence::count(
+                &mut lifecycle.deferred_reasons,
+                "unsafe_snapshot_entry",
+            );
+            continue;
+        }
+        let lease_dir = leases_root.join(&name);
+        match snapshot_has_active_lease(&lease_dir)? {
+            LeaseState::Active => {
+                lifecycle.deferred += 1;
+                VendorLifecycleEvidence::count(
+                    &mut lifecycle.deferred_reasons,
+                    "active_reader",
+                );
+            }
+            LeaseState::Unreadable => {
+                lifecycle.deferred += 1;
+                VendorLifecycleEvidence::count(
+                    &mut lifecycle.deferred_reasons,
+                    "unreadable_reader_lease",
+                );
+            }
+            LeaseState::None => match fs::remove_dir_all(&snapshot) {
+                Ok(()) => {
+                    lifecycle.reclaimed += 1;
+                    VendorLifecycleEvidence::count(
+                        &mut lifecycle.reclaimed_reasons,
+                        "unleased_snapshot",
+                    );
+                }
+                Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+                Err(_) => {
+                    lifecycle.deferred += 1;
+                    VendorLifecycleEvidence::count(
+                        &mut lifecycle.deferred_reasons,
+                        "reclaim_failed",
+                    );
+                }
+            },
+        }
+    }
+    Ok(())
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum LeaseState {
+    None,
+    Active,
+    Unreadable,
+}
+
+fn snapshot_has_active_lease(path: &Path) -> Result<LeaseState, StoreError> {
+    match fs::symlink_metadata(path) {
+        Ok(_) => require_safe_directory(path)?,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(LeaseState::None),
+        Err(error) => {
+            return Err(StoreError::new(
+                "vendor_lease_cleanup_failed",
+                format!("failed to inspect leases in {}: {error}", path.display()),
+            ));
+        }
+    }
+    let entries = match fs::read_dir(path) {
+        Ok(entries) => entries,
+        Err(error) => {
+            return Err(StoreError::new(
+                "vendor_lease_cleanup_failed",
+                format!("failed to inspect leases in {}: {error}", path.display()),
+            ));
+        }
+    };
+    let now = unix_epoch_nanos()?;
+    let mut state = LeaseState::None;
+    for entry in entries {
+        let entry = entry.map_err(|error| {
+            StoreError::new("vendor_lease_cleanup_failed", error.to_string())
+        })?;
+        let Ok(name) = entry.file_name().into_string() else {
+            return Ok(LeaseState::Unreadable);
+        };
+        let Some((pid, created, sequence)) = parse_vendor_lease_name(&name) else {
+            return Ok(LeaseState::Unreadable);
+        };
+        let expected = vendor_lease_marker_bytes(pid, created, sequence);
+        let marker = match read_regular_file(&entry.path(), 256) {
+            Ok(marker) => marker,
+            Err(_) => return Ok(LeaseState::Unreadable),
+        };
+        if marker != expected {
+            return Ok(LeaseState::Unreadable);
+        }
+        if now.saturating_sub(created) >= STALE_TRANSACTION_AGE_NANOS && !process_is_alive(pid) {
+            let _ = fs::remove_file(entry.path());
+            continue;
+        }
+        state = LeaseState::Active;
+    }
+    Ok(state)
+}
+
 fn unique_transaction(parent: &Path, prefix: &str) -> Result<PathBuf, StoreError> {
     require_safe_directory(parent)?;
     let now = unix_epoch_nanos()?;
@@ -2214,6 +2607,89 @@ mod tests {
     }
 
     #[test]
+    fn active_reader_lease_defers_reclaim_until_reader_finishes() {
+        let temp = tempfile::tempdir().unwrap();
+        let store = PackageStore::open(&temp.path().join("cache")).unwrap();
+        let first_bytes = archive(&[("a", b"first")]);
+        let second_bytes = archive(&[("a", b"second")]);
+        let first_digest = sha256_hex(&first_bytes);
+        let second_digest = sha256_hex(&second_bytes);
+        store.admit(fixture(&first_bytes, &first_digest)).unwrap();
+        store.admit(fixture(&second_bytes, &second_digest)).unwrap();
+        let index_digest = sha256_hex(b"registry-index");
+        let verification_digest = sha256_hex(b"verification");
+        let first = [VendorPackage {
+            package_id: "registry:demo/first@1.0.0",
+            archive_sha256: &first_digest,
+            registry_index_sha256: &index_digest,
+            verification_sha256: &verification_digest,
+        }];
+        let second = [VendorPackage {
+            package_id: "registry:demo/second@1.0.0",
+            archive_sha256: &second_digest,
+            registry_index_sha256: &index_digest,
+            verification_sha256: &verification_digest,
+        }];
+        let vendor = temp.path().join("vendor");
+        let first_snapshot = store.vendor_snapshot(&vendor, &first).unwrap();
+        let lease = PackageStore::lease_vendor_snapshot(&vendor, &first_snapshot).unwrap();
+        let second_snapshot = store.vendor_snapshot(&vendor, &second).unwrap();
+        assert_eq!(second_snapshot.lifecycle.created, 1);
+        assert_eq!(second_snapshot.lifecycle.reclaimed, 0);
+        assert_eq!(second_snapshot.lifecycle.deferred, 1);
+        assert_eq!(
+            second_snapshot
+                .lifecycle
+                .deferred_reasons
+                .get("active_reader"),
+            Some(&1)
+        );
+        assert!(first_snapshot.root.exists());
+        drop(lease);
+
+        let reused = store.vendor_snapshot(&vendor, &second).unwrap();
+        assert_eq!(reused.lifecycle.reclaimed, 1);
+        assert!(!first_snapshot.root.exists());
+    }
+
+    #[test]
+    fn injected_publication_failure_is_recovered_by_manifest_reuse() {
+        let temp = tempfile::tempdir().unwrap();
+        let store = PackageStore::open(&temp.path().join("cache")).unwrap();
+        let bytes = archive(&[("a", b"x")]);
+        let digest = sha256_hex(&bytes);
+        store.admit(fixture(&bytes, &digest)).unwrap();
+        let index_digest = sha256_hex(b"registry-index");
+        let verification_digest = sha256_hex(b"verification");
+        let expected = [VendorPackage {
+            package_id: "registry:demo/core@1.0.0",
+            archive_sha256: &digest,
+            registry_index_sha256: &index_digest,
+            verification_sha256: &verification_digest,
+        }];
+        let vendor = temp.path().join("vendor");
+        assert_eq!(
+            store
+                .vendor_snapshot_with_fault(
+                    &vendor,
+                    &expected,
+                    Some(VendorSnapshotFault::AfterSnapshotPublication),
+                )
+                .unwrap_err()
+                .code,
+            "vendor_snapshot_injected_crash"
+        );
+        assert!(!vendor.join("CURRENT").exists());
+        let recovered = store.vendor_snapshot(&vendor, &expected).unwrap();
+        assert_eq!(recovered.lifecycle.reused, 1);
+        assert_eq!(
+            recovered.lifecycle.reused_reasons.get("crash_recovery"),
+            Some(&1)
+        );
+        assert_eq!(vendor.join("snapshots/sha256").read_dir().unwrap().count(), 1);
+    }
+
+    #[test]
     fn current_pointer_replacement_overwrites_an_existing_file() {
         let temp = tempfile::tempdir().unwrap();
         let source = temp.path().join("replacement");
@@ -2347,6 +2823,7 @@ mod tests {
         }];
         let vendor = temp.path().join("vendor");
         let first_snapshot = store.vendor_snapshot(&vendor, &first).unwrap();
+        let _lease = PackageStore::lease_vendor_snapshot(&vendor, &first_snapshot).unwrap();
         let second_snapshot = store.vendor_snapshot(&vendor, &second).unwrap();
         let current_before = fs::read(vendor.join("CURRENT")).unwrap();
         assert_eq!(
