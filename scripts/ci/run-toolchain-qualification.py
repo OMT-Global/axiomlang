@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 SCHEMA = "axiom.toolchain_qualification.v0"
+SUMMARY_ARTIFACT = "toolchain-qualification-summary.txt"
 
 DEFAULT_CHECKS = [
     {"id": "full_crate_integration", "command": "RUST_MIN_STACK=8388608 cargo test --manifest-path stage1/Cargo.toml --workspace --all-targets --features run-native-tests --locked -- --test-threads=1"},
@@ -298,6 +299,59 @@ def classify(returncode: int, command: str) -> tuple[str, str]:
     return "failed", "product_failure"
 
 
+def render_summary(
+    *,
+    records: list[dict[str, Any]],
+    status: str,
+    failure_class: str,
+    evidence_name: str,
+    head: str,
+) -> str:
+    counts = {
+        check_status: sum(record["status"] == check_status for record in records)
+        for check_status in ("passed", "skipped", "failed")
+    }
+    if status == "failed":
+        result = "valid_red"
+    elif status == "skipped":
+        result = "skipped"
+    else:
+        result = "passed"
+    lines = [
+        (
+            "qualification summary: "
+            f"result={result} status={status} failureClass={failure_class} "
+            f"passed={counts['passed']} skipped={counts['skipped']} "
+            f"failed={counts['failed']} evidenceArtifact={evidence_name} headSha={head}"
+        )
+    ]
+    for record in records:
+        if record["status"] != "failed":
+            continue
+        lines.append(
+            "FAILED "
+            f"id={record['id']} status={record['status']} "
+            f"failureClass={record['failureClass']} exitCode={record['exitCode']} "
+            f"artifactPath={record['artifacts'][0]}"
+        )
+    return "\n".join(lines) + "\n"
+
+
+def render_harness_summary(*, evidence_name: str, head: str) -> str:
+    return (
+        "qualification summary: "
+        "result=harness_failure failureClass=schema_failure "
+        f"evidenceArtifact={evidence_name} headSha={head}\n"
+    )
+
+
+def artifact_identity(path: Path, root: Path) -> str:
+    try:
+        return path.relative_to(root).as_posix()
+    except ValueError:
+        return path.name
+
+
 def file_fingerprint(path: Path) -> tuple[int, int, int, int] | None:
     if not path.is_file():
         return None
@@ -321,6 +375,7 @@ def main() -> int:
     checks = load_plan(options.plan)
     reserved_artifact_names = {
         "toolchain-qualification.json",
+        SUMMARY_ARTIFACT,
         *(f"{check['id']}.log" for check in checks),
     }
     artifact_destinations: dict[str, str] = {}
@@ -524,17 +579,37 @@ def main() -> int:
         "artifactPaths": artifact_paths,
         "checks": records,
     }
+    summary_path = output / SUMMARY_ARTIFACT
+    evidence_identity = artifact_identity(evidence_path, root)
+    summary = render_summary(
+        records=records,
+        status=evidence["status"],
+        failure_class=overall_failure,
+        evidence_name=evidence_identity,
+        head=head,
+    )
+    evidence["artifactPaths"].insert(-1, summary_path.name)
+    summary_path.write_text(summary, encoding="utf-8")
     schema_path = root / "stage1/schemas/axiom-toolchain-qualification-v0.schema.json"
     try:
         validate_qualification_evidence(evidence, schema_path)
-    except ValueError as error:
-        print(f"toolchain qualification evidence schema validation failed: {error}", file=sys.stderr)
+    except ValueError:
+        harness_summary = render_harness_summary(
+            evidence_name=evidence_identity,
+            head=head,
+        )
+        summary_path.write_text(harness_summary, encoding="utf-8")
+        print(
+            "toolchain qualification harness failure: schema validation failed",
+            file=sys.stderr,
+        )
+        print(harness_summary, end="")
         return 1
     encoded = json.dumps(evidence, indent=2, sort_keys=True) + "\n"
     temporary_evidence_path = evidence_path.with_suffix(".json.tmp")
     temporary_evidence_path.write_text(encoded, encoding="utf-8")
     temporary_evidence_path.replace(evidence_path)
-    print(evidence_path)
+    print(summary, end="")
     return 1 if failures or overall_failure == "infrastructure_skip" else 0
 
 
