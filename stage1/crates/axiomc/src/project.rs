@@ -4,6 +4,7 @@ use crate::codegen::{
 };
 use crate::cranelift_backend::compile_cranelift_hello_spike;
 use crate::diagnostics::Diagnostic;
+use crate::executable_mir;
 use crate::hir;
 use crate::lockfile::{ParsedLockfile, load_lockfile, validate_lockfile};
 use crate::manifest::{
@@ -191,6 +192,18 @@ pub struct DocumentationSymbol {
     pub effects: Vec<String>,
     #[serde(skip)]
     pub source_path: PathBuf,
+}
+
+/// The first executable-MIR slice is exposed for compiler inspection and
+/// snapshotting before it becomes the production backend input.  Keeping this
+/// boundary read-only lets backend work land independently from the existing
+/// compatibility lowering path.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct ExecutableMirPackage {
+    pub package_root: String,
+    pub manifest: String,
+    pub entry: String,
+    pub program: executable_mir::Program,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -625,6 +638,49 @@ pub fn documentation_packages(
         packages.push(documentation_package(&package_root, &analyzed)?);
     }
     packages.sort_by(|left, right| left.id.cmp(&right.id));
+    Ok(packages)
+}
+
+/// Lower the packages in a project to the supported executable-MIR slice.
+///
+/// This is intentionally an inspection API while the Cranelift backend still
+/// consumes the compatibility lowering path.  Unsupported source shapes fail
+/// with a stable diagnostic instead of silently producing a partial program.
+pub fn executable_mir_packages(
+    project_root: &Path,
+) -> Result<Vec<ExecutableMirPackage>, Diagnostic> {
+    let project_root = canonicalize_existing_path(&normalize_path(project_root), "project root")?;
+    let graph = load_package_graph(&project_root)?;
+    validate_workspace_root_lockfile(&graph, &project_root)?;
+    let mut packages = Vec::new();
+    for package_root in workspace_package_roots(&graph, &project_root, None)? {
+        let analyzed = analyze_package_with_macro_limit(
+            &graph,
+            &package_root,
+            syntax::DEFAULT_MACRO_RECURSION_LIMIT,
+        )?;
+        let program = executable_mir::lower_scalar_program(&analyzed.mir).ok_or_else(|| {
+            Diagnostic::new(
+                "codegen",
+                format!(
+                    "package {} is outside the executable MIR v0 slice",
+                    package_root.display()
+                ),
+            )
+            .with_code("executable_mir.unsupported")
+            .with_path(analyzed.entry_path.display().to_string())
+            .with_help(
+                "The current executable MIR slice supports scalar values, direct calls, runtime stdin length, and terminal conditions.",
+            )
+        })?;
+        packages.push(ExecutableMirPackage {
+            package_root: package_root.display().to_string(),
+            manifest: manifest_path(&package_root).display().to_string(),
+            entry: analyzed.entry_path.display().to_string(),
+            program,
+        });
+    }
+    packages.sort_by(|left, right| left.package_root.cmp(&right.package_root));
     Ok(packages)
 }
 
@@ -10953,6 +11009,77 @@ out_dir = "dist"
             direct.packages[0].lockfile.status,
             public.packages[0].lockfile.status
         );
+    }
+
+    #[test]
+    fn executable_mir_inspection_exposes_runtime_stdin_and_branch_blocks() {
+        let dir = tempdir().expect("tempdir");
+        let root = dir.path().join("executable-mir-inspection");
+        fs::create_dir_all(root.join("src")).expect("create source directory");
+        fs::write(
+            root.join("axiom.toml"),
+            r#"[package]
+name = "executable-mir-inspection"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+fs = false
+net = false
+process = false
+env = false
+clock = false
+crypto = false
+"#,
+        )
+        .expect("write manifest");
+        fs::write(
+            root.join("axiom.lock"),
+            r#"version = 1
+
+[[package]]
+name = "executable-mir-inspection"
+version = "0.1.0"
+source = "path"
+"#,
+        )
+        .expect("write lockfile");
+        fs::write(
+            root.join("src/main.ax"),
+            r#"import "std/io.ax"
+
+fn main(): int {
+if len(read_to_string()) == 13 {
+return 18
+} else {
+return 1
+}
+}
+"#,
+        )
+        .expect("write source");
+
+        let packages = executable_mir_packages(&root).expect("lower executable MIR");
+        assert_eq!(packages.len(), 1);
+        let main = &packages[0].program.functions[0];
+        assert_eq!(packages[0].program.entrypoint, "main");
+        assert_eq!(main.blocks.len(), 3);
+        assert!(main.blocks.iter().any(|block| {
+            block.instructions.iter().any(|instruction| {
+                matches!(instruction, executable_mir::Instruction::ReadStdin { .. })
+            })
+        }));
+        assert!(main
+            .blocks
+            .iter()
+            .any(|block| matches!(block.terminator, executable_mir::Terminator::Branch { .. })));
+
+        fs::write(root.join("src/main.ax"), "print 1\n").expect("write unsupported source");
+        let error = executable_mir_packages(&root).expect_err("unsupported MIR shape");
+        assert_eq!(error.code.as_deref(), Some("executable_mir.unsupported"));
     }
 
     fn write_test_package(root: &Path, name: &str, version: &str) {
