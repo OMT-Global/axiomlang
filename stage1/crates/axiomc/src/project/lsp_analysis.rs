@@ -150,7 +150,20 @@ impl PersistentAnalysisState {
         self.last_invalidated = invalidated.clone();
 
         let Ok(modules) = &result else {
-            let observed_fingerprints = invalidated
+            // A first analysis can fail before the parse cache has a program
+            // to invalidate (for example, when an opened overlay is
+            // malformed). Keep the diagnostic tied to its source path when
+            // possible; otherwise do not retain an error that has no
+            // observable invalidation source.
+            let mut observed_paths = invalidated;
+            if let Some(path) = result
+                .as_ref()
+                .err()
+                .and_then(|diagnostic: &Diagnostic| diagnostic.path.as_deref())
+            {
+                observed_paths.insert(normalize_path(Path::new(path)));
+            }
+            let observed_fingerprints: BTreeMap<PathBuf, ModuleFingerprint> = observed_paths
                 .iter()
                 .filter_map(|path| {
                     self.parse_cache
@@ -159,12 +172,15 @@ impl PersistentAnalysisState {
                         .map(|fingerprint| (path.clone(), fingerprint))
                 })
                 .collect();
+            if observed_fingerprints.is_empty() {
+                return result;
+            }
             self.packages.insert(
                 package_root,
                 CachedPackage {
                     modules: BTreeMap::new(),
                     reverse_dependencies: BTreeMap::new(),
-                    observed_paths: invalidated,
+                    observed_paths,
                     observed_fingerprints,
                     manifest_fingerprint,
                     result: result.clone(),

@@ -2096,6 +2096,60 @@ mod tests {
     }
 
     #[test]
+    fn malformed_package_overlay_is_reanalyzed_after_did_change_fix() {
+        let directory = tempfile::tempdir().expect("workspace");
+        let src = directory.path().join("src");
+        fs::create_dir_all(&src).expect("package source directory");
+        fs::write(
+            directory.path().join("axiom.toml"),
+            "[package]\nname = \"lsp-repair\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n",
+        )
+        .expect("manifest");
+        let main_path = src.join("main.ax");
+        fs::write(&main_path, "print 1\n").expect("disk source");
+        let uri = uri_for_path(&main_path);
+        let mut server = LspServer::default();
+        server
+            .workspace_roots
+            .insert(directory.path().to_path_buf());
+
+        let opened = server
+            .handle_message(&notification(
+                "textDocument/didOpen",
+                json!({
+                    "textDocument": {
+                        "uri": uri,
+                        "languageId": "axiom",
+                        "version": 1,
+                        "text": "}\n"
+                    }
+                }),
+            ))
+            .expect("open malformed package source");
+        assert_eq!(opened.messages.len(), 1);
+        assert!(
+            !opened.messages[0]["params"]["diagnostics"]
+                .as_array()
+                .expect("diagnostics")
+                .is_empty()
+        );
+        assert_eq!(server.analysis_cache.analysis_runs(), 1);
+
+        let fixed = server
+            .handle_message(&notification(
+                "textDocument/didChange",
+                json!({
+                    "textDocument": { "uri": uri, "version": 2 },
+                    "contentChanges": [{ "text": "print 2\n" }]
+                }),
+            ))
+            .expect("fix malformed package source");
+        assert_eq!(fixed.messages.len(), 1);
+        assert_eq!(fixed.messages[0]["params"]["diagnostics"], json!([]));
+        assert_eq!(server.analysis_cache.analysis_runs(), 2);
+    }
+
+    #[test]
     fn unchanged_diagnostics_are_not_republished_and_clears_are_emitted() {
         let uri = "file:///tmp/lsp-diagnostic-delta/main.ax";
         let mut server = LspServer::default();
