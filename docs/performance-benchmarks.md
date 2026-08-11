@@ -101,7 +101,11 @@ make stage1-bench
 ```
 
 The report uses schema `axiom.stage1.benchmark_harness.v1` and includes per-step
-samples and medians for each workload. The default fixed examples are `hello`,
+samples and medians for each workload. It also includes a
+`benchmark_entrypoints` section containing the execution-backed
+`axiom.stage1.bench.v1` report for `stage1/examples/benchmarks`. The harness
+fails if the benchmark command returns malformed output, discovers no entrypoint,
+or reports a failed entrypoint. The default fixed examples are `hello`,
 `stdlib_time`, and `stdlib_sync`; callers can invoke the underlying script
 directly to change the round count, workload list, or output path:
 
