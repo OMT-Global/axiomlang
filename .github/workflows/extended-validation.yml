@@ -137,6 +137,13 @@ jobs:
           --target '${{ runner.os }}-${{ runner.arch }}'
           --trigger '${{ github.event_name }}'
 
+      - name: Summarize qualification evidence
+        if: always()
+        run: >-
+          python3 scripts/ci/report-toolchain-qualification.py
+          --evidence artifacts/toolchain-qualification/toolchain-qualification.json
+          --expected-head-sha '${{ github.sha }}'
+
       - name: Upload qualification evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v4 pinned 2026-04-19
