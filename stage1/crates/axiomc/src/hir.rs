@@ -40,6 +40,7 @@ use self::const_arrays::{
     validate_const_array_lengths_in_program,
 };
 use self::const_functions::validate_const_function_body;
+use self::control_flow::ControlFlow;
 use self::definitions::{
     VariantInfo, collect_enum_definitions, collect_struct_definitions, collect_trait_definitions,
     collect_type_names, validate_recursive_type_cycles, validate_trait_bounds_in_program,
@@ -120,6 +121,12 @@ struct LowerContext<'a> {
     current_property: bool,
     current_borrow_return_params: HashSet<String>,
     loop_depth: usize,
+}
+
+#[derive(Default)]
+struct LoopFlow {
+    break_states: Vec<HashMap<String, Binding>>,
+    continue_states: Vec<HashMap<String, Binding>>,
 }
 
 const OWNERSHIP_CLOSURE_MOVE_CAPTURED_NON_COPY: &str = "closure_move_captured_non_copy";
@@ -266,11 +273,11 @@ fn lower_with_capabilities_impl(
     let mut env = HashMap::new();
     let stmts = if recover {
         let (stmts, mut block_diagnostics, _) =
-            lower_block_recovering(&program.stmts, &mut env, &ctx);
+            lower_block_recovering(&program.stmts, &mut env, &ctx, None);
         diagnostics.append(&mut block_diagnostics);
         stmts
     } else {
-        lower_block(&program.stmts, &mut env, &ctx)
+        lower_block(&program.stmts, &mut env, &ctx, None)
             .map_err(single_diagnostic)?
             .0
     };
@@ -568,17 +575,17 @@ fn lower_function(
             .collect(),
         loop_depth: 0,
     };
-    let (body, _, guaranteed_return) = if function.is_extern {
-        (Vec::new(), env.clone(), true)
+    let (body, _, flow) = if function.is_extern {
+        (Vec::new(), env.clone(), ControlFlow::return_value())
     } else {
         let (body, diagnostics, guaranteed_return) =
-            lower_block_recovering(&function.body, &mut env, &ctx);
+            lower_block_recovering(&function.body, &mut env, &ctx, None);
         if !diagnostics.is_empty() {
             return Err(primary_diagnostic(diagnostics));
         }
         (body, env.clone(), guaranteed_return)
     };
-    if !guaranteed_return {
+    if !flow.always_returns() {
         return Err(Diagnostic::new(
             "control",
             format!(
@@ -616,38 +623,47 @@ fn lower_block(
     block: &[syntax::Stmt],
     env: &mut HashMap<String, Binding>,
     ctx: &LowerContext<'_>,
-) -> Result<(Vec<Stmt>, HashMap<String, Binding>, bool), Diagnostic> {
+    mut loop_flow: Option<&mut LoopFlow>,
+) -> Result<(Vec<Stmt>, HashMap<String, Binding>, ControlFlow), Diagnostic> {
     let scope_names = env.keys().cloned().collect::<HashSet<_>>();
     let mut lowered = Vec::new();
-    let mut guaranteed_return = false;
+    let mut flow = ControlFlow::fallthrough();
     for stmt in block {
-        if guaranteed_return {
+        if !flow.fallthrough {
             return Err(Diagnostic::new(
                 "control",
                 "unreachable statements after a terminating control-flow statement are not yet supported in stage1",
             )
             .with_span(stmt.line(), stmt.column()));
         }
-        let lowered_stmt = lower_stmt(stmt, env, ctx)?;
-        guaranteed_return = lowered_stmt.always_returns();
+        let lowered_stmt = lower_stmt(stmt, env, ctx, loop_flow.as_deref_mut())?;
+        let stmt_flow = lowered_stmt.control_flow();
+        flow = ControlFlow {
+            fallthrough: false,
+            returns: flow.returns,
+            breaks: flow.breaks,
+            continues: flow.continues,
+        }
+        .union(stmt_flow);
         lowered.push(lowered_stmt);
     }
     let mut after = env.clone();
     release_scope_borrows(&mut after, &scope_names);
-    Ok((lowered, after, guaranteed_return))
+    Ok((lowered, after, flow))
 }
 
 fn lower_block_recovering(
     block: &[syntax::Stmt],
     env: &mut HashMap<String, Binding>,
     ctx: &LowerContext<'_>,
-) -> (Vec<Stmt>, Vec<Diagnostic>, bool) {
+    mut loop_flow: Option<&mut LoopFlow>,
+) -> (Vec<Stmt>, Vec<Diagnostic>, ControlFlow) {
     let scope_names = env.keys().cloned().collect::<HashSet<_>>();
     let mut lowered = Vec::new();
     let mut diagnostics = Vec::new();
-    let mut guaranteed_return = false;
+    let mut flow = ControlFlow::fallthrough();
     for stmt in block {
-        if guaranteed_return {
+        if !flow.fallthrough {
             diagnostics.push(
                 Diagnostic::new(
                     "control",
@@ -658,9 +674,16 @@ fn lower_block_recovering(
             continue;
         }
         let mut candidate_env = env.clone();
-        match lower_stmt(stmt, &mut candidate_env, ctx) {
+        match lower_stmt(stmt, &mut candidate_env, ctx, loop_flow.as_deref_mut()) {
             Ok(lowered_stmt) => {
-                guaranteed_return = lowered_stmt.always_returns();
+                let stmt_flow = lowered_stmt.control_flow();
+                flow = ControlFlow {
+                    fallthrough: false,
+                    returns: flow.returns,
+                    breaks: flow.breaks,
+                    continues: flow.continues,
+                }
+                .union(stmt_flow);
                 *env = candidate_env;
                 lowered.push(lowered_stmt);
             }
@@ -671,7 +694,7 @@ fn lower_block_recovering(
         }
     }
     release_scope_borrows(env, &scope_names);
-    (lowered, diagnostics, guaranteed_return)
+    (lowered, diagnostics, flow)
 }
 
 fn insert_type_error_binding_for_failed_stmt(
@@ -761,6 +784,7 @@ fn lower_stmt(
     stmt: &syntax::Stmt,
     env: &mut HashMap<String, Binding>,
     ctx: &LowerContext<'_>,
+    mut loop_flow: Option<&mut LoopFlow>,
 ) -> Result<Stmt, Diagnostic> {
     match stmt {
         syntax::Stmt::Let {
@@ -987,7 +1011,8 @@ fn lower_stmt(
             if let Some(known_cond) = static_bool_value(&lowered_cond) {
                 if known_cond {
                     let mut then_env = env.clone();
-                    let (then_block, then_after, _) = lower_block(then_block, &mut then_env, ctx)?;
+                    let (then_block, then_after, _) =
+                        lower_block(then_block, &mut then_env, ctx, loop_flow.as_deref_mut())?;
                     *env = then_after;
                     return Ok(Stmt::If {
                         cond: lowered_cond,
@@ -998,7 +1023,8 @@ fn lower_stmt(
                 }
                 if let Some(else_block) = else_block {
                     let mut else_env = env.clone();
-                    let (block, after, _) = lower_block(else_block, &mut else_env, ctx)?;
+                    let (block, after, _) =
+                        lower_block(else_block, &mut else_env, ctx, loop_flow.as_deref_mut())?;
                     *env = after;
                     return Ok(Stmt::If {
                         cond: lowered_cond,
@@ -1016,22 +1042,23 @@ fn lower_stmt(
             }
             let before = env.clone();
             let mut then_env = before.clone();
-            let (then_block, then_after, then_returns) =
-                lower_block(then_block, &mut then_env, ctx)?;
-            let (else_block, else_after, else_returns) = if let Some(else_block) = else_block {
+            let (then_block, then_after, then_flow) =
+                lower_block(then_block, &mut then_env, ctx, loop_flow.as_deref_mut())?;
+            let (else_block, else_after, else_flow) = if let Some(else_block) = else_block {
                 let mut else_env = before.clone();
-                let (block, after, returns) = lower_block(else_block, &mut else_env, ctx)?;
-                (Some(block), Some(after), returns)
+                let (block, after, flow) =
+                    lower_block(else_block, &mut else_env, ctx, loop_flow.as_deref_mut())?;
+                (Some(block), Some(after), flow)
             } else {
-                (None, None, false)
+                (None, None, ControlFlow::fallthrough())
             };
             merge_branch_state(
                 env,
                 &before,
                 &then_after,
-                then_returns,
+                then_flow,
                 else_after.as_ref(),
-                else_returns,
+                else_flow,
             );
             Ok(Stmt::If {
                 cond: lowered_cond,
@@ -1065,35 +1092,49 @@ fn lower_stmt(
             let mut body_env = before.clone();
             let mut loop_ctx = ctx.clone();
             loop_ctx.loop_depth += 1;
-            let (body, body_after, body_returns) =
-                lower_block(body, &mut body_env, &loop_ctx)?;
+            let mut inner_loop_flow = LoopFlow::default();
+            let (body, body_after, body_flow) =
+                lower_block(body, &mut body_env, &loop_ctx, Some(&mut inner_loop_flow))?;
             // AG1.1: reject moves of outer non-Copy variables inside the loop
             // body — on subsequent iterations the value would not be available.
-            if !body_returns {
+            if body_flow.fallthrough || !inner_loop_flow.continue_states.is_empty() {
+                let mut loop_backedge_states = Vec::new();
+                if body_flow.fallthrough {
+                    loop_backedge_states.push(&body_after);
+                }
+                loop_backedge_states.extend(inner_loop_flow.continue_states.iter());
                 for (name, pre_binding) in &before {
                     if pre_binding.moved || pre_binding.ty.is_copy() {
                         continue;
                     }
-                    if let Some(post_binding) = body_after.get(name) {
-                        let moved_projection_in_body = post_binding
-                            .moved_projections
-                            .iter()
-                            .any(|projection| !pre_binding.moved_projections.contains(projection));
-                        if post_binding.moved || moved_projection_in_body {
-                            return Err(ownership_error(
-                                OWNERSHIP_LOOP_MOVE_OUTER_NON_COPY,
-                                format!(
-                                    "cannot move non-copy value `{}` inside loop body — \
-                                     value would not be available on subsequent iterations",
-                                    name
-                                ),
-                            )
-                            .with_span(*line, *column));
-                        }
+                    if loop_backedge_states.iter().any(|state| {
+                        state.get(name).is_some_and(|post_binding| {
+                            let moved_projection_in_body =
+                                post_binding.moved_projections.iter().any(|projection| {
+                                    !pre_binding.moved_projections.contains(projection)
+                                });
+                            post_binding.moved || moved_projection_in_body
+                        })
+                    }) {
+                        return Err(ownership_error(
+                            OWNERSHIP_LOOP_MOVE_OUTER_NON_COPY,
+                            format!(
+                                "cannot move non-copy value `{}` inside loop body — \
+                                 value would not be available on subsequent iterations",
+                                name
+                            ),
+                        )
+                        .with_span(*line, *column));
                     }
                 }
             }
-            merge_loop_state(env, &before, &body_after, body_returns);
+            merge_loop_state(
+                env,
+                &before,
+                &body_after,
+                body_flow,
+                &inner_loop_flow.break_states,
+            );
             Ok(Stmt::While {
                 cond: lowered_cond,
                 body,
@@ -1197,7 +1238,15 @@ fn lower_stmt(
                     });
                 }
             }
-            lower_match_stmt(expr, arms, *line, *column, env, ctx)
+            lower_match_stmt(
+                expr,
+                arms,
+                *line,
+                *column,
+                env,
+                ctx,
+                loop_flow.as_deref_mut(),
+            )
         }
         syntax::Stmt::Match {
             expr,
@@ -1206,7 +1255,15 @@ fn lower_stmt(
             column,
         } => {
             let arms = arms.iter().map(MatchArmInput::from).collect();
-            lower_match_stmt(expr, arms, *line, *column, env, ctx)
+            lower_match_stmt(
+                expr,
+                arms,
+                *line,
+                *column,
+                env,
+                ctx,
+                loop_flow.as_deref_mut(),
+            )
         }
         syntax::Stmt::Defer { expr, line, column } => {
             let lowered_expr = lower_expr(expr, env, ctx)?;
@@ -1225,6 +1282,9 @@ fn lower_stmt(
                         .with_span(*line, *column),
                 );
             }
+            if let Some(loop_flow) = loop_flow.as_deref_mut() {
+                loop_flow.break_states.push(env.clone());
+            }
             Ok(Stmt::Break {
                 span: SourceSpan::point(*line, *column),
             })
@@ -1235,6 +1295,9 @@ fn lower_stmt(
                     Diagnostic::new("control", "continue is only valid inside a while loop")
                         .with_span(*line, *column),
                 );
+            }
+            if let Some(loop_flow) = loop_flow.as_deref_mut() {
+                loop_flow.continue_states.push(env.clone());
             }
             Ok(Stmt::Continue {
                 span: SourceSpan::point(*line, *column),
@@ -1294,26 +1357,26 @@ fn merge_branch_state(
     env: &mut HashMap<String, Binding>,
     before: &HashMap<String, Binding>,
     then_after: &HashMap<String, Binding>,
-    then_returns: bool,
+    then_flow: ControlFlow,
     else_after: Option<&HashMap<String, Binding>>,
-    else_returns: bool,
+    else_flow: ControlFlow,
 ) {
     env.clear();
     for (name, binding) in before {
-        let then_moved = if then_returns {
-            binding.moved
-        } else {
+        let then_moved = if then_flow.fallthrough {
             then_after
                 .get(name)
                 .map(|entry| entry.moved)
                 .unwrap_or(binding.moved)
-        };
-        let else_moved = if else_returns {
-            binding.moved
         } else {
+            binding.moved
+        };
+        let else_moved = if else_flow.fallthrough {
             else_after
                 .and_then(|branch| branch.get(name).map(|entry| entry.moved))
                 .unwrap_or(binding.moved)
+        } else {
+            binding.moved
         };
         env.insert(
             name.clone(),
@@ -1323,9 +1386,9 @@ fn merge_branch_state(
                 moved_projections: merge_projection_sets(
                     binding,
                     then_after.get(name),
-                    then_returns,
+                    then_flow,
                     else_after.and_then(|branch| branch.get(name)),
-                    else_returns,
+                    else_flow,
                 ),
                 borrow_kind: binding.borrow_kind,
                 borrow_origin: binding.borrow_origin.clone(),
@@ -1333,19 +1396,19 @@ fn merge_branch_state(
                 borrowed_owners: binding.borrowed_owners.clone(),
                 active_borrow_count: merge_borrow_count(
                     binding.active_borrow_count,
-                    then_returns,
+                    !then_flow.fallthrough,
                     then_after.get(name).map(|entry| entry.active_borrow_count),
-                    else_returns,
+                    !else_flow.fallthrough,
                     else_after
                         .and_then(|branch| branch.get(name).map(|entry| entry.active_borrow_count)),
                 ),
                 active_mut_borrow_count: merge_borrow_count(
                     binding.active_mut_borrow_count,
-                    then_returns,
+                    !then_flow.fallthrough,
                     then_after
                         .get(name)
                         .map(|entry| entry.active_mut_borrow_count),
-                    else_returns,
+                    !else_flow.fallthrough,
                     else_after.and_then(|branch| {
                         branch.get(name).map(|entry| entry.active_mut_borrow_count)
                     }),
@@ -1359,17 +1422,17 @@ fn merge_branch_state(
 fn merge_projection_sets(
     before: &Binding,
     then_after: Option<&Binding>,
-    then_returns: bool,
+    then_flow: ControlFlow,
     else_after: Option<&Binding>,
-    else_returns: bool,
+    else_flow: ControlFlow,
 ) -> HashSet<ProjectionPath> {
     let mut moved = before.moved_projections.clone();
-    if !then_returns {
+    if then_flow.fallthrough {
         if let Some(binding) = then_after {
             moved.extend(binding.moved_projections.iter().cloned());
         }
     }
-    if !else_returns {
+    if else_flow.fallthrough {
         if let Some(binding) = else_after {
             moved.extend(binding.moved_projections.iter().cloned());
         }
@@ -1381,44 +1444,69 @@ fn merge_loop_state(
     env: &mut HashMap<String, Binding>,
     before: &HashMap<String, Binding>,
     body_after: &HashMap<String, Binding>,
-    body_returns: bool,
+    body_flow: ControlFlow,
+    break_states: &[HashMap<String, Binding>],
 ) {
     // AG1.1: the loop body may execute zero times, so post-loop ownership
-    // state preserves the pre-loop moved flags.  Moves of outer non-Copy
-    // values inside the body are rejected earlier (before this function is
-    // called), so the only moved-state change that can reach here is for
-    // values that were already moved before the loop.  Borrow counts still
-    // take the max of pre-loop and body-after to stay conservative.
+    // state preserves the pre-loop moved flags.  Moves on a break edge are
+    // visible after the loop, while moves on a backedge are rejected earlier.
     env.clear();
     for (name, binding) in before {
+        let exit_bindings = break_states.iter().filter_map(|state| state.get(name));
+        let moved_on_break = exit_bindings.clone().any(|entry| entry.moved);
+        let moved_projections_on_break = exit_bindings
+            .flat_map(|entry| entry.moved_projections.iter().cloned())
+            .collect::<HashSet<_>>();
+        let body_borrow_count = if body_flow.fallthrough {
+            body_after
+                .get(name)
+                .map(|entry| entry.active_borrow_count)
+                .unwrap_or(binding.active_borrow_count)
+        } else {
+            binding.active_borrow_count
+        };
+        let body_mut_borrow_count = if body_flow.fallthrough {
+            body_after
+                .get(name)
+                .map(|entry| entry.active_mut_borrow_count)
+                .unwrap_or(binding.active_mut_borrow_count)
+        } else {
+            binding.active_mut_borrow_count
+        };
+        let break_borrow_count = break_states
+            .iter()
+            .filter_map(|state| state.get(name))
+            .map(|entry| entry.active_borrow_count)
+            .max()
+            .unwrap_or(binding.active_borrow_count);
+        let break_mut_borrow_count = break_states
+            .iter()
+            .filter_map(|state| state.get(name))
+            .map(|entry| entry.active_mut_borrow_count)
+            .max()
+            .unwrap_or(binding.active_mut_borrow_count);
         env.insert(
             name.clone(),
             Binding {
                 ty: binding.ty.clone(),
-                moved: binding.moved,
-                moved_projections: binding.moved_projections.clone(),
+                moved: binding.moved || moved_on_break,
+                moved_projections: binding
+                    .moved_projections
+                    .union(&moved_projections_on_break)
+                    .cloned()
+                    .collect(),
                 borrow_kind: binding.borrow_kind,
                 borrow_origin: binding.borrow_origin.clone(),
                 net_origin: binding.net_origin.clone(),
                 borrowed_owners: binding.borrowed_owners.clone(),
-                active_borrow_count: if body_returns {
-                    binding.active_borrow_count
-                } else {
-                    let body_count = body_after
-                        .get(name)
-                        .map(|entry| entry.active_borrow_count)
-                        .unwrap_or(binding.active_borrow_count);
-                    binding.active_borrow_count.max(body_count)
-                },
-                active_mut_borrow_count: if body_returns {
-                    binding.active_mut_borrow_count
-                } else {
-                    let body_count = body_after
-                        .get(name)
-                        .map(|entry| entry.active_mut_borrow_count)
-                        .unwrap_or(binding.active_mut_borrow_count);
-                    binding.active_mut_borrow_count.max(body_count)
-                },
+                active_borrow_count: binding
+                    .active_borrow_count
+                    .max(body_borrow_count)
+                    .max(break_borrow_count),
+                active_mut_borrow_count: binding
+                    .active_mut_borrow_count
+                    .max(body_mut_borrow_count)
+                    .max(break_mut_borrow_count),
                 active_borrows: binding.active_borrows.clone(),
             },
         );
@@ -1428,18 +1516,18 @@ fn merge_loop_state(
 fn merge_match_state(
     env: &mut HashMap<String, Binding>,
     before: &HashMap<String, Binding>,
-    arm_states: &[(HashMap<String, Binding>, bool)],
+    arm_states: &[(HashMap<String, Binding>, ControlFlow)],
 ) {
     env.clear();
     for (name, binding) in before {
-        let moved = arm_states.iter().any(|(after, returns)| {
-            if *returns {
-                binding.moved
-            } else {
+        let moved = arm_states.iter().any(|(after, flow)| {
+            if flow.fallthrough {
                 after
                     .get(name)
                     .map(|entry| entry.moved)
                     .unwrap_or(binding.moved)
+            } else {
+                binding.moved
             }
         });
         env.insert(
@@ -1454,22 +1542,22 @@ fn merge_match_state(
                 borrowed_owners: binding.borrowed_owners.clone(),
                 active_borrow_count: arm_states
                     .iter()
-                    .filter_map(|(after, returns)| {
-                        if *returns {
-                            Some(binding.active_borrow_count)
-                        } else {
+                    .filter_map(|(after, flow)| {
+                        if flow.fallthrough {
                             after.get(name).map(|entry| entry.active_borrow_count)
+                        } else {
+                            Some(binding.active_borrow_count)
                         }
                     })
                     .max()
                     .unwrap_or(binding.active_borrow_count),
                 active_mut_borrow_count: arm_states
                     .iter()
-                    .filter_map(|(after, returns)| {
-                        if *returns {
-                            Some(binding.active_mut_borrow_count)
-                        } else {
+                    .filter_map(|(after, flow)| {
+                        if flow.fallthrough {
                             after.get(name).map(|entry| entry.active_mut_borrow_count)
+                        } else {
+                            Some(binding.active_mut_borrow_count)
                         }
                     })
                     .max()
@@ -1483,11 +1571,11 @@ fn merge_match_state(
 fn merge_match_projection_sets(
     before: &Binding,
     name: &str,
-    arm_states: &[(HashMap<String, Binding>, bool)],
+    arm_states: &[(HashMap<String, Binding>, ControlFlow)],
 ) -> HashSet<ProjectionPath> {
     let mut moved = before.moved_projections.clone();
-    for (after, returns) in arm_states {
-        if *returns {
+    for (after, flow) in arm_states {
+        if !flow.fallthrough {
             continue;
         }
         if let Some(binding) = after.get(name) {

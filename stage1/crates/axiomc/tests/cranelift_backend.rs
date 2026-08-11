@@ -83,6 +83,113 @@ fn cranelift_backend_builds_hello_binary() {
 
 #[cfg(not(windows))]
 #[test]
+fn cranelift_backend_lowers_nested_break_and_continue() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift loop-control test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("loop-control");
+    fs::create_dir_all(project.join("src")).expect("create project src");
+    fs::write(
+        project.join("axiom.toml"),
+        r#"[package]
+name = "cranelift-loop-control"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[[tests]]
+name = "loop-control"
+entry = "src/main_test.ax"
+stdout = "src/main_test.stdout"
+kind = "unit"
+"#,
+    )
+    .expect("write manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        r#"version = 1
+
+[[package]]
+name = "cranelift-loop-control"
+version = "0.1.0"
+source = "path"
+"#,
+    )
+    .expect("write lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        r#"let outer: int = 0
+while outer < 2 {
+let inner: int = 0
+while inner < 3 {
+inner = inner + 1
+if inner == 1 {
+continue
+}
+break
+}
+outer = outer + 1
+}
+print outer
+"#,
+    )
+    .expect("write source");
+    fs::write(
+        project.join("src/main_test.ax"),
+        "let value: int = 0\nwhile value < 1 {\nvalue = value + 1\ncontinue\n}\nprint value\n",
+    )
+    .expect("write test source");
+    fs::write(project.join("src/main_test.stdout"), "1\n").expect("write test golden");
+
+    let check = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args(["check", project.to_str().expect("project path"), "--json"])
+        .output()
+        .expect("run default axiomc check");
+    assert!(
+        check.status.success(),
+        "default Cranelift check failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&check.stdout),
+        String::from_utf8_lossy(&check.stderr)
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args(["build", project.to_str().expect("project path"), "--json"])
+        .output()
+        .expect("run default axiomc build");
+    assert!(
+        output.status.success(),
+        "default Cranelift build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run loop-control binary");
+    assert!(run.status.success(), "loop-control binary failed: {run:?}");
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "2\n");
+
+    let test = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args(["test", project.to_str().expect("project path"), "--json"])
+        .output()
+        .expect("run default axiomc test");
+    assert!(
+        test.status.success(),
+        "default Cranelift test failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&test.stdout),
+        String::from_utf8_lossy(&test.stderr)
+    );
+}
+
+#[cfg(not(windows))]
+#[test]
 fn cranelift_backend_pure_artifact_is_invariant_to_build_env_and_stdin() {
     if which::which("cc").is_err() {
         eprintln!("skipping cranelift backend smoke test because cc is unavailable");
@@ -4315,9 +4422,6 @@ fn cranelift_backend_reports_scoped_file_metadata_at_runtime() {
     let temp = tempfile::tempdir().expect("tempdir");
     let project = temp.path().join("fs-file-metadata");
     write_fs_file_metadata_project(&project);
-    let runtime_content = "runtime-metadata\n";
-    fs::write(project.join("src/metadata.txt"), runtime_content)
-        .expect("rewrite metadata fixture for runtime");
 
     let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
         .args([
@@ -4340,6 +4444,7 @@ fn cranelift_backend_reports_scoped_file_metadata_at_runtime() {
     assert_eq!(payload["backend"], "cranelift");
     assert_eq!(payload["generated_rust"], Value::Null);
     let binary = payload["binary"].as_str().expect("binary path");
+    let runtime_content = "runtime-metadata\n";
     let audit_log = project.join("native-fs-metadata-audit.jsonl");
     assert!(
         !audit_log.exists(),
@@ -4350,14 +4455,15 @@ fn cranelift_backend_reports_scoped_file_metadata_at_runtime() {
         .env("AXIOM_HOST_AUDIT_LOG", &audit_log)
         .output()
         .expect("run cranelift file metadata binary");
+    let audit = fs::read_to_string(&audit_log).expect("read native fs metadata audit log");
     assert_eq!(
         run.status.code(),
         Some(runtime_content.len() as i32),
-        "runtime metadata should determine the exit code: stdout={} stderr={}",
+        "runtime metadata should determine the exit code: stdout={} stderr={} audit={}",
         String::from_utf8_lossy(&run.stdout),
-        String::from_utf8_lossy(&run.stderr)
+        String::from_utf8_lossy(&run.stderr),
+        audit
     );
-    let audit = fs::read_to_string(&audit_log).expect("read native fs metadata audit log");
     assert!(audit.contains("\"intrinsic\":\"fs_file_exists\""));
     assert!(audit.contains("\"intrinsic\":\"fs_file_size\""));
     assert!(audit.contains("\"outcome\":\"ok\""));
@@ -4452,7 +4558,7 @@ fn cranelift_backend_lowers_fs_write_to_runtime_exit_code() {
     let runtime_file = project.join("scratch/data.txt");
     let append_file = project.join("scratch/append.txt");
     let replace_file = project.join("scratch/replace.txt");
-    let replace_temp_file = project.join("scratch/.replace.txt.axiom-replace.tmp");
+    let replace_temp_file = project.join("scratch/.replace.txt.axiom-replace-XXXXXX");
     let removed_file = project.join("scratch/remove.txt");
     let created_file = project.join("scratch/created.txt");
     let runtime_dir = project.join("scratch/native-dir");
@@ -4495,6 +4601,19 @@ fn cranelift_backend_lowers_fs_write_to_runtime_exit_code() {
         !audit_log.exists(),
         "build should not create the native fs audit log"
     );
+    #[cfg(unix)]
+    let replace_sentinel = project
+        .parent()
+        .expect("project parent")
+        .join("replace-sentinel.txt");
+    #[cfg(unix)]
+    let planted_temp = project.join("scratch/.replace.txt.axiom-replace.tmp");
+    #[cfg(unix)]
+    {
+        fs::write(&replace_sentinel, "sentinel-safe").expect("write replace sentinel");
+        std::os::unix::fs::symlink(&replace_sentinel, &planted_temp)
+            .expect("plant legacy replace temp symlink");
+    }
     let run = Command::new(binary)
         .env("AXIOM_HOST_AUDIT_LOG", &audit_log)
         .output()
@@ -4512,6 +4631,19 @@ fn cranelift_backend_lowers_fs_write_to_runtime_exit_code() {
     assert_eq!(
         fs::read_to_string(&replace_file).expect("read fs_replace runtime fixture"),
         "runtime-replace"
+    );
+    #[cfg(unix)]
+    assert_eq!(
+        fs::read_to_string(&replace_sentinel).expect("read replace sentinel"),
+        "sentinel-safe"
+    );
+    #[cfg(unix)]
+    assert!(
+        fs::symlink_metadata(&planted_temp)
+            .expect("stat planted replace temp")
+            .file_type()
+            .is_symlink(),
+        "a preplanted legacy temp symlink must never be followed"
     );
     assert!(
         !removed_file.exists(),
@@ -4843,12 +4975,10 @@ fn cranelift_backend_debug_build_emits_sidecars_without_axiom_dwarf() {
     assert_eq!(manifest["native_debug"]["debuginfo"], 0);
     assert_eq!(manifest["native_debug"]["opt_level"], 0);
     assert_eq!(manifest["native_debug"]["axiom_dwarf"], false);
-    assert!(
-        manifest["native_debug"]["native_debug_info"]
-            .as_str()
-            .expect("native debug info")
-            .contains("does not emit native Axiom DWARF yet")
-    );
+    assert!(manifest["native_debug"]["native_debug_info"]
+        .as_str()
+        .expect("native debug info")
+        .contains("does not emit native Axiom DWARF yet"));
     assert!(
         manifest.get("rustc").is_none(),
         "cranelift debug manifests should not claim rustc debug settings"
@@ -8602,7 +8732,10 @@ fn cranelift_backend_builds_once_and_reads_cwd_at_each_run() {
         .output()
         .expect("run binary from first cwd");
     assert!(first.status.success());
-    assert_eq!(String::from_utf8_lossy(&first.stdout), format!("{}\n", first_cwd.display()));
+    assert_eq!(
+        String::from_utf8_lossy(&first.stdout),
+        format!("{}\n", first_cwd.display())
+    );
 
     let second = Command::new(binary)
         .current_dir(&second_cwd)
@@ -15897,6 +16030,7 @@ out_dir = "dist"
 
 [capabilities]
 fs = true
+"fs:write" = true
 net = false
 process = false
 env = false
@@ -15977,6 +16111,7 @@ out_dir = "dist"
 
 [capabilities]
 fs = true
+"fs:write" = true
 net = false
 process = false
 env = false
@@ -16002,15 +16137,13 @@ source = "path"
         project.join("src/main.ax"),
         r#"import "std/fs.ax"
 
-static METADATA_PATH: string = "src/metadata.txt"
-
 fn main(): int {
-let exists: bool = file_exists(METADATA_PATH)
-let missing: bool = file_exists("src/missing.txt")
-let size: int = file_size(METADATA_PATH)
+let wrote: int = write_file("src/metadata.txt", "runtime-metadata\n")
+let replaced: int = replace_file("src/metadata.txt", "runtime-replaced\n")
+let exists: bool = file_exists("src/metadata.txt")
 let missing_size: int = file_size("src/missing.txt")
-if exists == true && missing == false && size > 0 && missing_size == -1 {
-return size
+if wrote == 0 && replaced == 0 && exists == true && missing_size == -1 {
+return file_size("src/metadata.txt")
 } else {
 return 1
 }

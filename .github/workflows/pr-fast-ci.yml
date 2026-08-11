@@ -71,6 +71,9 @@ jobs:
       (needs.changes.outputs.app == 'true' || needs.changes.outputs.ci == 'true')
     env:
       GITHUB_TOKEN: ${{ github.token }}
+      # Persistent self-hosted runners must not share Rust artifacts across
+      # PR checkouts or workflow attempts.
+      CARGO_TARGET_DIR: ${{ runner.temp }}/axiom-fast-ci-target-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4 pinned 2026-05-30
         with:
@@ -171,6 +174,9 @@ jobs:
     runs-on: ['self-hosted', 'linux', 'shell-only', 'public']
     timeout-minutes: 45
     needs: changes
+    env:
+      # Keep the independent full-lib lane isolated from prior checkouts too.
+      CARGO_TARGET_DIR: ${{ runner.temp }}/axiom-full-lib-target-${{ github.run_id }}-${{ github.run_attempt }}
     if: >-
       github.event.pull_request.draft == false &&
       github.event.pull_request.head.repo.full_name == github.repository &&

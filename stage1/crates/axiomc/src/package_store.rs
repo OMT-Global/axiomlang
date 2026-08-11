@@ -25,7 +25,6 @@ const TRANSACTION_MARKER_NAME: &str = ".axiom-transaction";
 const MAX_EVIDENCE_BYTES: usize = 16 * 1024 * 1024;
 const MAX_VENDOR_PACKAGES: usize = 4_096;
 const MAX_VENDOR_BYTES: u64 = 512 * 1024 * 1024;
-const MAX_TRANSACTION_SCAN_ENTRIES: usize = 1_024;
 const STALE_TRANSACTION_AGE_NANOS: u128 = 24 * 60 * 60 * 1_000_000_000;
 const EVIDENCE_NAMES: [&str; 6] = [
     "integrity.json",
@@ -1633,23 +1632,10 @@ fn reap_stale_transactions(parent: &Path, now: u128) -> Result<(), StoreError> {
             ),
         )
     })?;
-    let mut bounded_entries = Vec::with_capacity(MAX_TRANSACTION_SCAN_ENTRIES);
     for entry in entries {
-        if bounded_entries.len() == MAX_TRANSACTION_SCAN_ENTRIES {
-            return Err(StoreError::new(
-                "store_transaction_scan_exceeded",
-                format!(
-                    "{} contains more than {} transaction entries",
-                    parent.display(),
-                    MAX_TRANSACTION_SCAN_ENTRIES
-                ),
-            ));
-        }
-        bounded_entries.push(entry.map_err(|error| {
+        let entry = entry.map_err(|error| {
             StoreError::new("store_transaction_cleanup_failed", error.to_string())
-        })?);
-    }
-    for entry in bounded_entries {
+        })?;
         let Ok(name) = entry.file_name().into_string() else {
             continue;
         };
@@ -2367,23 +2353,26 @@ mod tests {
     }
 
     #[test]
-    fn stale_transaction_scan_has_a_deterministic_cardinality_bound() {
+    fn stale_transaction_scan_streams_beyond_previous_cardinality_limit() {
         let temp = tempfile::tempdir().unwrap();
         let store = PackageStore::open(&temp.path().join("cache")).unwrap();
         let transactions = store.root().join(".transactions");
-        for index in 0..=MAX_TRANSACTION_SCAN_ENTRIES {
+        for index in 0..=1_024 {
             fs::write(transactions.join(format!("unowned-{index:04}")), b"x").unwrap();
         }
-        let error =
-            reap_stale_transactions(&transactions, unix_epoch_nanos().unwrap()).unwrap_err();
-        assert_eq!(error.code, "store_transaction_scan_exceeded");
-        assert_eq!(
-            error.message,
-            format!(
-                "{} contains more than {} transaction entries",
-                transactions.display(),
-                MAX_TRANSACTION_SCAN_ENTRIES
-            )
+        let stale_pid = 2_000_000_000u32;
+        let stale = transactions.join(format!(".vendor-{stale_pid}-0-9"));
+        fs::create_dir(&stale).unwrap();
+        write_new_file(
+            &stale.join(TRANSACTION_MARKER_NAME),
+            &transaction_marker_bytes(stale_pid, 0, 9),
+        )
+        .unwrap();
+
+        reap_stale_transactions(&transactions, unix_epoch_nanos().unwrap()).unwrap();
+        assert!(
+            !stale.exists(),
+            "stale entries must be reclaimed past the old limit"
         );
     }
 

@@ -1,12 +1,12 @@
 use cranelift_codegen::ir::{
-    AbiParam, ArgumentPurpose, BlockArg, FuncRef, InstBuilder, MemFlags, StackSlotData,
+    AbiParam, ArgumentPurpose, Block, BlockArg, FuncRef, InstBuilder, MemFlags, StackSlotData,
     StackSlotKind, TrapCode, Value, condcodes::IntCC, types,
 };
 use cranelift_codegen::isa;
 use cranelift_codegen::isa::CallConv;
 use cranelift_codegen::settings::{self, Configurable};
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Variable};
-use cranelift_module::{DataDescription, FuncId, Linkage, Module, default_libcall_names};
+use cranelift_module::{default_libcall_names, DataDescription, FuncId, Linkage, Module};
 use cranelift_object::{ObjectBuilder, ObjectModule};
 
 // Socket option constants (SOL_SOCKET / SO_REUSEADDR) differ between Linux and
@@ -79,8 +79,18 @@ struct I64RuntimeRefs {
     atoll: FuncRef,
     open: FuncRef,
     creat: FuncRef,
+    #[cfg(not(windows))]
+    openat: FuncRef,
+    #[cfg(not(windows))]
+    fchmod: FuncRef,
+    #[cfg(not(windows))]
+    renameat: FuncRef,
+    #[cfg(not(windows))]
+    unlinkat: FuncRef,
     lseek: FuncRef,
     close: FuncRef,
+    #[cfg(not(windows))]
+    fsync: FuncRef,
     access: FuncRef,
     #[cfg(windows)]
     system: FuncRef,
@@ -243,6 +253,9 @@ pub enum I64Expr {
         path: String,
         max_bytes: u64,
     },
+    FileStat {
+        path: String,
+    },
     AuditFs {
         intrinsic: String,
         package: String,
@@ -266,8 +279,9 @@ pub enum I64Expr {
         content: String,
     },
     ReplaceFile {
-        path: String,
-        temp_path: String,
+        root: String,
+        parent_components: Vec<String>,
+        destination_name: String,
         content: String,
     },
     CreateFile {
@@ -507,6 +521,8 @@ pub enum I64Stmt {
         cond: I64Condition,
         body: Vec<I64Stmt>,
     },
+    Break,
+    Continue,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -788,6 +804,59 @@ fn emit_i64_exit_object(
         .map_err(|message| {
             CraneliftBackendError::new(format!("declare creat import: {message}"))
         })?;
+    #[cfg(not(windows))]
+    let openat_id = {
+        let mut signature = module.make_signature();
+        signature.params.push(AbiParam::new(types::I32));
+        signature.params.push(AbiParam::new(pointer_type));
+        signature.params.push(AbiParam::new(types::I32));
+        signature.params.push(AbiParam::new(types::I32));
+        signature.returns.push(AbiParam::new(types::I32));
+        module
+            .declare_function("openat", Linkage::Import, &signature)
+            .map_err(|message| {
+                CraneliftBackendError::new(format!("declare openat import: {message}"))
+            })?
+    };
+    #[cfg(not(windows))]
+    let renameat_id = {
+        let mut signature = module.make_signature();
+        signature.params.push(AbiParam::new(types::I32));
+        signature.params.push(AbiParam::new(pointer_type));
+        signature.params.push(AbiParam::new(types::I32));
+        signature.params.push(AbiParam::new(pointer_type));
+        signature.returns.push(AbiParam::new(types::I32));
+        module
+            .declare_function("renameat", Linkage::Import, &signature)
+            .map_err(|message| {
+                CraneliftBackendError::new(format!("declare renameat import: {message}"))
+            })?
+    };
+    #[cfg(not(windows))]
+    let fchmod_id = {
+        let mut signature = module.make_signature();
+        signature.params.push(AbiParam::new(types::I32));
+        signature.params.push(AbiParam::new(types::I32));
+        signature.returns.push(AbiParam::new(types::I32));
+        module
+            .declare_function("fchmod", Linkage::Import, &signature)
+            .map_err(|message| {
+                CraneliftBackendError::new(format!("declare fchmod import: {message}"))
+            })?
+    };
+    #[cfg(not(windows))]
+    let unlinkat_id = {
+        let mut signature = module.make_signature();
+        signature.params.push(AbiParam::new(types::I32));
+        signature.params.push(AbiParam::new(pointer_type));
+        signature.params.push(AbiParam::new(types::I32));
+        signature.returns.push(AbiParam::new(types::I32));
+        module
+            .declare_function("unlinkat", Linkage::Import, &signature)
+            .map_err(|message| {
+                CraneliftBackendError::new(format!("declare unlinkat import: {message}"))
+            })?
+    };
     let mut lseek_sig = module.make_signature();
     lseek_sig.params.push(AbiParam::new(types::I32));
     lseek_sig.params.push(AbiParam::new(types::I64));
@@ -806,6 +875,17 @@ fn emit_i64_exit_object(
         .map_err(|message| {
             CraneliftBackendError::new(format!("declare close import: {message}"))
         })?;
+    #[cfg(not(windows))]
+    let fsync_id = {
+        let mut signature = module.make_signature();
+        signature.params.push(AbiParam::new(types::I32));
+        signature.returns.push(AbiParam::new(types::I32));
+        module
+            .declare_function("fsync", Linkage::Import, &signature)
+            .map_err(|message| {
+                CraneliftBackendError::new(format!("declare fsync import: {message}"))
+            })?
+    };
     let mut access_sig = module.make_signature();
     access_sig.params.push(AbiParam::new(pointer_type));
     access_sig.params.push(AbiParam::new(types::I32));
@@ -1058,8 +1138,13 @@ fn emit_i64_exit_object(
                 atoll_id,
                 open_id,
                 creat_id,
+                openat_id,
+                fchmod_id,
+                renameat_id,
+                unlinkat_id,
                 lseek_id,
                 close_id,
+                fsync_id,
                 access_id,
                 fork_id,
                 execv_id,
@@ -1160,8 +1245,18 @@ fn emit_i64_exit_object(
         let atoll_ref = module.declare_func_in_func(atoll_id, builder.func);
         let open_ref = module.declare_func_in_func(open_id, builder.func);
         let creat_ref = module.declare_func_in_func(creat_id, builder.func);
+        #[cfg(not(windows))]
+        let openat_ref = module.declare_func_in_func(openat_id, builder.func);
+        #[cfg(not(windows))]
+        let fchmod_ref = module.declare_func_in_func(fchmod_id, builder.func);
+        #[cfg(not(windows))]
+        let renameat_ref = module.declare_func_in_func(renameat_id, builder.func);
+        #[cfg(not(windows))]
+        let unlinkat_ref = module.declare_func_in_func(unlinkat_id, builder.func);
         let lseek_ref = module.declare_func_in_func(lseek_id, builder.func);
         let close_ref = module.declare_func_in_func(close_id, builder.func);
+        #[cfg(not(windows))]
+        let fsync_ref = module.declare_func_in_func(fsync_id, builder.func);
         let access_ref = module.declare_func_in_func(access_id, builder.func);
         #[cfg(windows)]
         let system_ref = module.declare_func_in_func(system_id, builder.func);
@@ -1208,8 +1303,18 @@ fn emit_i64_exit_object(
             atoll: atoll_ref,
             open: open_ref,
             creat: creat_ref,
+            #[cfg(not(windows))]
+            openat: openat_ref,
+            #[cfg(not(windows))]
+            fchmod: fchmod_ref,
+            #[cfg(not(windows))]
+            renameat: renameat_ref,
+            #[cfg(not(windows))]
+            unlinkat: unlinkat_ref,
             lseek: lseek_ref,
             close: close_ref,
+            #[cfg(not(windows))]
+            fsync: fsync_ref,
             access: access_ref,
             #[cfg(windows)]
             system: system_ref,
@@ -1287,6 +1392,7 @@ fn emit_i64_exit_object(
             write_ref,
             &output_data_ids,
             &program.stmts,
+            None,
         )?;
         emit_i64_exit_body(
             &mut module,
@@ -1386,7 +1492,10 @@ fn collect_i64_output_lines(stmts: &[I64Stmt], lines: &mut Vec<(OutputStream, St
                 collect_i64_output_lines(else_body, lines);
             }
             I64Stmt::While { body, .. } => collect_i64_output_lines(body, lines),
-            I64Stmt::Assign(_) | I64Stmt::CallAssign { .. } => {}
+            I64Stmt::Assign(_)
+            | I64Stmt::CallAssign { .. }
+            | I64Stmt::Break
+            | I64Stmt::Continue => {}
         }
     }
 }
@@ -1476,8 +1585,18 @@ fn define_i64_function(
     atoll_id: FuncId,
     open_id: FuncId,
     creat_id: FuncId,
+    #[cfg(not(windows))]
+    openat_id: FuncId,
+    #[cfg(not(windows))]
+    fchmod_id: FuncId,
+    #[cfg(not(windows))]
+    renameat_id: FuncId,
+    #[cfg(not(windows))]
+    unlinkat_id: FuncId,
     lseek_id: FuncId,
     close_id: FuncId,
+    #[cfg(not(windows))]
+    fsync_id: FuncId,
     access_id: FuncId,
     #[cfg(windows)] system_id: FuncId,
     #[cfg(not(windows))] fork_id: FuncId,
@@ -1546,8 +1665,18 @@ fn define_i64_function(
         let atoll_ref = module.declare_func_in_func(atoll_id, builder.func);
         let open_ref = module.declare_func_in_func(open_id, builder.func);
         let creat_ref = module.declare_func_in_func(creat_id, builder.func);
+        #[cfg(not(windows))]
+        let openat_ref = module.declare_func_in_func(openat_id, builder.func);
+        #[cfg(not(windows))]
+        let fchmod_ref = module.declare_func_in_func(fchmod_id, builder.func);
+        #[cfg(not(windows))]
+        let renameat_ref = module.declare_func_in_func(renameat_id, builder.func);
+        #[cfg(not(windows))]
+        let unlinkat_ref = module.declare_func_in_func(unlinkat_id, builder.func);
         let lseek_ref = module.declare_func_in_func(lseek_id, builder.func);
         let close_ref = module.declare_func_in_func(close_id, builder.func);
+        #[cfg(not(windows))]
+        let fsync_ref = module.declare_func_in_func(fsync_id, builder.func);
         let access_ref = module.declare_func_in_func(access_id, builder.func);
         #[cfg(windows)]
         let system_ref = module.declare_func_in_func(system_id, builder.func);
@@ -1594,8 +1723,18 @@ fn define_i64_function(
             atoll: atoll_ref,
             open: open_ref,
             creat: creat_ref,
+            #[cfg(not(windows))]
+            openat: openat_ref,
+            #[cfg(not(windows))]
+            fchmod: fchmod_ref,
+            #[cfg(not(windows))]
+            renameat: renameat_ref,
+            #[cfg(not(windows))]
+            unlinkat: unlinkat_ref,
             lseek: lseek_ref,
             close: close_ref,
+            #[cfg(not(windows))]
+            fsync: fsync_ref,
             access: access_ref,
             #[cfg(windows)]
             system: system_ref,
@@ -1688,6 +1827,7 @@ fn define_i64_function(
             write_ref,
             output_data_ids,
             &function.stmts,
+            None,
         )?;
         emit_i64_value_body(
             module,
@@ -1726,6 +1866,12 @@ fn i64_function_refs(
         .collect()
 }
 
+#[derive(Clone, Copy)]
+struct I64LoopTargets {
+    break_block: Block,
+    continue_block: Block,
+}
+
 fn emit_i64_stmts(
     module: &mut ObjectModule,
     builder: &mut FunctionBuilder<'_>,
@@ -1736,8 +1882,13 @@ fn emit_i64_stmts(
     write_ref: FuncRef,
     output_data_ids: &[I64OutputData],
     stmts: &[I64Stmt],
-) -> Result<(), CraneliftBackendError> {
+    loop_targets: Option<I64LoopTargets>,
+) -> Result<bool, CraneliftBackendError> {
+    let mut reachable = true;
     for stmt in stmts {
+        if !reachable {
+            break;
+        }
         emit_i64_stmt(
             module,
             builder,
@@ -1748,9 +1899,27 @@ fn emit_i64_stmts(
             write_ref,
             output_data_ids,
             stmt,
+            loop_targets,
         )?;
+        reachable = i64_stmt_can_fall_through(stmt);
     }
-    Ok(())
+    Ok(reachable)
+}
+
+fn i64_stmt_can_fall_through(stmt: &I64Stmt) -> bool {
+    match stmt {
+        I64Stmt::Break | I64Stmt::Continue => false,
+        I64Stmt::If {
+            then_body,
+            else_body,
+            ..
+        } => {
+            then_body.last().is_none_or(i64_stmt_can_fall_through)
+                || else_body.last().is_none_or(i64_stmt_can_fall_through)
+        }
+        I64Stmt::While { .. } => true,
+        _ => true,
+    }
 }
 
 fn emit_i64_stmt(
@@ -1763,6 +1932,7 @@ fn emit_i64_stmt(
     write_ref: FuncRef,
     output_data_ids: &[I64OutputData],
     stmt: &I64Stmt,
+    loop_targets: Option<I64LoopTargets>,
 ) -> Result<(), CraneliftBackendError> {
     match stmt {
         I64Stmt::Assign(assign) => {
@@ -1908,7 +2078,7 @@ fn emit_i64_stmt(
 
             builder.switch_to_block(then_block);
             builder.seal_block(then_block);
-            emit_i64_stmts(
+            let then_reachable = emit_i64_stmts(
                 module,
                 builder,
                 locals,
@@ -1918,12 +2088,15 @@ fn emit_i64_stmt(
                 write_ref,
                 output_data_ids,
                 then_body,
+                loop_targets,
             )?;
-            builder.ins().jump(after_if, &[]);
+            if then_reachable {
+                builder.ins().jump(after_if, &[]);
+            }
 
             builder.switch_to_block(else_block);
             builder.seal_block(else_block);
-            emit_i64_stmts(
+            let else_reachable = emit_i64_stmts(
                 module,
                 builder,
                 locals,
@@ -1933,8 +2106,11 @@ fn emit_i64_stmt(
                 write_ref,
                 output_data_ids,
                 else_body,
+                loop_targets,
             )?;
-            builder.ins().jump(after_if, &[]);
+            if else_reachable {
+                builder.ins().jump(after_if, &[]);
+            }
 
             builder.switch_to_block(after_if);
             builder.seal_block(after_if);
@@ -1954,7 +2130,7 @@ fn emit_i64_stmt(
 
             builder.switch_to_block(loop_body);
             builder.seal_block(loop_body);
-            emit_i64_stmts(
+            let body_reachable = emit_i64_stmts(
                 module,
                 builder,
                 locals,
@@ -1964,12 +2140,30 @@ fn emit_i64_stmt(
                 write_ref,
                 output_data_ids,
                 body,
+                Some(I64LoopTargets {
+                    break_block: after_loop,
+                    continue_block: loop_header,
+                }),
             )?;
-            builder.ins().jump(loop_header, &[]);
+            if body_reachable {
+                builder.ins().jump(loop_header, &[]);
+            }
             builder.seal_block(loop_header);
 
             builder.switch_to_block(after_loop);
             builder.seal_block(after_loop);
+            Ok(())
+        }
+        I64Stmt::Break => {
+            let targets = loop_targets
+                .ok_or_else(|| CraneliftBackendError::new("break is outside a loop"))?;
+            builder.ins().jump(targets.break_block, &[]);
+            Ok(())
+        }
+        I64Stmt::Continue => {
+            let targets = loop_targets
+                .ok_or_else(|| CraneliftBackendError::new("continue is outside a loop"))?;
+            builder.ins().jump(targets.continue_block, &[]);
             Ok(())
         }
     }
@@ -2769,6 +2963,7 @@ fn emit_i64_exit_body(
                 write_ref,
                 output_data_ids,
                 &block.stmts,
+                None,
             )?;
             emit_i64_return(builder, locals, function_refs, runtime_refs, &block.result)
         }
@@ -2820,6 +3015,7 @@ fn emit_i64_exit_body(
                 write_ref,
                 output_data_ids,
                 &then_block.stmts,
+                None,
             )?;
             emit_i64_return(
                 builder,
@@ -2841,6 +3037,7 @@ fn emit_i64_exit_body(
                 write_ref,
                 output_data_ids,
                 &else_block.stmts,
+                None,
             )?;
             emit_i64_return(
                 builder,
@@ -2887,6 +3084,7 @@ fn emit_i64_value_body(
                 write_ref,
                 output_data_ids,
                 &block.stmts,
+                None,
             )?;
             emit_i64_value_return(
                 builder,
@@ -2962,6 +3160,7 @@ fn emit_i64_value_body(
                 write_ref,
                 output_data_ids,
                 &then_block.stmts,
+                None,
             )?;
             emit_i64_value_return(
                 builder,
@@ -2985,6 +3184,7 @@ fn emit_i64_value_body(
                 write_ref,
                 output_data_ids,
                 &else_block.stmts,
+                None,
             )?;
             emit_i64_value_return(
                 builder,
@@ -3293,6 +3493,7 @@ fn emit_i64_expr(
         I64Expr::FileLen { path, max_bytes } => {
             emit_i64_file_len_expr(builder, runtime_refs, path, *max_bytes)
         }
+        I64Expr::FileStat { path } => emit_i64_file_stat_expr(builder, runtime_refs, path),
         I64Expr::AuditFs {
             intrinsic,
             package,
@@ -3334,10 +3535,18 @@ fn emit_i64_expr(
             emit_i64_append_file_expr(builder, runtime_refs, path, content)
         }
         I64Expr::ReplaceFile {
-            path,
-            temp_path,
+            root,
+            parent_components,
+            destination_name,
             content,
-        } => emit_i64_replace_file_expr(builder, runtime_refs, path, temp_path, content),
+        } => emit_i64_replace_file_expr(
+            builder,
+            runtime_refs,
+            root,
+            parent_components,
+            destination_name,
+            content,
+        ),
         I64Expr::CreateFile { path } => emit_i64_create_file_expr(builder, runtime_refs, path),
         I64Expr::RemoveFile { path } => emit_i64_remove_file_expr(builder, runtime_refs, path),
         I64Expr::MakeDir { path } => emit_i64_make_dir_expr(builder, runtime_refs, path),
@@ -4318,7 +4527,9 @@ fn emit_i64_env_len_expr(
     builder.seal_block(present_block);
     let call = builder.ins().call(strlen_ref, &[value_ptr]);
     let length = builder.inst_results(call)[0];
-    builder.ins().jump(merge_block, &[BlockArg::Value(length)]);
+    builder
+        .ins()
+        .jump(merge_block, &[BlockArg::Value(length)]);
 
     builder.switch_to_block(merge_block);
     builder.seal_block(merge_block);
@@ -4362,9 +4573,7 @@ fn emit_i64_cwd_len_expr(
     builder.seal_block(present_block);
     let call = builder.ins().call(strlen_ref, &[value_ptr]);
     let length = builder.inst_results(call)[0];
-    builder
-        .ins()
-        .jump(merge_block, &[BlockArg::Value(length)]);
+    builder.ins().jump(merge_block, &[BlockArg::Value(length)]);
 
     builder.switch_to_block(merge_block);
     builder.seal_block(merge_block);
@@ -4836,6 +5045,122 @@ fn emit_i64_file_len_expr(
 
     builder.switch_to_block(present_block);
     builder.seal_block(present_block);
+    builder.ins().jump(merge_block, &[BlockArg::Value(length)]);
+
+    builder.switch_to_block(missing_block);
+    builder.seal_block(missing_block);
+    let missing_result = builder.ins().iconst(types::I64, -1);
+    builder
+        .ins()
+        .jump(merge_block, &[BlockArg::Value(missing_result)]);
+
+    builder.switch_to_block(merge_block);
+    builder.seal_block(merge_block);
+    Ok(builder.block_params(merge_block)[0])
+}
+
+fn emit_i64_file_stat_expr(
+    builder: &mut FunctionBuilder<'_>,
+    runtime_refs: I64RuntimeRefs,
+    path: &str,
+) -> Result<cranelift_codegen::ir::Value, CraneliftBackendError> {
+    if path.as_bytes().contains(&0) {
+        return Err(CraneliftBackendError::new(
+            "filesystem path contains an interior null byte",
+        ));
+    }
+    let path_len = u32::try_from(path.len() + 1)
+        .map_err(|_| CraneliftBackendError::new("filesystem path is too large"))?;
+    let path_slot = builder.create_sized_stack_slot(StackSlotData::new(
+        StackSlotKind::ExplicitSlot,
+        path_len,
+        0,
+    ));
+    for (offset, byte) in path.bytes().chain(std::iter::once(0)).enumerate() {
+        let byte_value = builder.ins().iconst(types::I8, i64::from(byte));
+        builder
+            .ins()
+            .stack_store(byte_value, path_slot, offset as i32);
+    }
+
+    let byte_slot =
+        builder.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 1, 0));
+    let path_ptr = builder.ins().stack_addr(types::I64, path_slot, 0);
+    let byte_ptr = builder.ins().stack_addr(types::I64, byte_slot, 0);
+    let open_flags = builder.ins().iconst(types::I32, 0);
+    let open_call = builder
+        .ins()
+        .call(runtime_refs.open, &[path_ptr, open_flags]);
+    let fd = builder.inst_results(open_call)[0];
+
+    let missing_block = builder.create_block();
+    let probe_block = builder.create_block();
+    let seek_block = builder.create_block();
+    let present_block = builder.create_block();
+    let merge_block = builder.create_block();
+    builder.append_block_param(probe_block, types::I32);
+    builder.append_block_param(seek_block, types::I32);
+    builder.append_block_param(present_block, types::I64);
+    builder.append_block_param(merge_block, types::I64);
+
+    let open_failed = builder.ins().icmp_imm(IntCC::SignedLessThan, fd, 0);
+    builder.ins().brif(
+        open_failed,
+        missing_block,
+        &[],
+        probe_block,
+        &[BlockArg::Value(fd)],
+    );
+
+    builder.switch_to_block(probe_block);
+    builder.seal_block(probe_block);
+    let fd = builder.block_params(probe_block)[0];
+    let requested = builder.ins().iconst(types::I64, 1);
+    let probe_call = builder
+        .ins()
+        .call(runtime_refs.read, &[fd, byte_ptr, requested]);
+    let probe_result = builder.inst_results(probe_call)[0];
+    let probe_failed = builder
+        .ins()
+        .icmp_imm(IntCC::SignedLessThan, probe_result, 0);
+    let probe_failed_block = builder.create_block();
+    builder.append_block_param(probe_failed_block, types::I32);
+    builder.ins().brif(
+        probe_failed,
+        probe_failed_block,
+        &[BlockArg::Value(fd)],
+        seek_block,
+        &[BlockArg::Value(fd)],
+    );
+
+    builder.switch_to_block(probe_failed_block);
+    builder.seal_block(probe_failed_block);
+    let failed_fd = builder.block_params(probe_failed_block)[0];
+    builder.ins().call(runtime_refs.close, &[failed_fd]);
+    builder.ins().jump(missing_block, &[]);
+
+    builder.switch_to_block(seek_block);
+    builder.seal_block(seek_block);
+    let fd = builder.block_params(seek_block)[0];
+    let zero = builder.ins().iconst(types::I64, 0);
+    let seek_end = builder.ins().iconst(types::I32, 2);
+    let seek_call = builder
+        .ins()
+        .call(runtime_refs.lseek, &[fd, zero, seek_end]);
+    let length = builder.inst_results(seek_call)[0];
+    builder.ins().call(runtime_refs.close, &[fd]);
+    let seek_failed = builder.ins().icmp_imm(IntCC::SignedLessThan, length, 0);
+    builder.ins().brif(
+        seek_failed,
+        missing_block,
+        &[],
+        present_block,
+        &[BlockArg::Value(length)],
+    );
+
+    builder.switch_to_block(present_block);
+    builder.seal_block(present_block);
+    let length = builder.block_params(present_block)[0];
     builder.ins().jump(merge_block, &[BlockArg::Value(length)]);
 
     builder.switch_to_block(missing_block);
@@ -5825,51 +6150,257 @@ fn emit_i64_create_file_expr(
 fn emit_i64_replace_file_expr(
     builder: &mut FunctionBuilder<'_>,
     runtime_refs: I64RuntimeRefs,
-    path: &str,
-    temp_path: &str,
+    root: &str,
+    parent_components: &[String],
+    destination_name: &str,
     content: &str,
 ) -> Result<cranelift_codegen::ir::Value, CraneliftBackendError> {
-    let write_result = emit_i64_write_file_expr(builder, runtime_refs, temp_path, content)?;
+    #[cfg(windows)]
+    {
+        let _ = (runtime_refs, root, parent_components, destination_name, content);
+        return Ok(builder.ins().iconst(types::I64, -1));
+    }
 
-    let rename_block = builder.create_block();
-    let success_block = builder.create_block();
-    let failed_block = builder.create_block();
-    let merge_block = builder.create_block();
-    builder.append_block_param(merge_block, types::I64);
+    #[cfg(not(windows))]
+    {
+        // Keep every operation anchored to a descriptor opened beneath the
+        // authorized root.  In particular, do not construct a pathname for
+        // the temporary file: the final create and publish both use *at(2)
+        // and therefore cannot be redirected by a concurrent rename or a
+        // pre-planted symlink.
+        let root_ptr = emit_i64_path_ptr(builder, root)?;
+        let destination_ptr = emit_i64_path_ptr(builder, destination_name)?;
+        let temp_slot = builder.create_sized_stack_slot(StackSlotData::new(
+            StackSlotKind::ExplicitSlot,
+            32,
+            0,
+        ));
+        let temp_ptr = builder.ins().stack_addr(types::I64, temp_slot, 0);
+        for (offset, byte) in b".axiom-replace-".iter().enumerate() {
+            let value = builder.ins().iconst(types::I8, i64::from(*byte));
+            builder.ins().stack_store(value, temp_slot, offset as i32);
+        }
+        let random = emit_i64_random_u64_expr(
+            builder,
+            runtime_refs,
+            "fs_replace",
+            "axiomc",
+        )?;
+        for index in 0..16 {
+            let shift = 60 - index * 4;
+            let nibble = builder.ins().ushr_imm(random, shift);
+            let nibble = builder.ins().band_imm(nibble, 0x0f);
+            let decimal = builder.ins().iadd_imm(nibble, i64::from(b'0'));
+            let alpha = builder.ins().iadd_imm(nibble, i64::from(b'a' - 10));
+            let is_decimal = builder.ins().icmp_imm(IntCC::UnsignedLessThan, nibble, 10);
+            let value = builder.ins().select(is_decimal, decimal, alpha);
+            let value = builder.ins().ireduce(types::I8, value);
+            builder
+                .ins()
+                .stack_store(value, temp_slot, (15 + index) as i32);
+        }
+        let terminator = builder.ins().iconst(types::I8, 0);
+        builder.ins().stack_store(terminator, temp_slot, 31);
 
-    let write_ok = builder.ins().icmp_imm(IntCC::Equal, write_result, 0);
-    builder
-        .ins()
-        .brif(write_ok, rename_block, &[], failed_block, &[]);
+        let directory_flag = if cfg!(target_os = "macos") {
+            0x0010_0000
+        } else {
+            0x0001_0000
+        };
+        let nofollow_flag = if cfg!(target_os = "macos") {
+            0x0000_0100
+        } else {
+            0x0002_0000
+        };
+        let create_flag = if cfg!(target_os = "macos") {
+            0x0000_0200
+        } else {
+            0x0000_0040
+        };
+        let exclusive_flag = if cfg!(target_os = "macos") {
+            0x0000_0800
+        } else {
+            0x0000_0080
+        };
+        let root_flags = builder.ins().iconst(
+            types::I32,
+            i64::from(directory_flag | nofollow_flag),
+        );
+        let root_open = builder.ins().call(runtime_refs.open, &[root_ptr, root_flags]);
+        let mut parent_fd = builder.inst_results(root_open)[0];
+        let walk_flags = builder.ins().iconst(
+            types::I32,
+            i64::from(directory_flag | nofollow_flag),
+        );
+        for component in parent_components {
+            let component_ptr = emit_i64_path_ptr(builder, component)?;
+            let zero_mode = builder.ins().iconst(types::I32, 0);
+            let next_open = builder.ins().call(
+                runtime_refs.openat,
+                &[parent_fd, component_ptr, walk_flags, zero_mode],
+            );
+            let next_fd = builder.inst_results(next_open)[0];
+            builder.ins().call(runtime_refs.close, &[parent_fd]);
+            parent_fd = next_fd;
+        }
 
-    builder.switch_to_block(rename_block);
-    builder.seal_block(rename_block);
-    let temp_ptr = emit_i64_path_ptr(builder, temp_path)?;
-    let path_ptr = emit_i64_path_ptr(builder, path)?;
-    let rename_call = builder
-        .ins()
-        .call(runtime_refs.rename, &[temp_ptr, path_ptr]);
-    let rename_result = builder.inst_results(rename_call)[0];
-    let rename_ok = builder.ins().icmp_imm(IntCC::Equal, rename_result, 0);
-    builder
-        .ins()
-        .brif(rename_ok, success_block, &[], failed_block, &[]);
+        let content_len = u32::try_from(content.len())
+            .map_err(|_| CraneliftBackendError::new("filesystem replace content is too large"))?;
+        let content_slot = builder.create_sized_stack_slot(StackSlotData::new(
+            StackSlotKind::ExplicitSlot,
+            content_len.max(1),
+            0,
+        ));
+        for (offset, byte) in content.bytes().enumerate() {
+            let byte_value = builder.ins().iconst(types::I8, i64::from(byte));
+            builder
+                .ins()
+                .stack_store(byte_value, content_slot, offset as i32);
+        }
+        let content_ptr = builder.ins().stack_addr(types::I64, content_slot, 0);
+        let content_count = builder.ins().iconst(types::I64, i64::from(content_len));
 
-    builder.switch_to_block(success_block);
-    builder.seal_block(success_block);
-    let success = builder.ins().iconst(types::I64, 0);
-    builder.ins().jump(merge_block, &[BlockArg::Value(success)]);
+        let failed_block = builder.create_block();
+        let create_block = builder.create_block();
+        let create_failed_block = builder.create_block();
+        let chmod_block = builder.create_block();
+        let write_block = builder.create_block();
+        let sync_block = builder.create_block();
+        let close_block = builder.create_block();
+        let rename_block = builder.create_block();
+        let publish_sync_block = builder.create_block();
+        let success_block = builder.create_block();
+        let merge_block = builder.create_block();
+        builder.append_block_param(close_block, types::I32);
+        builder.append_block_param(merge_block, types::I64);
 
-    builder.switch_to_block(failed_block);
-    builder.seal_block(failed_block);
-    let temp_ptr = emit_i64_path_ptr(builder, temp_path)?;
-    builder.ins().call(runtime_refs.unlink, &[temp_ptr]);
-    let failed = builder.ins().iconst(types::I64, -1);
-    builder.ins().jump(merge_block, &[BlockArg::Value(failed)]);
+        let parent_valid = builder.ins().icmp_imm(IntCC::SignedGreaterThanOrEqual, parent_fd, 0);
+        builder
+            .ins()
+            .brif(parent_valid, create_block, &[], failed_block, &[]);
 
-    builder.switch_to_block(merge_block);
-    builder.seal_block(merge_block);
-    Ok(builder.block_params(merge_block)[0])
+        builder.switch_to_block(create_block);
+        builder.seal_block(create_block);
+        let create_flags = builder.ins().iconst(
+            types::I32,
+            i64::from(1 | create_flag | exclusive_flag | nofollow_flag),
+        );
+        let create_mode = builder.ins().iconst(types::I32, 0o600);
+        let create_call = builder.ins().call(
+            runtime_refs.openat,
+            &[parent_fd, temp_ptr, create_flags, create_mode],
+        );
+        let file = builder.inst_results(create_call)[0];
+        let create_failed = builder.ins().icmp_imm(IntCC::SignedLessThan, file, 0);
+        builder
+            .ins()
+            .brif(create_failed, create_failed_block, &[], chmod_block, &[]);
+
+        builder.switch_to_block(create_failed_block);
+        builder.seal_block(create_failed_block);
+        builder.ins().call(runtime_refs.close, &[parent_fd]);
+        let failed = builder.ins().iconst(types::I64, -1);
+        builder.ins().jump(merge_block, &[BlockArg::Value(failed)]);
+
+        builder.switch_to_block(chmod_block);
+        builder.seal_block(chmod_block);
+        let restrictive_mode = builder.ins().iconst(types::I32, 0o600);
+        let chmod_call = builder
+            .ins()
+            .call(runtime_refs.fchmod, &[file, restrictive_mode]);
+        let chmod_result = builder.inst_results(chmod_call)[0];
+        let chmod_ok = builder.ins().icmp_imm(IntCC::Equal, chmod_result, 0);
+        builder.ins().brif(chmod_ok, write_block, &[], failed_block, &[]);
+
+        builder.switch_to_block(write_block);
+        builder.seal_block(write_block);
+        let write_call = builder
+            .ins()
+            .call(runtime_refs.write, &[file, content_ptr, content_count]);
+        let written = builder.inst_results(write_call)[0];
+        let full_write = builder.ins().icmp(IntCC::Equal, written, content_count);
+        let failed = builder.ins().iconst(types::I32, -1);
+        builder.ins().brif(
+            full_write,
+            sync_block,
+            &[],
+            close_block,
+            &[BlockArg::Value(failed)],
+        );
+
+        builder.switch_to_block(sync_block);
+        builder.seal_block(sync_block);
+        let sync_call = builder.ins().call(runtime_refs.fsync, &[file]);
+        let sync_result = builder.inst_results(sync_call)[0];
+        let sync_ok = builder.ins().icmp_imm(IntCC::Equal, sync_result, 0);
+        let success_value = builder.ins().iconst(types::I32, 0);
+        let failed_value = builder.ins().iconst(types::I32, -1);
+        builder.ins().brif(
+            sync_ok,
+            close_block,
+            &[BlockArg::Value(success_value)],
+            close_block,
+            &[BlockArg::Value(failed_value)],
+        );
+
+        builder.switch_to_block(close_block);
+        builder.seal_block(close_block);
+        let close_result = builder.block_params(close_block)[0];
+        let close_call = builder.ins().call(runtime_refs.close, &[file]);
+        let close_status = builder.inst_results(close_call)[0];
+        let close_ok = builder
+            .ins()
+            .icmp_imm(IntCC::Equal, close_status, 0);
+        let effect_ok = builder.ins().icmp_imm(IntCC::Equal, close_result, 0);
+        let ready_to_rename = builder.ins().band(close_ok, effect_ok);
+        builder.ins().brif(
+            ready_to_rename,
+            rename_block,
+            &[],
+            failed_block,
+            &[],
+        );
+
+        builder.switch_to_block(rename_block);
+        builder.seal_block(rename_block);
+        let rename_call = builder.ins().call(
+            runtime_refs.renameat,
+            &[parent_fd, temp_ptr, parent_fd, destination_ptr],
+        );
+        let rename_result = builder.inst_results(rename_call)[0];
+        let rename_ok = builder.ins().icmp_imm(IntCC::Equal, rename_result, 0);
+        builder
+            .ins()
+            .brif(rename_ok, publish_sync_block, &[], failed_block, &[]);
+
+        builder.switch_to_block(publish_sync_block);
+        builder.seal_block(publish_sync_block);
+        let parent_sync = builder.ins().call(runtime_refs.fsync, &[parent_fd]);
+        let parent_sync_result = builder.inst_results(parent_sync)[0];
+        let parent_sync_ok = builder.ins().icmp_imm(IntCC::Equal, parent_sync_result, 0);
+        builder
+            .ins()
+            .brif(parent_sync_ok, success_block, &[], failed_block, &[]);
+
+        builder.switch_to_block(success_block);
+        builder.seal_block(success_block);
+        let success = builder.ins().iconst(types::I64, 0);
+        builder.ins().jump(merge_block, &[BlockArg::Value(success)]);
+
+        builder.switch_to_block(failed_block);
+        builder.seal_block(failed_block);
+        let unlink_flags = builder.ins().iconst(types::I32, 0);
+        builder
+            .ins()
+            .call(runtime_refs.unlinkat, &[parent_fd, temp_ptr, unlink_flags]);
+        builder.ins().call(runtime_refs.close, &[parent_fd]);
+        let failed = builder.ins().iconst(types::I64, -1);
+        builder.ins().jump(merge_block, &[BlockArg::Value(failed)]);
+
+        builder.switch_to_block(merge_block);
+        builder.seal_block(merge_block);
+        Ok(builder.block_params(merge_block)[0])
+    }
 }
 
 fn emit_i64_remove_file_expr(
@@ -6736,6 +7267,111 @@ mod tests {
         assert_eq!(output.status.code(), Some(255));
     }
 
+    #[cfg(not(windows))]
+    #[test]
+    fn links_i64_exit_program_with_file_stat_edges() {
+        if std::env::var_os("AXIOM_SKIP_CRANELIFT_LINK_TEST").is_some() {
+            return;
+        }
+        if Command::new("cc").arg("--version").output().is_err() {
+            eprintln!("skipping cranelift file stat link test because cc is unavailable");
+            return;
+        }
+        let temp = tempfile::tempdir().expect("tempdir");
+        let empty = temp.path().join("empty.txt");
+        let target = temp.path().join("target.txt");
+        let directory = temp.path().join("directory");
+        let link = temp.path().join("link.txt");
+        let large = temp.path().join("large.txt");
+        fs::write(&empty, "").expect("write empty file");
+        fs::write(&target, "target").expect("write target file");
+        fs::create_dir(&directory).expect("create directory");
+        std::os::unix::fs::symlink(&target, &link).expect("create file symlink");
+        fs::write(&large, vec![b'x'; 64 * 1024 * 1024 + 1]).expect("write large file");
+
+        let compile_and_run = |body: I64Expr, name: &str| {
+            let object = temp.path().join(format!("{name}.o"));
+            let binary = temp.path().join(name);
+            compile_i64_exit_program(
+                I64ExitProgram {
+                    functions: Vec::new(),
+                    locals: Vec::new(),
+                    stmts: Vec::new(),
+                    body: I64ExitBody::Return(body),
+                },
+                &object,
+                &binary,
+            )
+            .expect("compile file stat edge program");
+            Command::new(binary)
+                .output()
+                .expect("run file stat edge program")
+                .status
+                .code()
+                .expect("file stat edge exit code")
+        };
+        assert_eq!(
+            compile_and_run(
+                I64Expr::FileStat {
+                    path: empty.display().to_string(),
+                },
+                "file-stat-empty",
+            ),
+            0
+        );
+        assert_eq!(
+            compile_and_run(
+                I64Expr::Select {
+                    cond: Box::new(I64Condition::Compare(I64Compare {
+                        op: I64CompareOp::Eq,
+                        lhs: I64Expr::FileStat {
+                            path: directory.display().to_string(),
+                        },
+                        rhs: I64Expr::Literal(-1),
+                    })),
+                    then_result: Box::new(I64Expr::Literal(42)),
+                    else_result: Box::new(I64Expr::Literal(41)),
+                },
+                "file-stat-directory",
+            ),
+            42
+        );
+        assert_eq!(
+            compile_and_run(
+                I64Expr::Select {
+                    cond: Box::new(I64Condition::Compare(I64Compare {
+                        op: I64CompareOp::Eq,
+                        lhs: I64Expr::FileStat {
+                            path: link.display().to_string(),
+                        },
+                        rhs: I64Expr::Literal(6),
+                    })),
+                    then_result: Box::new(I64Expr::Literal(42)),
+                    else_result: Box::new(I64Expr::Literal(41)),
+                },
+                "file-stat-symlink",
+            ),
+            42
+        );
+        assert_eq!(
+            compile_and_run(
+                I64Expr::Select {
+                    cond: Box::new(I64Condition::Compare(I64Compare {
+                        op: I64CompareOp::Ge,
+                        lhs: I64Expr::FileStat {
+                            path: large.display().to_string(),
+                        },
+                        rhs: I64Expr::Literal(64 * 1024 * 1024 + 1),
+                    })),
+                    then_result: Box::new(I64Expr::Literal(42)),
+                    else_result: Box::new(I64Expr::Literal(41)),
+                },
+                "file-stat-large",
+            ),
+            42
+        );
+    }
+
     #[test]
     fn links_i64_exit_program_with_write_file() {
         if std::env::var_os("AXIOM_SKIP_CRANELIFT_LINK_TEST").is_some() {
@@ -6832,7 +7468,7 @@ mod tests {
         }
         let temp = tempfile::tempdir().expect("tempdir");
         let fixture = temp.path().join("fixture.txt");
-        let temp_fixture = temp.path().join(".fixture.txt.axiom-replace.tmp");
+        let temp_fixture = temp.path().join(".fixture.txt.axiom-replace-XXXXXX");
         fs::write(&fixture, "base").expect("write replace base fixture");
         let object = temp.path().join("i64-exit-replace-file.o");
         let binary = temp.path().join("i64-exit-replace-file");
@@ -6842,8 +7478,9 @@ mod tests {
                 locals: Vec::new(),
                 stmts: Vec::new(),
                 body: I64ExitBody::Return(I64Expr::ReplaceFile {
-                    path: fixture.display().to_string(),
-                    temp_path: temp_fixture.display().to_string(),
+                    root: temp.path().display().to_string(),
+                    parent_components: Vec::new(),
+                    destination_name: "fixture.txt".to_string(),
                     content: String::from("runtime-replace"),
                 }),
             },
@@ -6863,7 +7500,13 @@ mod tests {
         let output = Command::new(&binary)
             .output()
             .expect("run replace file binary");
-        assert_eq!(output.status.code(), Some(0));
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "stdout={} stderr={}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
         assert_eq!(
             fs::read_to_string(&fixture).expect("read runtime replace fixture"),
             "runtime-replace"
@@ -6871,6 +7514,54 @@ mod tests {
         assert!(
             !temp_fixture.exists(),
             "runtime replace should not leave the temp fixture"
+        );
+    }
+
+    #[test]
+    fn links_i64_exit_program_with_replace_file_rejects_temp_collision() {
+        if std::env::var_os("AXIOM_SKIP_CRANELIFT_LINK_TEST").is_some() {
+            return;
+        }
+        if Command::new("cc").arg("--version").output().is_err() {
+            eprintln!("skipping cranelift link test because cc is unavailable");
+            return;
+        }
+        let temp = tempfile::tempdir().expect("tempdir");
+        let fixture = temp.path().join("fixture.txt");
+        let collision = temp.path().join(".axiom-replace-0000000000001234");
+        fs::write(&fixture, "base").expect("write replace base fixture");
+        fs::write(&collision, "collision").expect("plant colliding temp fixture");
+        let object = temp.path().join("i64-exit-replace-collision.o");
+        let binary = temp.path().join("i64-exit-replace-collision");
+        compile_i64_exit_program(
+            I64ExitProgram {
+                functions: Vec::new(),
+                locals: Vec::new(),
+                stmts: Vec::new(),
+                body: I64ExitBody::Return(I64Expr::ReplaceFile {
+                    root: temp.path().display().to_string(),
+                    parent_components: Vec::new(),
+                    destination_name: "fixture.txt".to_string(),
+                    content: String::from("runtime-replace"),
+                }),
+            },
+            &object,
+            &binary,
+        )
+        .expect("compile i64 replace collision exit program");
+
+        let output = Command::new(&binary)
+            .env("AXIOM_TEST_RANDOM_U64", "4660")
+            .output()
+            .expect("run replace collision binary");
+        assert_eq!(output.status.code(), Some(255));
+        assert_eq!(
+            fs::read_to_string(&fixture).expect("read unchanged replace fixture"),
+            "base"
+        );
+        assert_eq!(
+            fs::read_to_string(&collision).expect("read colliding temp fixture"),
+            "collision"
         );
     }
 

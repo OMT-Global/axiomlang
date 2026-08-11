@@ -2,16 +2,14 @@
 """Validate the Provider ABI v1 security contract and reference C fixture."""
 import argparse
 import json
+import os
 import shutil
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
 
-R = Path(__file__).resolve().parents[2]
-S = R / "stage1/compiler-contracts/schemas/axiom.provider-abi.v1.schema.json"
-V = R / "stage1/compiler-contracts/snapshots/provider-abi-v1.json"
-C = R / "stage1/compiler-contracts/fixtures/provider-abi-v1/reference-provider.c"
+DEFAULT_ROOT = Path(__file__).resolve().parents[2]
 
 FIXTURES = {
     "c-reference-descriptor-provider": "positive", "version-incompatible": "negative",
@@ -78,7 +76,7 @@ def validate(v, s):
     actual = {x.get("id"): x.get("kind") for x in v.get("fixtures", []) if isinstance(x, dict)}
     exact(actual, FIXTURES, "required failure fixture coverage drift")
 
-def compile_fixture(target):
+def compile_fixture(target, fixture):
     cc = shutil.which("cc")
     nm = shutil.which("nm")
     need(cc, "C compiler unavailable for reference fixture")
@@ -86,7 +84,7 @@ def compile_fixture(target):
     with tempfile.TemporaryDirectory() as directory:
         directory = Path(directory)
         output = directory / "provider.o"
-        result = subprocess.run([cc, "-std=c11", "-Wall", "-Wextra", "-Werror", "-c", str(C), "-o", str(output)], capture_output=True, text=True)
+        result = subprocess.run([cc, "-std=c11", "-Wall", "-Wextra", "-Werror", "-c", str(fixture), "-o", str(output)], capture_output=True, text=True)
         need(result.returncode == 0, f"C reference fixture failed for {target}: {result.stderr}")
         exports = subprocess.run([nm, "-g", "--defined-only", str(output)], capture_output=True, text=True)
         need(exports.returncode == 0, f"unable to inspect C reference fixture exports for {target}: {exports.stderr}")
@@ -98,7 +96,7 @@ def compile_fixture(target):
         }
         need(expected <= actual, f"C reference fixture missing required exports for {target}: {sorted(expected - actual)}")
         probe = directory / "provider-abi-probe.c"
-        probe.write_text(f'''#include "{C}"
+        probe.write_text(f'''#include "{fixture}"
 int axiom_provider_abi_v1_probe(void) {{
   int (*v1)(axiom_provider_descriptor *) = axiom_provider_v1;
   int (*call)(axiom_handle, axiom_borrowed_bytes, axiom_owned_bytes *) = axiom_provider_call;
@@ -113,12 +111,14 @@ int axiom_provider_abi_v1_probe(void) {{
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--target", default="host", help="supported CI target label compiling this portable C fixture")
+    parser.add_argument("--checkout-root", type=Path, default=Path(os.environ.get("AXIOM_CHECKOUT_PATH", DEFAULT_ROOT)))
     args = parser.parse_args()
     need(args.target.strip(), "target label is required")
-    schema = json.loads(S.read_text())
-    contract = json.loads(V.read_text())
+    root = args.checkout_root.resolve()
+    schema = json.loads((root / "stage1/compiler-contracts/schemas/axiom.provider-abi.v1.schema.json").read_text())
+    contract = json.loads((root / "stage1/compiler-contracts/snapshots/provider-abi-v1.json").read_text())
     validate(contract, schema)
-    compile_fixture(args.target)
+    compile_fixture(args.target, root / "stage1/compiler-contracts/fixtures/provider-abi-v1/reference-provider.c")
     print(json.dumps({"schema": contract["schema_version"], "ok": True, "fixtures": len(FIXTURES), "c_fixture": "compiled", "target": args.target}))
 
 if __name__ == "__main__":

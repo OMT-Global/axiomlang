@@ -259,7 +259,7 @@ matching ceiling in this table in the same PR.
 | Tracked item | Ceiling |
 | --- | ---: |
 | `summary.top_file_line_share` | 0.5767 |
-| `summary.top_file_lines` | 71278 |
+| `summary.top_file_lines` | 71314 |
 | `stage1/crates/axiomc/src/cranelift_backend.rs` | 20120 |
 | `stage1/crates/axiomc/src/cranelift_backend/static_output_purity.rs` | 282 |
 | `stage1/crates/axiomc/src/cranelift_backend/host_env_proc_clock.rs` | 620 |
@@ -269,19 +269,19 @@ matching ceiling in this table in the same PR.
 | `stage1/crates/axiomc/src/cranelift_backend/host_fs.rs` | 984 |
 | `stage1/crates/axiomc/src/cranelift_backend/host_crypto.rs` | 783 |
 | `stage1/crates/axiomc/src/cranelift_backend/host_net_http.rs` | 1121 |
-| `stage1/crates/axiomc/src/hir.rs` | 5904 |
+| `stage1/crates/axiomc/src/hir.rs` | 5992 |
 | `stage1/crates/axiomc/src/project.rs` | 13564 |
 | `stage1/crates/axiomc/src/project/build_contract.rs` | 118 |
 | `stage1/crates/axiomc/src/main.rs` | 11917 |
 | `stage1/crates/axiomc/src/formatter.rs` | 191 |
 | `stage1/crates/axiomc/src/formatter_tests.rs` | 122 |
-| `stage1/crates/axiomc/src/codegen.rs` | 8020 |
+| `stage1/crates/axiomc/src/codegen.rs` | 8040 |
 | `stage1/crates/axiomc/src/syntax.rs` | 6396 |
 | `stage1/crates/axiomc/src/hir/async_runtime.rs` | 188 |
 | `stage1/crates/axiomc/src/hir/capabilities.rs` | 773 |
 | `stage1/crates/axiomc/src/hir/const_arrays.rs` | 330 |
 | `stage1/crates/axiomc/src/hir/const_functions.rs` | 117 |
-| `stage1/crates/axiomc/src/hir/control_flow.rs` | 37 |
+| `stage1/crates/axiomc/src/hir/control_flow.rs` | 114 |
 | `stage1/crates/axiomc/src/hir/definitions.rs` | 686 |
 | `stage1/crates/axiomc/src/hir/diagnostics.rs` | 28 |
 | `stage1/crates/axiomc/src/hir/expressions.rs` | 205 |
