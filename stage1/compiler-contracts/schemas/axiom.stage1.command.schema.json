@@ -11,6 +11,9 @@
       "$ref": "#/$defs/build"
     },
     {
+      "$ref": "#/$defs/cache"
+    },
+    {
       "$ref": "#/$defs/run"
     },
     {
@@ -625,6 +628,89 @@
           "items": {
             "$ref": "#/$defs/mutationSurvivor"
           }
+        }
+      }
+    },
+    "cacheEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "package",
+        "package_root",
+        "path",
+        "kind",
+        "bytes"
+      ],
+      "properties": {
+        "package": {
+          "$ref": "#/$defs/path"
+        },
+        "package_root": {
+          "$ref": "#/$defs/path"
+        },
+        "path": {
+          "$ref": "#/$defs/path"
+        },
+        "kind": {
+          "enum": [
+            "metadata",
+            "object",
+            "generated_source"
+          ]
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "cache": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "ok",
+        "command",
+        "project",
+        "clean",
+        "entries",
+        "bytes_before",
+        "bytes_after",
+        "removed"
+      ],
+      "properties": {
+        "schema_version": {
+          "$ref": "#/$defs/schemaVersion"
+        },
+        "ok": {
+          "const": true
+        },
+        "command": {
+          "const": "cache"
+        },
+        "project": {
+          "$ref": "#/$defs/path"
+        },
+        "clean": {
+          "type": "boolean"
+        },
+        "entries": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/cacheEntry"
+          }
+        },
+        "bytes_before": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "bytes_after": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "removed": {
+          "type": "integer",
+          "minimum": 0
         }
       }
     },

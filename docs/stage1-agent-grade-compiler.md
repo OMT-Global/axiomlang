@@ -1,6 +1,6 @@
 # Stage1 Agent-Grade Compiler Plan
 
-<!-- capability-ledger:v1 commands=31 stdlib_modules=34 stdlib_functions=304 capabilities=9 backend=cranelift -->
+<!-- capability-ledger:v1 commands=32 stdlib_modules=34 stdlib_functions=304 capabilities=9 backend=cranelift -->
 
 This doc is the implementation spec for turning `stage1/` into Axiom's first
 workable compiler for agent use. `docs/stage1.md` stays as the shorter status

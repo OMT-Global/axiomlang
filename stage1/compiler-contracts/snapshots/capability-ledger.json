@@ -84,6 +84,12 @@
     },
     {
       "evidenceTier": "static_spike",
+      "name": "cache",
+      "source": "stage1/crates/axiomc/src/main.rs",
+      "status": "implemented"
+    },
+    {
+      "evidenceTier": "static_spike",
       "name": "caps",
       "source": "stage1/crates/axiomc/src/main.rs",
       "status": "implemented"
@@ -1877,12 +1883,12 @@
   ],
   "summary": {
     "capabilities": 9,
-    "commands": 31,
+    "commands": 32,
     "evidenceTiers": {
       "direct_runtime": 2,
       "production_qualified": 0,
       "scaffold": 5,
-      "static_spike": 221,
+      "static_spike": 222,
       "unsupported": 5
     },
     "runtimeAbiRows": 34,

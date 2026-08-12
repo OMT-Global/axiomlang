@@ -35,6 +35,7 @@ COMMAND_TIERS = {
     "parse": "static_spike",
     "check": "static_spike",
     "build": "static_spike",
+    "cache": "static_spike",
     "run": "static_spike",
     "trace": "static_spike",
     "test": "static_spike",

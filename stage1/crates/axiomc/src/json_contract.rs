@@ -2,7 +2,8 @@ use crate::build_contract::BuildLoweringEvidence;
 use crate::diagnostics::Diagnostic;
 use crate::manifest::{CapabilityDescriptor, TestKind};
 use crate::project::{
-    BuildOutput, CapabilitySbomOutput, CheckOutput, RunOutput, TestListOutput, TestOutput,
+    BuildCacheOutput, BuildOutput, CapabilitySbomOutput, CheckOutput, RunOutput, TestListOutput,
+    TestOutput,
 };
 use serde::Serialize;
 use serde_json::{Value, json};
@@ -92,6 +93,20 @@ pub fn build_error(error: &Diagnostic) -> Value {
         payload["lowering"] = json!(BuildLoweringEvidence::blocked_legacy_fallback());
     }
     payload
+}
+
+pub fn cache_success(project: &Path, output: &BuildCacheOutput) -> Value {
+    json!({
+        "schema_version": JSON_SCHEMA_VERSION,
+        "ok": true,
+        "command": "cache",
+        "project": project.display().to_string(),
+        "clean": output.clean,
+        "entries": output.entries,
+        "bytes_before": output.bytes_before,
+        "bytes_after": output.bytes_after,
+        "removed": output.removed,
+    })
 }
 
 pub fn run_success(project: &Path, output: &RunOutput) -> Value {
