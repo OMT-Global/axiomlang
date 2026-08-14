@@ -44,6 +44,22 @@ class RuntimeObservabilityContractTests(unittest.TestCase):
             with self.assertRaises(checker.ContractError):
                 checker.validate_contract(root)
 
+    def test_snapshot_rejects_duplicate_labels(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / checker.SCHEMA).parent.mkdir(parents=True)
+            (root / checker.SNAPSHOT).parent.mkdir(parents=True)
+            (root / checker.FIXTURES).mkdir(parents=True)
+            (root / checker.SCHEMA).write_text((ROOT / checker.SCHEMA).read_text(encoding="utf-8"), encoding="utf-8")
+            snapshot = json.loads((ROOT / checker.SNAPSHOT).read_text(encoding="utf-8"))
+            snapshot["event"]["labels"] = ["component", "component"]
+            (root / checker.SNAPSHOT).write_text(json.dumps(snapshot), encoding="utf-8")
+            for fixture in snapshot["fixtures"]:
+                source = ROOT / checker.FIXTURES / fixture["path"]
+                (root / checker.FIXTURES / fixture["path"]).write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
+            with self.assertRaises(checker.ContractError):
+                checker.validate_contract(root)
+
     def test_redaction_fixture_rejects_secret_value(self) -> None:
         fixture = json.loads(
             (ROOT / checker.FIXTURES / "redaction-negative.json").read_text(encoding="utf-8")

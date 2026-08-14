@@ -124,6 +124,7 @@ def validate_contract(root: Path) -> dict[str, Any]:
     require(snapshot["contract"] == "runtime.observability" and snapshot["issue"] == 1451, "contract identity drift")
     event = snapshot["event"]
     require(event["levels"] == sorted(set(event["levels"])), "levels must be sorted and unique")
+    require(event["labels"] == sorted(set(event["labels"])), "labels must be sorted and unique")
     require(event["max_event_bytes"] <= 65536 and event["max_fields"] <= 32, "event bounds are too large")
     require(event["max_label_values"] <= 1000, "label cardinality is unbounded")
     redaction = snapshot["redaction"]
