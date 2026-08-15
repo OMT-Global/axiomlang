@@ -299,7 +299,7 @@ matching ceiling in this table in the same PR.
 | `stage1/crates/axiomc/src/hir/variants.rs` | 188 |
 | `stage1/crates/axiomc/src/package_trust.rs` | 5410 |
 | `stage1/crates/axiomc/src/registry.rs` | 4319 |
-| `stage1/crates/axiomc/src/lib.rs` | 36 |
+| `stage1/crates/axiomc/src/lib.rs` | 37 |
 
 ## Extraction Order
 

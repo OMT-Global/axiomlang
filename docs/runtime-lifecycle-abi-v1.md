@@ -6,6 +6,15 @@ capability-resource support. It is a semantic contract: an implementation may
 choose its own storage representation, but it may not silently weaken the
 ownership, cleanup, or failure rules below.
 
+The first implementation slice lives in
+`stage1/crates/axiomc/src/runtime_lifecycle.rs`. `LifecycleRuntime` is a
+target-neutral state machine for backend lowering: it owns checked byte
+allocations, explicit resize failure, move/clone/copy decisions, borrow gates,
+recursive aggregate cleanup, scope-exit cleanup, and opaque capability-scoped
+resource handles. It records lifecycle operations for inspection without
+exposing host addresses or handles. Backend-specific layout and code emission
+remain separate adapters over this state machine.
+
 The machine-readable contract is
 `stage1/compiler-contracts/snapshots/runtime-lifecycle-v1.json` and validates
 against `stage1/compiler-contracts/schemas/axiom.runtime_lifecycle.v1.schema.json`.
