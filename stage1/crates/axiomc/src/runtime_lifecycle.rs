@@ -4,6 +4,14 @@
 //! the state machine that a backend can drive after lowering lifecycle MIR:
 //! allocation failure is explicit, moves invalidate the source token, borrows
 //! gate mutation and cleanup, and scope cleanup is deterministic.
+//!
+//! Cleanup-safe borrow policy: every drop and scope exit validates its entire
+//! cleanup closure for active borrows before mutating any state.  When a
+//! borrow is still active, the operation fails with `lifecycle.borrow_conflict`
+//! and leaves the ownership state untouched, so the outstanding cleanup
+//! obligation stays reachable and the operation can be retried deterministically
+//! after the borrow extent ends.  Ownership cycles are rejected at attach time
+//! with `lifecycle.ownership_cycle` so deterministic cleanup paths always exist.
 
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
@@ -78,6 +86,7 @@ pub enum LifecycleError {
     BorrowStillActive(OwnerId),
     UnknownBorrow(BorrowId),
     OwnershipEscape(OwnerId),
+    OwnershipCycle(OwnerId),
     NotCopyable(OwnerId),
     UnknownResource(ResourceId),
     ResourceUseAfterClose(ResourceId),
@@ -98,6 +107,7 @@ impl LifecycleError {
             Self::BorrowConflict(_) | Self::BorrowStillActive(_) => "lifecycle.borrow_conflict",
             Self::UnknownBorrow(_) => "lifecycle.unknown_borrow",
             Self::OwnershipEscape(_) => "lifecycle.ownership_escape",
+            Self::OwnershipCycle(_) => "lifecycle.ownership_cycle",
             Self::NotCopyable(_) => "lifecycle.copy_non_copyable",
             Self::UnknownResource(_) => "lifecycle.unknown_resource",
             Self::ResourceUseAfterClose(_) => "lifecycle.resource_use_after_close",
@@ -126,6 +136,7 @@ impl fmt::Display for LifecycleError {
             Self::BorrowConflict(id)
             | Self::BorrowStillActive(id)
             | Self::OwnershipEscape(id)
+            | Self::OwnershipCycle(id)
             | Self::NotCopyable(id) => write!(f, "{}: owner {}", self.code(), id.raw()),
             Self::UnknownBorrow(id) => write!(f, "{}: borrow {}", self.code(), id.raw()),
             Self::UnknownResource(id)
@@ -468,6 +479,9 @@ impl LifecycleRuntime {
         if self.owner(child)?.parent.is_some() || parent == child {
             return Err(LifecycleError::OwnershipEscape(child));
         }
+        if self.has_ancestor(parent, child) {
+            return Err(LifecycleError::OwnershipCycle(child));
+        }
         self.remove_from_scopes(child);
         self.owner_mut(child)?.parent = Some(parent);
         self.owner_mut(parent)?.children.push(child);
@@ -634,7 +648,25 @@ impl LifecycleRuntime {
     }
 
     pub fn exit_scope(&mut self, reason: ExitReason) -> Result<(), LifecycleError> {
-        let scope = self.scopes.pop().ok_or(LifecycleError::ScopeUnderflow)?;
+        // Cleanup-safe borrow policy: validate the full cleanup closure before
+        // popping anything.  If an owner in this scope (or in an aggregate
+        // rooted at a scoped owner) still has an active borrow, retain the
+        // scope and surface `lifecycle.borrow_conflict` so the outstanding
+        // cleanup obligation stays reachable and this exit can be retried
+        // deterministically once the borrow extent ends.  No exit reason --
+        // normal, error, or panic/unwind -- may skip an owned value.
+        let scope = self.scopes.last().ok_or(LifecycleError::ScopeUnderflow)?;
+        for entry in &scope.entries {
+            if let ScopeEntry::Owner(owner) = entry {
+                if let Some(borrowed) = self.first_borrowed_in_subtree(*owner) {
+                    return Err(LifecycleError::BorrowStillActive(borrowed));
+                }
+            }
+        }
+        let scope = self
+            .scopes
+            .pop()
+            .expect("validated scope must still be present");
         for action in scope.deferred.iter().rev() {
             self.record(LifecycleOperation {
                 operation: "defer".into(),
@@ -724,7 +756,12 @@ impl LifecycleRuntime {
             OwnerStatus::Moved => return Err(LifecycleError::UseAfterMove(owner)),
             OwnerStatus::Dropped => return Err(LifecycleError::DoubleFree(owner)),
         }
-        self.require_no_borrows(owner)?;
+        // Validate the whole aggregate subtree before mutating so a failed
+        // drop never leaves a partially destroyed aggregate with stranded
+        // cleanup obligations.
+        if let Some(borrowed) = self.first_borrowed_in_subtree(owner) {
+            return Err(LifecycleError::BorrowStillActive(borrowed));
+        }
         let children = self.owner(owner)?.children.clone();
         let allocation = self.owner(owner)?.allocation;
         self.owner_mut(owner)?.status = OwnerStatus::Dropped;
@@ -813,6 +850,36 @@ impl LifecycleRuntime {
         } else {
             Err(LifecycleError::BorrowStillActive(owner))
         }
+    }
+
+    /// Returns true when `candidate` is `node` or one of its ancestors.  The
+    /// ownership forest is acyclic by construction because attachments that
+    /// would introduce a cycle are rejected, so this walk terminates.
+    fn has_ancestor(&self, node: OwnerId, candidate: OwnerId) -> bool {
+        let mut current = Some(node);
+        while let Some(id) = current {
+            if id == candidate {
+                return true;
+            }
+            current = self.owners.get(&id).and_then(|owner| owner.parent);
+        }
+        false
+    }
+
+    /// Returns the first owner with an active borrow in the aggregate subtree
+    /// rooted at `owner` (including `owner` itself), visiting children in
+    /// declaration order so the reported diagnostic is deterministic.
+    fn first_borrowed_in_subtree(&self, owner: OwnerId) -> Option<OwnerId> {
+        let record = self.owners.get(&owner)?;
+        if !record.borrows.is_empty() {
+            return Some(owner);
+        }
+        for child in &record.children {
+            if let Some(borrowed) = self.first_borrowed_in_subtree(*child) {
+                return Some(borrowed);
+            }
+        }
+        None
     }
 
     fn resource(&self, resource: ResourceId) -> Result<&Resource, LifecycleError> {
@@ -967,5 +1034,112 @@ mod tests {
             runtime.close_resource(moved).unwrap_err().code(),
             "lifecycle.double_close"
         );
+    }
+    #[test]
+    fn attach_child_rejects_ancestor_attachment_cycles() {
+        let mut runtime = LifecycleRuntime::new(64);
+        runtime.enter_scope();
+        let parent = runtime.allocate(1, false).unwrap();
+        let child = runtime.allocate(1, false).unwrap();
+        let grandchild = runtime.allocate(1, false).unwrap();
+        runtime.attach_child(parent, child).unwrap();
+        runtime.attach_child(child, grandchild).unwrap();
+        // Direct two-node cycle: attaching the ancestor under its descendant.
+        assert_eq!(
+            runtime.attach_child(child, parent).unwrap_err().code(),
+            "lifecycle.ownership_cycle"
+        );
+        // Three-node cycle: attaching the root ancestor under its grandchild.
+        assert_eq!(
+            runtime.attach_child(grandchild, parent).unwrap_err().code(),
+            "lifecycle.ownership_cycle"
+        );
+        // Re-attaching a child that already has a parent remains an
+        // ownership escape, even when the candidate parent is a descendant.
+        assert_eq!(
+            runtime.attach_child(grandchild, child).unwrap_err().code(),
+            "lifecycle.ownership_escape"
+        );
+        // Self-attachment remains an ownership escape.
+        assert_eq!(
+            runtime.attach_child(parent, parent).unwrap_err().code(),
+            "lifecycle.ownership_escape"
+        );
+        // Rejections leave the ownership forest unchanged.
+        let allocations = runtime.inspect().allocations;
+        let children_of = |owner: OwnerId| {
+            allocations
+                .iter()
+                .find(|allocation| allocation.owner == owner)
+                .unwrap()
+                .children
+                .clone()
+        };
+        assert_eq!(children_of(parent), vec![child]);
+        assert_eq!(children_of(child), vec![grandchild]);
+        assert_eq!(children_of(grandchild), Vec::<OwnerId>::new());
+        assert_eq!(runtime.outstanding_cleanup_obligations(), 3);
+    }
+
+    #[test]
+    fn scope_exit_with_active_borrow_retains_scope_for_every_exit_reason() {
+        for reason in [
+            ExitReason::NormalReturn,
+            ExitReason::EarlyReturn,
+            ExitReason::ErrorReturn,
+            ExitReason::PanicUnwind,
+            ExitReason::Cancellation,
+        ] {
+            let mut runtime = LifecycleRuntime::new(32);
+            runtime.enter_scope();
+            let owner = runtime.allocate(2, false).unwrap();
+            let borrow = runtime.borrow(owner, BorrowMode::Shared).unwrap();
+            let error = runtime.exit_scope(reason).unwrap_err();
+            assert_eq!(error, LifecycleError::BorrowStillActive(owner));
+            // The scope is retained: obligations stay reachable and the
+            // runtime still accepts scoped operations.
+            assert_eq!(runtime.outstanding_cleanup_obligations(), 1);
+            runtime.defer("after-failed-exit").unwrap();
+            runtime.end_borrow(borrow).unwrap();
+            runtime.exit_scope(reason).unwrap();
+            assert_eq!(runtime.outstanding_cleanup_obligations(), 0);
+        }
+    }
+
+    #[test]
+    fn scope_exit_rejects_borrowed_aggregate_child_and_recovers() {
+        let mut runtime = LifecycleRuntime::new(64);
+        runtime.enter_scope();
+        let parent = runtime.allocate(1, false).unwrap();
+        let child = runtime.allocate(1, false).unwrap();
+        runtime.attach_child(parent, child).unwrap();
+        let borrow = runtime.borrow(child, BorrowMode::Mutable).unwrap();
+        let error = runtime.exit_scope(ExitReason::PanicUnwind).unwrap_err();
+        assert_eq!(error, LifecycleError::BorrowStillActive(child));
+        // Nothing was dropped or popped: both obligations remain.
+        assert_eq!(runtime.outstanding_cleanup_obligations(), 2);
+        runtime.end_borrow(borrow).unwrap();
+        runtime.exit_scope(ExitReason::PanicUnwind).unwrap();
+        assert_eq!(runtime.outstanding_cleanup_obligations(), 0);
+    }
+
+    #[test]
+    fn drop_owner_rejects_borrowed_child_without_partial_drop() {
+        let mut runtime = LifecycleRuntime::new(64);
+        runtime.enter_scope();
+        let parent = runtime.allocate(1, false).unwrap();
+        let child = runtime.allocate(1, false).unwrap();
+        runtime.attach_child(parent, child).unwrap();
+        let borrow = runtime.borrow(child, BorrowMode::Shared).unwrap();
+        assert_eq!(
+            runtime.drop_value(parent).unwrap_err().code(),
+            "lifecycle.borrow_conflict"
+        );
+        // No partial drop: parent and child are both still active.
+        assert_eq!(runtime.outstanding_cleanup_obligations(), 2);
+        assert!(runtime.inspect().allocations.iter().all(|a| a.active));
+        runtime.end_borrow(borrow).unwrap();
+        runtime.drop_value(parent).unwrap();
+        assert_eq!(runtime.outstanding_cleanup_obligations(), 0);
     }
 }

@@ -58,7 +58,8 @@ aggregate allocation. Recursive destruction uses the same rule at every level.
 Each cleanup obligation is discharged exactly once, even when a child cleanup
 reports an error. A cycle or an ownership escape that prevents a deterministic
 cleanup path is rejected unless a separately declared shared-resource contract
-proves its release rule.
+proves its release rule; attaching an owner under one of its own descendants
+is diagnosed as `lifecycle.ownership_cycle`.
 
 ## Scope exit, defer, and errors
 
@@ -75,6 +76,10 @@ Deferred actions may observe values captured by their declaration, but must not
 extend a borrow or capability authority after the enclosing scope ends.
 Panic/unwind and error-return paths use the same cleanup obligations as normal
 return paths; neither is permitted to skip an owned value or resource handle.
+If a scope exit or drop would encounter an owned value with an active borrow,
+it is diagnosed as `lifecycle.borrow_conflict` before any cleanup state is
+mutated: the scope or aggregate is retained, the obligation stays reachable,
+and the cleanup can be retried once the borrow extent ends.
 
 ## Capability-resource handles
 
