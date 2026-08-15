@@ -762,8 +762,17 @@ impl LifecycleRuntime {
         if let Some(borrowed) = self.first_borrowed_in_subtree(owner) {
             return Err(LifecycleError::BorrowStillActive(borrowed));
         }
-        let children = self.owner(owner)?.children.clone();
-        let allocation = self.owner(owner)?.allocation;
+        let owner_record = self.owner(owner)?.clone();
+        let children = owner_record.children;
+        let allocation = owner_record.allocation;
+        // A direct drop may discharge an attached child before its parent.
+        // Unlink it first so later aggregate or scope cleanup cannot revisit
+        // a stale child and report a spurious double free.
+        if let Some(parent) = owner_record.parent {
+            self.owner_mut(parent)?
+                .children
+                .retain(|child| *child != owner);
+        }
         self.owner_mut(owner)?.status = OwnerStatus::Dropped;
         self.owner_mut(owner)?.parent = None;
         for child in &children {
@@ -1140,6 +1149,17 @@ mod tests {
         assert!(runtime.inspect().allocations.iter().all(|a| a.active));
         runtime.end_borrow(borrow).unwrap();
         runtime.drop_value(parent).unwrap();
+        assert_eq!(runtime.outstanding_cleanup_obligations(), 0);
+
+        // A directly dropped attached child must be unlinked before its
+        // parent is later discharged through scope cleanup.
+        let mut runtime = LifecycleRuntime::new(64);
+        runtime.enter_scope();
+        let parent = runtime.allocate(1, false).unwrap();
+        let child = runtime.allocate(1, false).unwrap();
+        runtime.attach_child(parent, child).unwrap();
+        runtime.drop_value(child).unwrap();
+        runtime.exit_scope(ExitReason::NormalReturn).unwrap();
         assert_eq!(runtime.outstanding_cleanup_obligations(), 0);
     }
 }
