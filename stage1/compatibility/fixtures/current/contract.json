@@ -1041,6 +1041,21 @@
       "version": "0.1.0"
     },
     {
+      "id": "axiom://schema/axiom.runtime_network_authority.v2",
+      "kind": "schema",
+      "signature": "published schema id=https://axiom-lang.org/schemas/axiom.runtime_network_authority.v2.schema.json; semantic_digest=83229769c338ea7e34afaf47b5427604422f484771a4292f84e38bd08f2fc79b; envelope=axiom.runtime_network_authority.v2",
+      "sources": [
+        {
+          "path": "stage1/compiler-contracts/schemas/axiom.runtime_network_authority.v2.schema.json",
+          "role": "published_schema",
+          "selector": "$id,properties.schema_version.const",
+          "sha256": "0f0d109a6ea8e7cf821c411dc4c791179d89a605f3b4216ec2413c67e025cb20"
+        }
+      ],
+      "stability": "experimental",
+      "version": "0.1.0"
+    },
+    {
       "id": "axiom://schema/axiom.semantic_mir.v1",
       "kind": "schema",
       "signature": "published schema id=https://omt-global.github.io/axiom/schemas/axiom.semantic_mir.v1.schema.json; semantic_digest=3b96a52b476fdc6e39f6a51542d6d8bf841634ad06af6f907aa9151368df667c; envelope=axiom.semantic_mir.v1",
