@@ -1,0 +1,4 @@
+match 1 {
+1 { print "one" }
+_ { print "other" }
+}

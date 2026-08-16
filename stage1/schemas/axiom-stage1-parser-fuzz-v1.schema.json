@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://axiom.omt.global/schemas/axiom-stage1-parser-fuzz-v1.schema.json",
+  "title": "Axiom Stage 1 Parser Fuzz Evidence v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "head_sha",
+    "corpus_sha256",
+    "seed",
+    "cases_requested",
+    "cases_executed",
+    "timeout_ms",
+    "budget_seconds",
+    "failure_count",
+    "status",
+    "cases"
+  ],
+  "properties": {
+    "schema_version": { "const": "axiom.stage1.parser_fuzz.v1" },
+    "head_sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "corpus_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "seed": { "type": "integer" },
+    "cases_requested": { "type": "integer", "minimum": 1 },
+    "cases_executed": { "type": "integer", "minimum": 0 },
+    "timeout_ms": { "type": "integer", "minimum": 1 },
+    "budget_seconds": { "type": "number", "exclusiveMinimum": 0 },
+    "failure_count": { "type": "integer", "minimum": 0 },
+    "status": { "enum": ["passed", "failed"] },
+    "cases": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/case" }
+    }
+  },
+  "$defs": {
+    "case": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "case_id",
+        "seed",
+        "corpus_entry",
+        "source_sha256",
+        "input_bytes",
+        "status",
+        "exit_code",
+        "duration_ms"
+      ],
+      "properties": {
+        "case_id": { "type": "string", "minLength": 1 },
+        "seed": { "type": "integer", "minimum": 0 },
+        "corpus_entry": { "type": "string", "minLength": 1 },
+        "source_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "input_bytes": { "type": "integer", "minimum": 1 },
+        "status": {
+          "enum": ["accepted", "diagnostic", "timeout", "crash", "invalid_output"]
+        },
+        "exit_code": { "type": ["integer", "null"] },
+        "duration_ms": { "type": "integer", "minimum": 0 },
+        "stderr": { "type": "string" },
+        "reproducer": { "type": "string", "minLength": 1 },
+        "reproducer_bytes": { "type": "integer", "minimum": 1 }
+      }
+    }
+  }
+}

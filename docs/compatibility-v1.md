@@ -80,7 +80,7 @@ release history or a previous compiler.
 `previous-contract-fixture/` remains sparse synthetic checker input and is not
 used as the canonical ratchet.
 
-The current source contract is version `0.4.0` with 67 surfaces. Its changes
+The current source contract is version `0.4.0` with 68 surfaces. Its changes
 from the byte-frozen 52-surface `0.1.0` accepted baseline include the five
 Package Trust v1 schemas, four additive base-contract schemas (Provider ABI,
 Semantic MIR, runtime lifecycle, target support, and persistent LSP), two quality

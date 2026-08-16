@@ -1,0 +1,2 @@
+import "std/testing.ax"
+print property("seeded", true)
