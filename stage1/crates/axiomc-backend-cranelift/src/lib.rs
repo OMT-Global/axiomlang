@@ -92,6 +92,8 @@ struct I64RuntimeRefs {
     waitpid: FuncRef,
     #[cfg(not(windows))]
     exit: FuncRef,
+    #[cfg(not(windows))]
+    mkstemp: FuncRef,
     fopen: FuncRef,
     fwrite: FuncRef,
     fclose: FuncRef,
@@ -873,6 +875,17 @@ fn emit_i64_exit_object(
                 CraneliftBackendError::new(format!("declare _exit import: {message}"))
             })?
     };
+    #[cfg(not(windows))]
+    let mkstemp_id = {
+        let mut sig = module.make_signature();
+        sig.params.push(AbiParam::new(pointer_type));
+        sig.returns.push(AbiParam::new(types::I32));
+        module
+            .declare_function("mkstemp", Linkage::Import, &sig)
+            .map_err(|message| {
+                CraneliftBackendError::new(format!("declare mkstemp import: {message}"))
+            })?
+    };
     let mut fopen_sig = module.make_signature();
     fopen_sig.params.push(AbiParam::new(pointer_type));
     fopen_sig.params.push(AbiParam::new(pointer_type));
@@ -1065,6 +1078,7 @@ fn emit_i64_exit_object(
                 execv_id,
                 waitpid_id,
                 exit_id,
+                mkstemp_id,
                 fopen_id,
                 fwrite_id,
                 fclose_id,
@@ -1173,6 +1187,8 @@ fn emit_i64_exit_object(
         let waitpid_ref = module.declare_func_in_func(waitpid_id, builder.func);
         #[cfg(not(windows))]
         let exit_ref = module.declare_func_in_func(exit_id, builder.func);
+        #[cfg(not(windows))]
+        let mkstemp_ref = module.declare_func_in_func(mkstemp_id, builder.func);
         let fopen_ref = module.declare_func_in_func(fopen_id, builder.func);
         let fwrite_ref = module.declare_func_in_func(fwrite_id, builder.func);
         let fclose_ref = module.declare_func_in_func(fclose_id, builder.func);
@@ -1221,6 +1237,8 @@ fn emit_i64_exit_object(
             waitpid: waitpid_ref,
             #[cfg(not(windows))]
             exit: exit_ref,
+            #[cfg(not(windows))]
+            mkstemp: mkstemp_ref,
             fopen: fopen_ref,
             fwrite: fwrite_ref,
             fclose: fclose_ref,
@@ -1484,6 +1502,7 @@ fn define_i64_function(
     #[cfg(not(windows))] execv_id: FuncId,
     #[cfg(not(windows))] waitpid_id: FuncId,
     #[cfg(not(windows))] exit_id: FuncId,
+    #[cfg(not(windows))] mkstemp_id: FuncId,
     fopen_id: FuncId,
     fwrite_id: FuncId,
     fclose_id: FuncId,
@@ -1559,6 +1578,8 @@ fn define_i64_function(
         let waitpid_ref = module.declare_func_in_func(waitpid_id, builder.func);
         #[cfg(not(windows))]
         let exit_ref = module.declare_func_in_func(exit_id, builder.func);
+        #[cfg(not(windows))]
+        let mkstemp_ref = module.declare_func_in_func(mkstemp_id, builder.func);
         let fopen_ref = module.declare_func_in_func(fopen_id, builder.func);
         let fwrite_ref = module.declare_func_in_func(fwrite_id, builder.func);
         let fclose_ref = module.declare_func_in_func(fclose_id, builder.func);
@@ -1607,6 +1628,8 @@ fn define_i64_function(
             waitpid: waitpid_ref,
             #[cfg(not(windows))]
             exit: exit_ref,
+            #[cfg(not(windows))]
+            mkstemp: mkstemp_ref,
             fopen: fopen_ref,
             fwrite: fwrite_ref,
             fclose: fclose_ref,
@@ -5822,6 +5845,132 @@ fn emit_i64_create_file_expr(
     Ok(builder.block_params(merge_block)[0])
 }
 
+#[cfg(not(windows))]
+fn emit_i64_replace_file_expr(
+    builder: &mut FunctionBuilder<'_>,
+    runtime_refs: I64RuntimeRefs,
+    path: &str,
+    temp_path: &str,
+    content: &str,
+) -> Result<cranelift_codegen::ir::Value, CraneliftBackendError> {
+    if path.as_bytes().contains(&0) || temp_path.as_bytes().contains(&0) {
+        return Err(CraneliftBackendError::new(
+            "filesystem replace path contains an interior null byte",
+        ));
+    }
+    let temp_len = u32::try_from(temp_path.len() + 1)
+        .map_err(|_| CraneliftBackendError::new("filesystem replace path is too large"))?;
+    let content_len = u32::try_from(content.len())
+        .map_err(|_| CraneliftBackendError::new("filesystem replace content is too large"))?;
+    let temp_slot = builder.create_sized_stack_slot(StackSlotData::new(
+        StackSlotKind::ExplicitSlot,
+        temp_len,
+        0,
+    ));
+    for (offset, byte) in temp_path.bytes().chain(std::iter::once(0)).enumerate() {
+        let byte_value = builder.ins().iconst(types::I8, i64::from(byte));
+        builder
+            .ins()
+            .stack_store(byte_value, temp_slot, offset as i32);
+    }
+    let content_slot = builder.create_sized_stack_slot(StackSlotData::new(
+        StackSlotKind::ExplicitSlot,
+        content_len.max(1),
+        0,
+    ));
+    for (offset, byte) in content.bytes().enumerate() {
+        let byte_value = builder.ins().iconst(types::I8, i64::from(byte));
+        builder
+            .ins()
+            .stack_store(byte_value, content_slot, offset as i32);
+    }
+
+    let temp_ptr = builder.ins().stack_addr(types::I64, temp_slot, 0);
+    let fd_call = builder.ins().call(runtime_refs.mkstemp, &[temp_ptr]);
+    let fd = builder.inst_results(fd_call)[0];
+    let open_failed_block = builder.create_block();
+    let write_block = builder.create_block();
+    let close_block = builder.create_block();
+    let rename_block = builder.create_block();
+    let cleanup_failed_block = builder.create_block();
+    let success_block = builder.create_block();
+    let merge_block = builder.create_block();
+    builder.append_block_param(close_block, types::I64);
+    builder.append_block_param(merge_block, types::I64);
+
+    let open_failed = builder.ins().icmp_imm(IntCC::SignedLessThan, fd, 0);
+    builder
+        .ins()
+        .brif(open_failed, open_failed_block, &[], write_block, &[]);
+
+    builder.switch_to_block(write_block);
+    builder.seal_block(write_block);
+    let content_ptr = builder.ins().stack_addr(types::I64, content_slot, 0);
+    let expected_len = builder.ins().iconst(types::I64, i64::from(content_len));
+    let write_call = builder
+        .ins()
+        .call(runtime_refs.write, &[fd, content_ptr, expected_len]);
+    let written = builder.inst_results(write_call)[0];
+    let full_write = builder.ins().icmp(IntCC::Equal, written, expected_len);
+    let success_value = builder.ins().iconst(types::I64, 0);
+    let failure_value = builder.ins().iconst(types::I64, -1);
+    let write_result = builder
+        .ins()
+        .select(full_write, success_value, failure_value);
+    builder
+        .ins()
+        .jump(close_block, &[BlockArg::Value(write_result)]);
+
+    builder.switch_to_block(close_block);
+    builder.seal_block(close_block);
+    let write_result = builder.block_params(close_block)[0];
+    let close_call = builder.ins().call(runtime_refs.close, &[fd]);
+    let close_result = builder.inst_results(close_call)[0];
+    let close_ok = builder.ins().icmp_imm(IntCC::Equal, close_result, 0);
+    let write_ok = builder.ins().icmp_imm(IntCC::Equal, write_result, 0);
+    let ready_to_rename = builder.ins().band(close_ok, write_ok);
+    builder.ins().brif(
+        ready_to_rename,
+        rename_block,
+        &[],
+        cleanup_failed_block,
+        &[],
+    );
+
+    builder.switch_to_block(rename_block);
+    builder.seal_block(rename_block);
+    let path_ptr = emit_i64_path_ptr(builder, path)?;
+    let rename_call = builder
+        .ins()
+        .call(runtime_refs.rename, &[temp_ptr, path_ptr]);
+    let rename_result = builder.inst_results(rename_call)[0];
+    let rename_ok = builder.ins().icmp_imm(IntCC::Equal, rename_result, 0);
+    builder
+        .ins()
+        .brif(rename_ok, success_block, &[], cleanup_failed_block, &[]);
+
+    builder.switch_to_block(open_failed_block);
+    builder.seal_block(open_failed_block);
+    let failed = builder.ins().iconst(types::I64, -1);
+    builder.ins().jump(merge_block, &[BlockArg::Value(failed)]);
+
+    builder.switch_to_block(cleanup_failed_block);
+    builder.seal_block(cleanup_failed_block);
+    builder.ins().call(runtime_refs.unlink, &[temp_ptr]);
+    let failed = builder.ins().iconst(types::I64, -1);
+    builder.ins().jump(merge_block, &[BlockArg::Value(failed)]);
+
+    builder.switch_to_block(success_block);
+    builder.seal_block(success_block);
+    let success = builder.ins().iconst(types::I64, 0);
+    builder.ins().jump(merge_block, &[BlockArg::Value(success)]);
+
+    builder.switch_to_block(merge_block);
+    builder.seal_block(merge_block);
+    Ok(builder.block_params(merge_block)[0])
+}
+
+#[cfg(windows)]
 fn emit_i64_replace_file_expr(
     builder: &mut FunctionBuilder<'_>,
     runtime_refs: I64RuntimeRefs,
@@ -6832,8 +6981,14 @@ mod tests {
         }
         let temp = tempfile::tempdir().expect("tempdir");
         let fixture = temp.path().join("fixture.txt");
-        let temp_fixture = temp.path().join(".fixture.txt.axiom-replace.tmp");
+        let temp_fixture = temp.path().join(".fixture.txt.axiom-replace.XXXXXX");
+        let legacy_temp_fixture = temp.path().join(".fixture.txt.axiom-replace.tmp");
+        let sentinel = temp.path().join("external-sentinel.txt");
         fs::write(&fixture, "base").expect("write replace base fixture");
+        fs::write(&sentinel, "sentinel").expect("write replace sentinel");
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&sentinel, &legacy_temp_fixture)
+            .expect("plant legacy replace temp symlink");
         let object = temp.path().join("i64-exit-replace-file.o");
         let binary = temp.path().join("i64-exit-replace-file");
         compile_i64_exit_program(
@@ -6856,9 +7011,19 @@ mod tests {
             fs::read_to_string(&fixture).expect("read compile-time replace fixture"),
             "base"
         );
+        assert!(!temp_fixture.exists(), "compile should not create replace temp");
+        #[cfg(unix)]
+        assert_eq!(
+            fs::read_to_string(&sentinel).expect("read compile-time sentinel"),
+            "sentinel"
+        );
+        #[cfg(unix)]
         assert!(
-            !temp_fixture.exists(),
-            "compile should not create the replace temp fixture"
+            fs::symlink_metadata(&legacy_temp_fixture)
+                .expect("read legacy replace temp metadata")
+                .file_type()
+                .is_symlink(),
+            "legacy predictable temp entry must not be replaced"
         );
         let output = Command::new(&binary)
             .output()
@@ -6871,6 +7036,19 @@ mod tests {
         assert!(
             !temp_fixture.exists(),
             "runtime replace should not leave the temp fixture"
+        );
+        #[cfg(unix)]
+        assert_eq!(
+            fs::read_to_string(&sentinel).expect("read runtime sentinel"),
+            "sentinel"
+        );
+        #[cfg(unix)]
+        assert!(
+            fs::symlink_metadata(&legacy_temp_fixture)
+                .expect("read runtime legacy replace temp metadata")
+                .file_type()
+                .is_symlink(),
+            "legacy predictable temp entry must remain untouched"
         );
     }
 
