@@ -95,7 +95,7 @@
           "path": "stage1/compiler-contracts/snapshots/capability-ledger.json",
           "role": "cli_top_level_parity",
           "selector": "commands[*].name",
-          "sha256": "d0bc447b9116fc1e9ab918f6cbb2206ad0ec7b102491ef0a55501b142f74a799"
+          "sha256": "35fe8421bc8754e1826ce65c5d11efb951070bb2a47f9995c25935771cbc1b17"
         },
         {
           "path": "stage1/crates/axiomc/src/main.rs",
@@ -1035,6 +1035,21 @@
           "role": "published_schema",
           "selector": "$id,properties.schema_version.const",
           "sha256": "4c0a9942c4d636ec842fa1753c2d604c72b9f8f8fa0a01b7ce9dd6be9f3d258d"
+        }
+      ],
+      "stability": "experimental",
+      "version": "0.1.0"
+    },
+    {
+      "id": "axiom://schema/axiom.runtime_observability.v1",
+      "kind": "schema",
+      "signature": "published schema id=https://axiom-lang.org/schemas/axiom.runtime_observability.v1.schema.json; semantic_digest=0483299a6e3c2b0f224aaaeff368d9b24be7d210e29b51ed91716f18f12b682e; envelope=axiom.runtime_observability.v1",
+      "sources": [
+        {
+          "path": "stage1/compiler-contracts/schemas/axiom.runtime_observability.v1.schema.json",
+          "role": "published_schema",
+          "selector": "$id,properties.schema_version.const",
+          "sha256": "bc172efa5cf1f3ef7f5e3caa87ac83aff7c4cfe8d382732cb3a82ffb045e9fa8"
         }
       ],
       "stability": "experimental",
