@@ -15,6 +15,16 @@ resource handles. It records lifecycle operations for inspection without
 exposing host addresses or handles. Backend-specific layout and code emission
 remain separate adapters over this state machine.
 
+The first direct-native adapter evidence covers projection-sensitive movement
+of a fixed array, including nested projected element slots, out of an owned
+local struct. The Cranelift lowering transfers the existing projected element
+slots to the destination, removes the source projection aliases, preserves
+unmoved sibling fields, and emits a native binary without generated-Rust
+fallback. Front-end ownership conformance continues to reject any later use of
+the moved projection. This is deliberately narrower than the dynamic non-Copy
+aggregate ABI tracked by #1439: it does not define general aggregate layout,
+allocation, calls, returns, or cleanup storage.
+
 The machine-readable contract is
 `stage1/compiler-contracts/snapshots/runtime-lifecycle-v1.json` and validates
 against `stage1/compiler-contracts/schemas/axiom.runtime_lifecycle.v1.schema.json`.

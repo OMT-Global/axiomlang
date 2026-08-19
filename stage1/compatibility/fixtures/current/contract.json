@@ -95,7 +95,7 @@
           "path": "stage1/compiler-contracts/snapshots/capability-ledger.json",
           "role": "cli_top_level_parity",
           "selector": "commands[*].name",
-          "sha256": "35fe8421bc8754e1826ce65c5d11efb951070bb2a47f9995c25935771cbc1b17"
+          "sha256": "2ef20aa0f3b02b5f613baa7716b4e001e6ba69ba1c9ac7d31bc64d4d14fc9bac"
         },
         {
           "path": "stage1/crates/axiomc/src/main.rs",
@@ -188,7 +188,7 @@
           "path": "stage1/runtime-abi/direct-native-v0.json",
           "role": "runtime_abi_readiness_parity",
           "selector": "value_features[*].id,capability_shims[*].(id,capability)",
-          "sha256": "8a03f82820516beb78911e8cfc6c72f800583579cc76abfb6d1670f1bca67ed8"
+          "sha256": "02eb101d1a6843134055f97479fc0ea636566e9aeda1fb0b9a48523abaab8ad4"
         }
       ],
       "stability": "experimental",

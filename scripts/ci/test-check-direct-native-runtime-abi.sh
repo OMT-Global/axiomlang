@@ -24,8 +24,8 @@ assert report["target_id"] == "axiom://target/stage1-direct-native"
 assert report["contract_status"] == "partial"
 assert report["value_feature_count"] == 12
 assert report["capability_shim_count"] == 22
-assert report["status_counts"]["value_features"]["implemented"] == 11
-assert report["status_counts"]["value_features"]["partial"] == 1
+assert report["status_counts"]["value_features"]["implemented"] == 12
+assert report["status_counts"]["value_features"]["partial"] == 0
 assert report["status_counts"]["capability_shims"]["implemented"] == 14
 assert report["status_counts"]["capability_shims"]["partial"] == 8
 assert report["blocked_rows"] == []
@@ -38,8 +38,8 @@ assert report["incomplete_rows"] == [
     "network.http.client",
     "network.tcp",
     "network.udp",
-    "owned.move_state",
 ]
+# Issue 1438 remains while the crypto.aead and crypto.signature rows are partial.
 assert report["blocker_issues"] == [1438, 1445, 1447, 1448, 1449]
 assert report["errors"] == []
 PY
@@ -145,9 +145,11 @@ assert fs_read["coverage"]["negative_or_diagnostic_evidence"]
 assert fs_read["coverage"]["backend_artifact_evidence"]["focused_tests"]
 assert fs_read["coverage"]["backend_artifact_evidence"]["artifact_assertion_tests"]
 owned = rows[("value_features", "owned.move_state")]
-assert owned["status"] == "partial"
-assert owned["coverage"]["positive_runtime_evidence"] == []
-assert owned["blockers"] == [1438]
+assert owned["status"] == "implemented"
+assert owned["coverage"]["positive_runtime_evidence"]
+assert owned["coverage"]["backend_artifact_evidence"]["generated_rust_absent"] is True
+assert owned["coverage"]["backend_artifact_evidence"]["artifact_assertion_tests"]
+assert owned["blockers"] == []
 PY
 
 python3 - "$contract" "$temp_dir/ready-contract.json" <<'PY'

@@ -810,7 +810,7 @@
       "evidenceTier": "static_spike",
       "name": "owned.move_state",
       "source": "stage1/runtime-abi/direct-native-v0.json",
-      "status": "partial"
+      "status": "implemented"
     },
     {
       "evidenceTier": "static_spike",

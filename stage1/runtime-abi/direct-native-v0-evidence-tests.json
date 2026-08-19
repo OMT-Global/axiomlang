@@ -40,7 +40,7 @@
       "cranelift_backend_lowers_nested_option_match_to_runtime_exit_code"
     ],
     "owned.move_state": [
-      "cranelift_backend_rejects_owned_move_state_without_runtime_lowering"
+      "cranelift_backend_lowers_owned_move_state_to_runtime"
     ],
     "result": [
       "cranelift_backend_lowers_result_match_to_runtime_exit_code",
