@@ -382,17 +382,29 @@ impl LifecycleRuntime {
         Ok(storage[offset..end].to_vec())
     }
 
-    pub fn copy_value(&self, owner: OwnerId) -> Result<Vec<u8>, LifecycleError> {
+    pub fn copy_value(&mut self, owner: OwnerId) -> Result<Vec<u8>, LifecycleError> {
         self.require_active_owner(owner)?;
         let allocation = self.owner(owner)?.allocation;
-        let value = self
-            .allocations
-            .get(&allocation)
-            .expect("active owner must have an allocation");
-        if !value.copyable {
-            return Err(LifecycleError::NotCopyable(owner));
-        }
-        Ok(value.bytes.clone())
+        let bytes = {
+            let value = self
+                .allocations
+                .get(&allocation)
+                .expect("active owner must have an allocation");
+            if !value.copyable {
+                return Err(LifecycleError::NotCopyable(owner));
+            }
+            value.bytes.clone()
+        };
+        self.record(LifecycleOperation {
+            operation: "copy".into(),
+            allocation_effect: Some("copy".into()),
+            ownership_transfer: Some(format!("preserves:{}", owner.raw())),
+            borrow_extent: None,
+            cleanup_obligations: self.outstanding_cleanup_obligations(),
+            resource_authority: None,
+            source_provenance: self.owner(owner)?.source_provenance.clone(),
+        });
+        Ok(bytes)
     }
 
     pub fn clone_value(&mut self, owner: OwnerId) -> Result<OwnerId, LifecycleError> {
@@ -612,8 +624,18 @@ impl LifecycleRuntime {
         Ok(moved)
     }
 
-    pub fn use_resource(&self, resource: ResourceId) -> Result<(), LifecycleError> {
+    pub fn use_resource(&mut self, resource: ResourceId) -> Result<(), LifecycleError> {
         self.require_active_resource(resource)?;
+        let value = self.resource(resource)?.clone();
+        self.record(LifecycleOperation {
+            operation: "resource_use".into(),
+            allocation_effect: None,
+            ownership_transfer: Some(format!("preserves:{}", resource.raw())),
+            borrow_extent: None,
+            cleanup_obligations: self.outstanding_cleanup_obligations(),
+            resource_authority: Some(value.capability),
+            source_provenance: value.source_provenance,
+        });
         Ok(())
     }
 
@@ -764,6 +786,7 @@ impl LifecycleRuntime {
         }
         let owner_record = self.owner(owner)?.clone();
         let children = owner_record.children;
+        let recursive_destroy = !children.is_empty();
         let allocation = owner_record.allocation;
         // A direct drop may discharge an attached child before its parent.
         // Unlink it first so later aggregate or scope cleanup cannot revisit
@@ -787,7 +810,12 @@ impl LifecycleRuntime {
         self.allocations.remove(&allocation);
         self.remove_from_scopes(owner);
         self.record(LifecycleOperation {
-            operation: "drop".into(),
+            operation: if recursive_destroy {
+                "recursive_destroy"
+            } else {
+                "drop"
+            }
+            .into(),
             allocation_effect: Some("release".into()),
             ownership_transfer: Some(format!("discharges:{}", owner.raw())),
             borrow_extent: None,
@@ -993,10 +1021,28 @@ mod tests {
             .inspect()
             .operations
             .iter()
-            .filter(|operation| operation.operation == "drop")
+            .filter(|operation| {
+                operation.operation == "drop" || operation.operation == "recursive_destroy"
+            })
             .map(|operation| operation.ownership_transfer.clone().unwrap())
             .collect::<Vec<_>>();
         assert_eq!(drops, vec!["discharges:6", "discharges:4", "discharges:2"]);
+        let recursive_destroy = runtime
+            .inspect()
+            .operations
+            .into_iter()
+            .find(|operation| operation.operation == "recursive_destroy")
+            .expect("aggregate cleanup must be inspectable");
+        assert_eq!(
+            recursive_destroy.allocation_effect.as_deref(),
+            Some("release")
+        );
+        assert_eq!(
+            recursive_destroy.ownership_transfer.as_deref(),
+            Some("discharges:2")
+        );
+        assert_eq!(recursive_destroy.cleanup_obligations, 0);
+        assert_eq!(recursive_destroy.source_provenance, None);
     }
 
     #[test]
@@ -1042,6 +1088,49 @@ mod tests {
         assert_eq!(
             runtime.close_resource(moved).unwrap_err().code(),
             "lifecycle.double_close"
+        );
+    }
+    #[test]
+    fn copy_and_resource_use_record_inspection_metadata() {
+        let mut runtime = LifecycleRuntime::new(16);
+        runtime.enter_scope();
+        let owner = runtime
+            .allocate_with_source(2, true, Some("main.ax:12".into()))
+            .unwrap();
+        runtime.write(owner, 0, &[4, 5]).unwrap();
+        assert_eq!(runtime.copy_value(owner).unwrap(), vec![4, 5]);
+        let resource = runtime
+            .open_resource("fs:read", Some("main.ax:13".into()))
+            .unwrap();
+        runtime.use_resource(resource).unwrap();
+
+        let operations = runtime.inspect().operations;
+        let copy = operations
+            .iter()
+            .find(|operation| operation.operation == "copy")
+            .expect("copy must be inspectable");
+        assert_eq!(copy.allocation_effect.as_deref(), Some("copy"));
+        assert_eq!(copy.ownership_transfer.as_deref(), Some("preserves:2"));
+        assert_eq!(copy.borrow_extent, None);
+        assert_eq!(copy.cleanup_obligations, 1);
+        assert_eq!(copy.resource_authority, None);
+        assert_eq!(copy.source_provenance.as_deref(), Some("main.ax:12"));
+
+        let resource_use = operations
+            .iter()
+            .find(|operation| operation.operation == "resource_use")
+            .expect("resource use must be inspectable");
+        assert_eq!(resource_use.allocation_effect, None);
+        assert_eq!(
+            resource_use.ownership_transfer.as_deref(),
+            Some("preserves:3")
+        );
+        assert_eq!(resource_use.borrow_extent, None);
+        assert_eq!(resource_use.cleanup_obligations, 2);
+        assert_eq!(resource_use.resource_authority.as_deref(), Some("fs:read"));
+        assert_eq!(
+            resource_use.source_provenance.as_deref(),
+            Some("main.ax:13")
         );
     }
     #[test]
