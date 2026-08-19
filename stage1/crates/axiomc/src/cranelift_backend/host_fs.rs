@@ -501,10 +501,11 @@ pub(crate) fn lower_i64_fs_write_intrinsic_expr(
                 static_bindings,
             );
         };
-        let temp_path = parent.join(format!(
-            ".{}.axiom-replace.XXXXXX",
-            file_name.to_string_lossy()
-        ));
+        let relative_parent = parent.strip_prefix(fs_root).ok()?.to_path_buf();
+        let parent_components = relative_parent
+            .components()
+            .map(|component| component.as_os_str().to_string_lossy().into_owned())
+            .collect();
         return i64_audited_fs_expr(
             name,
             path_len,
@@ -514,8 +515,9 @@ pub(crate) fn lower_i64_fs_write_intrinsic_expr(
                 &candidate,
                 parent,
                 CraneliftI64Expr::ReplaceFile {
-                    path: candidate.display().to_string(),
-                    temp_path: temp_path.display().to_string(),
+                    root: fs_root.display().to_string(),
+                    parent_components,
+                    destination_name: file_name.to_string_lossy().into_owned(),
                     content,
                 },
             )?,
