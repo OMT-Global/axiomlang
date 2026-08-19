@@ -145,7 +145,7 @@ _Generated from `stage1/runtime-abi/direct-native-v0.json`; run `make stage1-dir
 | `map.lookup` | `implemented` | - | evidence:1, runtime:1 | The Cranelift spike covers direct map indexing, get, get_or_default, map_contains_key, map_keys, helper-returned direct index, contains-key, and de... |
 | `numeric.scalars` | `implemented` | - | evidence:1, runtime:1, denial:2 | The Cranelift spike covers several scalar widths and casts. |
 | `option` | `implemented` | - | evidence:1, runtime:1, denial:1 | The direct-native path now has narrow runtime evidence for local Option<int> and Option<bool> construction as tag/payload locals, scalar option rea... |
-| `owned.move_state` | `partial` | #1438 | evidence:1, denial:1 | Projection-sensitive move-state programs fail closed with backend.runtime_lowering_required until owned aggregate movement is lowered into the nati... |
+| `owned.move_state` | `implemented` | - | evidence:1, runtime:1, denial:1 | The direct-native path has executable evidence for moving a fixed-array field, including nested projected element slots, out of a local owned struc... |
 | `result` | `implemented` | - | evidence:1, runtime:1, denial:1 | The Cranelift spike evaluates Result<T, E> through std/outcome.ax helpers, direct match arms, scalar payloads, string errors, and struct payloads. |
 | `slice.borrowed` | `implemented` | - | evidence:1, runtime:1, denial:2 | The Cranelift spike evaluates borrowed array slices for len, first, last, indexing, and function returns. |
 | `string` | `implemented` | - | evidence:2, runtime:2, denial:1 | The Cranelift spike builds and runs pure string intrinsics including string_clone, string_starts_with, string_strip_prefix, string_strip_suffix, st... |

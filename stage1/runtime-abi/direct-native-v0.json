@@ -161,17 +161,17 @@
     },
     {
       "id": "owned.move_state",
-      "status": "partial",
+      "status": "implemented",
       "evidence": [
         "stage1/crates/axiomc/tests/cranelift_backend.rs"
       ],
       "denial_evidence": [
         "stage1/conformance/fail/ownership_use_after_move/expected-error.json"
       ],
-      "notes": "Projection-sensitive move-state programs fail closed with backend.runtime_lowering_required until owned aggregate movement is lowered into the native runtime.",
-      "blockers": [
-        1438
-      ]
+      "runtime_evidence": [
+        "stage1/crates/axiomc/tests/cranelift_backend.rs"
+      ],
+      "notes": "The direct-native path has executable evidence for moving a fixed-array field, including nested projected element slots, out of a local owned struct: projected storage transfers to the destination without generated Rust, source projection aliases are invalidated, and an unmoved sibling field remains readable. Front-end denial evidence rejects use after move. Dynamic non-Copy aggregate storage, calls, returns, and cleanup remain outside this narrow row and are tracked by #1439."
     }
   ],
   "capability_shims": [

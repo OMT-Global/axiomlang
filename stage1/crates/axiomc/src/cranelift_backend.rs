@@ -5081,6 +5081,11 @@ fn lower_i64_runtime_let_stmts(
     ) {
         return Some(assigns);
     }
+    if let Some(assigns) =
+        lower_i64_runtime_fixed_array_projection_move_stmts(stmt, local_indexes, local_conditions)
+    {
+        return Some(assigns);
+    }
     if let Stmt::Let {
         name,
         ty: Type::Bool,
@@ -14528,7 +14533,7 @@ fn lower_i64_runtime_struct_projection_let_stmts(
 ) -> Option<Vec<CraneliftI64Stmt>> {
     let mut stmts = Vec::new();
     for field in fields {
-        stmts.push(lower_i64_runtime_projection_assign(
+        stmts.extend(lower_i64_runtime_projection_value_stmts(
             i64_struct_projection_key(name, &field.name),
             &field.expr,
             locals,
@@ -14539,6 +14544,112 @@ fn lower_i64_runtime_struct_projection_let_stmts(
         )?);
     }
     Some(stmts)
+}
+
+fn lower_i64_runtime_projection_value_stmts(
+    key: String,
+    expr: &Expr,
+    locals: &mut Vec<CraneliftI64Expr>,
+    local_indexes: &mut HashMap<String, usize>,
+    local_conditions: &mut HashMap<String, CraneliftI64Condition>,
+    helper_signatures: &HashMap<&str, I64HelperSignature>,
+    static_bindings: &I64StaticBindings,
+) -> Option<Vec<CraneliftI64Stmt>> {
+    if let Expr::ArrayLiteral { elements, .. } = expr {
+        let mut stmts = Vec::new();
+        for (index, element) in elements.iter().enumerate() {
+            stmts.extend(lower_i64_runtime_projection_value_stmts(
+                i64_array_projection_key(&key, index),
+                element,
+                locals,
+                local_indexes,
+                local_conditions,
+                helper_signatures,
+                static_bindings,
+            )?);
+        }
+        return Some(stmts);
+    }
+    Some(vec![lower_i64_runtime_projection_assign(
+        key,
+        expr,
+        locals,
+        local_indexes,
+        local_conditions,
+        helper_signatures,
+        static_bindings,
+    )?])
+}
+
+fn lower_i64_runtime_fixed_array_projection_move_stmts(
+    stmt: &Stmt,
+    local_indexes: &mut HashMap<String, usize>,
+    local_conditions: &mut HashMap<String, CraneliftI64Condition>,
+) -> Option<Vec<CraneliftI64Stmt>> {
+    let Stmt::Let {
+        name,
+        ty: Type::Array(_, Some(size)),
+        expr,
+        ..
+    } = stmt
+    else {
+        return None;
+    };
+    let source = i64_runtime_projection_key(expr)?;
+    let existing_slots = local_indexes
+        .iter()
+        .map(|(key, local)| (key.clone(), *local))
+        .collect::<Vec<_>>();
+    let mut moved_slots = Vec::new();
+    for index in 0..*size {
+        let source_element = i64_array_projection_key(&source, index);
+        let target_element = i64_array_projection_key(name, index);
+        let mut element_slots = existing_slots
+            .iter()
+            .filter_map(|(source_key, local)| {
+                let suffix = source_key.strip_prefix(source_element.as_str())?;
+                (suffix.is_empty() || suffix.starts_with('[')).then(|| {
+                    (
+                        source_key.clone(),
+                        format!("{target_element}{suffix}"),
+                        *local,
+                    )
+                })
+            })
+            .collect::<Vec<_>>();
+        if element_slots.is_empty() {
+            return None;
+        }
+        element_slots.sort_by(|left, right| left.0.cmp(&right.0));
+        moved_slots.extend(element_slots);
+    }
+    for (source_key, target_key, local) in moved_slots {
+        local_indexes.remove(source_key.as_str());
+        local_indexes.insert(target_key.clone(), local);
+        if let Some(condition) = local_conditions.remove(source_key.as_str()) {
+            local_conditions.insert(target_key, condition);
+        }
+    }
+    Some(Vec::new())
+}
+
+fn i64_runtime_projection_key(expr: &Expr) -> Option<String> {
+    match expr {
+        Expr::VarRef { name, .. } => Some(name.clone()),
+        Expr::FieldAccess { base, field, .. } => Some(i64_struct_projection_key(
+            &i64_runtime_projection_key(base)?,
+            field,
+        )),
+        Expr::TupleIndex { base, index, .. } => Some(i64_tuple_projection_key(
+            &i64_runtime_projection_key(base)?,
+            *index,
+        )),
+        Expr::Index { base, index, .. } => Some(i64_array_projection_key(
+            &i64_runtime_projection_key(base)?,
+            lower_i64_literal_index(index)?,
+        )),
+        _ => None,
+    }
 }
 
 fn lower_i64_runtime_projection_assign(
