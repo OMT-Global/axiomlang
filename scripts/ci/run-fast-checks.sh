@@ -67,6 +67,8 @@ python3 "$script_repo_root/scripts/ci/test-check-provider-abi-v1.py"
 bash "$script_repo_root/scripts/ci/test-check-python-exit-readiness.sh"
 bash "$script_repo_root/scripts/ci/test-check-rust-exit-readiness.sh"
 bash "$script_repo_root/scripts/ci/test-check-self-hosting-language-readiness.sh"
+python3 "$script_repo_root/scripts/ci/test-check-compiler-scale-proof-v1.py"
+python3 "$script_repo_root/scripts/ci/check-compiler-scale-proof-v1.py" --json
 bash "$script_repo_root/scripts/ci/test-check-compatibility-v1.sh"
 bash "$script_repo_root/scripts/ci/test-check-package-trust-contract.sh"
 python3 "$script_repo_root/scripts/ci/test-run-stage1-quality-gate.py"
