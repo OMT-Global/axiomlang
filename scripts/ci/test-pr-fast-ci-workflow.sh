@@ -83,6 +83,9 @@ axiomc_bin_suite=$(printf '%s\n' "$full_lib_suite_section" | grep -F -- 'cargo t
 proof_workload_test=$(grep -nF 'bash scripts/ci/run-stage1-proof-test.sh' "$fast_checks_script" || true)
 stdlib_catalog_check=$(grep -nF 'scripts/ci/check-stdlib-catalog.py' "$fast_checks_script" || true)
 stdlib_catalog_regression=$(grep -nF 'scripts/ci/test-check-stdlib-catalog.py' "$fast_checks_script" || true)
+observability_checker_route=$(grep -nF 'scripts/ci/check-runtime-observability-v1.py" --root "$repo_root"' "$fast_checks_script" || true)
+observability_self_test_route=$(grep -nF 'scripts/ci/test-check-runtime-observability-v1.py" --root "$repo_root"' "$fast_checks_script" || true)
+observability_runtime_proof=$(grep -nF 'scripts/ci/run-runtime-observability-proof.sh" --root "$repo_root"' "$fast_checks_script" || true)
 makefile_route_count=$(grep -cF "              - 'Makefile'" "$workflow" || true)
 
 if [[ -n "$checkout_line" ]]; then
@@ -218,6 +221,11 @@ fi
 
 if [[ -z "$stdlib_catalog_check" || -z "$stdlib_catalog_regression" ]]; then
   echo "run-fast-checks must validate and regression-test the typed stdlib catalog" >&2
+  exit 1
+fi
+
+if [[ -z "$observability_checker_route" || -z "$observability_self_test_route" || -z "$observability_runtime_proof" ]]; then
+  echo "runtime observability must run base-pinned checker, self-test, and executable harness code against the explicit PR checkout" >&2
   exit 1
 fi
 

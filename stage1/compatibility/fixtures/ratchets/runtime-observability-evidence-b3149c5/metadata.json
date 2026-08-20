@@ -1,0 +1,20 @@
+{
+  "schema_version": "axiom.compatibility_previous_current_ratchet.v1",
+  "source_ref": "origin/main",
+  "source_commit": "b3149c5e9bf10a4a244b0d89c6e6cd804b47ae3f",
+  "contract_path": "stage1/compatibility/fixtures/current/contract.json",
+  "contract_blob": "e5ad22e48e4504d62de8ea343e58fd4c1e262cb4",
+  "contract_sha256": "dff36c546df53be343c9d06017e9d439ed981e1f3fcca1fc91a01bcdce9ae3ac",
+  "contract_version": "0.4.0",
+  "surface_count": 68,
+  "successor_contract_version": "0.5.0",
+  "expected_changes": [
+    {
+      "change": "added",
+      "severity": "additive",
+      "surface_id": "axiom://schema/axiom.runtime_observability_evidence.v1",
+      "surface_kind": "schema"
+    }
+  ],
+  "qualification": "Byte-exact previous-current source-contract ratchet only; not release history or evidence of a previously qualified compiler."
+}

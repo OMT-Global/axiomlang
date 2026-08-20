@@ -256,6 +256,10 @@ adds lines above any ceiling fails `make stage1-compiler-source-monoliths`.
 When an extraction PR shrinks a tracked monolith or top-file share, lower the
 matching ceiling in this table in the same PR.
 
+The `lib.rs` facade ceiling includes the single module registration for the
+issue #1451 runtime observability core; the facade gained no implementation
+logic.
+
 | Tracked item | Ceiling |
 | --- | ---: |
 | `summary.top_file_line_share` | 0.5767 |
@@ -299,7 +303,7 @@ matching ceiling in this table in the same PR.
 | `stage1/crates/axiomc/src/hir/variants.rs` | 188 |
 | `stage1/crates/axiomc/src/package_trust.rs` | 5410 |
 | `stage1/crates/axiomc/src/registry.rs` | 4319 |
-| `stage1/crates/axiomc/src/lib.rs` | 37 |
+| `stage1/crates/axiomc/src/lib.rs` | 38 |
 
 ## Extraction Order
 

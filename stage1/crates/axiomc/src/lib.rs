@@ -28,6 +28,7 @@ pub mod project;
 pub mod registry;
 pub mod registry_client;
 pub mod runtime_lifecycle;
+pub mod runtime_observability;
 pub mod stdlib;
 pub mod syntax;
 #[cfg(test)]

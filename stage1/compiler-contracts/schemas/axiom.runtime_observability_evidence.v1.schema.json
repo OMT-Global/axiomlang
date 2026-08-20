@@ -1,0 +1,285 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://omt-global.github.io/axiom/schemas/axiom.runtime_observability_evidence.v1.schema.json",
+  "title": "Axiom runtime observability evidence v1",
+  "type": "object",
+  "required": ["schema_version", "kind"],
+  "properties": {
+    "schema_version": {"const": "axiom.runtime_observability.evidence.v1"},
+    "kind": {"enum": ["drain_report", "emit_receipt", "event", "inspection", "shutdown_report"]}
+  },
+  "oneOf": [
+    {"$ref": "#/$defs/event"},
+    {"$ref": "#/$defs/emit_receipt"},
+    {"$ref": "#/$defs/inspection"},
+    {"$ref": "#/$defs/drain_report"},
+    {"$ref": "#/$defs/shutdown_report"}
+  ],
+  "$defs": {
+    "schema_version": {"const": "axiom.runtime_observability.evidence.v1"},
+    "level": {"enum": ["trace", "debug", "info", "warn", "error"]},
+    "state": {"enum": ["running", "draining", "flushed", "failed"]},
+    "sink_kind": {"enum": ["audit_jsonl", "stderr", "stdout"]},
+    "overflow_policy": {"enum": ["drop_newest", "drop_oldest"]},
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "non_negative_integer": {"type": "integer", "minimum": 0, "maximum": 18446744073709551615},
+    "positive_integer": {"type": "integer", "minimum": 1, "maximum": 18446744073709551615},
+    "typed_field": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "value"],
+      "properties": {
+        "type": {"enum": ["null", "boolean", "integer", "unsigned", "float", "string", "redacted"]},
+        "value": {},
+        "redaction": {"$ref": "#/$defs/redaction"}
+      },
+      "allOf": [
+        {"if": {"properties": {"type": {"const": "null"}}}, "then": {"properties": {"value": {"type": "null"}}}},
+        {"if": {"properties": {"type": {"const": "boolean"}}}, "then": {"properties": {"value": {"type": "boolean"}}}},
+        {"if": {"properties": {"type": {"const": "integer"}}}, "then": {"properties": {"value": {"type": "integer", "minimum": -9223372036854775808, "maximum": 9223372036854775807}}}},
+        {"if": {"properties": {"type": {"const": "unsigned"}}}, "then": {"properties": {"value": {"type": "integer", "minimum": 0, "maximum": 18446744073709551615}}}},
+        {"if": {"properties": {"type": {"const": "float"}}}, "then": {"properties": {"value": {"type": "number", "minimum": -1.7976931348623157e308, "maximum": 1.7976931348623157e308}}}},
+        {"if": {"properties": {"type": {"const": "string"}}}, "then": {"properties": {"value": {"type": "string", "maxLength": 16384}}}},
+        {"if": {"properties": {"type": {"const": "redacted"}}}, "then": {"required": ["redaction"], "properties": {"value": {"const": "[REDACTED]"}}}},
+        {"if": {"properties": {"type": {"enum": ["null", "boolean", "integer", "unsigned", "float", "string"]}}}, "then": {"not": {"required": ["redaction"]}}}
+      ]
+    },
+    "redaction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reason"],
+      "properties": {
+        "reason": {"enum": ["error_message", "sensitive_key", "sensitive_value"]},
+        "sensitivity_class": {"enum": ["capability_protected", "credential", "personal_data", "untrusted_text"]}
+      }
+    },
+    "error_context": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["category", "code"],
+      "properties": {
+        "category": {"type": "string", "minLength": 1, "maxLength": 128},
+        "code": {"type": "string", "minLength": 1, "maxLength": 128},
+        "message": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "value", "redaction"],
+          "properties": {
+            "type": {"const": "redacted"},
+            "value": {"const": "[REDACTED]"},
+            "redaction": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["reason"],
+              "properties": {
+                "reason": {"const": "error_message"},
+                "sensitivity_class": {"enum": ["capability_protected", "credential", "personal_data", "untrusted_text"]}
+              }
+            }
+          }
+        }
+      }
+    },
+    "correlation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["request_id", "runtime_origin", "span_id", "trace_id"],
+      "properties": {
+        "request_id": {"type": "string", "pattern": "^req-[0-9a-f]{16}-[0-9a-f]{16}$"},
+        "runtime_origin": {"enum": ["native", "compiler", "test"]},
+        "span_id": {"type": "string", "pattern": "^[0-9a-f]{16}$"},
+        "trace_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"}
+      }
+    },
+    "sink_failure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "error_kind"],
+      "properties": {
+        "code": {"enum": ["observability.shutdown_timeout", "observability.sink_failed", "observability.sink_flush_failed", "observability.sink_write_failed"]},
+        "error_kind": {"enum": ["address_in_use", "address_not_available", "already_exists", "broken_pipe", "connection_aborted", "connection_refused", "connection_reset", "interrupted", "invalid_data", "invalid_input", "not_connected", "not_found", "other", "out_of_memory", "permission_denied", "timed_out", "unexpected_eof", "would_block", "write_zero"]}
+      }
+    },
+    "counters": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["attempted", "accepted", "filtered", "dropped", "rejected", "written", "sink_failures"],
+      "properties": {
+        "attempted": {"$ref": "#/$defs/non_negative_integer"},
+        "accepted": {"$ref": "#/$defs/non_negative_integer"},
+        "filtered": {"$ref": "#/$defs/non_negative_integer"},
+        "dropped": {"$ref": "#/$defs/non_negative_integer"},
+        "rejected": {"$ref": "#/$defs/non_negative_integer"},
+        "written": {"$ref": "#/$defs/non_negative_integer"},
+        "sink_failures": {"$ref": "#/$defs/non_negative_integer"}
+      }
+    },
+    "event": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "kind", "sequence", "timestamp_unix_ms", "level", "target", "message", "fields"],
+      "properties": {
+        "schema_version": {"$ref": "#/$defs/schema_version"},
+        "kind": {"const": "event"},
+        "sequence": {"$ref": "#/$defs/positive_integer"},
+        "timestamp_unix_ms": {"$ref": "#/$defs/non_negative_integer"},
+        "level": {"$ref": "#/$defs/level"},
+        "target": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z0-9._/-]+$"},
+        "message": {"type": "string", "minLength": 1, "maxLength": 4096},
+        "fields": {"type": "object", "maxProperties": 32, "additionalProperties": {"$ref": "#/$defs/typed_field"}},
+        "error": {"$ref": "#/$defs/error_context"},
+        "correlation": {"$ref": "#/$defs/correlation"}
+      }
+    },
+    "emit_receipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "kind", "disposition", "event_bytes", "redacted_fields", "evicted_events", "queue_depth", "queued_bytes"],
+      "properties": {
+        "schema_version": {"$ref": "#/$defs/schema_version"},
+        "kind": {"const": "emit_receipt"},
+        "disposition": {"enum": ["accepted", "filtered", "dropped", "rejected"]},
+        "sequence": {"$ref": "#/$defs/positive_integer"},
+        "event_sha256": {"$ref": "#/$defs/sha256"},
+        "event_bytes": {"$ref": "#/$defs/non_negative_integer"},
+        "redacted_fields": {"$ref": "#/$defs/non_negative_integer"},
+        "evicted_events": {"$ref": "#/$defs/non_negative_integer"},
+        "queue_depth": {"$ref": "#/$defs/non_negative_integer"},
+        "queued_bytes": {"$ref": "#/$defs/non_negative_integer"},
+        "reason": {"type": "string", "pattern": "^observability\\.[a-z0-9_]+$"}
+      }
+    },
+    "filter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["minimum_level", "target_levels"],
+      "properties": {
+        "minimum_level": {"$ref": "#/$defs/level"},
+        "target_levels": {
+          "type": "object",
+          "maxProperties": 128,
+          "propertyNames": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z0-9._/-]+$"},
+          "additionalProperties": {"$ref": "#/$defs/level"}
+        }
+      }
+    },
+    "inspection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "kind", "state", "health", "sink_kind", "queue_capacity", "queue_depth", "max_queued_bytes", "queued_bytes", "max_event_bytes", "max_fields", "overflow_policy", "flush_timeout_ms", "filter_revision", "filter", "counters", "last_sink_failure"],
+      "properties": {
+        "schema_version": {"$ref": "#/$defs/schema_version"},
+        "kind": {"const": "inspection"},
+        "state": {"$ref": "#/$defs/state"},
+        "health": {"enum": ["ready", "degraded", "stopped", "failed"]},
+        "sink_kind": {"$ref": "#/$defs/sink_kind"},
+        "queue_capacity": {"type": "integer", "minimum": 1, "maximum": 4096},
+        "queue_depth": {"$ref": "#/$defs/non_negative_integer"},
+        "max_queued_bytes": {"type": "integer", "minimum": 1, "maximum": 67108864},
+        "queued_bytes": {"$ref": "#/$defs/non_negative_integer"},
+        "max_event_bytes": {"type": "integer", "minimum": 1, "maximum": 65536},
+        "max_fields": {"type": "integer", "minimum": 1, "maximum": 32},
+        "overflow_policy": {"$ref": "#/$defs/overflow_policy"},
+        "flush_timeout_ms": {"type": "integer", "minimum": 1, "maximum": 60000},
+        "filter_revision": {"$ref": "#/$defs/positive_integer"},
+        "filter": {"$ref": "#/$defs/filter"},
+        "counters": {"$ref": "#/$defs/counters"},
+        "last_sink_failure": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/sink_failure"}]}
+      }
+    },
+    "drain_report": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "kind", "state", "attempted", "written", "queue_remaining", "queued_bytes", "sink_failure"],
+      "properties": {
+        "schema_version": {"$ref": "#/$defs/schema_version"},
+        "kind": {"const": "drain_report"},
+        "state": {"$ref": "#/$defs/state"},
+        "attempted": {"$ref": "#/$defs/non_negative_integer"},
+        "written": {"$ref": "#/$defs/non_negative_integer"},
+        "queue_remaining": {"$ref": "#/$defs/non_negative_integer"},
+        "queued_bytes": {"$ref": "#/$defs/non_negative_integer"},
+        "sink_failure": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/sink_failure"}]}
+      }
+    },
+    "shutdown_report": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "kind", "state", "queue_remaining", "queued_bytes", "flush_attempted", "deadline_exceeded", "counters", "sink_failure"],
+      "properties": {
+        "schema_version": {"$ref": "#/$defs/schema_version"},
+        "kind": {"const": "shutdown_report"},
+        "state": {"$ref": "#/$defs/state"},
+        "queue_remaining": {"$ref": "#/$defs/non_negative_integer"},
+        "queued_bytes": {"$ref": "#/$defs/non_negative_integer"},
+        "flush_attempted": {"type": "boolean"},
+        "deadline_exceeded": {"type": "boolean"},
+        "counters": {"$ref": "#/$defs/counters"},
+        "sink_failure": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/sink_failure"}]}
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "state": {"const": "flushed"},
+            "queue_remaining": {"const": 0},
+            "queued_bytes": {"const": 0},
+            "flush_attempted": {"const": true},
+            "deadline_exceeded": {"const": false},
+            "counters": {"properties": {"sink_failures": {"const": 0}}},
+            "sink_failure": {"type": "null"}
+          }
+        },
+        {
+          "properties": {
+            "state": {"const": "failed"},
+            "deadline_exceeded": {"const": true},
+            "counters": {"properties": {"sink_failures": {"minimum": 1}}},
+            "sink_failure": {
+              "type": "object",
+              "required": ["code"],
+              "properties": {"code": {"const": "observability.shutdown_timeout"}}
+            }
+          }
+        },
+        {
+          "properties": {
+            "state": {"const": "failed"},
+            "flush_attempted": {"const": true},
+            "deadline_exceeded": {"const": false},
+            "counters": {"properties": {"sink_failures": {"minimum": 1}}},
+            "sink_failure": {
+              "type": "object",
+              "required": ["code"],
+              "properties": {"code": {"const": "observability.sink_flush_failed"}}
+            }
+          }
+        },
+        {
+          "properties": {
+            "state": {"const": "failed"},
+            "flush_attempted": {"const": false},
+            "deadline_exceeded": {"const": false},
+            "counters": {"properties": {"sink_failures": {"minimum": 1}}},
+            "sink_failure": {
+              "type": "object",
+              "required": ["code"],
+              "properties": {"code": {"const": "observability.sink_write_failed"}}
+            }
+          }
+        },
+        {
+          "properties": {
+            "state": {"const": "failed"},
+            "deadline_exceeded": {"const": false},
+            "counters": {"properties": {"sink_failures": {"minimum": 1}}},
+            "sink_failure": {
+              "type": "object",
+              "required": ["code"],
+              "properties": {"code": {"const": "observability.sink_failed"}}
+            }
+          }
+        }
+      ]
+    }
+  }
+}

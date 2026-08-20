@@ -38,6 +38,7 @@
     {"id": "observability-v1/redaction-negative", "kind": "negative", "path": "redaction-negative.json", "asserts": ["secret value is not emitted to a sink"]},
     {"id": "observability-v1/unbounded-cardinality", "kind": "negative", "path": "unbounded-cardinality.json", "asserts": ["label cardinality is bounded"]},
     {"id": "observability-v1/sink-shutdown", "kind": "negative", "path": "sink-shutdown.json", "asserts": ["sink failure cannot claim flushed shutdown"]},
-    {"id": "observability-v1/correlation", "kind": "negative", "path": "correlation.json", "asserts": ["caller cannot forge trusted correlation fields"]}
+    {"id": "observability-v1/correlation", "kind": "negative", "path": "correlation.json", "asserts": ["caller cannot forge trusted correlation fields"]},
+    {"id": "observability-v1/runtime-core-golden", "kind": "runtime_positive", "path": "runtime-core-golden.json", "asserts": ["executable runtime filters and bounds events", "redaction occurs before queueing", "shutdown drains then flushes"]}
   ]
 }

@@ -7,10 +7,10 @@
       "path": "stage1/Cargo.toml",
       "role": "compiler_version",
       "selector": "workspace.package.version",
-      "sha256": "6e7c07e1664321beabde841dec26ad1982aa548906be6f2fb0d524224c592e61"
+      "sha256": "0a7df662030a201d7953255a50ad4a5355758bc0626faa44ba879cd1d4eee00f"
     }
   },
-  "contract_version": "0.5.0",
+  "contract_version": "0.4.0",
   "edition": {
     "id": "2026",
     "source": {
@@ -95,7 +95,7 @@
           "path": "stage1/compiler-contracts/snapshots/capability-ledger.json",
           "role": "cli_top_level_parity",
           "selector": "commands[*].name",
-          "sha256": "0712b788b27bceae4372fe7f73f2e8d28e708ef815d7cd71b614a4794294fbc9"
+          "sha256": "35fe8421bc8754e1826ce65c5d11efb951070bb2a47f9995c25935771cbc1b17"
         },
         {
           "path": "stage1/crates/axiomc/src/main.rs",
@@ -1050,21 +1050,6 @@
           "role": "published_schema",
           "selector": "$id,properties.schema_version.const",
           "sha256": "bc172efa5cf1f3ef7f5e3caa87ac83aff7c4cfe8d382732cb3a82ffb045e9fa8"
-        }
-      ],
-      "stability": "experimental",
-      "version": "0.1.0"
-    },
-    {
-      "id": "axiom://schema/axiom.runtime_observability_evidence.v1",
-      "kind": "schema",
-      "signature": "published schema id=https://omt-global.github.io/axiom/schemas/axiom.runtime_observability_evidence.v1.schema.json; semantic_digest=f0a39b684b54a7348a6eef4bf222fa7079f500c9074e8722905029393f7602e1; envelope=axiom.runtime_observability.evidence.v1",
-      "sources": [
-        {
-          "path": "stage1/compiler-contracts/schemas/axiom.runtime_observability_evidence.v1.schema.json",
-          "role": "published_schema",
-          "selector": "$id,properties.schema_version.const",
-          "sha256": "73e5e5a01540d1049527e23c4aeadfcba366085adfaa2733632c5030caaac281"
         }
       ],
       "stability": "experimental",
