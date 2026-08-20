@@ -1,0 +1,66 @@
+{
+  "schema_version": "axiom.io_reactor.v1",
+  "contract": "runtime.io_reactor",
+  "issue": 1446,
+  "implementation": {
+    "tier": "syntax_only",
+    "runtime_backed": false,
+    "nonblocking_io": false,
+    "portable_adapters": false,
+    "thread_per_connection_free": false,
+    "blockers": [1425, 1426, 1436, 1438, 1445]
+  },
+  "readiness_model": {
+    "resources": ["cancellation_wakeup", "signal", "tcp_listener", "tcp_stream", "timer", "udp_socket"],
+    "interests": ["error", "hangup", "readable", "writable"],
+    "outcomes": ["canceled", "closed", "deadline_expired", "failed", "partial", "ready"],
+    "registration_generation_required": true
+  },
+  "operations": {
+    "required_operations": ["accept", "cancel", "close", "connect", "poll", "read", "recv_from", "register", "send_to", "signal_wait", "timer_wait", "write"],
+    "required_features": ["backpressure", "bounded_buffers", "cancellation", "deadlines", "deterministic_close", "partial_io"],
+    "partial_completion_reports_bytes": true,
+    "zero_progress_requires_readiness_change": true,
+    "deadline_clock": "monotonic",
+    "close_idempotent": true,
+    "readiness_after_close": "ignored"
+  },
+  "backpressure": {
+    "queue_capacity_required": true,
+    "buffer_bound_required": true,
+    "fairness_policy_required": true,
+    "producer_actions": ["await_capacity", "cancel", "deadline_expired"]
+  },
+  "cancellation": {
+    "owner_required": true,
+    "terminal_outcome": "canceled",
+    "readiness_after_terminal": "ignored",
+    "race_order": "monotonic_operation_generation"
+  },
+  "adapters": {
+    "implementation_detail_only": true,
+    "adapter_names_not_language_semantics": true,
+    "no_thread_per_connection": true,
+    "targets": [
+      {"target": "aarch64-apple-darwin", "adapter": "kqueue", "available": false, "reason": "No executable kqueue reactor adapter exists yet."},
+      {"target": "x86_64-unknown-linux-gnu", "adapter": "epoll", "available": false, "reason": "No executable epoll reactor adapter exists yet."}
+    ]
+  },
+  "inspection": {
+    "fields": ["adapter", "buffer_bound", "cancellation_owner", "deadline", "operation_generation", "readiness", "resource_id", "resource_kind", "target"],
+    "unavailable_value": "null_with_reason"
+  },
+  "fixtures": [
+    {"id": "axiom://io-reactor/fixture/current-blocking-runtime", "kind": "positive", "path": "current-blocking-runtime.json", "asserts": ["current blocking sockets and task wrappers are not promoted to reactor proof"]},
+    {"id": "axiom://io-reactor/fixture/partial-io", "kind": "positive", "path": "partial-io.json", "asserts": ["partial completion preserves byte counts and buffer bounds"]},
+    {"id": "axiom://io-reactor/fixture/cancellation-race", "kind": "positive", "path": "cancellation-race.json", "asserts": ["late readiness cannot revive a canceled operation generation"]},
+    {"id": "axiom://io-reactor/fixture/unbounded-buffer-rejected", "kind": "negative", "path": "unbounded-buffer-rejected.json", "asserts": ["operations without a byte bound are rejected"]},
+    {"id": "axiom://io-reactor/fixture/thread-per-connection-rejected", "kind": "negative", "path": "thread-per-connection-rejected.json", "asserts": ["thread-per-connection execution cannot qualify the reactor"]},
+    {"id": "axiom://io-reactor/fixture/adapter-leak-rejected", "kind": "negative", "path": "adapter-leak-rejected.json", "asserts": ["target adapter handles cannot become language semantics"]}
+  ],
+  "migration": {
+    "compatibility": "additive evidence contract; existing blocking socket and task APIs remain available but do not qualify as reactor-backed operations",
+    "dependencies": [1425, 1426, 1436, 1438, 1445],
+    "out_of_scope": ["adapter-specific tuning APIs", "distributed or remote reactors"]
+  }
+}

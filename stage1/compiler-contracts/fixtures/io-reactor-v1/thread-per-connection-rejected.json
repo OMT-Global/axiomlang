@@ -1,0 +1,6 @@
+{
+  "execution_model": "thread_per_connection",
+  "claim": "reactor_qualified",
+  "decision": "rejected",
+  "diagnostic": "io_reactor.thread_per_connection"
+}

@@ -268,10 +268,10 @@
       "governingIssue": 1446,
       "blockerIssues": [1446],
       "dependencies": [1445, 1438, 1425, 1426, 1436],
-      "evidence": ["docs/stage1-net-tcp.md", "stage1/examples/stdlib_net_tcp_async/axiom.toml"],
-      "validatingCommand": "make stage1-stdlib-test",
+      "evidence": ["docs/io-reactor-v1.md", "docs/stage1-net-tcp.md", "stage1/compiler-contracts/schemas/axiom.io_reactor.v1.schema.json", "stage1/compiler-contracts/snapshots/io-reactor-v1.json", "stage1/compiler-contracts/fixtures/io-reactor-v1", "scripts/ci/check-io-reactor-v1.py", "stage1/examples/stdlib_net_tcp_async/axiom.toml"],
+      "validatingCommand": "make stage1-io-reactor-v1 stage1-io-reactor-v1-test && make stage1-stdlib-test",
       "rustCaptureRisk": "high",
-      "agentInspectionImpact": "Expose awaited resource, readiness, deadline, cancellation owner, buffers, and adapter."
+      "agentInspectionImpact": "Expose resource identity and kind, readiness, monotonic deadline, cancellation owner, operation generation, buffer bound, target, and adapter; report unavailable runtime evidence explicitly."
     },
     {
       "id": "network_authority_v2",

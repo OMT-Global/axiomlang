@@ -22,6 +22,64 @@ fn compile_validator(schema: &Value) -> Validator {
 }
 
 #[test]
+fn io_reactor_schema_enforces_evidence_promotion_boundaries() {
+    let stage1 = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let schema: Value = serde_json::from_str(
+        &fs::read_to_string(
+            stage1.join("compiler-contracts/schemas/axiom.io_reactor.v1.schema.json"),
+        )
+        .expect("read I/O Reactor schema"),
+    )
+    .expect("I/O Reactor schema is valid JSON");
+    let snapshot: Value = serde_json::from_str(
+        &fs::read_to_string(stage1.join("compiler-contracts/snapshots/io-reactor-v1.json"))
+            .expect("read I/O Reactor snapshot"),
+    )
+    .expect("I/O Reactor snapshot is valid JSON");
+    let validator = compile_validator(&schema);
+
+    validator
+        .validate(&snapshot)
+        .expect("checked I/O Reactor snapshot matches its schema");
+
+    let mut incomplete_promotion = snapshot.clone();
+    incomplete_promotion["implementation"]["tier"] = serde_json::json!("runtime_complete");
+    assert!(
+        !validator.is_valid(&incomplete_promotion),
+        "runtime_complete requires complete executable evidence"
+    );
+
+    let mut unavailable_without_reason = snapshot.clone();
+    unavailable_without_reason["adapters"]["targets"][0]
+        .as_object_mut()
+        .expect("adapter row")
+        .remove("reason");
+    assert!(
+        !validator.is_valid(&unavailable_without_reason),
+        "unavailable adapters require a reason"
+    );
+
+    let mut complete_promotion = snapshot;
+    complete_promotion["implementation"]["tier"] = serde_json::json!("runtime_complete");
+    complete_promotion["implementation"]["runtime_backed"] = serde_json::json!(true);
+    complete_promotion["implementation"]["nonblocking_io"] = serde_json::json!(true);
+    complete_promotion["implementation"]["portable_adapters"] = serde_json::json!(true);
+    complete_promotion["implementation"]["thread_per_connection_free"] = serde_json::json!(true);
+    complete_promotion["implementation"]["blockers"] = serde_json::json!([]);
+    for adapter in complete_promotion["adapters"]["targets"]
+        .as_array_mut()
+        .expect("adapter targets")
+    {
+        let adapter = adapter.as_object_mut().expect("adapter row");
+        adapter.insert("available".to_owned(), serde_json::json!(true));
+        adapter.remove("reason");
+    }
+    validator
+        .validate(&complete_promotion)
+        .expect("fully evidenced runtime_complete contract is promotion-capable");
+}
+
+#[test]
 fn quality_v1_schemas_reject_contradictory_reports() {
     let policy_schema: Value = serde_json::from_str(
         &fs::read_to_string(schema_dir().join("axiom-quality-policy-v1.schema.json"))
