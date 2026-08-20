@@ -83,6 +83,10 @@ axiomc_bin_suite=$(printf '%s\n' "$full_lib_suite_section" | grep -F -- 'cargo t
 proof_workload_test=$(grep -nF 'bash scripts/ci/run-stage1-proof-test.sh' "$fast_checks_script" || true)
 stdlib_catalog_check=$(grep -nF 'scripts/ci/check-stdlib-catalog.py' "$fast_checks_script" || true)
 stdlib_catalog_regression=$(grep -nF 'scripts/ci/test-check-stdlib-catalog.py' "$fast_checks_script" || true)
+iteration_checker_count=$(grep -cF 'python3 "$script_repo_root/scripts/ci/check-iteration-control-v1.py" --root "$repo_root" --json' "$fast_checks_script" || true)
+iteration_self_test_count=$(grep -cF 'python3 "$script_repo_root/scripts/ci/test-check-iteration-control-v1.py" --root "$repo_root"' "$fast_checks_script" || true)
+iteration_head_code_reference=$(grep -nE '\$repo_root/scripts/ci/(test-)?check-iteration-control-v1\.py' "$fast_checks_script" || true)
+fast_checks_head_as_data=$(grep -nF 'AXIOM_CHECKOUT_PATH="$GITHUB_WORKSPACE" bash .trusted-ci/scripts/ci/run-fast-checks.sh' "$workflow" || true)
 makefile_route_count=$(grep -cF "              - 'Makefile'" "$workflow" || true)
 
 if [[ -n "$checkout_line" ]]; then
@@ -218,6 +222,22 @@ fi
 
 if [[ -z "$stdlib_catalog_check" || -z "$stdlib_catalog_regression" ]]; then
   echo "run-fast-checks must validate and regression-test the typed stdlib catalog" >&2
+  exit 1
+fi
+
+if [[ "$iteration_checker_count" != "1" || "$iteration_self_test_count" != "1" ]]; then
+  echo "run-fast-checks must execute the base-pinned iteration checker and root-selectable self-test exactly once with explicit --root \"\$repo_root\"" >&2
+  exit 1
+fi
+
+if [[ -n "$iteration_head_code_reference" ]]; then
+  echo "run-fast-checks must not execute iteration checker code from the PR-head checkout" >&2
+  printf '%s\n' "$iteration_head_code_reference" >&2
+  exit 1
+fi
+
+if [[ -z "$fast_checks_head_as_data" ]]; then
+  echo "fast-checks must pass the PR head as AXIOM_CHECKOUT_PATH data to the base-pinned trusted runner" >&2
   exit 1
 fi
 

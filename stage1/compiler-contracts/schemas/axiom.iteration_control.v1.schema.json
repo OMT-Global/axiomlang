@@ -1,0 +1,182 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://omt-global.github.io/axiom/schemas/axiom.iteration_control.v1.schema.json",
+  "title": "AxiOM Iteration and Loop Control v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "contract", "issue", "ready", "dependency_issues", "target_contract", "current_floor", "qualification", "runtime_receipt_contract", "target_gap_fixture_paths", "fixtures"],
+  "properties": {
+    "schema_version": {"const": "axiom.iteration_control.v1"},
+    "contract": {"const": "language.iteration_control"},
+    "issue": {"const": 1442},
+    "ready": {"const": false},
+    "dependency_issues": {"type": "array", "minItems": 5, "items": {"type": "integer", "minimum": 1}},
+    "target_contract": {"$ref": "#/$defs/targetContract"},
+    "current_floor": {"$ref": "#/$defs/currentFloor"},
+    "qualification": {"$ref": "#/$defs/qualification"},
+    "runtime_receipt_contract": {"$ref": "#/$defs/runtimeReceiptContract"},
+    "target_gap_fixture_paths": {"$ref": "#/$defs/stringArray"},
+    "fixtures": {"type": "array", "minItems": 16, "items": {"$ref": "#/$defs/fixture"}}
+  },
+  "$defs": {
+    "stringArray": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+    "protocolOperation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "input", "output", "semantics", "failure"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^axiom://language/iteration/operation/[a-z0-9-]+$"},
+        "input": {"type": "string", "minLength": 1},
+        "output": {"type": "string", "minLength": 1},
+        "semantics": {"type": "string", "minLength": 1},
+        "failure": {"type": "string", "minLength": 1}
+      }
+    },
+    "flowControlBounds": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["advance_requires_prior_item_release", "backpressure", "max_outstanding_items_per_iterator", "max_prefetched_items_per_iterator", "pull_model"],
+      "properties": {
+        "advance_requires_prior_item_release": {"const": true},
+        "backpressure": {"const": "producer_does_not_advance_while_the_current_item_is_outstanding"},
+        "max_outstanding_items_per_iterator": {"const": 1},
+        "max_prefetched_items_per_iterator": {"const": 0},
+        "pull_model": {"const": "consumer_requests_exactly_one_next_operation_per_iteration_step"}
+      }
+    },
+    "targetContract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["collection_kinds", "iteration_modes", "protocol_operations", "source_evaluation", "end_policy", "fallible_iteration_policy", "order_rules", "ownership_rules", "mutation_rules", "loop_control_rules", "terminal_edge_rules", "flow_control_bounds", "semantic_nodes", "dynamic_dispatch_policy", "diagnostics", "inspection_fields", "prohibited_fallbacks"],
+      "properties": {
+        "collection_kinds": {"$ref": "#/$defs/stringArray"},
+        "iteration_modes": {"$ref": "#/$defs/stringArray"},
+        "protocol_operations": {"type": "array", "minItems": 3, "items": {"$ref": "#/$defs/protocolOperation"}},
+        "source_evaluation": {"const": "exactly_once_before_iterator_creation"},
+        "end_policy": {"const": "next_returns_none_permanently_after_exhaustion"},
+        "fallible_iteration_policy": {"const": "fallibility_is_explicit_in_item_type"},
+        "order_rules": {"$ref": "#/$defs/stringArray"},
+        "ownership_rules": {"$ref": "#/$defs/stringArray"},
+        "mutation_rules": {"$ref": "#/$defs/stringArray"},
+        "loop_control_rules": {"$ref": "#/$defs/stringArray"},
+        "terminal_edge_rules": {"$ref": "#/$defs/stringArray"},
+        "flow_control_bounds": {"$ref": "#/$defs/flowControlBounds"},
+        "semantic_nodes": {"$ref": "#/$defs/stringArray"},
+        "dynamic_dispatch_policy": {"const": "unsupported_with_stable_diagnostic"},
+        "diagnostics": {"$ref": "#/$defs/stringArray"},
+        "inspection_fields": {"$ref": "#/$defs/stringArray"},
+        "prohibited_fallbacks": {"$ref": "#/$defs/stringArray"}
+      }
+    },
+    "currentFloor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tier", "status", "implementation_owner", "while_runtime_loops_present", "break_present", "continue_present", "loop_control_outside_while_rejected", "for_fails_closed", "for_syntax_proven", "protocol_types_proven", "array_iteration_proven", "slice_iteration_proven", "runtime_sequence_iteration_proven", "map_iteration_proven", "text_scalar_iteration_proven", "static_user_iterator_proven", "borrow_move_iteration_proven", "mutation_rules_proven", "semantic_ir_inspection_proven", "direct_native_for_runtime_proven", "build_once_run_many_proven", "bootstrap_evidence", "target_gaps"],
+      "properties": {
+        "tier": {"const": "syntax_only"},
+        "status": {"const": "blocked"},
+        "implementation_owner": {"const": "rust_bootstrap"},
+        "while_runtime_loops_present": {"const": true},
+        "break_present": {"const": true},
+        "continue_present": {"const": true},
+        "loop_control_outside_while_rejected": {"const": true},
+        "for_fails_closed": {"const": true},
+        "for_syntax_proven": {"const": false},
+        "protocol_types_proven": {"const": false},
+        "array_iteration_proven": {"const": false},
+        "slice_iteration_proven": {"const": false},
+        "runtime_sequence_iteration_proven": {"const": false},
+        "map_iteration_proven": {"const": false},
+        "text_scalar_iteration_proven": {"const": false},
+        "static_user_iterator_proven": {"const": false},
+        "borrow_move_iteration_proven": {"const": false},
+        "mutation_rules_proven": {"const": false},
+        "semantic_ir_inspection_proven": {"const": false},
+        "direct_native_for_runtime_proven": {"const": false},
+        "build_once_run_many_proven": {"const": false},
+        "bootstrap_evidence": {"$ref": "#/$defs/stringArray"},
+        "target_gaps": {"$ref": "#/$defs/stringArray"}
+      }
+    },
+    "qualification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["minimum_nested_depth", "build_once_run_many", "required_runtime_origins", "required_collection_kinds", "required_iteration_modes", "required_proofs", "readiness_promotable", "fail_closed_diagnostic"],
+      "properties": {
+        "minimum_nested_depth": {"const": 2},
+        "build_once_run_many": {"const": true},
+        "required_runtime_origins": {"$ref": "#/$defs/stringArray"},
+        "required_collection_kinds": {"$ref": "#/$defs/stringArray"},
+        "required_iteration_modes": {"$ref": "#/$defs/stringArray"},
+        "required_proofs": {"$ref": "#/$defs/stringArray"},
+        "readiness_promotable": {"const": false},
+        "fail_closed_diagnostic": {"const": "language.iteration_control_not_qualified"}
+      }
+    },
+    "runtimeReceiptContract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artifact_required_fields", "build_required_fields", "declarations_are_proof", "markers_are_proof", "minimum_post_build_runs", "proof_executed", "proof_kind", "required_invariants", "required_runtime_origins", "rejected_substitutions", "run_required_fields", "status"],
+      "properties": {
+        "artifact_required_fields": {"$ref": "#/$defs/stringArray"},
+        "build_required_fields": {"$ref": "#/$defs/stringArray"},
+        "declarations_are_proof": {"const": false},
+        "markers_are_proof": {"const": false},
+        "minimum_post_build_runs": {"const": 2},
+        "proof_executed": {"const": false},
+        "proof_kind": {"const": "direct_native_runtime_receipt"},
+        "required_invariants": {"$ref": "#/$defs/stringArray"},
+        "required_runtime_origins": {"$ref": "#/$defs/stringArray"},
+        "rejected_substitutions": {"$ref": "#/$defs/stringArray"},
+        "run_required_fields": {"$ref": "#/$defs/stringArray"},
+        "status": {"const": "required_unimplemented"}
+      }
+    },
+    "fixture": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "category", "status", "runtime_origin", "blocks_readiness", "scenario", "evidence"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^iteration-control-v1/[a-z0-9-]+$"},
+        "category": {"enum": ["array", "borrow", "control", "diagnostic", "inspection", "map", "mutation", "ownership", "protocol", "runtime", "sequence", "slice", "text", "user_iterator"]},
+        "status": {"enum": ["bootstrap_pass", "target_gap"]},
+        "runtime_origin": {"type": "boolean"},
+        "blocks_readiness": {"type": "boolean"},
+        "scenario": {"type": "string", "minLength": 1},
+        "evidence": {"$ref": "#/$defs/stringArray"}
+      }
+    },
+    "targetGapRequirement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "contract"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[a-z0-9_]+$"},
+        "contract": {"type": "string", "minLength": 1}
+      }
+    },
+    "targetGapNegativeCase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "expected"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[a-z0-9_]+$"},
+        "expected": {"type": "string", "minLength": 1}
+      }
+    },
+    "targetGapFixture": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "id", "category", "status", "executable_proof", "requirements", "negative_cases"],
+      "properties": {
+        "schema_version": {"const": "axiom.iteration_control.target_gap_fixture.v1"},
+        "id": {"type": "string", "pattern": "^iteration-control-v1/[a-z0-9-]+$"},
+        "category": {"enum": ["control_exits", "mutation_ownership", "order_backpressure", "runtime_receipt"]},
+        "status": {"const": "required_unimplemented"},
+        "executable_proof": {"const": false},
+        "requirements": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/targetGapRequirement"}},
+        "negative_cases": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/targetGapNegativeCase"}}
+      }
+    }
+  }
+}

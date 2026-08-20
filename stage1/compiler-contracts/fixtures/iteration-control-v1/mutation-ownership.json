@@ -1,0 +1,20 @@
+{
+  "schema_version": "axiom.iteration_control.target_gap_fixture.v1",
+  "id": "iteration-control-v1/mutation-ownership",
+  "category": "mutation_ownership",
+  "status": "required_unimplemented",
+  "executable_proof": false,
+  "requirements": [
+    {"id": "borrow_escape", "contract": "A yielded borrow is scoped to its body execution and cannot escape the iterator or source owner; reject with ownership.borrow_escape."},
+    {"id": "exclusive_write", "contract": "Exclusive iteration may update only the current element through its live exclusive borrow without changing collection length, capacity, order, or generation."},
+    {"id": "moved_iterator", "contract": "Moving an iterator transfers its state and cleanup obligation and invalidates the old binding; any old-binding use is rejected with ownership.iterator_moved."},
+    {"id": "rejected_mutation_atomicity", "contract": "A rejected element, structural, relocating, resizing, insert, remove, clear, or rehash attempt changes no element bytes, length, capacity, deterministic order, or generation."},
+    {"id": "source_invalidation", "contract": "Moving or dropping a source while it is borrowed is rejected before source or iterator invalidation; stale iterator generations fail before next or cleanup side effects."}
+  ],
+  "negative_cases": [
+    {"id": "borrow_escape", "expected": "ownership.borrow_escape and no escaped binding"},
+    {"id": "moved_iterator", "expected": "ownership.iterator_moved before next, drop, or source state changes"},
+    {"id": "partial_mutation", "expected": "iteration.concurrent_mutation with byte-identical collection state and unchanged generation"},
+    {"id": "source_move_while_borrowed", "expected": "ownership.borrow_escape before source or iterator invalidation"}
+  ]
+}
