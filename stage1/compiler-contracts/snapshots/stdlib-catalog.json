@@ -1,8 +1,8 @@
 {
   "schema_version": "axiom.compiler.stdlib_catalog.v1",
   "contract": "compiler.stdlib",
-  "catalog_version": "1.1.0",
-  "source": "stage1/compiler-contracts/snapshots/capability-ledger.json",
+  "catalog_version": "2.0.0",
+  "source": "stage1/compiler-contracts/sources/stdlib-catalog-authority-v1.json",
   "modules": [
     {
       "name": "std/async.ax",
@@ -1178,7 +1178,7 @@
         {
           "name": "append_file",
           "signature": "fn append_file(path: string, content: string): int",
-          "effect": "capability:fs,fs:write",
+          "effect": "capability:fs:write",
           "binding": "axiom://provider/stage1-v1/fs/append_file",
           "binding_kind": "provider_contract",
           "provider": {
@@ -1189,7 +1189,7 @@
         {
           "name": "create_file",
           "signature": "fn create_file(path: string): int",
-          "effect": "capability:fs,fs:write",
+          "effect": "capability:fs:write",
           "binding": "axiom://provider/stage1-v1/fs/create_file",
           "binding_kind": "provider_contract",
           "provider": {
@@ -1200,7 +1200,7 @@
         {
           "name": "file_exists",
           "signature": "fn file_exists(path: string): bool",
-          "effect": "capability:fs,fs:write",
+          "effect": "capability:fs",
           "binding": "axiom://provider/stage1-v1/fs/file_exists",
           "binding_kind": "provider_contract",
           "provider": {
@@ -1211,7 +1211,7 @@
         {
           "name": "file_size",
           "signature": "fn file_size(path: string): int",
-          "effect": "capability:fs,fs:write",
+          "effect": "capability:fs",
           "binding": "axiom://provider/stage1-v1/fs/file_size",
           "binding_kind": "provider_contract",
           "provider": {
@@ -1222,7 +1222,7 @@
         {
           "name": "mkdir",
           "signature": "fn mkdir(path: string): int",
-          "effect": "capability:fs,fs:write",
+          "effect": "capability:fs:write",
           "binding": "axiom://provider/stage1-v1/fs/mkdir",
           "binding_kind": "provider_contract",
           "provider": {
@@ -1233,7 +1233,7 @@
         {
           "name": "mkdir_all",
           "signature": "fn mkdir_all(path: string): int",
-          "effect": "capability:fs,fs:write",
+          "effect": "capability:fs:write",
           "binding": "axiom://provider/stage1-v1/fs/mkdir_all",
           "binding_kind": "provider_contract",
           "provider": {
@@ -1244,7 +1244,7 @@
         {
           "name": "read_file",
           "signature": "fn read_file(path: string): Option<string>",
-          "effect": "capability:fs,fs:write",
+          "effect": "capability:fs",
           "binding": "axiom://provider/stage1-v1/fs/read_file",
           "binding_kind": "provider_contract",
           "provider": {
@@ -1255,7 +1255,7 @@
         {
           "name": "remove_dir",
           "signature": "fn remove_dir(path: string): int",
-          "effect": "capability:fs,fs:write",
+          "effect": "capability:fs:write",
           "binding": "axiom://provider/stage1-v1/fs/remove_dir",
           "binding_kind": "provider_contract",
           "provider": {
@@ -1266,7 +1266,7 @@
         {
           "name": "remove_file",
           "signature": "fn remove_file(path: string): int",
-          "effect": "capability:fs,fs:write",
+          "effect": "capability:fs:write",
           "binding": "axiom://provider/stage1-v1/fs/remove_file",
           "binding_kind": "provider_contract",
           "provider": {
@@ -1277,7 +1277,7 @@
         {
           "name": "replace_file",
           "signature": "fn replace_file(path: string, content: string): int",
-          "effect": "capability:fs,fs:write",
+          "effect": "capability:fs:write",
           "binding": "axiom://provider/stage1-v1/fs/replace_file",
           "binding_kind": "provider_contract",
           "provider": {
@@ -1288,7 +1288,7 @@
         {
           "name": "write_file",
           "signature": "fn write_file(path: string, content: string): int",
-          "effect": "capability:fs,fs:write",
+          "effect": "capability:fs:write",
           "binding": "axiom://provider/stage1-v1/fs/write_file",
           "binding_kind": "provider_contract",
           "provider": {
@@ -3730,7 +3730,7 @@
         {
           "name": "duration_ms",
           "signature": "fn duration_ms(ms: int): Duration",
-          "effect": "capability:clock",
+          "effect": "pure",
           "binding": "axiom://provider/stage1-v1/time/duration_ms",
           "binding_kind": "provider_contract",
           "provider": {
@@ -3796,7 +3796,7 @@
       "symbols": []
     }
   ],
-  "release_digest": "fb6f4db3b4c664f2b001edee117ffedae64d07af40eb05563e4ade7a2804758c",
+  "release_digest": "6019466717387376d52e4f02b3513cbafbaaa4f3a9f582d9811cefa013be22e9",
   "rollback_boundary": "stage1/crates/axiomc/src/stdlib.rs remains the bootstrap loader until #1436 qualifies a catalog consumer.",
   "acceptance_boundary": {
     "status": "pending",
