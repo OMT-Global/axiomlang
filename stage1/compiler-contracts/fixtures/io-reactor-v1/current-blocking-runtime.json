@@ -1,0 +1,11 @@
+{
+  "schema_version": "axiom.io_reactor.current.v1",
+  "claim": "runtime_io_reactor",
+  "runtime_backed": false,
+  "tcp_listener_blocking": true,
+  "async_wrapper_transport": "blocking_call_in_task",
+  "adapter": null,
+  "adapter_unavailable_reason": "No executable reactor adapter is active in the current blocking runtime.",
+  "decision": "partial",
+  "blocker_issues": [1425, 1426, 1436, 1438, 1445]
+}

@@ -1,0 +1,7 @@
+{
+  "target": "x86_64-unknown-linux-gnu",
+  "public_fields": ["resource_id", "epoll_fd"],
+  "claim": "portable_reactor_semantics",
+  "decision": "rejected",
+  "diagnostic": "io_reactor.adapter_detail_exposed"
+}

@@ -1,0 +1,21 @@
+{
+  "operation": "write",
+  "operation_generation": 7,
+  "requested_bytes": 8,
+  "completed_bytes": 3,
+  "remaining_bytes": 5,
+  "buffer_bound": 8,
+  "inspection": {
+    "adapter": "epoll",
+    "buffer_bound": 8,
+    "cancellation_owner": "axiom://task/fixture/partial-write",
+    "deadline": "monotonic:100",
+    "operation_generation": 7,
+    "readiness": "writable",
+    "resource_id": "axiom://resource/fixture/tcp-stream-1",
+    "resource_kind": "tcp_stream",
+    "target": "x86_64-unknown-linux-gnu"
+  },
+  "outcome": "partial",
+  "decision": "accepted"
+}
