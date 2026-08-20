@@ -196,6 +196,7 @@ def main() -> int:
     new_main_schema_ids = {
         "axiom://schema/axiom.lsp.v1",
         "axiom://schema/axiom.provider-abi.v1",
+        "axiom://schema/axiom.runtime_http_server.v1",
         "axiom://schema/axiom.runtime_observability.v1",
         "axiom://schema/axiom.runtime_lifecycle.v1",
         "axiom://schema/axiom.semantic_mir.v1",
@@ -230,10 +231,10 @@ def main() -> int:
         "axiom://schema/axiom.stage1.v1",
     }
     assert len(baseline_ids) == 52, "accepted baseline must remain the frozen 52-surface ratchet"
-    assert len(current_ids) == 68, "current contract must include package trust, quality, Provider ABI, runtime observability, Semantic MIR, runtime lifecycle, target support, persistent LSP, and package resolver schemas"
+    assert len(current_ids) == 69, "current contract must include package trust, quality, HTTP server v1, Provider ABI, runtime observability, Semantic MIR, runtime lifecycle, target support, persistent LSP, and package resolver schemas"
     assert set(baseline_ids) < set(current_ids)
     assert set(current_ids) - set(baseline_ids) == new_public_schema_ids | new_package_resolver_ids
-    assert current_payload["contract_version"] == "0.4.0"
+    assert current_payload["contract_version"] == "0.5.0"
     current_cli = surface(current_payload, "axiom://cli/axiomc")
     assert current_cli["version"] == "0.3.0"
     current_stage1_schema = surface(current_payload, "axiom://schema/axiom.stage1.v1")
@@ -254,7 +255,7 @@ def main() -> int:
     assert canonical.returncode == 0, canonical.stdout + canonical.stderr
     canonical_report = json.loads(canonical.stdout)
     assert canonical_report["summary"] == {
-        "additive": 16,
+        "additive": 17,
         "breaking": 9,
         "compatible": 0,
         "deprecated": 0,
@@ -270,6 +271,37 @@ def main() -> int:
     assert {
         item["surface_id"] for item in canonical_report["changes"]
     } == expected_changed_ids
+
+    with tempfile.TemporaryDirectory() as directory:
+        temporary = Path(directory)
+        previous_current = copy.deepcopy(current_payload)
+        previous_current["contract_version"] = "0.4.0"
+        previous_current["surfaces"] = [
+            item
+            for item in previous_current["surfaces"]
+            if item["id"] != "axiom://schema/axiom.runtime_http_server.v1"
+        ]
+        previous_path = temporary / "previous-current.json"
+        write(previous_path, previous_current)
+
+        ratchet = run(previous_path, CURRENT, policy=CURRENT_POLICY, old_policy=CURRENT_POLICY)
+        assert ratchet.returncode == 0, ratchet.stdout + ratchet.stderr
+        ratchet_report = json.loads(ratchet.stdout)
+        assert ratchet_report["summary"] == {
+            "additive": 1,
+            "breaking": 0,
+            "compatible": 0,
+            "deprecated": 0,
+        }
+        assert ratchet_report["changes"][0]["surface_id"] == "axiom://schema/axiom.runtime_http_server.v1"
+
+        unbumped_current = copy.deepcopy(current_payload)
+        unbumped_current["contract_version"] = "0.4.0"
+        unbumped_path = temporary / "unbumped-current.json"
+        write(unbumped_path, unbumped_current)
+        unbumped = run(previous_path, unbumped_path, policy=CURRENT_POLICY, old_policy=CURRENT_POLICY)
+        assert unbumped.returncode != 0
+        assert "semantic drift requires an increased new.contract_version" in unbumped.stdout
     assert all(
         item["change"] == "added"
         and item["severity"] == "additive"
