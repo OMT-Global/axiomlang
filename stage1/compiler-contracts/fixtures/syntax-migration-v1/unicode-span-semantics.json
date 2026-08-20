@@ -1,0 +1,10 @@
+{
+  "schema_version": "axiom.compiler.syntax_fixture.v1",
+  "id": "syntax-migration-v1/unicode-span-semantics",
+  "category": "span",
+  "status": "target_gap",
+  "input": {"vectors": [{"id": "unicode-scalar", "source": "let café: string = \"🙂\"\nprint café\n"}, {"id": "tab", "source": "\tprint 1\n"}, {"id": "crlf", "source": "print 1\r\nprint 2\r\n"}, {"id": "malformed", "source_hex": "7072696e7420ff0a"}], "supplied_after_build": true},
+  "expected": {"exit_outcome": "not_executed_target_gap", "compiler_diagnostics": [{"vector": "malformed", "kind": "source", "code": "source.invalid_utf8", "byte_offset": 6}], "recovered_nodes": [], "spans": [{"vector": "unicode-scalar", "token": "café", "start_byte": 4, "end_byte": 9, "line": 1, "column": 5, "end_column": 9}, {"vector": "unicode-scalar", "token": "🙂", "start_byte": 21, "end_byte": 25, "line": 1, "column": 21, "end_column": 22}, {"vector": "tab", "token": "print", "start_byte": 1, "end_byte": 6, "line": 1, "column": 2, "end_column": 7}, {"vector": "crlf", "token": "print", "occurrence": 2, "start_byte": 9, "end_byte": 14, "line": 2, "column": 1, "end_column": 6}], "macro_provenance": [], "node_identities": []},
+  "evidence": ["docs/compiler-syntax-migration-v1.md::Span semantics"],
+  "qualification": {"offset_unit": "utf8_byte", "column_unit": "unicode_scalar", "tabs": "one scalar", "crlf": "one line break", "malformed_utf8": "reject before lexing"}
+}

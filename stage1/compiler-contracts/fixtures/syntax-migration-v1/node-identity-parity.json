@@ -1,0 +1,10 @@
+{
+  "schema_version": "axiom.compiler.syntax_fixture.v1",
+  "id": "syntax-migration-v1/node-identity-parity",
+  "category": "node_identity",
+  "status": "target_gap",
+  "input": {"path": "runtime/identity.ax", "source": "macro wrap {\n($value:expr) => ($value);\n}\nlet value: int = wrap!(1)\nlet broken int = 2\n", "supplied_after_build": true},
+  "expected": {"exit_outcome": "not_executed_target_gap", "compiler_diagnostics": [], "recovered_nodes": [], "spans": [], "macro_provenance": [], "node_identities": [{"origin": "source", "kind": "program", "ordinal": 0}, {"origin": "macro-2", "kind": "expression", "ordinal": 0}, {"origin": "recovered", "kind": "declaration", "ordinal": 4}, {"origin": "synthetic-source-program-0", "kind": "eof", "ordinal": 0}]},
+  "evidence": ["docs/compiler-syntax-migration-v1.md::Canonical node identity"],
+  "qualification": {"source_identity": "sha256 of exact UTF-8 bytes", "collision_vectors": ["same_source_same_parse_same_ids", "different_source_bytes_different_ids", "macro_and_source_origins_do_not_collide", "recovered_and_synthetic_origins_do_not_collide"], "parity": "AxiOM and Rust emit identical canonical IDs"}
+}

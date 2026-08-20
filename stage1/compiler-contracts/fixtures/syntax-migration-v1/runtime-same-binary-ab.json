@@ -1,0 +1,10 @@
+{
+  "schema_version": "axiom.compiler.syntax_fixture.v1",
+  "id": "syntax-migration-v1/runtime-same-binary-ab",
+  "category": "runtime_input",
+  "status": "target_gap",
+  "input": {"artifact_sha256": null, "built_before_inputs_exist": true, "inputs_supplied_after_build": [{"id": "A", "path": "runtime/a.ax", "source": "let answer: int = 41\nprint answer\n"}, {"id": "B", "path": "runtime/b.ax", "source": "let answer int = 42\nprint answer\n"}], "supplied_after_build": true},
+  "expected": {"exit_outcome": "not_executed_target_gap", "compiler_diagnostics": [{"input": "A", "records": []}, {"input": "B", "records": [{"kind": "parse", "code": "parse.missing_token", "line": 1, "column": 1}]}], "recovered_nodes": [], "spans": [], "macro_provenance": [], "node_identities": []},
+  "evidence": ["docs/compiler-syntax-migration-v1.md::Same-binary runtime A/B"],
+  "qualification": {"artifact_identity": "one exact sha256 for A and B", "distinct_expected_outputs": true, "anti_static_replay": ["input files created after artifact digest is recorded", "artifact digest verified before and after each run", "A and B source digests absent from artifact bytes", "ordered run log binds input digest output digest and artifact digest"]}
+}

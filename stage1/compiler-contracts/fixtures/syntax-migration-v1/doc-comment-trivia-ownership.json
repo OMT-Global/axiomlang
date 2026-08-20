@@ -1,0 +1,10 @@
+{
+  "schema_version": "axiom.compiler.syntax_fixture.v1",
+  "id": "syntax-migration-v1/doc-comment-trivia-ownership",
+  "category": "comment",
+  "status": "target_gap",
+  "input": {"path": "runtime/doc-comment.ax", "source": "/// public answer\npub const ANSWER: int = 42\n", "supplied_after_build": true},
+  "expected": {"exit_outcome": "not_executed_target_gap", "compiler_diagnostics": [], "recovered_nodes": [], "spans": [{"kind": "doc_comment", "line": 1, "column": 1}], "macro_provenance": [], "node_identities": []},
+  "evidence": ["docs/compiler-syntax-migration-v1.md::Trivia ownership"],
+  "qualification": {"owner": "compiler.syntax", "retained_text": "/// public answer", "attached_to": "ANSWER"}
+}

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import importlib.util
 import json
 import subprocess
@@ -24,6 +25,8 @@ CURRENT_POLICY = ROOT / "stage1/compatibility/policy-v1.json"
 BASELINE = ROOT / "stage1/compatibility/fixtures/accepted-baseline/contract.json"
 BASELINE_POLICY = ROOT / "stage1/compatibility/fixtures/accepted-baseline/policy.json"
 CURRENT = ROOT / "stage1/compatibility/fixtures/current/contract.json"
+PREVIOUS_CURRENT = ROOT / "stage1/compatibility/fixtures/previous-current/contract.json"
+PREVIOUS_CURRENT_SHA256 = "dff36c546df53be343c9d06017e9d439ed981e1f3fcca1fc91a01bcdce9ae3ac"
 
 
 def load(path: Path) -> dict[str, Any]:
@@ -194,6 +197,7 @@ def main() -> int:
         "axiom://schema/axiom-trust-roots-v1",
     }
     new_main_schema_ids = {
+        "axiom://schema/axiom.compiler.syntax_migration.v1",
         "axiom://schema/axiom.lsp.v1",
         "axiom://schema/axiom.provider-abi.v1",
         "axiom://schema/axiom.runtime_observability.v1",
@@ -230,10 +234,46 @@ def main() -> int:
         "axiom://schema/axiom.stage1.v1",
     }
     assert len(baseline_ids) == 52, "accepted baseline must remain the frozen 52-surface ratchet"
-    assert len(current_ids) == 68, "current contract must include package trust, quality, Provider ABI, runtime observability, Semantic MIR, runtime lifecycle, target support, persistent LSP, and package resolver schemas"
+    assert len(current_ids) == 69, "current contract must include package trust, quality, compiler syntax migration, Provider ABI, runtime observability, Semantic MIR, runtime lifecycle, target support, persistent LSP, and package resolver schemas"
     assert set(baseline_ids) < set(current_ids)
     assert set(current_ids) - set(baseline_ids) == new_public_schema_ids | new_package_resolver_ids
-    assert current_payload["contract_version"] == "0.4.0"
+    assert current_payload["contract_version"] == "0.5.0"
+    with tempfile.TemporaryDirectory() as temporary:
+        directory = Path(temporary)
+        assert hashlib.sha256(PREVIOUS_CURRENT.read_bytes()).hexdigest() == PREVIOUS_CURRENT_SHA256, (
+            "previous-current compatibility fixture must remain byte-frozen at the 0.4.0 origin contract"
+        )
+        previous_current = load(PREVIOUS_CURRENT)
+        assert previous_current["contract_version"] == "0.4.0"
+        assert len(previous_current["surfaces"]) == 68
+        previous_report = run(
+            PREVIOUS_CURRENT,
+            CURRENT,
+            policy=CURRENT_POLICY,
+            old_policy=CURRENT_POLICY,
+        )
+        assert previous_report.returncode == 0, previous_report.stdout + previous_report.stderr
+        previous_payload = json.loads(previous_report.stdout)
+        assert previous_payload["contracts"] == {"old": "0.4.0", "new": "0.5.0"}
+        assert previous_payload["summary"] == {
+            "additive": 1,
+            "breaking": 0,
+            "compatible": 0,
+            "deprecated": 0,
+        }
+        assert [item["surface_id"] for item in previous_payload["changes"]] == [
+            "axiom://schema/axiom.compiler.syntax_migration.v1"
+        ]
+        unbumped = copy.deepcopy(current_payload)
+        unbumped["contract_version"] = "0.4.0"
+        expect_failure(
+            directory,
+            previous_current,
+            unbumped,
+            "semantic drift requires an increased new.contract_version",
+            policy=CURRENT_POLICY,
+            old_policy=CURRENT_POLICY,
+        )
     current_cli = surface(current_payload, "axiom://cli/axiomc")
     assert current_cli["version"] == "0.3.0"
     current_stage1_schema = surface(current_payload, "axiom://schema/axiom.stage1.v1")
@@ -254,7 +294,7 @@ def main() -> int:
     assert canonical.returncode == 0, canonical.stdout + canonical.stderr
     canonical_report = json.loads(canonical.stdout)
     assert canonical_report["summary"] == {
-        "additive": 16,
+        "additive": 17,
         "breaking": 9,
         "compatible": 0,
         "deprecated": 0,

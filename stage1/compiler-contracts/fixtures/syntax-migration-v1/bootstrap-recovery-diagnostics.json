@@ -1,0 +1,10 @@
+{
+  "schema_version": "axiom.compiler.syntax_fixture.v1",
+  "id": "syntax-migration-v1/bootstrap-recovery-diagnostics",
+  "category": "recovery",
+  "status": "bootstrap_pass",
+  "input": {"path": "main.ax", "source": "import math.ax\nlet answer int = 42\nprint answer\nelse {\n", "supplied_after_build": false},
+  "expected": {"exit_outcome": "compiler_diagnostics", "compiler_diagnostics": [{"kind": "parse", "code": "parse.invalid_syntax", "message": "import must use a quoted relative path", "path": "main.ax", "line": 1, "column": 1}, {"kind": "parse", "code": "parse.missing_token", "message": "let binding is missing ':'", "path": "main.ax", "line": 2, "column": 1}, {"kind": "parse", "code": "parse.unexpected_token", "message": "unexpected else block", "path": "main.ax", "line": 4, "column": 1}], "recovered_nodes": [], "spans": [], "macro_provenance": [], "node_identities": []},
+  "evidence": ["stage1/crates/axiomc/tests/support/lib_unit.rs::parser_recovery_reports_stable_top_level_errors", "stage1/crates/axiomc/tests/syntax_migration_v1.rs::bootstrap_recovery_diagnostics_match_fixture"],
+  "qualification": {"ordering": "source_span_then_emitter_order", "recovered_nodes_emitted": false}
+}

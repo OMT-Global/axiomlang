@@ -1,0 +1,181 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://omt-global.github.io/axiom/schemas/axiom.compiler.syntax_migration.v1.schema.json",
+  "title": "AxiOM compiler.syntax migration contract v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "contract", "issue", "parent_issue", "dependency_issues", "entry_gates", "target_contract", "current_floor", "cutover", "fixtures"],
+  "properties": {
+    "schema_version": {"const": "axiom.compiler.syntax_migration.v1"},
+    "contract": {"const": "compiler.syntax"},
+    "issue": {"const": 1471},
+    "parent_issue": {"const": 1468},
+    "dependency_issues": {"type": "array", "minItems": 3, "items": {"type": "integer", "minimum": 1}},
+    "entry_gates": {"type": "array", "minItems": 4, "items": {"$ref": "#/$defs/entryGate"}},
+    "target_contract": {"$ref": "#/$defs/targetContract"},
+    "current_floor": {"$ref": "#/$defs/currentFloor"},
+    "cutover": {"$ref": "#/$defs/cutover"},
+    "fixtures": {"type": "array", "minItems": 17, "items": {"$ref": "#/$defs/fixture"}}
+  },
+  "$defs": {
+    "stringArray": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+    "entryGate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "issue", "status", "required_proof"],
+      "properties": {
+        "id": {"enum": ["compiler_scale_runtime_proof", "diagnostics_contract_qualification", "maintainer_cutover_approval", "parent_runtime_prerequisites"]},
+        "issue": {"enum": [1427, 1468, 1473]},
+        "status": {"const": "blocked"},
+        "required_proof": {"type": "string", "minLength": 1}
+      }
+    },
+    "targetContract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["input_origin", "encoding", "entrypoints", "syntax_kinds", "trivia", "spans", "node_identity", "recovery", "macros", "fuzzing", "inspection_fields"],
+      "properties": {
+        "input_origin": {"const": "runtime"},
+        "encoding": {"const": "utf-8"},
+        "entrypoints": {"$ref": "#/$defs/stringArray"},
+        "syntax_kinds": {"$ref": "#/$defs/stringArray"},
+        "trivia": {"type": "array", "minItems": 2, "items": {"enum": ["doc_comment", "line_comment"]}},
+        "spans": {"$ref": "#/$defs/spanContract"},
+        "node_identity": {"$ref": "#/$defs/nodeIdentity"},
+        "recovery": {"$ref": "#/$defs/recovery"},
+        "macros": {"$ref": "#/$defs/macros"},
+        "fuzzing": {"$ref": "#/$defs/fuzzing"},
+        "inspection_fields": {"$ref": "#/$defs/stringArray"}
+      }
+    },
+    "spanContract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["offset_unit", "line_base", "column_base", "column_unit", "tab_policy", "line_endings", "malformed_utf8", "start_inclusive", "end_exclusive", "source_identity_required"],
+      "properties": {
+        "offset_unit": {"const": "utf8_byte"},
+        "line_base": {"const": 1},
+        "column_base": {"const": 1},
+        "column_unit": {"const": "unicode_scalar"},
+        "tab_policy": {"const": "one_unicode_scalar_no_display_expansion"},
+        "line_endings": {"const": "lf_and_crlf_each_count_as_one_line_break"},
+        "malformed_utf8": {"const": "reject_before_lexing:source.invalid_utf8"},
+        "start_inclusive": {"const": true},
+        "end_exclusive": {"const": true},
+        "source_identity_required": {"const": true}
+      }
+    },
+    "nodeIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scheme", "source_identity", "kind_encoding", "ordinal_encoding", "ordinal_scope", "traversal_order", "origin_rules", "stable_across_repeated_parse", "collision_rule", "prohibited_inputs"],
+      "properties": {
+        "scheme": {"const": "axiom://syntax/sha256/{source_digest}/{origin}/{kind}/{ordinal}"},
+        "source_identity": {"const": "sha256_of_exact_input_bytes_lower_hex"},
+        "kind_encoding": {"const": "lower_snake_case_ascii"},
+        "ordinal_encoding": {"const": "base10_no_leading_zero"},
+        "ordinal_scope": {"const": "per_source_origin"},
+        "traversal_order": {"const": "source_order_depth_first_preorder"},
+        "origin_rules": {"$ref": "#/$defs/stringArray"},
+        "stable_across_repeated_parse": {"const": true},
+        "collision_rule": {"const": "source_digest_origin_kind_ordinal_tuple_unique"},
+        "prohibited_inputs": {"$ref": "#/$defs/stringArray"}
+      }
+    },
+    "recovery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["multiple_diagnostics", "ordering", "diagnostic_contract", "recovered_node_required", "recovered_node_fields", "resynchronization_points"],
+      "properties": {
+        "multiple_diagnostics": {"const": true},
+        "ordering": {"const": "source_span_then_emitter_order"},
+        "diagnostic_contract": {"const": "compiler.diagnostics"},
+        "recovered_node_required": {"const": true},
+        "recovered_node_fields": {"$ref": "#/$defs/stringArray"},
+        "resynchronization_points": {"$ref": "#/$defs/stringArray"}
+      }
+    },
+    "macros": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["hygiene", "provenance", "limit_precedence", "recursion", "expanded_bytes", "invocations"],
+      "properties": {
+        "hygiene": {"const": "definition_and_call_site_scoped"},
+        "provenance": {"const": "source_and_expansion_spans"},
+        "limit_precedence": {"const": "configuration_then_invocations_then_expanded_bytes_then_recursion"},
+        "recursion": {"$ref": "#/$defs/macroLimit"},
+        "expanded_bytes": {"$ref": "#/$defs/macroLimit"},
+        "invocations": {"$ref": "#/$defs/macroLimit"}
+      }
+    },
+    "macroLimit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["default", "ceiling", "unit", "scope", "boundary", "failure_code"],
+      "properties": {
+        "default": {"type": "integer", "minimum": 1},
+        "ceiling": {"type": "integer", "minimum": 1},
+        "unit": {"type": "string", "minLength": 1},
+        "scope": {"type": "string", "minLength": 1},
+        "boundary": {"const": "inclusive"},
+        "failure_code": {"type": "string", "pattern": "^parse\\.macro_[a-z_]+$"}
+      }
+    },
+    "fuzzing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["seed_manifest", "seed_digest", "deterministic_mutation_seed", "per_case_byte_limit", "per_case_time_ms", "oracles", "promotion_criteria"],
+      "properties": {
+        "seed_manifest": {"type": "string", "minLength": 1},
+        "seed_digest": {"const": "sha256"},
+        "deterministic_mutation_seed": {"type": "integer", "minimum": 1},
+        "per_case_byte_limit": {"type": "integer", "minimum": 1},
+        "per_case_time_ms": {"type": "integer", "minimum": 1},
+        "oracles": {"$ref": "#/$defs/stringArray"},
+        "promotion_criteria": {"$ref": "#/$defs/stringArray"}
+      }
+    },
+    "currentFloor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tier", "status", "implementation_owner", "axiom_package_present", "runtime_origin_source_proven", "rust_path_disable_proven", "differential_parity_present", "canonical_axiom_node_ids", "bootstrap_evidence", "target_gaps"],
+      "properties": {
+        "tier": {"const": "syntax_only"},
+        "status": {"const": "blocked"},
+        "implementation_owner": {"const": "rust_bootstrap"},
+        "axiom_package_present": {"const": false},
+        "runtime_origin_source_proven": {"const": false},
+        "rust_path_disable_proven": {"const": false},
+        "differential_parity_present": {"const": false},
+        "canonical_axiom_node_ids": {"const": false},
+        "bootstrap_evidence": {"$ref": "#/$defs/stringArray"},
+        "target_gaps": {"$ref": "#/$defs/stringArray"}
+      }
+    },
+    "cutover": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["permitted", "required_entry_gates", "required_proofs", "approval_binding", "fail_closed_diagnostic"],
+      "properties": {
+        "permitted": {"const": false},
+        "required_entry_gates": {"$ref": "#/$defs/stringArray"},
+        "required_proofs": {"$ref": "#/$defs/stringArray"},
+        "approval_binding": {"const": "maintainer_identity_plus_exact_artifact_sha256"},
+        "fail_closed_diagnostic": {"const": "self_host.syntax_cutover_not_qualified"}
+      }
+    },
+    "fixture": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "category", "status", "runtime_origin", "blocks_cutover", "fixture_file"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^syntax-migration-v1/[a-z0-9-]+$"},
+        "category": {"enum": ["comment", "conformance", "differential", "fuzz", "macro", "node_identity", "ownership", "recovery", "runtime_input", "span"]},
+        "status": {"enum": ["bootstrap_pass", "target_gap"]},
+        "runtime_origin": {"type": "boolean"},
+        "blocks_cutover": {"type": "boolean"},
+        "fixture_file": {"type": "string", "pattern": "^stage1/compiler-contracts/fixtures/syntax-migration-v1/[a-z0-9-]+\\.json$"}
+      }
+    }
+  }
+}

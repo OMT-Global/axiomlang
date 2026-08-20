@@ -68,6 +68,9 @@ benchmark_gate_reference=$(grep -nE 'check-stage1-benchmarks\.py|stage1-comparis
 runtime_abi_status_check=$(grep -nF 'scripts/ci/render-direct-native-runtime-abi-status.py' "$fast_checks_script" || true)
 runtime_abi_coverage_check=$(grep -nF -- '--coverage-matrix' "$fast_checks_script" || true)
 full_lib_triage_check=$(grep -nF 'scripts/ci/check-stage1-full-lib-triage.py' "$fast_checks_script" || true)
+syntax_migration_self_test=$(grep -nF 'scripts/ci/test-check-syntax-migration-v1.py' "$fast_checks_script" || true)
+syntax_migration_head_check=$(grep -nF 'scripts/ci/check-syntax-migration-v1.py" --root "$repo_root"' "$fast_checks_script" || true)
+syntax_migration_fixture_test=$(grep -nF -- '--test syntax_migration_v1' "$fast_checks_script" || true)
 full_lib_suite_job=$(grep -nF 'full-lib-suite:' "$workflow" || true)
 full_lib_suite_run=$(grep -nF 'cargo test --manifest-path stage1/Cargo.toml -p axiomc --lib --features run-native-tests' "$workflow" || true)
 full_lib_suite_gate=$(grep -nF 'full-lib-suite=${{ needs.full-lib-suite.result }}' "$workflow" || true)
@@ -208,6 +211,11 @@ fi
 
 if [[ -z "$full_lib_triage_check" ]]; then
   echo "run-fast-checks must validate the stage1 full lib triage manifest" >&2
+  exit 1
+fi
+
+if [[ -z "$syntax_migration_self_test" || -z "$syntax_migration_head_check" || -z "$syntax_migration_fixture_test" ]]; then
+  echo "run-fast-checks must retain trusted syntax checker self-tests, validate the PR-head root as data, and execute structured parser fixtures" >&2
   exit 1
 fi
 
