@@ -1619,3 +1619,94 @@ fn package_trust_v1_schemas_compile_and_validate_contract_sections() {
         "partial rejected evidence remains closed to unknown fields"
     );
 }
+
+#[test]
+fn sqlite_v1_schema_validates_the_bounded_contract() {
+    let compiler_contracts = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join("compiler-contracts");
+    let schema: Value = serde_json::from_str(
+        &fs::read_to_string(
+            compiler_contracts
+                .join("schemas")
+                .join("axiom.sqlite-v1.schema.json"),
+        )
+        .expect("read SQLite v1 schema"),
+    )
+    .expect("SQLite v1 schema is valid JSON");
+    let contract: Value = serde_json::from_str(
+        &fs::read_to_string(compiler_contracts.join("snapshots").join("sqlite-v1.json"))
+            .expect("read SQLite v1 contract"),
+    )
+    .expect("SQLite v1 contract is valid JSON");
+
+    assert_eq!(
+        schema["$id"],
+        "https://omt-global.github.io/axiom/schemas/axiom.sqlite-v1.schema.json"
+    );
+    assert_eq!(schema["additionalProperties"], false);
+    let validator = compile_validator(&schema);
+    validator
+        .validate(&contract)
+        .expect("checked SQLite v1 contract matches its published schema");
+
+    for (name, mut invalid) in [
+        ("unknown root field", contract.clone()),
+        ("runtime qualification overclaim", contract.clone()),
+        ("wrong migration dialect", contract.clone()),
+        ("raw provider surface", contract.clone()),
+        ("ambient database path", contract.clone()),
+        ("URI query mode", contract.clone()),
+        ("weakened prepared statement policy", contract.clone()),
+        ("automatic corruption repair", contract.clone()),
+        ("incomplete handle validation", contract.clone()),
+        ("incomplete audit redaction", contract.clone()),
+        ("unknown fixture field", contract.clone()),
+        ("duplicate fixture", contract.clone()),
+    ] {
+        match name {
+            "unknown root field" => invalid["extension"] = serde_json::json!({}),
+            "runtime qualification overclaim" => {
+                invalid["scope"]["qualification"] = serde_json::json!("runtime_complete")
+            }
+            "wrong migration dialect" => {
+                invalid["migrations"]["dialect"] = serde_json::json!("postgresql")
+            }
+            "raw provider surface" => {
+                invalid["scope"]["raw_surface"] = serde_json::json!("allowed")
+            }
+            "ambient database path" => {
+                invalid["authority"]["path_policy"] = serde_json::json!("ambient_path")
+            }
+            "URI query mode" => {
+                invalid["authority"]["uri_policy"]["query"] = serde_json::json!("allowed")
+            }
+            "weakened prepared statement policy" => {
+                invalid["statements"]["sql_source"] = serde_json::json!("concatenated_sql")
+            }
+            "automatic corruption repair" => {
+                invalid["concurrency"]["corruption"] = serde_json::json!("automatic_repair")
+            }
+            "incomplete handle validation" => {
+                invalid["lifecycle"]["validation"] =
+                    serde_json::json!(["provider", "kind", "open"])
+            }
+            "incomplete audit redaction" => {
+                invalid["audit"]["forbidden"] = serde_json::json!(["sql_text"])
+            }
+            "unknown fixture field" => {
+                invalid["fixtures"][0]["sql"] = serde_json::json!("select ?")
+            }
+            "duplicate fixture" => {
+                let duplicate = invalid["fixtures"][0].clone();
+                invalid["fixtures"]
+                    .as_array_mut()
+                    .expect("fixtures array")
+                    .push(duplicate);
+            }
+            _ => unreachable!(),
+        }
+        assert!(!validator.is_valid(&invalid), "schema accepted {name}");
+    }
+}

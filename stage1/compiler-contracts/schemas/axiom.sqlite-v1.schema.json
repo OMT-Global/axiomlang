@@ -1,0 +1,251 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://omt-global.github.io/axiom/schemas/axiom.sqlite-v1.schema.json",
+  "title": "AxiOM SQLite v1 contract",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "contract",
+    "issue",
+    "scope",
+    "authority",
+    "statements",
+    "transactions",
+    "migrations",
+    "concurrency",
+    "lifecycle",
+    "errors",
+    "audit",
+    "fixtures"
+  ],
+  "properties": {
+    "schema_version": { "const": "axiom.sqlite-v1" },
+    "contract": { "const": "runtime.sqlite" },
+    "issue": { "const": 1452 },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["database", "provider_boundary", "qualification", "raw_surface"],
+      "properties": {
+        "database": { "const": "sqlite" },
+        "provider_boundary": { "const": "provider_abi_v1_or_builtin_equivalent" },
+        "qualification": { "const": "contract_only" },
+        "raw_surface": { "const": "forbidden" }
+      }
+    },
+    "authority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["capability", "identity", "path_policy", "uri_policy", "modes", "mode_authority", "open_strategy", "checks"],
+      "properties": {
+        "capability": { "const": "database.sqlite" },
+        "identity": { "const": "sha256_of_canonical_authority_and_database_file_identity" },
+        "path_policy": { "const": "project_relative_anchored_no_symlink_escape" },
+        "uri_policy": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["allowed", "path", "query", "authority", "fragment", "percent_decoding", "mode_source", "ambient", "network"],
+          "properties": {
+            "allowed": { "const": ["file"] },
+            "path": { "const": "canonical_path_only" },
+            "query": { "const": "forbidden" },
+            "authority": { "const": "forbidden" },
+            "fragment": { "const": "forbidden" },
+            "percent_decoding": { "const": "decode_once_before_normalize_and_anchor" },
+            "mode_source": { "const": "explicit_open_argument_only" },
+            "ambient": { "const": "denied" },
+            "network": { "const": "denied" }
+          }
+        },
+        "modes": { "const": ["read_only", "read_write", "create"] },
+        "mode_authority": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["read_only", "read_write", "create"],
+          "properties": {
+            "read_only": { "const": "requires_explicit_read_authority" },
+            "read_write": { "const": "requires_explicit_read_and_write_authority" },
+            "create": { "const": "requires_explicit_read_write_and_create_authority" }
+          }
+        },
+        "open_strategy": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["existing", "create"],
+          "properties": {
+            "existing": { "const": "handle_relative_or_revalidate_opened_file_identity_against_pre_authorized_identity" },
+            "create": { "const": "handle_relative_prevalidated_parent_no_follow_exclusive_leaf_create" }
+          }
+        },
+        "checks": { "const": ["decode_uri_path", "normalize", "anchor", "no_symlink_escape", "regular_file_or_new", "mode", "mode_specific_open_strategy"] }
+      }
+    },
+    "statements": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["lifecycle", "sql_source", "batching", "parameters", "rows", "injection"],
+      "properties": {
+        "lifecycle": { "const": ["prepare", "bind", "step", "reset", "finalize"] },
+        "sql_source": { "const": "prepared_statement_text_only" },
+        "batching": { "const": "one_statement_per_prepare" },
+        "parameters": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["addressing", "types", "limits", "unknown", "missing_binding", "reset_binding"],
+          "properties": {
+            "addressing": { "const": ["index", "name"] },
+            "types": { "const": ["null", "bool", "int64", "float64", "text_utf8", "bytes"] },
+            "limits": { "const": "validated_before_copy_or_provider_dispatch" },
+            "unknown": { "const": "reject_before_dispatch_with_bind_address" },
+            "missing_binding": { "const": "reject_step_with_bind_missing_unless_every_placeholder_is_bound_including_explicit_null" },
+            "reset_binding": { "const": "clear_all_bindings_and_row_state" }
+          }
+        },
+        "rows": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["iteration", "lifetime", "column_lookup", "types", "coercion", "limits"],
+          "properties": {
+            "iteration": { "const": "forward_cursor_bounded" },
+            "lifetime": { "const": "valid_until_next_step_reset_or_finalize" },
+            "column_lookup": { "const": ["index", "name"] },
+            "types": { "const": ["null", "bool", "int64", "float64", "text_utf8", "bytes"] },
+            "coercion": { "const": "explicit_only" },
+            "limits": { "const": "validated_before_allocation_or_copy" }
+          }
+        },
+        "injection": { "const": "bound_values_never_reparsed_as_sql" }
+      }
+    },
+    "transactions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["top_level", "begin_modes", "nested", "savepoint_names", "savepoints", "drop", "failure", "parent_failure"],
+      "properties": {
+        "top_level": { "const": ["begin", "commit", "rollback"] },
+        "begin_modes": { "const": ["deferred", "immediate", "exclusive"] },
+        "nested": { "const": "savepoint_only" },
+        "savepoint_names": { "const": "generated_or_validated_identifier_never_sql" },
+        "savepoints": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["create", "release", "rollback_to", "rollback_to_and_release", "drop"],
+          "properties": {
+            "create": { "const": "opens_active_child_scope" },
+            "release": { "const": "terminal_commit_child_into_parent_only_when_unpoisoned" },
+            "rollback_to": { "const": "rollback_child_changes_clear_poison_keep_child_active" },
+            "rollback_to_and_release": { "const": "terminal_rollback_child" },
+            "drop": { "const": "terminal_rollback_child" }
+          }
+        },
+        "drop": { "const": "rollback_active_scope" },
+        "failure": { "const": "poison_current_scope_until_rollback" },
+        "parent_failure": { "const": "child_failure_does_not_poison_parent_after_terminal_child_rollback" }
+      }
+    },
+    "migrations": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artifact", "dialect", "identity", "ordering", "apply", "history", "divergence"],
+      "properties": {
+        "artifact": { "const": "sql_migration" },
+        "dialect": { "const": "sqlite" },
+        "identity": { "const": "artifact_digest_plus_provenance_digest" },
+        "ordering": { "const": "strict_monotonic_sequence" },
+        "apply": { "const": "exclusive_transaction_all_or_rollback" },
+        "history": { "const": "immutable_id_digest_and_applied_version" },
+        "divergence": { "const": "fail_closed_before_new_migration" }
+      }
+    },
+    "concurrency": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["busy", "timeout", "cancellation", "writer_policy", "crash_reopen", "corruption"],
+      "properties": {
+        "busy": { "const": "bounded_retry_with_stable_busy_timeout" },
+        "timeout": { "const": "monotonic_operation_deadline" },
+        "cancellation": { "const": "interrupt_then_drain_before_reuse" },
+        "writer_policy": { "const": "explicit_single_writer_contention" },
+        "crash_reopen": { "const": "committed_state_or_recovery_error_never_partial_success" },
+        "corruption": { "const": "stable_corruption_error_without_automatic_repair" }
+      }
+    },
+    "lifecycle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["handles", "representation", "close", "drop", "validation", "leaks"],
+      "properties": {
+        "handles": { "const": ["database", "statement", "row_cursor", "transaction", "savepoint"] },
+        "representation": { "const": "nonzero_provider_scoped_generation_tagged_u64" },
+        "close": { "const": "idempotent_invalidates_children" },
+        "drop": { "const": "finalize_children_rollback_active_then_close" },
+        "validation": { "const": ["provider", "kind", "generation", "open", "parent"] },
+        "leaks": { "const": "fail_qualification_on_live_handle_or_unfinalized_statement" }
+      }
+    },
+    "errors": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["shape", "identity_policy", "kinds", "message_policy"],
+      "properties": {
+        "shape": { "const": ["kind", "operation", "request_identity", "authority_identity", "database_identity", "message", "retryable"] },
+        "identity_policy": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["request_identity", "authority_identity", "database_identity", "null_authority_identity_kinds", "nullable_database_identity_kinds"],
+          "properties": {
+            "request_identity": { "const": "opaque_runtime_issued_before_authority_resolution" },
+            "authority_identity": { "const": "opaque_runtime_issued_after_authority_resolution" },
+            "database_identity": { "const": "nullable_until_file_identity_established_required_after_establishment" },
+            "null_authority_identity_kinds": { "const": ["capability_denied", "invalid_authority"] },
+            "nullable_database_identity_kinds": { "const": ["capability_denied", "invalid_authority", "open_failed"] }
+          }
+        },
+        "kinds": { "const": ["capability_denied", "invalid_authority", "open_failed", "prepare_failed", "bind_address", "bind_missing", "bind_type", "execute_failed", "busy_timeout", "cancelled", "row_type", "transaction_state", "migration_diverged", "corruption", "closed_handle", "provider_fault"] },
+        "message_policy": { "const": "redacted_bounded_and_stable_kind_authoritative" }
+      }
+    },
+    "audit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fields", "operation_classes", "forbidden"],
+      "properties": {
+        "fields": { "const": ["request_identity", "authority_identity", "database_identity", "operation_class", "decision", "transaction_depth", "migration_id", "error_kind"] },
+        "operation_classes": { "const": ["open", "prepare", "read", "write", "transaction", "migration", "close", "recovery"] },
+        "forbidden": { "const": ["sql_text", "parameter_names", "parameter_values", "row_values", "credentials", "raw_path", "raw_uri", "raw_handle"] }
+      }
+    },
+    "fixtures": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "const": [
+        { "id": "prepared-bind-round-trip", "kind": "positive" },
+        { "id": "unknown-bind-address", "kind": "negative" },
+        { "id": "missing-parameter-binding", "kind": "negative" },
+        { "id": "unsupported-bind-type", "kind": "negative" },
+        { "id": "reset-clears-bindings", "kind": "negative" },
+        { "id": "capability-path-uri-denial", "kind": "negative" },
+        { "id": "bound-value-injection", "kind": "negative" },
+        { "id": "typed-row-mismatch", "kind": "negative" },
+        { "id": "rollback-and-savepoint", "kind": "positive" },
+        { "id": "savepoint-state-transitions", "kind": "positive" },
+        { "id": "crash-reopen-committed-state", "kind": "recovery" },
+        { "id": "concurrent-busy-cancel", "kind": "concurrency" },
+        { "id": "corrupt-database", "kind": "negative" },
+        { "id": "migration-divergence", "kind": "negative" },
+        { "id": "statement-transaction-handle-leak", "kind": "leak" }
+      ],
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "kind"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
+          "kind": { "enum": ["positive", "negative", "recovery", "concurrency", "leak"] }
+        }
+      }
+    }
+  }
+}
