@@ -79,18 +79,24 @@ used by canonical CI, including its historical policy snapshot; it is not
 release history or a previous compiler.
 `previous-contract-fixture/` remains sparse synthetic checker input and is not
 used as the canonical ratchet.
+`previous-current/` freezes the exact `origin/main` current contract from
+commit `b3149c5e9bf10a4a244b0d89c6e6cd804b47ae3f`, Git blob
+`e5ad22e48e4504d62de8ea343e58fd4c1e262cb4`. The `0.5.0` ratchet compares
+against that 68-surface evidence and permits exactly one additive surface:
+`axiom://schema/axiom.iteration_control.v1`.
 
-The current source contract is version `0.4.0` with 68 surfaces. Its changes
+The current source contract is version `0.5.0` with 69 surfaces. Its changes
 from the byte-frozen 52-surface `0.1.0` accepted baseline include the five
-Package Trust v1 schemas, six additive base-contract schemas (Provider ABI,
-runtime observability, Semantic MIR, runtime lifecycle, target support, and persistent LSP), two quality
+Package Trust v1 schemas, seven additive base-contract schemas (iteration
+control, Provider ABI, runtime observability, Semantic MIR, runtime lifecycle,
+target support, and persistent LSP), two quality
 schemas (quality policy and quality report), and three package-resolver schemas.
 The existing CLI, manifest, lockfile, `axiom.toml` schema, and stage1
 JSON-envelope schema surfaces also carry their governed package-resolver
 changes. Per-surface versions remain `0.1.0` for unchanged surfaces and are
-`0.2.0` for the schema additions and the CLI surface, so a contract-level
-version bump does not fabricate semantic drift across the existing inventory.
-The CLI surface is version `0.3.0`.
+independently bumped only where their own semantics changed, so the
+contract-level bump does not fabricate semantic drift across the existing
+inventory. The new iteration schema is `0.1.0`. The CLI surface is version `0.3.0`.
 
 Existing command invocations require no changes. Operators adopting registry
 dependencies run `axiomc pkg fetch` to create the v2 lockfile and verified
