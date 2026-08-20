@@ -41,7 +41,8 @@ Therefore:
 
 - `generated_rust: null` proves only that generated Rust was bypassed;
 - a green static or known-input spike does not prove runtime execution;
-- #1434 is the first product and self-hosting blocker;
+- #1434's effect-purity correction shipped in #1485; runtime completeness now
+  routes through the open executable-MIR and lifecycle leaves;
 - #1427 cannot certify a compiler-scale workload until one built binary
   processes different runtime source inputs without rebuilding.
 
@@ -68,12 +69,18 @@ make production-language-readiness
 ```
 
 The command is expected to report `ready: false` until the required rows have
-real evidence. Release or final-gate work may additionally require live issue
+real evidence. Release or final-gate work may additionally validate live issue
 state:
 
 ```bash
 make production-language-readiness-github
 ```
+
+The live mode requires every referenced issue state to be available. It treats
+`blockerIssues` as active execution contracts that must remain `OPEN`; closed
+governing or historical dependency references are allowed. A structurally
+valid but not-ready ledger remains a report, not a live-state validation
+failure.
 
 ## Current Baseline
 
@@ -117,21 +124,21 @@ make production-language-readiness-github
 | Issue | Outcome | Dispatch rule |
 | --- | --- | --- |
 | #1433 | Checked roadmap, manifest, schema, and validator | This roadmap PR. |
-| #1434 | Builds are effect-pure; unsupported runtime lowering fails closed | First implementation task; blocks all higher runtime claims. |
-| #1435 | Generated capability ledger and documentation drift gate | May proceed in parallel with #1434. |
-| #1437 | Axiom-neutral executable MIR v1 contract | Human design approval before implementation. |
-| #1436 | First HIR → MIR → native runtime-complete vertical slice | After #1437 and #1434. |
+| #1434 | Builds are effect-pure; unsupported runtime lowering fails closed | Completed by #1485; retain as historical proof, not an active dispatch target. |
+| #1435 | Generated capability ledger and documentation drift gate | Reconcile the completed #1434/#1437 contracts with the active leaf work. |
+| #1437 | Axiom-neutral executable MIR v1 contract | Completed; its contract is the design input for #1436 and #1438-#1440. |
+| #1436 | First HIR → MIR → native runtime-complete vertical slice | Open implementation path after the #1437 contract and #1485 purity guard. |
 
 ### Wave 1 — native value and ownership foundation
 
 | Issue | Outcome | Dependencies |
 | --- | --- | --- |
 | #1438 | Allocation, ownership, drop, and resource lifecycle ABI | MIR design; human approval. |
-| #1425 | Runtime-sized sequence/vector allocation and growth | #1434, #1437, #1438. |
-| #1426 | Runtime string and slice calls, returns, aliases, and cleanup | #1434, #1437, #1438, coordinated with #1425. |
+| #1425 | Runtime-sized sequence/vector allocation and growth | #1436, #1438. |
+| #1426 | Runtime string and slice calls, returns, aliases, and cleanup | #1436, #1438, coordinated with #1425. |
 | #1439 | Dynamic non-Copy aggregates across calls, returns, and storage | #1438, #1425, #1426, #1436. |
-| #1440 | Dedicated MIR move, borrow, drop, and resource analysis | #1437-#1439. |
-| #1476 | Runtime maps/sets, equality/hashing, deterministic iteration, and collision bounds | Lifecycle, sequences, and ownership; human collection-contract approval. |
+| #1440 | Dedicated MIR move, borrow, drop, and resource analysis | #1436, #1438, #1439. |
+| #1476 | Runtime maps/sets, equality/hashing, deterministic iteration, and collision bounds | #1438, #1425, #1440; human collection-contract approval. |
 
 ### Wave 2 — serious CLI and worker runtime
 
@@ -199,10 +206,10 @@ make production-language-readiness-github
 
 The safe first queue is:
 
-1. #1434 — effect-pure builds and fail-closed runtime lowering;
-2. #1435 — canonical capability truth and documentation reconciliation;
-3. #1437 — Pheidon-led MIR v1 design;
-4. #1438 — Pheidon-led lifecycle ABI design;
+1. #1436 — first executable-MIR to native runtime-complete vertical slice;
+2. #1438 — lifecycle ABI implementation after the completed #1437 contract;
+3. #1425 and #1426 — runtime collections and string/slice ABI;
+4. #1439 and #1440 — dynamic aggregates and ownership analysis;
 5. #1454 — extended validation design after #1430;
 6. #1460 and #1463 — bounded tooling/quality work that does not claim runtime
    readiness.

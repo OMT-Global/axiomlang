@@ -23,9 +23,10 @@ define completion.
 - Direct-native Cranelift is the supported user-program backend; generated Rust
   is not a supported CLI backend.
 - The direct-native ABI and Rust-exit reports are structurally green for their
-  declared rows, but the backend can execute unsupported programs in the
-  compiler process and emit replay binaries. #1434 therefore blocks any broad
-  runtime-complete, production, or self-hosting claim.
+  declared rows. #1485 closed the unsupported-program evaluator/replay path;
+  broad runtime-complete, production, and self-hosting claims remain blocked by
+  the open executable-MIR, lifecycle, value, aggregate, and ownership leaves
+  (#1436 and #1438-#1440).
 - The production-language ledger currently has 52 capability rows: 3 of 39
   production-required rows meet their target evidence tier. The remaining
   rows are intentionally `partial` or `blocked`, not missing from the plan.
@@ -48,11 +49,11 @@ define completion.
 | Family | Canonical issues | Status | Execution rule |
 | --- | --- | --- | --- |
 | Production language umbrella | #1432-#1467, #1476-#1477, #1481 | Active, dependency ordered | Execute from `docs/production-language-roadmap.md`; do not skip evidence tiers or dependency/human gates. |
-| Runtime truth and executable semantics | #1434, #1436-#1440 | First critical path | Remove effectful compile-time replay, then land MIR, lifecycle, runtime values, aggregates, and ownership evidence. |
-| Backend exit for user programs | #1124, #1191, #1255, #731 | Structurally shipped; runtime-truth correction open | Keep generated Rust outside the supported CLI while #1434 closes the evaluator/replay hole. |
+| Runtime truth and executable semantics | #1436, #1438-#1440 | First critical path | The #1434 purity correction and #1437 MIR contract are complete; land the executable runtime, lifecycle, values, aggregates, and ownership evidence. |
+| Backend exit for user programs | #1124, #1191, #1255, #731 | Structurally shipped; runtime-completeness open | Keep generated Rust outside the supported CLI; runtime-complete claims now route through #1436 and #1438-#1440. |
 | Host exit / self-hosting | #565, #721 | Active, early | Treat #565 as the thesis and #721 as the final Class 3 gate. |
 | Compiler source decomposition | #1254 | Active | Continue shrinking Rust monoliths along AxiOM package boundaries under the enforced ratchet. |
-| Self-hosting language/backend gaps | #1366, #1425-#1427, #1434, #1436-#1440, #1476-#1477 | Blocked on runtime foundation | Require build-once/run-many evidence with runtime-origin values and effects. |
+| Self-hosting language/backend gaps | #1366, #1425-#1427, #1436, #1438-#1440, #1476-#1477 | Blocked on runtime foundation | Require build-once/run-many evidence with runtime-origin values and effects. |
 | Compiler source migration | #1468-#1475, #1478-#1479 | Blocked on compiler-scale proof | Port by accepted package boundaries with Rust coexistence and rollback; never infer migration from boundary fixtures. |
 | Compiler-scale AxiOM proof | #1427 | Blocked on runtime foundation | One emitted binary must process distinct runtime inputs without rebuild or compile-time effects. |
 | Snapshot bootstrap | #1428 | Human-gated release work | Pin the genesis snapshot and prove offline build/test, no Cargo after genesis, and fixpoint evidence. |
@@ -84,7 +85,8 @@ Expected current outcomes:
   locked-offline, vendor, trust-tamper/replay, and graph-inspection fixtures pass
   the resolver target;
 - direct-native ABI, command surface, Rust exit, and monolith ratchet:
-  structurally green, but not a substitute for #1434 runtime truth;
+  structurally green, but not a substitute for the open runtime-completeness
+  leaves;
 - self-hosting language entry readiness: red until the runtime foundation,
   #1425-#1427, #1476-#1477, and #1481 are executable; compiler-source ownership
   is a subsequent migration/final-host-exit gate, not an entry prerequisite;

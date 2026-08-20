@@ -24,10 +24,19 @@ def parse_args() -> argparse.Namespace:
         help="path to the readiness documentation",
     )
     parser.add_argument("--issue-state-file", help="file containing '<issue> <state>' rows")
-    parser.add_argument(
+    issue_state_group = parser.add_mutually_exclusive_group()
+    issue_state_group.add_argument(
         "--require-issue-states",
         action="store_true",
-        help="fail when blocker issue state cannot be read",
+        help="fail when blocker issue state cannot be read and require blockers closed",
+    )
+    issue_state_group.add_argument(
+        "--validate-live-issue-states",
+        action="store_true",
+        help=(
+            "validate all referenced issue states and require active blockerIssues "
+            "to remain open; readiness remains report-only"
+        ),
     )
     return parser.parse_args()
 
@@ -84,7 +93,11 @@ def issue_state_from_github(issue: int) -> str | None:
 
 
 def blocker_issue_states(
-    issues: set[int], issue_state_file: str | None, require_issue_states: bool
+    issues: set[int],
+    active_blockers: set[int],
+    issue_state_file: str | None,
+    require_issue_states: bool,
+    validate_live_issue_states: bool,
 ) -> tuple[list[dict], bool]:
     checks: list[dict] = []
     file_states = read_issue_states(issue_state_file)
@@ -101,13 +114,13 @@ def blocker_issue_states(
                 else f"issue state file does not exist: {issue_state_file}",
             )
         )
-    elif require_issue_states:
+    elif require_issue_states or validate_live_issue_states:
         source = "GitHub"
         checks.append(
             check(
                 "language_readiness_issue_state_source",
                 "pass",
-                "issue states loaded from GitHub",
+                "referenced issue states loaded from GitHub",
             )
         )
     else:
@@ -115,17 +128,20 @@ def blocker_issue_states(
             check(
                 "language_readiness_issue_state_source",
                 "pass",
-                "issue states not required; pass --require-issue-states for rewrite decision PRs",
+                "issue states not required; pass --validate-live-issue-states for live contract validation",
             )
         )
 
     issue_states_available = True
-    for issue in sorted(issues):
+    issues_to_check = issues if validate_live_issue_states else active_blockers
+    for issue in sorted(issues_to_check):
         state = file_states.get(issue)
-        if state is None and (require_issue_states or issue_state_file):
+        if state is None and (
+            require_issue_states or validate_live_issue_states or issue_state_file
+        ):
             state = issue_state_from_github(issue) if not issue_state_file else None
         if state is None:
-            if require_issue_states or issue_state_file:
+            if require_issue_states or validate_live_issue_states or issue_state_file:
                 issue_states_available = False
                 checks.append(
                     check(
@@ -135,11 +151,23 @@ def blocker_issue_states(
                     )
                 )
             continue
+        state_ok = state == "CLOSED"
+        detail = f"issue #{issue} is {state}"
+        if validate_live_issue_states:
+            state_ok = (
+                (issue in active_blockers and state == "OPEN")
+                or issue not in active_blockers
+            )
+            detail = (
+                f"issue #{issue} is {state}; active blocker state is valid"
+                if state_ok
+                else f"active blocker issue #{issue} is {state}; expected OPEN"
+            )
         checks.append(
             check(
                 f"language_readiness_issue_{issue}_closed",
-                "pass" if state == "CLOSED" else "fail",
-                f"issue #{issue} is {state}",
+                "pass" if state_ok else "fail",
+                detail,
             )
         )
     return checks, issue_states_available
@@ -164,6 +192,7 @@ def main() -> int:
     checks: list[dict] = []
     rows: list[dict] = []
     blocker_issues: set[int] = set()
+    referenced_issues: set[int] = set()
 
     checks.append(
         check(
@@ -264,8 +293,11 @@ def main() -> int:
             row_checks.append("missing group")
         if not row.get("requirement"):
             row_checks.append("missing requirement")
-        if not isinstance(row.get("governingIssue"), int):
+        governing_issue = row.get("governingIssue")
+        if not isinstance(governing_issue, int) or isinstance(governing_issue, bool):
             row_checks.append("missing numeric governingIssue")
+        else:
+            referenced_issues.add(governing_issue)
         if not row.get("validatingCommand"):
             row_checks.append("missing validatingCommand")
 
@@ -325,14 +357,26 @@ def main() -> int:
             )
         )
 
-    issue_checks, _ = blocker_issue_states(
-        blocker_issues, args.issue_state_file, args.require_issue_states
+    referenced_issues.update(blocker_issues)
+    issue_checks, issue_states_available = blocker_issue_states(
+        referenced_issues,
+        blocker_issues,
+        args.issue_state_file,
+        args.require_issue_states,
+        args.validate_live_issue_states,
     )
     checks.extend(issue_checks)
 
     ready = all(item["status"] == "pass" for item in checks)
+    validation_checks = [
+        item for item in checks if item["name"] != "language_readiness_rows_implemented"
+    ]
+    valid = all(item["status"] == "pass" for item in validation_checks) and (
+        issue_states_available if args.validate_live_issue_states else True
+    )
     report = {
         "schema": SCHEMA,
+        "valid": valid,
         "ready": ready,
         "manifest": str(manifest_path),
         "document": str(doc_path),
@@ -357,7 +401,7 @@ def main() -> int:
         for item in checks:
             print(f"{item['status']} {item['name']}: {item['detail']}")
 
-    return 0 if ready else 1
+    return 0 if (valid if args.validate_live_issue_states else ready) else 1
 
 
 if __name__ == "__main__":
