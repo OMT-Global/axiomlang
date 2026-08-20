@@ -1703,6 +1703,9 @@ fn render_rust_uses_trusted_crypto_symbol_loading() {
     assert!(!rendered.contains("std::mem::transmute_copy"));
     assert!(!rendered.contains("std::mem::transmute(value)"));
     assert!(rendered.contains("std::mem::MaybeUninit::<T>::uninit()"));
+    assert!(!rendered.contains("private_key.extend_from_slice(&public_key)"));
+    assert!(rendered.contains("if secret_key.len() == 32"));
+    assert!(!rendered.contains("64 => Some(&secret_key[..32])"));
 }
 
 #[test]

@@ -1,0 +1,614 @@
+{
+  "schema_version": "axiom.runtime_crypto_provider_policy.v1",
+  "policy_id": "runtime.crypto.provider",
+  "policy_version": "1.0.0",
+  "issue": 1481,
+  "status": "review_candidate",
+  "activation": {
+    "mechanism": "separate_reviewed_activation_commit",
+    "activation_artifact": "stage1/compiler-contracts/snapshots/runtime-crypto-provider-policy-v1.activation.json",
+    "artifact_present": false,
+    "trusted_branch": "main",
+    "merge_effect": "none",
+    "required_roles": [
+      "security_review",
+      "verification_review"
+    ],
+    "resulting_status": "review_candidate",
+    "implementation_claim": "none"
+  },
+  "capability": "crypto",
+  "algorithms": [
+    {
+      "id": "aes-128-gcm@1",
+      "kind": "aead",
+      "axiom_names": [
+        "Aes128Gcm"
+      ],
+      "operations": [
+        "open",
+        "seal"
+      ],
+      "provider": "openssl-3.5-evp",
+      "standard": "https://csrc.nist.gov/pubs/sp/800/38/d/final",
+      "status": "approved_on_activation",
+      "input_model": "runtime_bytes",
+      "public_encoding": "ciphertext_then_tag_bytes",
+      "output_bytes": 0,
+      "key_bytes": {
+        "allowed": [
+          16
+        ],
+        "minimum": 16,
+        "maximum": 16
+      },
+      "nonce_bytes": [
+        12
+      ],
+      "tag_bytes": 16,
+      "validation_rules": [
+        "reject_non_12_byte_nonce",
+        "reject_non_16_byte_key",
+        "return_no_plaintext_before_tag_verification"
+      ]
+    },
+    {
+      "id": "aes-256-gcm@1",
+      "kind": "aead",
+      "axiom_names": [
+        "Aes256Gcm"
+      ],
+      "operations": [
+        "open",
+        "seal"
+      ],
+      "provider": "openssl-3.5-evp",
+      "standard": "https://csrc.nist.gov/pubs/sp/800/38/d/final",
+      "status": "approved_on_activation",
+      "input_model": "runtime_bytes",
+      "public_encoding": "ciphertext_then_tag_bytes",
+      "output_bytes": 0,
+      "key_bytes": {
+        "allowed": [
+          32
+        ],
+        "minimum": 32,
+        "maximum": 32
+      },
+      "nonce_bytes": [
+        12
+      ],
+      "tag_bytes": 16,
+      "validation_rules": [
+        "reject_non_12_byte_nonce",
+        "reject_non_32_byte_key",
+        "return_no_plaintext_before_tag_verification"
+      ]
+    },
+    {
+      "id": "chacha20-poly1305@1",
+      "kind": "aead",
+      "axiom_names": [
+        "ChaCha20Poly1305"
+      ],
+      "operations": [
+        "open",
+        "seal"
+      ],
+      "provider": "openssl-3.5-evp",
+      "standard": "https://www.rfc-editor.org/rfc/rfc8439",
+      "status": "approved_on_activation",
+      "input_model": "runtime_bytes",
+      "public_encoding": "ciphertext_then_tag_bytes",
+      "output_bytes": 0,
+      "key_bytes": {
+        "allowed": [
+          32
+        ],
+        "minimum": 32,
+        "maximum": 32
+      },
+      "nonce_bytes": [
+        12
+      ],
+      "tag_bytes": 16,
+      "validation_rules": [
+        "reject_non_12_byte_nonce",
+        "reject_non_32_byte_key",
+        "return_no_plaintext_before_tag_verification"
+      ]
+    },
+    {
+      "id": "ed25519@1",
+      "kind": "signature",
+      "axiom_names": [
+        "ed25519_keygen",
+        "ed25519_sign",
+        "ed25519_verify"
+      ],
+      "operations": [
+        "keygen",
+        "sign",
+        "verify"
+      ],
+      "provider": "openssl-3.5-evp",
+      "standard": "https://www.rfc-editor.org/rfc/rfc8032",
+      "status": "approved_on_activation",
+      "input_model": "runtime_bytes",
+      "public_encoding": "raw_bytes",
+      "output_bytes": 0,
+      "key_bytes": {
+        "allowed": [
+          32
+        ],
+        "minimum": 32,
+        "maximum": 32
+      },
+      "nonce_bytes": [],
+      "tag_bytes": 0,
+      "validation_rules": [
+        "public_key_is_32_bytes",
+        "secret_key_is_32_byte_seed_only",
+        "signature_is_64_bytes",
+        "verification_failure_returns_false"
+      ]
+    },
+    {
+      "id": "hmac-sha2-256@1",
+      "kind": "mac",
+      "axiom_names": [
+        "hmac_sha256",
+        "verify_sha256"
+      ],
+      "operations": [
+        "compute",
+        "verify"
+      ],
+      "provider": "openssl-3.5-evp",
+      "standard": "https://csrc.nist.gov/pubs/fips/198-1/final",
+      "status": "approved_on_activation",
+      "input_model": "runtime_bytes_or_utf8_text",
+      "public_encoding": "lowercase_hex_text",
+      "output_bytes": 32,
+      "key_bytes": {
+        "allowed": [],
+        "minimum": 14,
+        "maximum": 65536
+      },
+      "nonce_bytes": [],
+      "tag_bytes": 0,
+      "validation_rules": [
+        "reject_keys_below_112_bits_outside_published_test_vectors",
+        "verification_uses_constant_time_comparison"
+      ]
+    },
+    {
+      "id": "hmac-sha2-512@1",
+      "kind": "mac",
+      "axiom_names": [
+        "hmac_sha512",
+        "verify_sha512"
+      ],
+      "operations": [
+        "compute",
+        "verify"
+      ],
+      "provider": "openssl-3.5-evp",
+      "standard": "https://csrc.nist.gov/pubs/fips/198-1/final",
+      "status": "approved_on_activation",
+      "input_model": "runtime_bytes_or_utf8_text",
+      "public_encoding": "lowercase_hex_text",
+      "output_bytes": 64,
+      "key_bytes": {
+        "allowed": [],
+        "minimum": 14,
+        "maximum": 65536
+      },
+      "nonce_bytes": [],
+      "tag_bytes": 0,
+      "validation_rules": [
+        "reject_keys_below_112_bits_outside_published_test_vectors",
+        "verification_uses_constant_time_comparison"
+      ]
+    },
+    {
+      "id": "sha2-256@1",
+      "kind": "hash",
+      "axiom_names": [
+        "sha256"
+      ],
+      "operations": [
+        "digest"
+      ],
+      "provider": "openssl-3.5-evp",
+      "standard": "https://csrc.nist.gov/pubs/fips/180-4/upd1/final",
+      "status": "approved_on_activation",
+      "input_model": "runtime_bytes_or_utf8_text",
+      "public_encoding": "lowercase_hex_text",
+      "output_bytes": 32,
+      "key_bytes": {
+        "allowed": [],
+        "minimum": 0,
+        "maximum": 0
+      },
+      "nonce_bytes": [],
+      "tag_bytes": 0,
+      "validation_rules": [
+        "accept_empty_input",
+        "process_runtime_sized_input_in_bounded_chunks"
+      ]
+    }
+  ],
+  "algorithm_provider": {
+    "id": "openssl-3.5-evp",
+    "kind": "algorithm",
+    "version_requirement": ">=3.5.0,<3.6.0",
+    "support_end": "2030-04-08",
+    "targets": [
+      "linux-x86_64",
+      "macos-arm64"
+    ],
+    "load_policy": "bundled_pinned_attested",
+    "ambient_host_loading": false,
+    "provider_name": "default",
+    "fips_claim": "none",
+    "provenance": {
+      "artifact_digest_required": true,
+      "sbom_required": true,
+      "version_evidence_required": true,
+      "source": "https://openssl-library.org/source/",
+      "support_policy": "https://openssl-library.org/post/2025-02-20-openssl-3.5-lts/"
+    },
+    "qualification_requirements": [
+      "artifact_digest",
+      "attestation_identity",
+      "attestation_subject",
+      "executable_equivalence",
+      "isolated_config_loading",
+      "isolated_provider_loading",
+      "openssl_default_provider_selection",
+      "provider_version",
+      "sbom_digest",
+      "signer_identity",
+      "target_abi"
+    ]
+  },
+  "entropy_sources": [
+    {
+      "id": "apple-security-secrandom",
+      "target": "macos-arm64",
+      "interface": "SecRandomCopyBytes(kSecRandomDefault)",
+      "source": "https://developer.apple.com/documentation/security/secrandomcopybytes(_:_:_:)",
+      "maximum_request_bytes": 65536,
+      "chunk_bytes": 65536,
+      "success_rule": "status_equals_errSecSuccess_and_full_buffer_written",
+      "retry_rule": "none",
+      "failure_code": "entropy_unavailable",
+      "fallback": "none"
+    },
+    {
+      "id": "linux-getrandom",
+      "target": "linux-x86_64",
+      "interface": "getrandom(flags=0)",
+      "source": "https://man7.org/linux/man-pages/man2/getrandom.2.html",
+      "maximum_request_bytes": 65536,
+      "chunk_bytes": 256,
+      "success_rule": "loop_until_full_buffer_written",
+      "retry_rule": "retry_eintr_and_partial_reads",
+      "failure_code": "entropy_unavailable",
+      "fallback": "none"
+    }
+  ],
+  "entropy_health": {
+    "health_signal": "provider_api_success",
+    "application_statistical_tests": "forbidden",
+    "failure_behavior": "discard_buffer_and_return_entropy_unavailable",
+    "fallback": "none"
+  },
+  "targets": [
+    {
+      "id": "linux-x86_64",
+      "algorithm_provider": "openssl-3.5-evp",
+      "entropy_source": "linux-getrandom",
+      "semantic_requirement": "equivalent",
+      "implementation_status": "compatibility_backend_ambient_loading_only",
+      "provider_qualification": "missing",
+      "abi_qualification": "missing",
+      "executable_equivalence": "missing"
+    },
+    {
+      "id": "macos-arm64",
+      "algorithm_provider": "openssl-3.5-evp",
+      "entropy_source": "apple-security-secrandom",
+      "semantic_requirement": "equivalent",
+      "implementation_status": "compatibility_backend_ambient_loading_only",
+      "provider_qualification": "missing",
+      "abi_qualification": "missing",
+      "executable_equivalence": "missing"
+    }
+  ],
+  "execution": {
+    "effect_phase": "runtime_only",
+    "compile_time_effects": "forbidden",
+    "runtime_input_length": "checked_and_chunked",
+    "streaming_threshold_bytes": 65536,
+    "allocation_failure": "allocation_failed",
+    "build_evidence_values": "metadata_only"
+  },
+  "failure_model": {
+    "fail_closed": true,
+    "codes": [
+      "allocation_failed",
+      "authentication_failed",
+      "capability_denied",
+      "entropy_unavailable",
+      "invalid_key_length",
+      "invalid_nonce_length",
+      "malformed_input",
+      "provider_failure",
+      "provider_unavailable",
+      "unsupported_algorithm",
+      "unsupported_target",
+      "verification_failed"
+    ],
+    "partial_entropy": "discard_buffer_and_fail",
+    "provider_failure": "return_no_output",
+    "authentication_failure": "return_no_plaintext",
+    "verification_failure": "return_false_and_record_stable_code_only"
+  },
+  "secret_handling": {
+    "secret_classes": [
+      "aead_key",
+      "generated_entropy",
+      "mac_key",
+      "signature_secret_key"
+    ],
+    "comparison": "constant_time_for_mac_tag_and_secret_derived_values",
+    "key_identity": "fixed_opaque_runtime_handle_state_not_an_identifier_and_not_derived_from_secret",
+    "zeroization": "best_effort_for_axiom_owned_secret_buffers_and_provider_contexts",
+    "zeroization_limits": [
+      "allocator_copies_may_exist",
+      "crash_dumps_require_platform_hardening",
+      "immutable_or_foreign_provider_copies_cannot_be_proven_erased",
+      "operating_system_caches_are_outside_language_control"
+    ],
+    "forbidden_evidence_fields": [
+      "ciphertext",
+      "digest",
+      "generated_bytes",
+      "key",
+      "mac",
+      "message",
+      "nonce",
+      "plaintext",
+      "private_key",
+      "secret_key",
+      "signature"
+    ]
+  },
+  "inspection": {
+    "allowed_fields": [
+      "algorithm",
+      "capability",
+      "input_lengths",
+      "key_identity",
+      "operation",
+      "outcome",
+      "provider",
+      "provider_version",
+      "runtime_origin",
+      "target"
+    ],
+    "runtime_origin": "native",
+    "secret_values": "forbidden",
+    "failure_detail": "stable_code_only",
+    "approved_operations": [
+      "aead.open",
+      "aead.seal",
+      "entropy.fill",
+      "hash.digest",
+      "mac.compute",
+      "mac.verify",
+      "signature.keygen",
+      "signature.sign",
+      "signature.verify"
+    ],
+    "outcome_codes": [
+      "allocation_failed",
+      "authentication_failed",
+      "capability_denied",
+      "entropy_unavailable",
+      "invalid_key_length",
+      "invalid_nonce_length",
+      "malformed_input",
+      "ok",
+      "provider_failure",
+      "provider_unavailable",
+      "unsupported_algorithm",
+      "unsupported_target",
+      "verification_failed"
+    ],
+    "key_identity_values": [
+      "not_applicable",
+      "opaque_runtime_handle"
+    ],
+    "entropy_algorithm": "system-entropy@1",
+    "entropy_provider_by_target": {
+      "linux-x86_64": "linux-getrandom",
+      "macos-arm64": "apple-security-secrandom"
+    },
+    "opaque_key_operations": [
+      "aead.open",
+      "aead.seal",
+      "mac.compute",
+      "mac.verify",
+      "signature.sign"
+    ],
+    "not_applicable_key_operations": [
+      "entropy.fill",
+      "hash.digest",
+      "signature.keygen",
+      "signature.verify"
+    ],
+    "channels": [
+      "errors",
+      "evidence",
+      "logs",
+      "serialized_inspection",
+      "traces"
+    ]
+  },
+  "fixtures": [
+    {
+      "id": "axiom://runtime-crypto-provider-policy/v1/algorithm-vectors",
+      "kind": "vector_source_catalog",
+      "path": "algorithm-vectors.json",
+      "asserts": [
+        "every_approved_algorithm_has_an_authoritative_https_source",
+        "catalog_makes_no_executable_vector_claim_without_embedded_material"
+      ]
+    },
+    {
+      "id": "axiom://runtime-crypto-provider-policy/v1/failure-matrix",
+      "kind": "failure_catalog",
+      "path": "failure-matrix.json",
+      "asserts": [
+        "every_stable_failure_code_has_one_closed_catalog_entry",
+        "catalog_makes_no_executable_failure_claim"
+      ]
+    },
+    {
+      "id": "axiom://runtime-crypto-provider-policy/v1/inspection-redaction",
+      "kind": "inspection",
+      "path": "inspection-redaction.json",
+      "asserts": [
+        "entropy_and_unkeyed_inspection_profiles_are_representable",
+        "inspection_values_and_nested_channels_are_closed",
+        "marker_secret_absence_is_regression_tested"
+      ]
+    },
+    {
+      "id": "axiom://runtime-crypto-provider-policy/v1/provider-matrix",
+      "kind": "provider_matrix",
+      "path": "provider-matrix.json",
+      "asserts": [
+        "provider_requirements_are_separate_from_qualification",
+        "qualification_remains_false_without_target_evidence"
+      ]
+    }
+  ],
+  "qualification": {
+    "qualified": false,
+    "status": "requirements_only",
+    "target_evidence": [
+      {
+        "target": "linux-x86_64",
+        "qualified": false,
+        "provider_version": {
+          "status": "missing",
+          "value": ""
+        },
+        "artifact_digest": {
+          "status": "missing",
+          "value": ""
+        },
+        "sbom_digest": {
+          "status": "missing",
+          "value": ""
+        },
+        "signer_identity": {
+          "status": "missing",
+          "value": ""
+        },
+        "attestation_identity": {
+          "status": "missing",
+          "value": ""
+        },
+        "attestation_subject": {
+          "status": "missing",
+          "value": ""
+        },
+        "target_abi": {
+          "status": "missing",
+          "value": ""
+        },
+        "isolated_config_loading": {
+          "status": "missing",
+          "value": false
+        },
+        "isolated_provider_loading": {
+          "status": "missing",
+          "value": false
+        },
+        "openssl_default_provider_selected": {
+          "status": "missing",
+          "value": false
+        },
+        "executable_equivalence_evidence": {
+          "status": "missing",
+          "value": ""
+        }
+      },
+      {
+        "target": "macos-arm64",
+        "qualified": false,
+        "provider_version": {
+          "status": "missing",
+          "value": ""
+        },
+        "artifact_digest": {
+          "status": "missing",
+          "value": ""
+        },
+        "sbom_digest": {
+          "status": "missing",
+          "value": ""
+        },
+        "signer_identity": {
+          "status": "missing",
+          "value": ""
+        },
+        "attestation_identity": {
+          "status": "missing",
+          "value": ""
+        },
+        "attestation_subject": {
+          "status": "missing",
+          "value": ""
+        },
+        "target_abi": {
+          "status": "missing",
+          "value": ""
+        },
+        "isolated_config_loading": {
+          "status": "missing",
+          "value": false
+        },
+        "isolated_provider_loading": {
+          "status": "missing",
+          "value": false
+        },
+        "openssl_default_provider_selected": {
+          "status": "missing",
+          "value": false
+        },
+        "executable_equivalence_evidence": {
+          "status": "missing",
+          "value": ""
+        }
+      }
+    ]
+  },
+  "readiness": {
+    "evidence_tier": "static_spike",
+    "status": "partial",
+    "production_qualified": false,
+    "blocking_gaps": [
+      "executable_algorithm_vectors",
+      "linux_x86_64_provider_artifact_and_abi",
+      "macos_arm64_provider_artifact_and_abi",
+      "provider_attestation_and_sbom",
+      "target_equivalence_execution"
+    ]
+  }
+}

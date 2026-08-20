@@ -102,6 +102,10 @@ python3 "$script_repo_root/scripts/ci/test-check-runtime-lifecycle-v1.py"
 python3 "$script_repo_root/scripts/ci/check-runtime-lifecycle-v1.py"
 python3 "$script_repo_root/scripts/ci/test-check-runtime-observability-v1.py"
 python3 "$script_repo_root/scripts/ci/check-runtime-observability-v1.py"
+python3 "$script_repo_root/scripts/ci/test-check-runtime-crypto-provider-policy-v1.py" \
+  --root "$repo_root"
+python3 "$script_repo_root/scripts/ci/check-runtime-crypto-provider-policy-v1.py" \
+  --root "$repo_root"
 bash "$script_repo_root/scripts/ci/test-check-snapshot-bootstrap-readiness.sh"
 python3 "$script_repo_root/scripts/ci/test-run-agent-autonomy-benchmark.py"
 python3 "$script_repo_root/scripts/ci/run-agent-autonomy-benchmark.py" --subset ci --check >/dev/null

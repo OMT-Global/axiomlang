@@ -79,18 +79,26 @@ used by canonical CI, including its historical policy snapshot; it is not
 release history or a previous compiler.
 `previous-contract-fixture/` remains sparse synthetic checker input and is not
 used as the canonical ratchet.
+`previous-current/contract.json` is separate byte-exact one-step evidence from
+`origin/main` commit `b3149c5e9bf10a4a244b0d89c6e6cd804b47ae3f`, blob
+`e5ad22e48e4504d62de8ea343e58fd4c1e262cb4`. Its metadata freezes the SHA-256,
+`0.4.0` version, and 68-surface count; it is not release history.
 
-The current source contract is version `0.4.0` with 68 surfaces. Its changes
+The current source contract is version `0.5.0` with 69 surfaces. Its changes
 from the byte-frozen 52-surface `0.1.0` accepted baseline include the five
-Package Trust v1 schemas, six additive base-contract schemas (Provider ABI,
-runtime observability, Semantic MIR, runtime lifecycle, target support, and persistent LSP), two quality
+Package Trust v1 schemas, seven additive base-contract schemas (Provider ABI,
+runtime crypto provider policy, runtime observability, Semantic MIR, runtime
+lifecycle, target support, and persistent LSP), two quality
 schemas (quality policy and quality report), and three package-resolver schemas.
 The existing CLI, manifest, lockfile, `axiom.toml` schema, and stage1
 JSON-envelope schema surfaces also carry their governed package-resolver
-changes. Per-surface versions remain `0.1.0` for unchanged surfaces and are
-`0.2.0` for the schema additions and the CLI surface, so a contract-level
-version bump does not fabricate semantic drift across the existing inventory.
-The CLI surface is version `0.3.0`.
+changes. The one-step `0.4.0` to `0.5.0` ratchet proves one additive surface,
+the `0.1.0` runtime crypto provider policy schema, and one breaking experimental
+ABI correction. The direct-native ABI surface is version `0.2.0`: Ed25519
+signing now accepts exactly the canonical 32-byte private seed and rejects the
+former 64-byte seed-plus-public-key input. Existing callers must retain or
+recover the 32-byte seed before upgrading. Other per-surface versions remain
+independently governed. The CLI surface is version `0.3.0`.
 
 Existing command invocations require no changes. Operators adopting registry
 dependencies run `axiomc pkg fetch` to create the v2 lockfile and verified

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import importlib.util
 import json
 import subprocess
@@ -24,6 +25,8 @@ CURRENT_POLICY = ROOT / "stage1/compatibility/policy-v1.json"
 BASELINE = ROOT / "stage1/compatibility/fixtures/accepted-baseline/contract.json"
 BASELINE_POLICY = ROOT / "stage1/compatibility/fixtures/accepted-baseline/policy.json"
 CURRENT = ROOT / "stage1/compatibility/fixtures/current/contract.json"
+PREVIOUS_CURRENT = ROOT / "stage1/compatibility/fixtures/previous-current/contract.json"
+PREVIOUS_CURRENT_METADATA = ROOT / "stage1/compatibility/fixtures/previous-current/metadata.json"
 
 
 def load(path: Path) -> dict[str, Any]:
@@ -88,6 +91,11 @@ def expect_failure(
 
 def surface(contract: dict[str, Any], identifier: str) -> dict[str, Any]:
     return next(item for item in contract["surfaces"] if item["id"] == identifier)
+
+
+def git_blob_oid(payload: bytes) -> str:
+    header = f"blob {len(payload)}\0".encode("ascii")
+    return hashlib.sha1(header + payload).hexdigest()
 
 
 def extractor_module() -> Any:
@@ -184,6 +192,9 @@ def main() -> int:
 
     baseline_payload = load(BASELINE)
     current_payload = load(CURRENT)
+    previous_current_bytes = PREVIOUS_CURRENT.read_bytes()
+    previous_current_payload = json.loads(previous_current_bytes)
+    previous_current_metadata = load(PREVIOUS_CURRENT_METADATA)
     baseline_ids = [item["id"] for item in baseline_payload["surfaces"]]
     current_ids = [item["id"] for item in current_payload["surfaces"]]
     new_package_trust_ids = {
@@ -196,6 +207,7 @@ def main() -> int:
     new_main_schema_ids = {
         "axiom://schema/axiom.lsp.v1",
         "axiom://schema/axiom.provider-abi.v1",
+        "axiom://schema/axiom.runtime_crypto_provider_policy.v1",
         "axiom://schema/axiom.runtime_observability.v1",
         "axiom://schema/axiom.runtime_lifecycle.v1",
         "axiom://schema/axiom.semantic_mir.v1",
@@ -230,17 +242,83 @@ def main() -> int:
         "axiom://schema/axiom.stage1.v1",
     }
     assert len(baseline_ids) == 52, "accepted baseline must remain the frozen 52-surface ratchet"
-    assert len(current_ids) == 68, "current contract must include package trust, quality, Provider ABI, runtime observability, Semantic MIR, runtime lifecycle, target support, persistent LSP, and package resolver schemas"
+    assert len(current_ids) == 69, "current contract must include package trust, quality, Provider ABI, runtime crypto policy, runtime observability, Semantic MIR, runtime lifecycle, target support, persistent LSP, and package resolver schemas"
     assert set(baseline_ids) < set(current_ids)
     assert set(current_ids) - set(baseline_ids) == new_public_schema_ids | new_package_resolver_ids
-    assert current_payload["contract_version"] == "0.4.0"
+    assert current_payload["contract_version"] == "0.5.0"
     current_cli = surface(current_payload, "axiom://cli/axiomc")
     assert current_cli["version"] == "0.3.0"
+    current_abi = surface(current_payload, "axiom://abi/direct-native")
+    assert current_abi["version"] == "0.2.0"
     current_stage1_schema = surface(current_payload, "axiom://schema/axiom.stage1.v1")
     assert current_stage1_schema["version"] == "0.2.0"
     compatibility_doc = (ROOT / "docs/compatibility-v1.md").read_text(encoding="utf-8")
     assert f"current source contract is version `{current_payload['contract_version']}` with {len(current_ids)} surfaces" in compatibility_doc
     assert f"CLI surface is version `{current_cli['version']}`" in compatibility_doc
+
+    assert previous_current_metadata == {
+        "schema_version": "axiom.compatibility_previous_current_evidence.v1",
+        "role": "byte_exact_previous_current_source_snapshot",
+        "source_commit": "b3149c5e9bf10a4a244b0d89c6e6cd804b47ae3f",
+        "source_path": "stage1/compatibility/fixtures/current/contract.json",
+        "git_blob": "e5ad22e48e4504d62de8ea343e58fd4c1e262cb4",
+        "sha256": "dff36c546df53be343c9d06017e9d439ed981e1f3fcca1fc91a01bcdce9ae3ac",
+        "contract_version": "0.4.0",
+        "surface_count": 68,
+        "qualification": (
+            "Byte-exact origin/main evidence only; not release history or a "
+            "qualified previous compiler."
+        ),
+    }
+    assert hashlib.sha256(previous_current_bytes).hexdigest() == previous_current_metadata["sha256"]
+    assert git_blob_oid(previous_current_bytes) == previous_current_metadata["git_blob"]
+    assert previous_current_payload["contract_version"] == "0.4.0"
+    assert len(previous_current_payload["surfaces"]) == 68
+
+    previous_current_report = run(
+        PREVIOUS_CURRENT,
+        CURRENT,
+        policy=CURRENT_POLICY,
+        old_policy=CURRENT_POLICY,
+    )
+    assert previous_current_report.returncode == 0, (
+        previous_current_report.stdout + previous_current_report.stderr
+    )
+    previous_current_result = json.loads(previous_current_report.stdout)
+    assert previous_current_result["contracts"] == {"old": "0.4.0", "new": "0.5.0"}
+    assert previous_current_result["summary"] == {
+        "additive": 1,
+        "breaking": 1,
+        "compatible": 0,
+        "deprecated": 0,
+    }
+    assert [
+        (change["surface_id"], change["change"], change["severity"])
+        for change in previous_current_result["changes"]
+    ] == [
+        (
+            "axiom://abi/direct-native",
+            "modified",
+            "breaking",
+        ),
+        (
+            "axiom://schema/axiom.runtime_crypto_provider_policy.v1",
+            "added",
+            "additive",
+        )
+    ]
+    with tempfile.TemporaryDirectory() as temporary:
+        directory = Path(temporary)
+        unbumped = copy.deepcopy(current_payload)
+        unbumped["contract_version"] = previous_current_payload["contract_version"]
+        expect_failure(
+            directory,
+            previous_current_payload,
+            unbumped,
+            "semantic drift requires an increased new.contract_version",
+            policy=CURRENT_POLICY,
+            old_policy=CURRENT_POLICY,
+        )
     current_commands = (
         current_cli["signature"].split("; ", maxsplit=1)[0].split("=")[1].split(",")
     )
@@ -254,12 +332,13 @@ def main() -> int:
     assert canonical.returncode == 0, canonical.stdout + canonical.stderr
     canonical_report = json.loads(canonical.stdout)
     assert canonical_report["summary"] == {
-        "additive": 16,
-        "breaking": 9,
+        "additive": 17,
+        "breaking": 10,
         "compatible": 0,
         "deprecated": 0,
     }
     expected_changed_ids = new_public_schema_ids | new_package_resolver_ids | modified_schema_ids | {
+        "axiom://abi/direct-native",
         "axiom://cli/axiomc",
         "axiom://package/lockfile",
         "axiom://package/manifest",
@@ -285,6 +364,14 @@ def main() -> int:
     assert cli_change["change"] == "modified"
     assert cli_change["severity"] == "breaking"
     assert cli_change["surface_kind"] == "cli"
+    abi_change = next(
+        item
+        for item in canonical_report["changes"]
+        if item["surface_id"] == "axiom://abi/direct-native"
+    )
+    assert abi_change["change"] == "modified"
+    assert abi_change["severity"] == "breaking"
+    assert abi_change["surface_kind"] == "abi"
     assert cli_change["migration"] == (
         "Existing command invocations require no changes. To adopt registry dependencies, "
         "run axiomc pkg fetch to create the v2 lock and verified cache, use axiomc pkg "

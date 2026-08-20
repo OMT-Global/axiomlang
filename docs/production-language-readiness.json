@@ -444,10 +444,10 @@
       "governingIssue": 1481,
       "blockerIssues": [1481],
       "dependencies": [1434, 1438, 1439, 1425, 1426, 1441, 1453, 1455],
-      "evidence": ["stage1/runtime-abi/direct-native-v0.json", "stage1/examples/stdlib_crypto_hash/axiom.toml", "stage1/examples/stdlib_crypto_aead/axiom.toml", "stage1/examples/stdlib_crypto_signature/axiom.toml"],
-      "validatingCommand": "make stage1-direct-native-runtime-abi && make stage1-stdlib-test",
+      "evidence": ["docs/runtime-crypto-provider-policy-v1.md", "stage1/compiler-contracts/schemas/axiom.runtime_crypto_provider_policy.v1.schema.json", "stage1/compiler-contracts/snapshots/runtime-crypto-provider-policy-v1.json", "stage1/compiler-contracts/fixtures/runtime-crypto-provider-policy-v1/algorithm-vectors.json", "stage1/compiler-contracts/fixtures/runtime-crypto-provider-policy-v1/failure-matrix.json", "stage1/compiler-contracts/fixtures/runtime-crypto-provider-policy-v1/inspection-redaction.json", "stage1/compiler-contracts/fixtures/runtime-crypto-provider-policy-v1/provider-matrix.json", "stage1/runtime-abi/direct-native-v0.json", "stage1/examples/stdlib_crypto_hash/axiom.toml", "stage1/examples/stdlib_crypto_aead/axiom.toml", "stage1/examples/stdlib_crypto_signature/axiom.toml"],
+      "validatingCommand": "make stage1-runtime-crypto-provider-policy-v1",
       "rustCaptureRisk": "critical",
-      "agentInspectionImpact": "Expose operation, algorithm, provider/version, capability, redacted key identity, buffer provenance, target, and evidence."
+      "agentInspectionImpact": "Expose only the closed operation, algorithm, provider/version, capability, key-identity state, target, outcome-code, length, and qualification metadata contract; secret values remain forbidden."
     },
     {
       "id": "compatibility_v1",

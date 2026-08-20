@@ -766,30 +766,32 @@ def extract(inventory_path: Path, policy_path: Path) -> dict[str, Any]:
     readiness = load_object(readiness_path)
     abi_projection = abi_semantic_projection(abi, readiness)
     abi_ids = [row["id"] for row in abi_projection["rows"]]
-    surfaces.append(
-        surface(
-            "axiom://abi/direct-native",
-            "abi",
-            public_surface_version("axiom://abi/direct-native"),
-            (
-                f"{abi.get('schema_version')}; abi_id={abi.get('abi_id')}; semantic_digest="
-                f"{semantic_digest(abi_projection)}; "
-                f"semantic_rows={','.join(sorted(abi_ids))}"
+    abi_surface = surface(
+        "axiom://abi/direct-native",
+        "abi",
+        public_surface_version("axiom://abi/direct-native"),
+        (
+            f"{abi.get('schema_version')}; abi_id={abi.get('abi_id')}; semantic_digest="
+            f"{semantic_digest(abi_projection)}; "
+            f"semantic_rows={','.join(sorted(abi_ids))}"
+        ),
+        [
+            source(
+                abi_path,
+                "logical_runtime_abi",
+                "abi_id,value_features[*].(id,logical_semantics),capability_shims[*].(id,capability,logical_semantics)",
             ),
-            [
-                source(
-                    abi_path,
-                    "logical_runtime_abi",
-                    "abi_id,value_features[*].(id,logical_semantics),capability_shims[*].(id,capability,logical_semantics)",
-                ),
-                source(
-                    readiness_path,
-                    "runtime_abi_readiness_parity",
-                    "value_features[*].id,capability_shims[*].(id,capability)",
-                ),
-            ],
-        )
+            source(
+                readiness_path,
+                "runtime_abi_readiness_parity",
+                "value_features[*].id,capability_shims[*].(id,capability)",
+            ),
+        ],
     )
+    abi_migration = public_surface_migration("axiom://abi/direct-native")
+    if abi_migration is not None:
+        abi_surface["migration"] = abi_migration
+    surfaces.append(abi_surface)
 
     schema_roots = [
         entry_path(entries, "published_schemas"),

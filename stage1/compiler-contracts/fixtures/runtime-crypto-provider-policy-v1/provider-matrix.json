@@ -1,0 +1,149 @@
+{
+  "schema_version": "axiom.runtime_crypto_provider_matrix.v1",
+  "algorithm_provider": {
+    "id": "openssl-3.5-evp",
+    "requirements": {
+      "load_policy": "bundled_pinned_attested",
+      "ambient_host_loading": false,
+      "provider_name": "default",
+      "fips_claim": "none",
+      "qualification_requirements": [
+        "artifact_digest",
+        "attestation_identity",
+        "attestation_subject",
+        "executable_equivalence",
+        "isolated_config_loading",
+        "isolated_provider_loading",
+        "openssl_default_provider_selection",
+        "provider_version",
+        "sbom_digest",
+        "signer_identity",
+        "target_abi"
+      ]
+    }
+  },
+  "targets": [
+    {
+      "id": "linux-x86_64",
+      "algorithm_provider": "openssl-3.5-evp",
+      "entropy_source": "linux-getrandom",
+      "semantic_requirement": "equivalent",
+      "implementation_status": "compatibility_backend_ambient_loading_only",
+      "provider_qualification": "missing",
+      "abi_qualification": "missing",
+      "executable_equivalence": "missing"
+    },
+    {
+      "id": "macos-arm64",
+      "algorithm_provider": "openssl-3.5-evp",
+      "entropy_source": "apple-security-secrandom",
+      "semantic_requirement": "equivalent",
+      "implementation_status": "compatibility_backend_ambient_loading_only",
+      "provider_qualification": "missing",
+      "abi_qualification": "missing",
+      "executable_equivalence": "missing"
+    }
+  ],
+  "qualification": {
+    "qualified": false,
+    "status": "requirements_only",
+    "target_evidence": [
+      {
+        "target": "linux-x86_64",
+        "qualified": false,
+        "provider_version": {
+          "status": "missing",
+          "value": ""
+        },
+        "artifact_digest": {
+          "status": "missing",
+          "value": ""
+        },
+        "sbom_digest": {
+          "status": "missing",
+          "value": ""
+        },
+        "signer_identity": {
+          "status": "missing",
+          "value": ""
+        },
+        "attestation_identity": {
+          "status": "missing",
+          "value": ""
+        },
+        "attestation_subject": {
+          "status": "missing",
+          "value": ""
+        },
+        "target_abi": {
+          "status": "missing",
+          "value": ""
+        },
+        "isolated_config_loading": {
+          "status": "missing",
+          "value": false
+        },
+        "isolated_provider_loading": {
+          "status": "missing",
+          "value": false
+        },
+        "openssl_default_provider_selected": {
+          "status": "missing",
+          "value": false
+        },
+        "executable_equivalence_evidence": {
+          "status": "missing",
+          "value": ""
+        }
+      },
+      {
+        "target": "macos-arm64",
+        "qualified": false,
+        "provider_version": {
+          "status": "missing",
+          "value": ""
+        },
+        "artifact_digest": {
+          "status": "missing",
+          "value": ""
+        },
+        "sbom_digest": {
+          "status": "missing",
+          "value": ""
+        },
+        "signer_identity": {
+          "status": "missing",
+          "value": ""
+        },
+        "attestation_identity": {
+          "status": "missing",
+          "value": ""
+        },
+        "attestation_subject": {
+          "status": "missing",
+          "value": ""
+        },
+        "target_abi": {
+          "status": "missing",
+          "value": ""
+        },
+        "isolated_config_loading": {
+          "status": "missing",
+          "value": false
+        },
+        "isolated_provider_loading": {
+          "status": "missing",
+          "value": false
+        },
+        "openssl_default_provider_selected": {
+          "status": "missing",
+          "value": false
+        },
+        "executable_equivalence_evidence": {
+          "status": "missing",
+          "value": ""
+        }
+      }
+    ]
+  }
+}

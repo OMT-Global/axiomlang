@@ -10,7 +10,7 @@
       "sha256": "0a7df662030a201d7953255a50ad4a5355758bc0626faa44ba879cd1d4eee00f"
     }
   },
-  "contract_version": "0.5.0",
+  "contract_version": "0.4.0",
   "edition": {
     "id": "2026",
     "source": {
@@ -95,7 +95,7 @@
           "path": "stage1/compiler-contracts/snapshots/capability-ledger.json",
           "role": "cli_top_level_parity",
           "selector": "commands[*].name",
-          "sha256": "3b2896f558891f2824ba6643c13c2fd95af90a887238f4f6397a93b8bf6c3a1e"
+          "sha256": "35fe8421bc8754e1826ce65c5d11efb951070bb2a47f9995c25935771cbc1b17"
         },
         {
           "path": "stage1/crates/axiomc/src/main.rs",
@@ -176,16 +176,13 @@
     {
       "id": "axiom://abi/direct-native",
       "kind": "abi",
-      "migration": {
-        "action": "Ed25519 signing callers must pass the canonical 32-byte private seed. The former 64-byte seed-plus-public-key input is rejected; retain or recover the 32-byte seed before upgrading."
-      },
-      "signature": "axiom.compatibility_abi_surface.v1; abi_id=axiom://abi/logical-runtime-v1; semantic_digest=9279e9e4fd8aadb0b9b0726054e5ead7e108d39f1638def849c9b8a9f225911b; semantic_rows=array.fixed,async.runtime,boolean,clock.now_sleep,crypto.aead,crypto.hash,crypto.mac,crypto.random,crypto.signature,enum.payload,env.read,ffi.call,fs.read,fs.write,io.logging_stdio,json.serdes,map.lookup,network.dns.resolve,network.http.async_server,network.http.client,network.http.server,network.tcp,network.udp,numeric.scalars,option,owned.move_state,process.status,regex.match_replace,result,slice.borrowed,string,struct.field,sync.primitives,tuple",
+      "signature": "axiom.compatibility_abi_surface.v1; abi_id=axiom://abi/logical-runtime-v1; semantic_digest=8e7c072ea3c4576f0f4dfdb4c5db0f5f7c44e942b1b6c99340db6a7441886229; semantic_rows=array.fixed,async.runtime,boolean,clock.now_sleep,crypto.aead,crypto.hash,crypto.mac,crypto.random,crypto.signature,enum.payload,env.read,ffi.call,fs.read,fs.write,io.logging_stdio,json.serdes,map.lookup,network.dns.resolve,network.http.async_server,network.http.client,network.http.server,network.tcp,network.udp,numeric.scalars,option,owned.move_state,process.status,regex.match_replace,result,slice.borrowed,string,struct.field,sync.primitives,tuple",
       "sources": [
         {
           "path": "stage1/compatibility/abi-surface-v1.json",
           "role": "logical_runtime_abi",
           "selector": "abi_id,value_features[*].(id,logical_semantics),capability_shims[*].(id,capability,logical_semantics)",
-          "sha256": "6a9c3349a71aa89a2829899310820317701093c3b21ca898f6c8962e49eb605e"
+          "sha256": "0378387b30d8d9e8a68723be95541227644f1baf9961a996886fedd007ec489f"
         },
         {
           "path": "stage1/runtime-abi/direct-native-v0.json",
@@ -195,7 +192,7 @@
         }
       ],
       "stability": "experimental",
-      "version": "0.2.0"
+      "version": "0.1.0"
     },
     {
       "id": "axiom://schema/axiom-agent-task-spec-v0",
@@ -1023,21 +1020,6 @@
           "role": "published_schema",
           "selector": "$id,properties.schema_version.const",
           "sha256": "d5ae5f985f29f744e026e599c4f5af7da8b658f605fe38b26b3c7874a53ee5fa"
-        }
-      ],
-      "stability": "experimental",
-      "version": "0.1.0"
-    },
-    {
-      "id": "axiom://schema/axiom.runtime_crypto_provider_policy.v1",
-      "kind": "schema",
-      "signature": "published schema id=https://axiom-lang.org/schemas/axiom.runtime_crypto_provider_policy.v1.schema.json; semantic_digest=b1b2c665690204481371b7e8bbac3dd4a30c3f3f9a8c6810371f264528f48681; envelope=axiom.runtime_crypto_provider_policy.v1",
-      "sources": [
-        {
-          "path": "stage1/compiler-contracts/schemas/axiom.runtime_crypto_provider_policy.v1.schema.json",
-          "role": "published_schema",
-          "selector": "$id,properties.schema_version.const",
-          "sha256": "6d95c9421ba16533889412100909af60059d01523c8cef42cf52f055d6ee2b28"
         }
       ],
       "stability": "experimental",

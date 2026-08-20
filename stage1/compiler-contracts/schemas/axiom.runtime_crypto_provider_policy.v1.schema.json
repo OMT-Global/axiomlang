@@ -1,0 +1,815 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://axiom-lang.org/schemas/axiom.runtime_crypto_provider_policy.v1.schema.json",
+  "title": "AxiOM runtime crypto provider policy v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "policy_id",
+    "policy_version",
+    "issue",
+    "status",
+    "activation",
+    "capability",
+    "algorithms",
+    "algorithm_provider",
+    "entropy_sources",
+    "entropy_health",
+    "targets",
+    "qualification",
+    "execution",
+    "failure_model",
+    "secret_handling",
+    "inspection",
+    "readiness",
+    "fixtures"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "axiom.runtime_crypto_provider_policy.v1"
+    },
+    "policy_id": {
+      "const": "runtime.crypto.provider"
+    },
+    "policy_version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+    },
+    "issue": {
+      "const": 1481
+    },
+    "status": {
+      "enum": [
+        "review_candidate",
+        "active",
+        "retired"
+      ]
+    },
+    "activation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mechanism",
+        "activation_artifact",
+        "artifact_present",
+        "trusted_branch",
+        "merge_effect",
+        "required_roles",
+        "resulting_status",
+        "implementation_claim"
+      ],
+      "properties": {
+        "mechanism": {
+          "const": "separate_reviewed_activation_commit"
+        },
+        "activation_artifact": {
+          "const": "stage1/compiler-contracts/snapshots/runtime-crypto-provider-policy-v1.activation.json"
+        },
+        "artifact_present": {
+          "const": false
+        },
+        "trusted_branch": {
+          "const": "main"
+        },
+        "merge_effect": {
+          "const": "none"
+        },
+        "required_roles": {
+          "type": "array",
+          "minItems": 2,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "security_review",
+              "verification_review"
+            ]
+          }
+        },
+        "resulting_status": {
+          "const": "review_candidate"
+        },
+        "implementation_claim": {
+          "const": "none"
+        }
+      }
+    },
+    "capability": {
+      "const": "crypto"
+    },
+    "algorithms": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/algorithm"
+      }
+    },
+    "algorithm_provider": {
+      "$ref": "#/$defs/algorithm_provider"
+    },
+    "entropy_sources": {
+      "type": "array",
+      "minItems": 2,
+      "items": {
+        "$ref": "#/$defs/entropy_source"
+      }
+    },
+    "entropy_health": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "health_signal",
+        "application_statistical_tests",
+        "failure_behavior",
+        "fallback"
+      ],
+      "properties": {
+        "health_signal": {
+          "const": "provider_api_success"
+        },
+        "application_statistical_tests": {
+          "const": "forbidden"
+        },
+        "failure_behavior": {
+          "const": "discard_buffer_and_return_entropy_unavailable"
+        },
+        "fallback": {
+          "const": "none"
+        }
+      }
+    },
+    "targets": {
+      "type": "array",
+      "minItems": 2,
+      "items": {
+        "$ref": "#/$defs/target"
+      }
+    },
+    "execution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "effect_phase",
+        "compile_time_effects",
+        "runtime_input_length",
+        "streaming_threshold_bytes",
+        "allocation_failure",
+        "build_evidence_values"
+      ],
+      "properties": {
+        "effect_phase": {
+          "const": "runtime_only"
+        },
+        "compile_time_effects": {
+          "const": "forbidden"
+        },
+        "runtime_input_length": {
+          "const": "checked_and_chunked"
+        },
+        "streaming_threshold_bytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "allocation_failure": {
+          "const": "allocation_failed"
+        },
+        "build_evidence_values": {
+          "const": "metadata_only"
+        }
+      }
+    },
+    "failure_model": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "fail_closed",
+        "codes",
+        "partial_entropy",
+        "provider_failure",
+        "authentication_failure",
+        "verification_failure"
+      ],
+      "properties": {
+        "fail_closed": {
+          "const": true
+        },
+        "codes": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "partial_entropy": {
+          "const": "discard_buffer_and_fail"
+        },
+        "provider_failure": {
+          "const": "return_no_output"
+        },
+        "authentication_failure": {
+          "const": "return_no_plaintext"
+        },
+        "verification_failure": {
+          "const": "return_false_and_record_stable_code_only"
+        }
+      }
+    },
+    "secret_handling": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "secret_classes",
+        "comparison",
+        "key_identity",
+        "zeroization",
+        "zeroization_limits",
+        "forbidden_evidence_fields"
+      ],
+      "properties": {
+        "secret_classes": {
+          "$ref": "#/$defs/nonempty_string_array"
+        },
+        "comparison": {
+          "const": "constant_time_for_mac_tag_and_secret_derived_values"
+        },
+        "key_identity": {
+          "const": "fixed_opaque_runtime_handle_state_not_an_identifier_and_not_derived_from_secret"
+        },
+        "zeroization": {
+          "const": "best_effort_for_axiom_owned_secret_buffers_and_provider_contexts"
+        },
+        "zeroization_limits": {
+          "$ref": "#/$defs/nonempty_string_array"
+        },
+        "forbidden_evidence_fields": {
+          "$ref": "#/$defs/nonempty_string_array"
+        }
+      }
+    },
+    "inspection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "allowed_fields",
+        "runtime_origin",
+        "secret_values",
+        "failure_detail",
+        "approved_operations",
+        "outcome_codes",
+        "key_identity_values",
+        "entropy_algorithm",
+        "entropy_provider_by_target",
+        "opaque_key_operations",
+        "not_applicable_key_operations",
+        "channels"
+      ],
+      "properties": {
+        "allowed_fields": {
+          "$ref": "#/$defs/nonempty_string_array"
+        },
+        "runtime_origin": {
+          "const": "native"
+        },
+        "secret_values": {
+          "const": "forbidden"
+        },
+        "failure_detail": {
+          "const": "stable_code_only"
+        },
+        "approved_operations": {
+          "$ref": "#/$defs/nonempty_string_array"
+        },
+        "outcome_codes": {
+          "$ref": "#/$defs/nonempty_string_array"
+        },
+        "key_identity_values": {
+          "$ref": "#/$defs/nonempty_string_array"
+        },
+        "entropy_algorithm": {
+          "const": "system-entropy@1"
+        },
+        "entropy_provider_by_target": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["linux-x86_64", "macos-arm64"],
+          "properties": {
+            "linux-x86_64": {"const": "linux-getrandom"},
+            "macos-arm64": {"const": "apple-security-secrandom"}
+          }
+        },
+        "opaque_key_operations": {
+          "$ref": "#/$defs/nonempty_string_array"
+        },
+        "not_applicable_key_operations": {
+          "$ref": "#/$defs/nonempty_string_array"
+        },
+        "channels": {
+          "$ref": "#/$defs/nonempty_string_array"
+        }
+      }
+    },
+    "fixtures": {
+      "type": "array",
+      "minItems": 4,
+      "items": {
+        "$ref": "#/$defs/fixture"
+      }
+    },
+    "qualification": {
+      "$ref": "#/$defs/qualification"
+    },
+    "readiness": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "evidence_tier",
+        "status",
+        "production_qualified",
+        "blocking_gaps"
+      ],
+      "properties": {
+        "evidence_tier": {
+          "const": "static_spike"
+        },
+        "status": {
+          "const": "partial"
+        },
+        "production_qualified": {
+          "const": false
+        },
+        "blocking_gaps": {
+          "$ref": "#/$defs/nonempty_string_array"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "nonempty_string_array": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "key_bytes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "allowed",
+        "minimum",
+        "maximum"
+      ],
+      "properties": {
+        "allowed": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "minimum": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "maximum": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "algorithm": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind",
+        "axiom_names",
+        "operations",
+        "provider",
+        "standard",
+        "status",
+        "input_model",
+        "public_encoding",
+        "output_bytes",
+        "key_bytes",
+        "nonce_bytes",
+        "tag_bytes",
+        "validation_rules"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9-]+@[0-9]+$"
+        },
+        "kind": {
+          "enum": [
+            "aead",
+            "hash",
+            "mac",
+            "signature"
+          ]
+        },
+        "axiom_names": {
+          "$ref": "#/$defs/nonempty_string_array"
+        },
+        "operations": {
+          "$ref": "#/$defs/nonempty_string_array"
+        },
+        "provider": {
+          "const": "openssl-3.5-evp"
+        },
+        "standard": {
+          "type": "string",
+          "pattern": "^https://"
+        },
+        "status": {
+          "const": "approved_on_activation"
+        },
+        "input_model": {
+          "enum": [
+            "runtime_bytes",
+            "runtime_bytes_or_utf8_text"
+          ]
+        },
+        "public_encoding": {
+          "enum": [
+            "ciphertext_then_tag_bytes",
+            "lowercase_hex_text",
+            "raw_bytes"
+          ]
+        },
+        "output_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "key_bytes": {
+          "$ref": "#/$defs/key_bytes"
+        },
+        "nonce_bytes": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "tag_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "validation_rules": {
+          "$ref": "#/$defs/nonempty_string_array"
+        }
+      }
+    },
+    "algorithm_provider": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind",
+        "version_requirement",
+        "support_end",
+        "targets",
+        "load_policy",
+        "ambient_host_loading",
+        "provider_name",
+        "fips_claim",
+        "provenance",
+        "qualification_requirements"
+      ],
+      "properties": {
+        "id": {
+          "const": "openssl-3.5-evp"
+        },
+        "kind": {
+          "const": "algorithm"
+        },
+        "version_requirement": {
+          "const": ">=3.5.0,<3.6.0"
+        },
+        "support_end": {
+          "type": "string",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+        },
+        "targets": {
+          "$ref": "#/$defs/nonempty_string_array"
+        },
+        "load_policy": {
+          "const": "bundled_pinned_attested"
+        },
+        "ambient_host_loading": {
+          "const": false
+        },
+        "provider_name": {
+          "const": "default"
+        },
+        "fips_claim": {
+          "const": "none"
+        },
+        "provenance": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "artifact_digest_required",
+            "sbom_required",
+            "version_evidence_required",
+            "source",
+            "support_policy"
+          ],
+          "properties": {
+            "artifact_digest_required": {
+              "const": true
+            },
+            "sbom_required": {
+              "const": true
+            },
+            "version_evidence_required": {
+              "const": true
+            },
+            "source": {
+              "type": "string",
+              "pattern": "^https://"
+            },
+            "support_policy": {
+              "type": "string",
+              "pattern": "^https://"
+            }
+          }
+        },
+        "qualification_requirements": {
+          "$ref": "#/$defs/nonempty_string_array"
+        }
+      }
+    },
+    "entropy_source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "target",
+        "interface",
+        "source",
+        "maximum_request_bytes",
+        "chunk_bytes",
+        "success_rule",
+        "retry_rule",
+        "failure_code",
+        "fallback"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "target": {
+          "enum": [
+            "linux-x86_64",
+            "macos-arm64"
+          ]
+        },
+        "interface": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source": {
+          "type": "string",
+          "pattern": "^https://"
+        },
+        "maximum_request_bytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "chunk_bytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "success_rule": {
+          "type": "string",
+          "minLength": 1
+        },
+        "retry_rule": {
+          "type": "string",
+          "minLength": 1
+        },
+        "failure_code": {
+          "const": "entropy_unavailable"
+        },
+        "fallback": {
+          "const": "none"
+        }
+      }
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "algorithm_provider",
+        "entropy_source",
+        "semantic_requirement",
+        "implementation_status",
+        "provider_qualification",
+        "abi_qualification",
+        "executable_equivalence"
+      ],
+      "properties": {
+        "id": {
+          "enum": [
+            "linux-x86_64",
+            "macos-arm64"
+          ]
+        },
+        "algorithm_provider": {
+          "const": "openssl-3.5-evp"
+        },
+        "entropy_source": {
+          "enum": [
+            "apple-security-secrandom",
+            "linux-getrandom"
+          ]
+        },
+        "semantic_requirement": {
+          "const": "equivalent"
+        },
+        "implementation_status": {
+          "const": "compatibility_backend_ambient_loading_only"
+        },
+        "provider_qualification": {
+          "const": "missing"
+        },
+        "abi_qualification": {
+          "const": "missing"
+        },
+        "executable_equivalence": {
+          "const": "missing"
+        }
+      }
+    },
+    "fixture": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind",
+        "path",
+        "asserts"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^axiom://runtime-crypto-provider-policy/v1/"
+        },
+        "kind": {
+          "enum": [
+            "failure_catalog",
+            "inspection",
+            "provider_matrix",
+            "vector_source_catalog"
+          ]
+        },
+        "path": {
+          "type": "string",
+          "pattern": "^[a-z0-9-]+\\.json$"
+        },
+        "asserts": {
+          "$ref": "#/$defs/nonempty_string_array"
+        }
+      }
+    },
+    "text_evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "value"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "missing",
+            "present"
+          ]
+        },
+        "value": {
+          "type": "string"
+        }
+      }
+    },
+    "boolean_evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "value"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "missing",
+            "present"
+          ]
+        },
+        "value": {
+          "type": "boolean"
+        }
+      }
+    },
+    "target_qualification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "target",
+        "qualified",
+        "provider_version",
+        "artifact_digest",
+        "sbom_digest",
+        "signer_identity",
+        "attestation_identity",
+        "attestation_subject",
+        "target_abi",
+        "isolated_config_loading",
+        "isolated_provider_loading",
+        "openssl_default_provider_selected",
+        "executable_equivalence_evidence"
+      ],
+      "properties": {
+        "target": {
+          "enum": [
+            "linux-x86_64",
+            "macos-arm64"
+          ]
+        },
+        "qualified": {
+          "type": "boolean"
+        },
+        "provider_version": {
+          "$ref": "#/$defs/text_evidence"
+        },
+        "artifact_digest": {
+          "$ref": "#/$defs/text_evidence"
+        },
+        "sbom_digest": {
+          "$ref": "#/$defs/text_evidence"
+        },
+        "signer_identity": {
+          "$ref": "#/$defs/text_evidence"
+        },
+        "attestation_identity": {
+          "$ref": "#/$defs/text_evidence"
+        },
+        "attestation_subject": {
+          "$ref": "#/$defs/text_evidence"
+        },
+        "target_abi": {
+          "$ref": "#/$defs/text_evidence"
+        },
+        "isolated_config_loading": {
+          "$ref": "#/$defs/boolean_evidence"
+        },
+        "isolated_provider_loading": {
+          "$ref": "#/$defs/boolean_evidence"
+        },
+        "openssl_default_provider_selected": {
+          "$ref": "#/$defs/boolean_evidence"
+        },
+        "executable_equivalence_evidence": {
+          "$ref": "#/$defs/text_evidence"
+        }
+      }
+    },
+    "qualification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "qualified",
+        "status",
+        "target_evidence"
+      ],
+      "properties": {
+        "qualified": {
+          "type": "boolean"
+        },
+        "status": {
+          "enum": [
+            "requirements_only",
+            "qualified"
+          ]
+        },
+        "target_evidence": {
+          "type": "array",
+          "minItems": 2,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/target_qualification"
+          }
+        }
+      }
+    }
+  }
+}

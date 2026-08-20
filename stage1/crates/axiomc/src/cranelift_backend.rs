@@ -18476,6 +18476,19 @@ fn unsupported(message: &str) -> Diagnostic {
 mod tests {
     use super::*;
 
+    #[cfg(unix)]
+    #[test]
+    fn ed25519_signing_accepts_only_a_32_byte_seed() {
+        let seed = [7u8; 32];
+        assert_eq!(
+            spike_crypto_ed25519_signing_key(&seed),
+            Some(seed.as_slice())
+        );
+        assert!(spike_crypto_ed25519_signing_key(&[7u8; 31]).is_none());
+        assert!(spike_crypto_ed25519_signing_key(&[7u8; 33]).is_none());
+        assert!(spike_crypto_ed25519_signing_key(&[7u8; 64]).is_none());
+    }
+
     #[test]
     fn regex_replace_all_start_anchor_only_replaces_original_match() {
         assert_eq!(regex_replace_all("^a", "aa", "x"), "xa");

@@ -1,9 +1,10 @@
 {
   "schema_version": "axiom.compatibility_source_inventory.v1",
-  "contract_version": "0.4.0",
+  "contract_version": "0.5.0",
   "surface_versions": {
     "default": "0.1.0",
     "overrides": {
+      "axiom://abi/direct-native": "0.2.0",
       "axiom://cli/axiomc": "0.3.0",
       "axiom://schema/axiom.compiler.stdlib_catalog.v1": "0.2.0",
       "axiom://package/lockfile": "0.2.0",
@@ -20,6 +21,9 @@
     }
   },
   "surface_migrations": {
+    "axiom://abi/direct-native": {
+      "action": "Ed25519 signing callers must pass the canonical 32-byte private seed. The former 64-byte seed-plus-public-key input is rejected; retain or recover the 32-byte seed before upgrading."
+    },
     "axiom://stdlib/catalog": {
       "action": "Update stdlib consumers to catalog_version 1.1.0 before consuming the additive file_exists and file_size symbols."
     },

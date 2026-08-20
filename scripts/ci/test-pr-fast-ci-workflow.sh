@@ -64,6 +64,17 @@ fast_checks_trusted_base_ref=$(awk '
     exit
   }
 ' "$workflow")
+fast_checks_checkout_root=$(grep -nF 'AXIOM_CHECKOUT_PATH="$GITHUB_WORKSPACE" bash .trusted-ci/scripts/ci/run-fast-checks.sh' "$workflow" || true)
+crypto_policy_self_test_root=$(awk '
+  /test-check-runtime-crypto-provider-policy-v1\.py"/ {
+    if (getline > 0 && $0 ~ /--root "\$repo_root"/) print "yes"
+  }
+' "$fast_checks_script")
+crypto_policy_check_root=$(awk '
+  /\/check-runtime-crypto-provider-policy-v1\.py"/ {
+    if (getline > 0 && $0 ~ /--root "\$repo_root"/) print "yes"
+  }
+' "$fast_checks_script")
 benchmark_gate_reference=$(grep -nE 'check-stage1-benchmarks\.py|stage1-comparison-report\.json' "$workflow" || true)
 runtime_abi_status_check=$(grep -nF 'scripts/ci/render-direct-native-runtime-abi-status.py' "$fast_checks_script" || true)
 runtime_abi_coverage_check=$(grep -nF -- '--coverage-matrix' "$fast_checks_script" || true)
@@ -152,6 +163,16 @@ fi
 
 if [[ -z "$fast_checks_trusted_base_ref" ]]; then
   echo "fast-checks must pin the .trusted-ci checkout to github.event.pull_request.base.sha; pinning it to head.sha runs PR-authored scripts under a trusted label (#1543 regression of #1211)" >&2
+  exit 1
+fi
+
+if [[ -z "$fast_checks_checkout_root" ]]; then
+  echo "fast-checks must pass the PR-head checkout only as AXIOM_CHECKOUT_PATH data to the base-pinned trusted script" >&2
+  exit 1
+fi
+
+if [[ "$crypto_policy_self_test_root" != "yes" || "$crypto_policy_check_root" != "yes" ]]; then
+  echo "the base-pinned runtime crypto policy checker and self-test must receive PR-head data only through explicit --root \"\$repo_root\"" >&2
   exit 1
 fi
 
