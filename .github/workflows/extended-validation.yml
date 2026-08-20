@@ -18,6 +18,7 @@ env:
   NODE_VERSION: '20'
   PYTHON_VERSION: '3.12'
   GO_VERSION: '1.26.5'
+  RUST_VERSION: '1.90.0'
 
 defaults:
   run:
@@ -152,6 +153,55 @@ jobs:
           path: artifacts/toolchain-qualification
           if-no-files-found: error
 
+  target-support-evidence:
+    name: Target Support Evidence (${{ matrix.platform }})
+    needs: changes
+    if: (needs.changes.outputs.extended == 'true' || needs.changes.outputs.app == 'true') && github.ref == 'refs/heads/main' && github.repository == 'OMT-Global/axiomlang'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux-x86-64
+            target: x86_64-unknown-linux-gnu
+            runner: '["self-hosted", "linux", "shell-only", "public"]'
+          # The job-level main-ref and repository gate keeps manual dispatches
+          # from sending unreviewed branch code to the private native pool.
+          - platform: macos-arm64
+            target: aarch64-apple-darwin
+            runner: '["self-hosted", "private", "macOS", "ARM64", "xcode"]'
+    runs-on: ${{ fromJSON(matrix.runner) }}
+    timeout-minutes: 120
+    env:
+      CARGO_TARGET_DIR: ${{ runner.temp }}/axiom-target-evidence-${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4 pinned 2026-05-30
+        with:
+          ref: ${{ github.sha }}
+
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable pinned 2026-04-19
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+
+      - name: Fetch locked Rust dependencies
+        run: cargo fetch --locked --manifest-path stage1/Cargo.toml
+
+      - name: Produce exact-head target evidence
+        run: >-
+          python3 scripts/ci/run-target-support-evidence-v1.py run
+          --expected-target '${{ matrix.target }}'
+          --head-sha '${{ github.sha }}'
+          --trigger '${{ github.event_name }}'
+          --runner-labels-json '${{ matrix.runner }}'
+          --output 'artifacts/target-support/${{ matrix.platform }}.json'
+
+      - name: Upload target support evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v4 pinned 2026-04-19
+        with:
+          name: target-support-${{ matrix.platform }}-${{ github.sha }}
+          path: artifacts/target-support/${{ matrix.platform }}.json
+          if-no-files-found: error
+
   validate-secrets:
     name: Validate Secrets
     runs-on: ['self-hosted', 'linux', 'shell-only', 'public']
@@ -169,6 +219,7 @@ jobs:
       - changes
       - fast-checks
       - extended-checks
+      - target-support-evidence
       - validate-secrets
     steps:
       - name: Check extended validation jobs
@@ -177,6 +228,7 @@ jobs:
             changes=${{ needs.changes.result }}
             fast-checks=${{ needs.fast-checks.result }}
             extended-checks=${{ needs.extended-checks.result }}
+            target-support-evidence=${{ needs.target-support-evidence.result }}
             validate-secrets=${{ needs.validate-secrets.result }}
         run: |
           failed=0

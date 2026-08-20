@@ -4,6 +4,11 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 script="$repo_root/scripts/ci/run-stage1-proof-test.sh"
 
+if grep -Fq -- '--offline' "$script"; then
+  echo "shared proof smoke must not require a pre-populated offline Cargo cache" >&2
+  exit 1
+fi
+
 # shellcheck source=run-stage1-proof-test.sh
 source "$script"
 

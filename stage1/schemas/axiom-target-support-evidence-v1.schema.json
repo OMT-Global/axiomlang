@@ -1,0 +1,246 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://axiom.omt.global/schemas/axiom-target-support-evidence-v1.schema.json",
+  "title": "Axiom Native Target Support Evidence v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "evidence_status",
+    "head_sha",
+    "trigger",
+    "expected_target",
+    "observed_target",
+    "platform",
+    "backend",
+    "target_selection",
+    "offline_replay",
+    "network_policy",
+    "toolchain",
+    "runner_labels",
+    "profiles",
+    "binary_metadata",
+    "checks",
+    "qualification"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "axiom.target_support_evidence.v1"
+    },
+    "evidence_status": {
+      "enum": ["failed", "passed"]
+    },
+    "head_sha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "trigger": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "expected_target": {
+      "enum": [
+        "aarch64-apple-darwin",
+        "x86_64-unknown-linux-gnu"
+      ]
+    },
+    "observed_target": {
+      "type": ["string", "null"],
+      "minLength": 3,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9_+.]+(?:-[A-Za-z0-9_+.]+){2,}$"
+    },
+    "platform": {
+      "enum": ["linux-x86-64", "macos-arm64"]
+    },
+    "backend": {
+      "const": "cranelift"
+    },
+    "target_selection": {
+      "const": "exact-host-only"
+    },
+    "offline_replay": {
+      "const": true
+    },
+    "network_policy": {
+      "const": "cargo_offline_registry_network_disabled"
+    },
+    "toolchain": {
+      "$ref": "#/$defs/toolchain"
+    },
+    "runner_labels": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 64
+      }
+    },
+    "profiles": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "uniqueItems": true,
+      "prefixItems": [
+        { "const": "debug" },
+        { "const": "release" }
+      ],
+      "items": false
+    },
+    "binary_metadata": {
+      "type": "array",
+      "maxItems": 2,
+      "items": {
+        "$ref": "#/$defs/binary"
+      }
+    },
+    "checks": {
+      "type": "array",
+      "minItems": 8,
+      "maxItems": 8,
+      "items": {
+        "$ref": "#/$defs/check"
+      }
+    },
+    "qualification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "host_evidence",
+        "cross_compilation",
+        "proof_workloads",
+        "release_qualification"
+      ],
+      "properties": {
+        "status": {
+          "const": "partial"
+        },
+        "host_evidence": {
+          "type": "boolean"
+        },
+        "cross_compilation": {
+          "const": false
+        },
+        "proof_workloads": {
+          "const": "executed_or_fail_closed"
+        },
+        "release_qualification": {
+          "const": false
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "required": ["evidence_status"],
+        "properties": {
+          "evidence_status": { "const": "passed" }
+        }
+      },
+      "then": {
+        "properties": {
+          "observed_target": {
+            "enum": ["aarch64-apple-darwin", "x86_64-unknown-linux-gnu"]
+          },
+          "toolchain": {
+            "properties": {
+              "rustc_host": {
+                "enum": ["aarch64-apple-darwin", "x86_64-unknown-linux-gnu"]
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "binary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "profile",
+        "target",
+        "object_format",
+        "architecture",
+        "bytes",
+        "sha256"
+      ],
+      "properties": {
+        "name": {
+          "const": "axiomc"
+        },
+        "profile": {
+          "enum": ["debug", "release"]
+        },
+        "target": {
+          "enum": ["aarch64-apple-darwin", "x86_64-unknown-linux-gnu"]
+        },
+        "object_format": {
+          "enum": ["elf", "mach-o"]
+        },
+        "architecture": {
+          "enum": ["arm64", "x86_64"]
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "toolchain": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "rustc_version",
+        "rustc_host",
+        "rustc_verbose_sha256",
+        "cargo_version",
+        "cargo_verbose_sha256",
+        "cargo_lock_sha256",
+        "source_date_epoch"
+      ],
+      "properties": {
+        "rustc_version": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "rustc_host": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9_+.]+(?:-[A-Za-z0-9_+.]+){2,}$"
+        },
+        "rustc_verbose_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "cargo_version": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "cargo_verbose_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "cargo_lock_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "source_date_epoch": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "check": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "status", "claim"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "enum": ["failed", "passed", "skipped"]
+        },
+        "claim": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  }
+}

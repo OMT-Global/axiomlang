@@ -83,7 +83,10 @@ else:
     )
 expected_runner = "runs-on: ['self-hosted', 'linux', 'shell-only', 'public']"
 for job_name, body in jobs:
-    if expected_runner not in body:
+    if job_name == "target-support-evidence":
+        if "runs-on: ${{ fromJSON(matrix.runner) }}" not in body:
+            errors.append("target-support-evidence must select its native runner from the matrix")
+    elif expected_runner not in body:
         errors.append(f"job {job_name} must remain on the shell-safe public runner pool")
 
 extended_job = next((body for name, body in jobs if name == "extended-checks"), "")
@@ -140,6 +143,43 @@ if "if: always()" not in extended_job or "actions/upload-artifact@" not in exten
     errors.append("extended-checks must upload qualification evidence even after failures")
 if "timeout-minutes: 120" not in extended_job:
     errors.append("extended-checks must allow the complete product qualification suite to finish")
+
+target_job = next((body for name, body in jobs if name == "target-support-evidence"), "")
+for fragment in (
+    "target: x86_64-unknown-linux-gnu",
+    "runner: '[\"self-hosted\", \"linux\", \"shell-only\", \"public\"]'",
+    "target: aarch64-apple-darwin",
+    "runner: '[\"self-hosted\", \"private\", \"macOS\", \"ARM64\", \"xcode\"]'",
+    "cargo fetch --locked --manifest-path stage1/Cargo.toml",
+    "python3 scripts/ci/run-target-support-evidence-v1.py run",
+    "--expected-target '${{ matrix.target }}'",
+    "--head-sha '${{ github.sha }}'",
+    "--runner-labels-json '${{ matrix.runner }}'",
+    "--output 'artifacts/target-support/${{ matrix.platform }}.json'",
+    "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+):
+    if fragment not in target_job:
+        errors.append(f"target-support-evidence is missing required contract: {fragment}")
+if "needs.changes.outputs.extended == 'true'" not in target_job:
+    errors.append("target-support-evidence must consume the extended selection output")
+if "github.ref == 'refs/heads/main'" not in target_job:
+    errors.append("target-support-evidence must reject manual dispatches from unreviewed refs")
+if "github.repository == 'OMT-Global/axiomlang'" not in target_job:
+    errors.append("target-support-evidence must be bound to the governed repository")
+if "if: always()" not in target_job:
+    errors.append("target-support-evidence must upload partial evidence after failures")
+if "ref: ${{ github.sha }}" not in target_job:
+    errors.append("target-support-evidence must check out the exact workflow head")
+if "toolchain: ${{ env.RUST_VERSION }}" not in target_job:
+    errors.append("target-support-evidence must use the repository-pinned Rust toolchain")
+if not re.search(r"^  RUST_VERSION: '1\.90\.0'$", workflow, re.MULTILINE):
+    errors.append("extended validation must pin Rust 1.90.0")
+
+gate_job = next((body for name, body in jobs if name == "extended-validation-gate"), "")
+if "- target-support-evidence" not in gate_job:
+    errors.append("extended validation gate must depend on target-support-evidence")
+if "target-support-evidence=${{ needs.target-support-evidence.result }}" not in gate_job:
+    errors.append("extended validation gate must inspect target-support-evidence")
 
 if errors:
     for error in errors:

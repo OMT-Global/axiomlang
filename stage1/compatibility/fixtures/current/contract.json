@@ -10,7 +10,7 @@
       "sha256": "0a7df662030a201d7953255a50ad4a5355758bc0626faa44ba879cd1d4eee00f"
     }
   },
-  "contract_version": "0.4.0",
+  "contract_version": "0.5.0",
   "edition": {
     "id": "2026",
     "source": {
@@ -95,7 +95,7 @@
           "path": "stage1/compiler-contracts/snapshots/capability-ledger.json",
           "role": "cli_top_level_parity",
           "selector": "commands[*].name",
-          "sha256": "35fe8421bc8754e1826ce65c5d11efb951070bb2a47f9995c25935771cbc1b17"
+          "sha256": "3f2103ba3084503bb1ecfcfeba2312a733e161abc6a5948cc0f6b302ab6efd92"
         },
         {
           "path": "stage1/crates/axiomc/src/main.rs",
@@ -738,19 +738,34 @@
       "version": "0.1.0"
     },
     {
+      "id": "axiom://schema/axiom-target-support-evidence-v1",
+      "kind": "schema",
+      "signature": "published schema id=https://axiom.omt.global/schemas/axiom-target-support-evidence-v1.schema.json; semantic_digest=5738ef12d09b2d9c30be2f9c208b8af34a45a696c1b3f6dbb1fa5689701c2dc1; envelope=axiom.target_support_evidence.v1",
+      "sources": [
+        {
+          "path": "stage1/schemas/axiom-target-support-evidence-v1.schema.json",
+          "role": "published_schema",
+          "selector": "$id,properties.schema_version.const",
+          "sha256": "17f538e81ef645d4e9298102aa090adb7924c2f13e78e976ed53a3462a77fb3f"
+        }
+      ],
+      "stability": "experimental",
+      "version": "0.1.0"
+    },
+    {
       "id": "axiom://schema/axiom-target-support-v1",
       "kind": "schema",
-      "signature": "published schema id=https://axiom.omt.global/schemas/axiom-target-support-v1.schema.json; semantic_digest=2f4e8d6479d32720e5125e3e176722dc9c87d5d1e0e395f65ebd656d20db4bbf; envelope=axiom.target_support.v1",
+      "signature": "published schema id=https://axiom.omt.global/schemas/axiom-target-support-v1.schema.json; semantic_digest=920b420cb293621c9ab3422f0ad894f4e9c9d4aa709dca52741f30337357dd0d; envelope=axiom.target_support.v1",
       "sources": [
         {
           "path": "stage1/schemas/axiom-target-support-v1.schema.json",
           "role": "published_schema",
           "selector": "$id,properties.schema_version.const",
-          "sha256": "d1082c0541fb40d7aa7e15bf8174463489411e7bc36173fb1e3d436fb9305905"
+          "sha256": "ebcf6efbec4065a1d030d5fb325d2ce6cf9a37ec47cb756d6ce200e62af6f978"
         }
       ],
       "stability": "experimental",
-      "version": "0.1.0"
+      "version": "0.2.0"
     },
     {
       "id": "axiom://schema/axiom-target-v0",

@@ -1,6 +1,6 @@
 {
   "schema_version": "axiom.compatibility_source_inventory.v1",
-  "contract_version": "0.4.0",
+  "contract_version": "0.5.0",
   "surface_versions": {
     "default": "0.1.0",
     "overrides": {
@@ -13,6 +13,7 @@
       "axiom://schema/axiom-package-verification-expectation-v1": "0.2.0",
       "axiom://schema/axiom-package-verification-v1": "0.2.0",
       "axiom://schema/axiom-registry-index-v2": "0.2.0",
+      "axiom://schema/axiom-target-support-v1": "0.2.0",
       "axiom://schema/axiom.stage1.command": "0.2.0",
       "axiom://schema/axiom.stage1.v1": "0.2.0",
       "axiom://schema/axiom-trust-roots-v1": "0.2.0",
