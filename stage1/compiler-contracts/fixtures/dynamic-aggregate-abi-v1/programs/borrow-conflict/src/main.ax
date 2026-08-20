@@ -1,0 +1,5 @@
+let values: [int] = [1, 2, 3]
+let shared: &[int] = values[:]
+let mutable: &mut [int] = values[:]
+print len(shared)
+print len(mutable)

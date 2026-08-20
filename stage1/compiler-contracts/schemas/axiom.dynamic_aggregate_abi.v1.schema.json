@@ -1,0 +1,127 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://axiom-lang.org/schemas/axiom.dynamic_aggregate_abi.v1.schema.json",
+  "title": "AxiOM Dynamic Aggregate ABI v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "contract", "issue", "semantic_mir_version", "lifecycle_contract", "logical_layout", "boundary", "ownership", "backend", "current_floor", "inspection_fields", "fixtures"],
+  "properties": {
+    "schema_version": {"const": "axiom.dynamic_aggregate_abi.v1"},
+    "contract": {"const": "runtime.dynamic_aggregate_abi"},
+    "issue": {"const": 1439},
+    "semantic_mir_version": {"const": "axiom.semantic_mir.v1"},
+    "lifecycle_contract": {"const": "axiom.runtime_lifecycle.v1"},
+    "logical_layout": {"$ref": "#/$defs/logical_layout"},
+    "boundary": {"$ref": "#/$defs/boundary"},
+    "ownership": {"$ref": "#/$defs/ownership"},
+    "backend": {"$ref": "#/$defs/backend"},
+    "current_floor": {"$ref": "#/$defs/current_floor"},
+    "inspection_fields": {"type": "array", "minItems": 18, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "fixtures": {"type": "array", "minItems": 18, "uniqueItems": true, "items": {"$ref": "#/$defs/fixture"}}
+  },
+  "$defs": {
+    "logical_layout": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kinds", "field_order", "tuple_order", "array_order", "alignment_rule", "enum_rule", "payload_rule", "padding", "target_inputs", "passing", "prohibited_capture"],
+      "properties": {
+        "kinds": {"type": "array", "minItems": 6, "uniqueItems": true, "items": {"enum": ["array", "enum", "option", "result", "struct", "tuple"]}},
+        "field_order": {"const": "declaration_order"},
+        "tuple_order": {"const": "ascending_index"},
+        "array_order": {"const": "ascending_index"},
+        "alignment_rule": {"const": "align_up(current_offset, field_alignment); final_size=align_up(end, aggregate_alignment)"},
+        "enum_rule": {"const": "smallest_unsigned_1_2_4_8_byte_source_ordinal_tag_then_aligned_max_variant_payload"},
+        "payload_rule": {"const": "payload_offset=align_up(discriminant_width_bytes,max_variant_alignment); payload_size=max_variant_size"},
+        "padding": {"const": "zeroed_and_not_semantically_observable"},
+        "target_inputs": {"type": "array", "minItems": 4, "uniqueItems": true, "items": {"enum": ["abi_profile", "byte_order", "pointer_width_bits", "target_triple"]}},
+        "passing": {"$ref": "#/$defs/passing"},
+        "prohibited_capture": {"type": "array", "minItems": 4, "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
+      }
+    },
+    "passing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["direct_limit_pointer_words", "selection", "argument_direct", "argument_indirect", "return_direct", "return_indirect"],
+      "properties": {
+        "direct_limit_pointer_words": {"const": 2},
+        "selection": {"const": "size_bytes<=2*pointer_bytes_and_alignment_bytes<=pointer_bytes"},
+        "argument_direct": {"const": "direct_value"},
+        "argument_indirect": {"const": "indirect_pointer"},
+        "return_direct": {"const": "direct_value"},
+        "return_indirect": {"const": "caller_provided_storage"}
+      }
+    },
+    "boundary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["minimum_function_boundaries", "operations", "argument_rule", "return_rule", "storage_rule", "mutation_rule", "alias_rule"],
+      "properties": {
+        "minimum_function_boundaries": {"const": 3},
+        "operations": {"type": "array", "minItems": 8, "uniqueItems": true, "items": {"enum": ["argument", "borrow", "clone", "drop", "move", "mutation", "return", "storage"]}},
+        "argument_rule": {"const": "target_layout_record_selects_direct_value_or_indirect_pointer"},
+        "return_rule": {"const": "target_layout_record_selects_direct_value_or_caller_provided_storage"},
+        "storage_rule": {"const": "layout_identity_and_cleanup_obligations_survive_storage"},
+        "mutation_rule": {"const": "replace_only_after_new_value_is_valid_then_drop_old_value"},
+        "alias_rule": {"const": "borrow_extent_prevents_conflicting_move_mutation_or_drop"}
+      }
+    },
+    "ownership": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["transition_model", "move", "borrow", "clone", "drop", "recursive_order", "early_exit", "exactly_once", "runtime_target_gaps"],
+      "properties": {
+        "transition_model": {"const": "axiom.dynamic_aggregate_ownership.v1"},
+        "move": {"const": "transfer_cleanup_obligation_and_invalidate_source"},
+        "borrow": {"const": "preserve_owner_and_bound_alias_extent"},
+        "clone": {"const": "create_independent_value_and_cleanup_obligation"},
+        "drop": {"const": "destroy_owned_children_then_release_aggregate"},
+        "recursive_order": {"const": "reverse_declaration_or_insertion"},
+        "early_exit": {"const": "model_discharges_live_obligations_in_reverse_creation_order"},
+        "exactly_once": {"const": true},
+        "runtime_target_gaps": {"type": "array", "minItems": 5, "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
+      }
+    },
+    "backend": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["required_declarations", "unsupported_diagnostic", "diagnostic_fields", "fail_closed", "prohibited_fallbacks"],
+      "properties": {
+        "required_declarations": {"type": "array", "minItems": 5, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "unsupported_diagnostic": {"const": "backend.runtime_lowering_required"},
+        "diagnostic_fields": {"type": "array", "minItems": 5, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "fail_closed": {"const": true},
+        "prohibited_fallbacks": {"type": "array", "minItems": 3, "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
+      }
+    },
+    "current_floor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tier", "status", "direct_native", "generated_host_source", "representation", "supported", "unsupported", "static_projection_retired", "runtime_origin_non_copy", "dynamic_storage", "recursive_cleanup", "three_boundary_nested_scalar", "evidence"],
+      "properties": {
+        "tier": {"enum": ["syntax_only", "static_spike", "direct_runtime", "production_qualified"]},
+        "status": {"enum": ["blocked", "partial", "complete"]},
+        "direct_native": {"type": "boolean"},
+        "generated_host_source": {"type": "boolean"},
+        "representation": {"type": "string", "minLength": 1},
+        "supported": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "unsupported": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "static_projection_retired": {"type": "boolean"},
+        "runtime_origin_non_copy": {"type": "boolean"},
+        "dynamic_storage": {"type": "boolean"},
+        "recursive_cleanup": {"type": "boolean"},
+        "three_boundary_nested_scalar": {"type": "boolean"},
+        "evidence": {"type": "array", "minItems": 4, "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
+      }
+    },
+    "fixture": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "path"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^dynamic-aggregate-abi-v1/[a-z0-9-]+$"},
+        "kind": {"enum": ["positive", "negative", "target_gap"]},
+        "path": {"type": "string", "pattern": "^[a-z0-9-]+\\.json$"}
+      }
+    }
+  }
+}

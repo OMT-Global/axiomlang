@@ -22,6 +22,50 @@ fn compile_validator(schema: &Value) -> Validator {
 }
 
 #[test]
+fn dynamic_aggregate_abi_schema_requires_deterministic_layout_metadata() {
+    let stage1 = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let schema: Value = serde_json::from_str(
+        &fs::read_to_string(
+            stage1.join("compiler-contracts/schemas/axiom.dynamic_aggregate_abi.v1.schema.json"),
+        )
+        .expect("read Dynamic Aggregate ABI schema"),
+    )
+    .expect("Dynamic Aggregate ABI schema is valid JSON");
+    let snapshot: Value = serde_json::from_str(
+        &fs::read_to_string(
+            stage1.join("compiler-contracts/snapshots/dynamic-aggregate-abi-v1.json"),
+        )
+        .expect("read Dynamic Aggregate ABI snapshot"),
+    )
+    .expect("Dynamic Aggregate ABI snapshot is valid JSON");
+    let validator = compile_validator(&schema);
+
+    validator
+        .validate(&snapshot)
+        .expect("Dynamic Aggregate ABI snapshot matches its schema");
+
+    let mut missing_passing_rule = snapshot.clone();
+    missing_passing_rule["logical_layout"]["passing"]
+        .as_object_mut()
+        .expect("passing rule object")
+        .remove("selection");
+    assert!(
+        !validator.is_valid(&missing_passing_rule),
+        "passing selection is required"
+    );
+
+    let mut duplicate_inspection_field = snapshot;
+    let fields = duplicate_inspection_field["inspection_fields"]
+        .as_array_mut()
+        .expect("inspection fields array");
+    fields.push(fields[0].clone());
+    assert!(
+        !validator.is_valid(&duplicate_inspection_field),
+        "inspection fields remain unique"
+    );
+}
+
+#[test]
 fn quality_v1_schemas_reject_contradictory_reports() {
     let policy_schema: Value = serde_json::from_str(
         &fs::read_to_string(schema_dir().join("axiom-quality-policy-v1.schema.json"))

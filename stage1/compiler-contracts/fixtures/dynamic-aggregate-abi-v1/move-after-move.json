@@ -1,0 +1,15 @@
+{
+  "schema_version": "axiom.dynamic_aggregate_abi.fixture.v1",
+  "id": "dynamic-aggregate-abi-v1/move-after-move",
+  "kind": "negative",
+  "scenario": "a second move from an invalidated aggregate owner is rejected",
+  "shape": ["string", "struct"],
+  "runtime_origin": true,
+  "function_boundaries": 1,
+  "evidence": {
+    "mode": "compiler_build_diagnostic",
+    "program": "move-after-move",
+    "program_sha256": "5c3614434f4e891b3dcb24a5f437a52e5a59ffcc0aa81af81d99992dc00066c0",
+    "expected": {"code": "use_after_move", "generated_rust": null, "kind": "ownership", "ok": false}
+  }
+}

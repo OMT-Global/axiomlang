@@ -1,0 +1,18 @@
+{
+  "schema_version": "axiom.dynamic_aggregate_abi.fixture.v1",
+  "id": "dynamic-aggregate-abi-v1/double-drop-rejected",
+  "kind": "negative",
+  "scenario": "the target-neutral ownership transition model rejects a second drop",
+  "shape": ["struct"],
+  "runtime_origin": true,
+  "function_boundaries": 0,
+  "evidence": {
+    "mode": "lifecycle_model",
+    "events": [
+      {"op": "create", "value": "aggregate"},
+      {"op": "drop", "value": "aggregate"},
+      {"op": "drop", "value": "aggregate"}
+    ],
+    "expected": {"outcome": "rejected", "diagnostic": "ownership.double_drop", "drop_order": ["aggregate"]}
+  }
+}
