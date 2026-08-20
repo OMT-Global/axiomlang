@@ -106,9 +106,12 @@ make production-language-readiness-github
   documentation, benchmark, package, and release surfaces are bootstrap-grade.
 - No executable persistence package, public hosted dependency resolver,
   installable release, or production workload qualification gate exists.
-  Package Resolver v1 is a local static/file and loopback-fixture spike until
-  its fetch, locked-offline, vendor, graph, and supply-chain round trips pass
-  `make stage1-package-resolver`.
+  Package Resolver v1 has an executable spike for its bounded signed-static,
+  regular-local-file, and numeric-loopback contract; its fetch, update,
+  locked-offline, vendor, trust-tamper/replay, graph, and supply-chain checks are
+  enforced by `make stage1-package-resolver`,
+  `make stage1-package-graph-boundary`, and `make supply-chain`. It remains below
+  runtime-complete until the immutable exact-head promotion receipt exists.
 
 ## Dependency-Ordered Execution
 
@@ -215,8 +218,11 @@ Package Resolver v1 (#1459) is intentionally bounded to signed static registry
 metadata, regular local files, and numeric-loopback HTTP fixtures. It must
 record deterministic exact/caret/transitive selection, conflict/yank
 disposition, trust pins, content-addressed cache/vendor evidence, and package
-graph decisions. Public HTTPS/hosted registry operation and edition selection
-are separate work and must not be inferred from this row.
+graph decisions. That bounded executable surface remains a static spike rather
+than runtime-complete. Promotion still requires the exact-head supported-host,
+load, recovery, security, release, and operational receipt defined above.
+Public HTTPS/hosted registry operation and edition selection are separate work
+and must not be inferred from this row.
 
 ## Agent Execution Contract
 

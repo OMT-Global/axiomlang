@@ -203,6 +203,15 @@ separate `axiomc publish` operation.
 
 ## Package Resolver v1
 
+The bounded Package Resolver v1 contract is an executable static spike under
+`make stage1-package-resolver`, `make stage1-package-graph-boundary`, and the
+toolchain supply-chain gate. Those checks cover signed static registry
+metadata, regular local files, and numeric-loopback fixtures; they do not
+constitute the immutable exact-head supported-host receipt required for
+runtime-complete promotion or the load, recovery, release-artifact, and
+operational receipt required for production qualification. Public hosted
+transport and edition selection also remain out of scope.
+
 Package Resolver v1 preserves local path dependencies and adds one explicitly
 configured static registry source. A root manifest names the registry and the
 project-relative Package Trust policy files that authenticate it:

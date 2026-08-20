@@ -490,12 +490,12 @@
       "currentTier": "static_spike",
       "status": "partial",
       "governingIssue": 1459,
-      "blockerIssues": [1459],
+      "blockerIssues": [1457, 1459],
       "dependencies": [1458, 1457],
-      "evidence": ["docs/package.md", "docs/compiler-package-graph.md", "docs/supply-chain.md", "stage1/crates/axiomc/src/manifest.rs", "stage1/crates/axiomc/src/lockfile.rs", "stage1/crates/axiomc/src/package_version.rs", "stage1/crates/axiomc/src/package_resolver.rs", "stage1/crates/axiomc/src/registry_client.rs", "stage1/crates/axiomc/src/package_trust.rs", "stage1/package-resolver/fixtures/lockfile-v2.json", "stage1/package-resolver/fixtures/resolution-v1.json", "stage1/schemas/axiom.toml.schema.json", "stage1/schemas/axiom-lockfile-v2.schema.json", "stage1/schemas/axiom-package-resolution-v1.schema.json"],
+      "evidence": ["docs/package.md", "docs/compiler-package-graph.md", "docs/supply-chain.md", "stage1/crates/axiomc/src/manifest.rs", "stage1/crates/axiomc/src/lockfile.rs", "stage1/crates/axiomc/src/package_version.rs", "stage1/crates/axiomc/src/package_resolver.rs", "stage1/crates/axiomc/src/registry_client.rs", "stage1/crates/axiomc/src/package_trust.rs", "stage1/crates/axiomc/src/package_archive.rs", "stage1/crates/axiomc/src/package_store.rs", "stage1/crates/axiomc/src/package_manager.rs", "stage1/crates/axiomc/tests/package_resolver_cli.rs", "stage1/package-resolver/fixtures/lockfile-v2.json", "stage1/package-resolver/fixtures/resolution-v1.json", "stage1/schemas/axiom.toml.schema.json", "stage1/schemas/axiom-lockfile-v2.schema.json", "stage1/schemas/axiom-package-resolution-v1.schema.json", "scripts/ci/run-toolchain-supply-chain.sh"],
       "validatingCommand": "make stage1-package-resolver && make stage1-package-graph-boundary && make supply-chain",
       "rustCaptureRisk": "high",
-      "agentInspectionImpact": "Explain canonical coordinates, requested and selected versions, candidate/yank decisions, trust pins, cache/vendor disposition, conflicts, and bounded resolution decisions. Current evidence is a local static/loopback registry spike; public hosted transport and edition selection remain out of scope."
+      "agentInspectionImpact": "Explain canonical coordinates, requested and selected versions, candidate/yank decisions, trust pins, cache/vendor disposition, conflicts, and bounded resolution decisions. The executable v1 spike is deliberately limited to signed static metadata, regular local files, and numeric-loopback fixtures. Runtime-complete promotion remains blocked until an immutable exact-head supported-host, load, recovery, release-artifact, and operational receipt exists and Compatibility v1 is qualified; public hosted transport and edition selection remain out of scope."
     },
     {
       "id": "formatter_v1",

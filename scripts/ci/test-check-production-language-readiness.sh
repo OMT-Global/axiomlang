@@ -371,4 +371,45 @@ assert payload["valid"] is True
 assert payload["ready"] is False
 PY
 
+python3 - docs/production-language-readiness.json <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    payload = json.load(handle)
+
+resolver = next(row for row in payload["rows"] if row["id"] == "package_resolver_v1")
+assert resolver["status"] == "partial"
+assert resolver["targetTier"] == "production_qualified"
+assert resolver["currentTier"] == "static_spike"
+assert resolver["blockerIssues"] == [1457, 1459]
+assert resolver["governingIssue"] == 1459
+assert resolver["validatingCommand"] == (
+    "make stage1-package-resolver && make stage1-package-graph-boundary "
+    "&& make supply-chain"
+)
+assert {
+    "stage1/crates/axiomc/src/package_manager.rs",
+    "stage1/crates/axiomc/src/package_store.rs",
+    "stage1/crates/axiomc/tests/package_resolver_cli.rs",
+}.issubset(resolver["evidence"])
+assert "public hosted transport" in resolver["agentInspectionImpact"]
+assert "exact-head" in resolver["agentInspectionImpact"]
+assert "Runtime-complete promotion remains blocked" in resolver["agentInspectionImpact"]
+
+for path in (
+    "docs/package.md",
+    "docs/production-language-roadmap.md",
+    "docs/roadmap-status.md",
+    "docs/roadmap.md",
+):
+    with open(path, encoding="utf-8") as handle:
+        text = handle.read()
+    assert "Package Resolver v1 contract is runtime-complete" not in text
+    assert "Package Resolver v1 (#1459)\n  is runtime-complete" not in text
+    assert "Bounded resolver v1 runtime complete" not in text
+    assert "package resolver: runtime-complete" not in text
+    assert "Maintain the runtime-complete Package Resolver v1" not in text
+PY
+
 echo "check-production-language-readiness regression cases passed"
