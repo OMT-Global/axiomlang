@@ -371,4 +371,19 @@ assert payload["valid"] is True
 assert payload["ready"] is False
 PY
 
+python3 - docs/production-language-readiness.json docs/sqlite-v1.md docs/stage1-stdlib-status.md <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    payload = json.load(handle)
+sqlite = next(row for row in payload["rows"] if row["id"] == "sqlite_v1")
+assert sqlite["currentTier"] == "syntax_only"
+for path in sys.argv[2:]:
+    with open(path, encoding="utf-8") as handle:
+        text = handle.read()
+    assert "static spike" not in text
+    assert "`static_spike`" not in text
+PY
+
 echo "check-production-language-readiness regression cases passed"

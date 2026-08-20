@@ -10,7 +10,7 @@
       "sha256": "0a7df662030a201d7953255a50ad4a5355758bc0626faa44ba879cd1d4eee00f"
     }
   },
-  "contract_version": "0.4.0",
+  "contract_version": "0.5.0",
   "edition": {
     "id": "2026",
     "source": {
@@ -95,7 +95,7 @@
           "path": "stage1/compiler-contracts/snapshots/capability-ledger.json",
           "role": "cli_top_level_parity",
           "selector": "commands[*].name",
-          "sha256": "35fe8421bc8754e1826ce65c5d11efb951070bb2a47f9995c25935771cbc1b17"
+          "sha256": "4297a5489572a9894c3258c0a57e16db991a6cca51241ad154f70865f800a063"
         },
         {
           "path": "stage1/crates/axiomc/src/main.rs",
@@ -1065,6 +1065,21 @@
           "role": "published_schema",
           "selector": "$id,properties.schema_version.const",
           "sha256": "1ea24479a585a0b3a3421883db3eec1a8a8d50032edf86b5ba629fb38d4e0be0"
+        }
+      ],
+      "stability": "experimental",
+      "version": "0.1.0"
+    },
+    {
+      "id": "axiom://schema/axiom.sqlite-v1",
+      "kind": "schema",
+      "signature": "published schema id=https://omt-global.github.io/axiom/schemas/axiom.sqlite-v1.schema.json; semantic_digest=d028684474c6597a18437b65e252096a266e4178904d3379ad1e201ffd234313; envelope=axiom.sqlite-v1",
+      "sources": [
+        {
+          "path": "stage1/compiler-contracts/schemas/axiom.sqlite-v1.schema.json",
+          "role": "published_schema",
+          "selector": "$id,properties.schema_version.const",
+          "sha256": "8bf8ed0603c563dcd6bce6b13a51d3a6c341373edad10c524e81894f9bd188b3"
         }
       ],
       "stability": "experimental",

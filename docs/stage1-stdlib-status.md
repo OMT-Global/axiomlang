@@ -25,6 +25,7 @@ current 34-module and 301-exported-function inventory.
 | #236 crypto | `std/crypto_hash.ax`, `std/crypto_mac.ax`, `std/crypto_rand.ax`, `std/crypto_aead.ax`, and `std/crypto_sign.ax` expose hashing, MAC, randomness, AEAD, and Ed25519 key generation/sign/verify; `std/crypto.ax` re-exports the landed surface. | Broader audited crypto coverage and production qualification remain outside the proven slice. |
 | #240 richer testing | `axiomc test` discovers `*_test.ax`, golden stdout, assertion helpers, and `std/testing.ax` table/property/snapshot helpers; `axiomc bench` is the benchmark harness. | Richer randomized generation and benchmark CI policy remain future harness design work. |
 | #97 HTTP server | `std/http.ax` includes `get`, loopback-only `listen`/`accept`/`route`/`respond`/`close`, blocking `serve_once(bind, body)`, and bounded `fixed_route` / `serve(bind, route, max_requests)` primitives behind `[capabilities].net`; `std/http_async.ax` adds async-gated bounded route serving. | Landed for the current stage1 route-shaped handler model; richer production lifecycle controls remain future runtime design work. |
+| #1452 SQLite persistence | `axiom.sqlite-v1` fixes the capability, prepared-bind, typed-row, transaction/savepoint, migration, recovery, lifecycle, error, and audit contract. | No executable SQLite package or provider is shipped. The readiness row remains `syntax_only` until runtime fixtures and dependencies pass. |
 
 ## Verification handles
 

@@ -360,14 +360,14 @@
       "requiredForProduction": true,
       "targetTier": "runtime_complete",
       "currentTier": "syntax_only",
-      "status": "blocked",
+      "status": "partial",
       "governingIssue": 1452,
       "blockerIssues": [1452],
       "dependencies": [1443, 1453, 1439, 1441, 1425, 1426],
-      "evidence": ["docs/sql-migration-target-v0.md", "stage1/examples/sql_migration_service/axiom.toml"],
-      "validatingCommand": "make stage1-proof-test",
+      "evidence": ["docs/sqlite-v1.md", "docs/sql-migration-target-v0.md", "stage1/compiler-contracts/schemas/axiom.sqlite-v1.schema.json", "stage1/compiler-contracts/snapshots/sqlite-v1.json", "scripts/ci/check-sqlite-v1.py", "stage1/examples/sql_migration_service/axiom.toml"],
+      "validatingCommand": "make stage1-sqlite-v1 stage1-sqlite-v1-test && make stage1-proof-test",
       "rustCaptureRisk": "medium",
-      "agentInspectionImpact": "Expose database authority, transaction scope, statement schema, effects, and evidence."
+      "agentInspectionImpact": "Expose canonical database authority, transaction scope, typed statement and row schemas, redacted effects, migrations, lifecycle, and evidence. The current evidence is contract-only; runtime database execution remains blocked on #1452 and its dependencies."
     },
     {
       "id": "provider_abi_v1",

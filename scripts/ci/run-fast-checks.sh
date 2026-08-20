@@ -64,6 +64,8 @@ python3 "$script_repo_root/scripts/ci/test-issue-pr-traceability.py"
 bash "$script_repo_root/scripts/ci/test-check-python-exit-docs.sh"
 python3 "$script_repo_root/scripts/ci/check-provider-abi-v1.py" --target "${AXIOM_PROVIDER_ABI_TARGET:-linux-host}"
 python3 "$script_repo_root/scripts/ci/test-check-provider-abi-v1.py"
+python3 "$script_repo_root/scripts/ci/check-sqlite-v1.py" --json >/dev/null
+python3 "$script_repo_root/scripts/ci/test-check-sqlite-v1.py"
 bash "$script_repo_root/scripts/ci/test-check-python-exit-readiness.sh"
 bash "$script_repo_root/scripts/ci/test-check-rust-exit-readiness.sh"
 bash "$script_repo_root/scripts/ci/test-check-self-hosting-language-readiness.sh"
