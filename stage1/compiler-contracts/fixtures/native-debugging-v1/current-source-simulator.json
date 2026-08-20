@@ -1,0 +1,11 @@
+{
+  "schemaVersion": "axiom.native_debug_status.v1",
+  "mode": "source_simulator",
+  "processBacked": false,
+  "nativeAxiomDwarf": false,
+  "profileSymbolization": false,
+  "runtimeState": "not_started",
+  "identity": {"binaryDigest": null, "sourceGeneration": null, "target": null},
+  "unavailableReason": "native_debugging.dependencies_unmet",
+  "blockerIssues": [1436, 1455]
+}

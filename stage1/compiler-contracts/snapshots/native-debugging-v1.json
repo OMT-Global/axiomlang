@@ -1,0 +1,55 @@
+{
+  "schema_version": "axiom.native_debugging.v1",
+  "contract": "native.debugging",
+  "issue": 1466,
+  "implementation": {
+    "tier": "static_spike",
+    "dap_mode": "source_simulator",
+    "process_backed": false,
+    "native_axiom_dwarf": false,
+    "profile_symbolization": false,
+    "blockers": [1436, 1455]
+  },
+  "dap": {
+    "status_request": "axiom/debugStatus",
+    "status_schema": "axiom.native_debug_status.v1",
+    "source_simulator_opt_in": true,
+    "breakpoint_verification": "false until a native debugger confirms installation in the matching binary generation",
+    "required_operations": ["attach", "breakpoints", "continue", "evaluate", "exit", "launch", "pause", "scopes", "signals", "stacks", "step", "threads", "variables"],
+    "identity_fields": ["binary_digest", "runtime_state", "source_generation", "target"],
+    "runtime_states": ["not_started", "source_simulation_stopped", "source_simulation_terminated"],
+    "unavailable_reason": "native_debugging.dependencies_unmet"
+  },
+  "native_dwarf": {
+    "required": true,
+    "targets": ["aarch64-apple-darwin", "x86_64-unknown-linux-gnu"],
+    "source_language": "AxiOM",
+    "required_evidence": ["function_symbols", "line_tables", "representative_locals", "source_paths", "stack_frames"]
+  },
+  "debugger_matrix": {
+    "tools": ["gdb", "lldb"],
+    "actions": ["backtrace", "breakpoint", "locals", "source_fidelity", "step"],
+    "target_bound": true,
+    "real_binary_required": true
+  },
+  "profiling": {
+    "required": true,
+    "identity_fields": ["binary_digest", "source_generation", "target"],
+    "sample_requirements": ["source_span", "stable_axiom_symbol", "weighted_sample_count"]
+  },
+  "sidecars": {
+    "supplemental_only": true,
+    "cannot_prove": ["native_breakpoint_installation", "native_dwarf", "process_runtime_state", "symbolized_profile"]
+  },
+  "fixtures": [
+    {"id": "axiom://native-debugging/fixture/current-source-simulator", "kind": "positive", "path": "current-source-simulator.json", "asserts": ["the current adapter exposes unavailable native proof without claiming process control"]},
+    {"id": "axiom://native-debugging/fixture/unverified-breakpoint", "kind": "positive", "path": "unverified-breakpoint.json", "asserts": ["source-line resolution remains distinct from native breakpoint verification"]},
+    {"id": "axiom://native-debugging/fixture/sidecar-only-rejected", "kind": "negative", "path": "sidecar-only-rejected.json", "asserts": ["sidecar maps cannot qualify native debugging"]},
+    {"id": "axiom://native-debugging/fixture/missing-process-proof", "kind": "negative", "path": "missing-process-proof.json", "asserts": ["process-backed claims fail without target-bound launch and runtime evidence"]}
+  ],
+  "migration": {
+    "compatibility": "existing DAP source simulation remains available only through explicit mode source-simulator and no longer reports source-line matches as verified native breakpoints",
+    "dependencies": [1436, 1437, 1455, 1457],
+    "out_of_scope": ["record-replay debugging", "remote debugger transport beyond DAP"]
+  }
+}

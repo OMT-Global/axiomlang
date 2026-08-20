@@ -1,0 +1,124 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://axiom-lang.org/schemas/axiom.native_debugging.v1.schema.json",
+  "title": "AxiOM Native Debugging v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "contract", "issue", "implementation", "dap", "native_dwarf", "debugger_matrix", "profiling", "sidecars", "fixtures", "migration"],
+  "properties": {
+    "schema_version": {"const": "axiom.native_debugging.v1"},
+    "contract": {"const": "native.debugging"},
+    "issue": {"const": 1466},
+    "implementation": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["tier", "dap_mode", "process_backed", "native_axiom_dwarf", "profile_symbolization", "blockers"],
+          "properties": {
+            "tier": {"const": "static_spike"},
+            "dap_mode": {"const": "source_simulator"},
+            "process_backed": {"const": false},
+            "native_axiom_dwarf": {"const": false},
+            "profile_symbolization": {"const": false},
+            "blockers": {"type": "array", "minItems": 2, "uniqueItems": true, "items": {"type": "integer"}}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["tier", "dap_mode", "process_backed", "native_axiom_dwarf", "profile_symbolization", "blockers"],
+          "properties": {
+            "tier": {"const": "production_qualified"},
+            "dap_mode": {"const": "process_backed"},
+            "process_backed": {"const": true},
+            "native_axiom_dwarf": {"const": true},
+            "profile_symbolization": {"const": true},
+            "blockers": {"type": "array", "maxItems": 0, "uniqueItems": true, "items": {"type": "integer"}}
+          }
+        }
+      ]
+    },
+    "dap": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status_request", "status_schema", "source_simulator_opt_in", "breakpoint_verification", "required_operations", "identity_fields", "runtime_states", "unavailable_reason"],
+      "properties": {
+        "status_request": {"const": "axiom/debugStatus"},
+        "status_schema": {"const": "axiom.native_debug_status.v1"},
+        "source_simulator_opt_in": {"const": true},
+        "breakpoint_verification": {"const": "false until a native debugger confirms installation in the matching binary generation"},
+        "required_operations": {"type": "array", "minItems": 13, "items": {"type": "string", "minLength": 1}},
+        "identity_fields": {"type": "array", "minItems": 4, "items": {"type": "string", "minLength": 1}},
+        "runtime_states": {"type": "array", "minItems": 3, "items": {"type": "string", "minLength": 1}},
+        "unavailable_reason": {"const": "native_debugging.dependencies_unmet"}
+      }
+    },
+    "native_dwarf": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["required", "targets", "source_language", "required_evidence"],
+      "properties": {
+        "required": {"const": true},
+        "targets": {"type": "array", "minItems": 2, "items": {"type": "string", "minLength": 1}},
+        "source_language": {"const": "AxiOM"},
+        "required_evidence": {"type": "array", "minItems": 5, "items": {"type": "string", "minLength": 1}}
+      }
+    },
+    "debugger_matrix": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tools", "actions", "target_bound", "real_binary_required"],
+      "properties": {
+        "tools": {"type": "array", "minItems": 2, "items": {"type": "string", "minLength": 1}},
+        "actions": {"type": "array", "minItems": 5, "items": {"type": "string", "minLength": 1}},
+        "target_bound": {"const": true},
+        "real_binary_required": {"const": true}
+      }
+    },
+    "profiling": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["required", "identity_fields", "sample_requirements"],
+      "properties": {
+        "required": {"const": true},
+        "identity_fields": {"type": "array", "minItems": 3, "items": {"type": "string", "minLength": 1}},
+        "sample_requirements": {"type": "array", "minItems": 3, "items": {"type": "string", "minLength": 1}}
+      }
+    },
+    "sidecars": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["supplemental_only", "cannot_prove"],
+      "properties": {
+        "supplemental_only": {"const": true},
+        "cannot_prove": {"type": "array", "minItems": 3, "items": {"type": "string", "minLength": 1}}
+      }
+    },
+    "fixtures": {
+      "type": "array",
+      "minItems": 4,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "kind", "path", "asserts"],
+        "properties": {
+          "id": {"type": "string", "pattern": "^axiom://native-debugging/fixture/[a-z0-9-]+$"},
+          "kind": {"enum": ["negative", "positive"]},
+          "path": {"type": "string", "minLength": 1},
+          "asserts": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}}
+        }
+      }
+    },
+    "migration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["compatibility", "dependencies", "out_of_scope"],
+      "properties": {
+        "compatibility": {"type": "string", "minLength": 1},
+        "dependencies": {"type": "array", "minItems": 4, "items": {"type": "integer"}},
+        "out_of_scope": {"type": "array", "minItems": 2, "items": {"type": "string", "minLength": 1}}
+      }
+    }
+  }
+}

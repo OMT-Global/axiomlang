@@ -1,11 +1,14 @@
 use crate::diagnostics::Diagnostic;
 use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::fs;
 use std::io::{BufRead, Write};
 use std::path::PathBuf;
 
 const LOCALS_VARIABLES_REFERENCE: i64 = 1;
+const NATIVE_DEBUG_STATUS_SCHEMA_VERSION: &str = "axiom.native_debug_status.v1";
+const SOURCE_SIMULATOR_MODE: &str = "source-simulator";
 
 pub fn run_stdio<R, W>(mut input: R, mut output: W) -> Result<(), Diagnostic>
 where
@@ -38,7 +41,7 @@ pub struct DapResponse {
 struct Breakpoint {
     id: i64,
     line: i64,
-    verified: bool,
+    source_resolved: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -46,6 +49,24 @@ struct Variable {
     name: String,
     value: String,
     type_name: String,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+enum RuntimeState {
+    #[default]
+    NotStarted,
+    SourceSimulationStopped,
+    SourceSimulationTerminated,
+}
+
+impl RuntimeState {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::NotStarted => "not_started",
+            Self::SourceSimulationStopped => "source_simulation_stopped",
+            Self::SourceSimulationTerminated => "source_simulation_terminated",
+        }
+    }
 }
 
 #[derive(Debug, Default)]
@@ -57,6 +78,8 @@ pub struct DapSession {
     breakpoints: BTreeMap<String, Vec<Breakpoint>>,
     locals: Vec<Variable>,
     current_line: i64,
+    source_generation: Option<String>,
+    runtime_state: RuntimeState,
 }
 
 impl DapSession {
@@ -74,18 +97,27 @@ impl DapSession {
         let mut exit = false;
         match command {
             "initialize" => {
-                messages.push(self.success_response(request_seq, command, initialize_body()));
+                let body = self.initialize_body();
+                messages.push(self.success_response(request_seq, command, body));
                 messages.push(self.event("initialized", json!({})));
             }
             "launch" => match self.launch(&arguments) {
                 Ok(()) => {
-                    messages.push(self.success_response(request_seq, command, json!({})));
+                    let status = self.debug_status();
+                    messages.push(self.success_response(
+                        request_seq,
+                        command,
+                        json!({ "axiomDebugging": status }),
+                    ));
+                    let status = self.debug_status();
                     messages.push(self.event(
                         "stopped",
                         json!({
                             "reason": "entry",
+                            "description": "AxiOM source simulation only; no process was launched or stopped",
                             "threadId": 1,
-                            "allThreadsStopped": true
+                            "allThreadsStopped": true,
+                            "axiomDebugging": status
                         }),
                     ));
                 }
@@ -104,70 +136,172 @@ impl DapSession {
             "configurationDone" => {
                 messages.push(self.success_response(request_seq, command, json!({})))
             }
-            "threads" => messages.push(self.success_response(
-                request_seq,
-                command,
-                json!({ "threads": [{ "id": 1, "name": "axiom main" }] }),
-            )),
-            "stackTrace" => messages.push(self.success_response(
-                request_seq,
-                command,
-                json!({
-                    "stackFrames": [self.stack_frame()],
-                    "totalFrames": 1
-                }),
-            )),
-            "scopes" => messages.push(self.success_response(
-                request_seq,
-                command,
-                json!({
-                    "scopes": [{
-                        "name": "Locals",
-                        "variablesReference": LOCALS_VARIABLES_REFERENCE,
-                        "expensive": false
-                    }]
-                }),
-            )),
+            "threads" => {
+                if !self.source_simulation_active() {
+                    messages.push(self.error_response(
+                        request_seq,
+                        command,
+                        observation_unavailable_message(command),
+                    ));
+                } else {
+                    let status = self.debug_status();
+                    messages.push(self.success_response(
+                        request_seq,
+                        command,
+                        json!({
+                            "threads": [{
+                                "id": 1,
+                                "name": "axiom source simulator",
+                                "axiomRuntimeVerified": false
+                            }],
+                            "axiomDebugging": status
+                        }),
+                    ));
+                }
+            }
+            "stackTrace" => {
+                if !self.source_simulation_active() {
+                    messages.push(self.error_response(
+                        request_seq,
+                        command,
+                        observation_unavailable_message(command),
+                    ));
+                } else {
+                    let status = self.debug_status();
+                    messages.push(self.success_response(
+                        request_seq,
+                        command,
+                        json!({
+                            "stackFrames": [self.stack_frame()],
+                            "totalFrames": 1,
+                            "axiomDebugging": status
+                        }),
+                    ));
+                }
+            }
+            "scopes" => {
+                if !self.source_simulation_active() {
+                    messages.push(self.error_response(
+                        request_seq,
+                        command,
+                        observation_unavailable_message(command),
+                    ));
+                } else {
+                    let status = self.debug_status();
+                    messages.push(self.success_response(
+                        request_seq,
+                        command,
+                        json!({
+                            "scopes": [{
+                                "name": "Source-simulated locals",
+                                "variablesReference": LOCALS_VARIABLES_REFERENCE,
+                                "expensive": false,
+                                "axiomRuntimeVerified": false
+                            }],
+                            "axiomDebugging": status
+                        }),
+                    ));
+                }
+            }
             "variables" => {
-                let variables = self.variables(&arguments);
-                messages.push(self.success_response(
-                    request_seq,
-                    command,
-                    json!({ "variables": variables }),
-                ));
+                if !self.source_simulation_active() {
+                    messages.push(self.error_response(
+                        request_seq,
+                        command,
+                        observation_unavailable_message(command),
+                    ));
+                } else {
+                    let variables = self.variables(&arguments);
+                    let status = self.debug_status();
+                    messages.push(self.success_response(
+                        request_seq,
+                        command,
+                        json!({ "variables": variables, "axiomDebugging": status }),
+                    ));
+                }
             }
             "continue" => {
+                if !self.source_simulation_active() {
+                    messages.push(self.error_response(
+                        request_seq,
+                        command,
+                        "continue requires an active source-simulator session; no process-backed runtime is available"
+                            .to_string(),
+                    ));
+                    return Ok(DapResponse { messages, exit });
+                }
                 messages.push(self.success_response(
                     request_seq,
                     command,
                     json!({ "allThreadsContinued": true }),
                 ));
-                if self.advance_to_next_breakpoint() {
+                if self.advance_to_next_source_location() {
+                    let status = self.debug_status();
                     messages.push(self.event(
                         "stopped",
                         json!({
-                            "reason": "breakpoint",
+                            "reason": "step",
+                            "description": "Source simulation reached a requested line; no native breakpoint was installed",
                             "threadId": 1,
-                            "allThreadsStopped": true
+                            "allThreadsStopped": true,
+                            "axiomDebugging": status
                         }),
                     ));
                 } else {
-                    messages.push(self.event("terminated", json!({})));
+                    self.runtime_state = RuntimeState::SourceSimulationTerminated;
+                    let status = self.debug_status();
+                    messages.push(self.event(
+                        "terminated",
+                        json!({ "axiomDebugging": status }),
+                    ));
                 }
             }
             "next" | "stepIn" | "stepOut" => {
-                self.step_one_line();
+                if !self.source_simulation_active() {
+                    messages.push(self.error_response(
+                        request_seq,
+                        command,
+                        format!(
+                            "DAP command {command:?} requires an active source-simulator session; no process-backed runtime is available"
+                        ),
+                    ));
+                    return Ok(DapResponse { messages, exit });
+                }
                 messages.push(self.success_response(request_seq, command, json!({})));
-                messages.push(self.event(
-                    "stopped",
-                    json!({
-                        "reason": "step",
-                        "threadId": 1,
-                        "allThreadsStopped": true
-                    }),
-                ));
+                if self.step_one_line() {
+                    let status = self.debug_status();
+                    messages.push(self.event(
+                        "stopped",
+                        json!({
+                            "reason": "step",
+                            "description": "AxiOM source simulation only; no process instruction was stepped",
+                            "threadId": 1,
+                            "allThreadsStopped": true,
+                            "axiomDebugging": status
+                        }),
+                    ));
+                } else {
+                    self.runtime_state = RuntimeState::SourceSimulationTerminated;
+                    let status = self.debug_status();
+                    messages.push(self.event(
+                        "terminated",
+                        json!({ "axiomDebugging": status }),
+                    ));
+                }
             }
+            "axiom/debugStatus" => {
+                let status = self.debug_status();
+                messages.push(self.success_response(request_seq, command, status));
+            }
+            "attach" | "pause" | "terminate" => messages.push(self.error_response(
+                request_seq,
+                command,
+                format!(
+                    "DAP command {command:?} requires process-backed native debugging, which is not implemented"
+                ),
+            )),
             "disconnect" => {
+                self.runtime_state = RuntimeState::SourceSimulationTerminated;
                 messages.push(self.success_response(request_seq, command, json!({})));
                 exit = true;
             }
@@ -182,11 +316,33 @@ impl DapSession {
     }
 
     fn launch(&mut self, arguments: &Value) -> Result<(), Diagnostic> {
+        self.breakpoints.clear();
+        if self.program.is_some() {
+            self.program = None;
+            self.source_lines.clear();
+            self.locals.clear();
+            self.current_line = 0;
+            self.source_generation = None;
+            self.runtime_state = RuntimeState::SourceSimulationTerminated;
+        }
+        let mode = arguments.get("mode").and_then(Value::as_str);
+        if mode != Some(SOURCE_SIMULATOR_MODE) {
+            return Err(Diagnostic::new(
+                "dap",
+                "process-backed launch is not implemented; pass `mode: \"source-simulator\"` to opt into the non-runtime source simulator",
+            ));
+        }
         let program = arguments
             .get("program")
             .and_then(Value::as_str)
             .ok_or_else(|| Diagnostic::new("dap", "launch requires a string `program` argument"))?;
         let path = PathBuf::from(program);
+        if path.extension().and_then(|extension| extension.to_str()) != Some("ax") {
+            return Err(Diagnostic::new(
+                "dap",
+                "source-simulator mode accepts only an `.ax` source file; it does not launch native binaries",
+            ));
+        }
         let source = fs::read_to_string(&path).map_err(|err| {
             Diagnostic::new(
                 "dap",
@@ -197,6 +353,8 @@ impl DapSession {
         self.source_lines = source.lines().map(str::to_string).collect();
         self.locals = collect_static_locals(&source);
         self.current_line = first_executable_line(&self.source_lines).unwrap_or(1);
+        self.source_generation = Some(format!("sha256:{:x}", Sha256::digest(source.as_bytes())));
+        self.runtime_state = RuntimeState::SourceSimulationStopped;
         self.program = Some(path);
         Ok(())
     }
@@ -222,7 +380,7 @@ impl DapSession {
                 Breakpoint {
                     id,
                     line,
-                    verified: line >= 1 && line <= line_count,
+                    source_resolved: line >= 1 && line <= line_count,
                 }
             })
             .collect::<Vec<_>>();
@@ -231,8 +389,14 @@ impl DapSession {
             .map(|breakpoint| {
                 json!({
                     "id": breakpoint.id,
-                    "verified": breakpoint.verified,
-                    "line": breakpoint.line
+                    "verified": false,
+                    "line": breakpoint.line,
+                    "message": if breakpoint.source_resolved {
+                        "Source line exists, but no process-backed native breakpoint was installed"
+                    } else {
+                        "Source line is outside the known source range"
+                    },
+                    "axiomSourceResolved": breakpoint.source_resolved
                 })
             })
             .collect::<Vec<_>>();
@@ -271,7 +435,9 @@ impl DapSession {
             "source": {
                 "name": self.program.as_ref().and_then(|path| path.file_name()).and_then(|name| name.to_str()).unwrap_or("axiom program"),
                 "path": source_path
-            }
+            },
+            "presentationHint": "subtle",
+            "axiomRuntimeVerified": false
         })
     }
 
@@ -288,13 +454,14 @@ impl DapSession {
                     "name": local.name,
                     "value": local.value,
                     "type": local.type_name,
-                    "variablesReference": 0
+                    "variablesReference": 0,
+                    "axiomRuntimeVerified": false
                 }))
                 .collect::<Vec<_>>()
         )
     }
 
-    fn advance_to_next_breakpoint(&mut self) -> bool {
+    fn advance_to_next_source_location(&mut self) -> bool {
         let Some(program) = &self.program else {
             return false;
         };
@@ -304,7 +471,7 @@ impl DapSession {
         };
         if let Some(next) = breakpoints
             .iter()
-            .filter(|breakpoint| breakpoint.verified && breakpoint.line > self.current_line)
+            .filter(|breakpoint| breakpoint.source_resolved && breakpoint.line > self.current_line)
             .map(|breakpoint| breakpoint.line)
             .min()
         {
@@ -315,9 +482,48 @@ impl DapSession {
         }
     }
 
-    fn step_one_line(&mut self) {
+    fn source_simulation_active(&self) -> bool {
+        self.runtime_state == RuntimeState::SourceSimulationStopped && self.program.is_some()
+    }
+
+    fn step_one_line(&mut self) -> bool {
         let max_line = self.source_lines.len().max(1) as i64;
-        self.current_line = (self.current_line + 1).min(max_line);
+        if self.current_line >= max_line {
+            return false;
+        }
+        self.current_line += 1;
+        true
+    }
+
+    fn initialize_body(&self) -> Value {
+        json!({
+            "adapterID": "axiom",
+            "supportsConfigurationDoneRequest": true,
+            "supportsStepInTargetsRequest": false,
+            "supportsSetVariable": false,
+            "supportsEvaluateForHovers": false,
+            "supportsExceptionInfoRequest": false,
+            "supportsAxiomDebugStatusRequest": true,
+            "axiomDebugging": self.debug_status()
+        })
+    }
+
+    fn debug_status(&self) -> Value {
+        json!({
+            "schemaVersion": NATIVE_DEBUG_STATUS_SCHEMA_VERSION,
+            "mode": "source_simulator",
+            "processBacked": false,
+            "nativeAxiomDwarf": false,
+            "profileSymbolization": false,
+            "runtimeState": self.runtime_state.as_str(),
+            "identity": {
+                "binaryDigest": Value::Null,
+                "sourceGeneration": self.source_generation,
+                "target": Value::Null
+            },
+            "unavailableReason": "native_debugging.dependencies_unmet",
+            "blockerIssues": [1436, 1455]
+        })
     }
 
     fn success_response(&mut self, request_seq: i64, command: &str, body: Value) -> Value {
@@ -362,15 +568,10 @@ impl DapSession {
     }
 }
 
-fn initialize_body() -> Value {
-    json!({
-        "adapterID": "axiom",
-        "supportsConfigurationDoneRequest": true,
-        "supportsStepInTargetsRequest": false,
-        "supportsSetVariable": false,
-        "supportsEvaluateForHovers": false,
-        "supportsExceptionInfoRequest": false
-    })
+fn observation_unavailable_message(command: &str) -> String {
+    format!(
+        "DAP command {command:?} requires an active stopped source-simulator session; synthetic observations are unavailable before launch or after termination"
+    )
 }
 
 fn first_executable_line(lines: &[String]) -> Option<i64> {
@@ -468,6 +669,34 @@ mod tests {
         .to_string()
     }
 
+    fn assert_observations_unavailable(session: &mut DapSession, first_seq: i64) {
+        for (offset, (command, arguments)) in [
+            ("threads", json!({})),
+            ("stackTrace", json!({ "threadId": 1 })),
+            ("scopes", json!({ "frameId": 1 })),
+            (
+                "variables",
+                json!({ "variablesReference": LOCALS_VARIABLES_REFERENCE }),
+            ),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let response = session
+                .handle_message(&request(first_seq + offset as i64, command, arguments))
+                .expect("observation response");
+
+            assert_eq!(response.messages.len(), 1);
+            assert_eq!(response.messages[0]["success"], json!(false));
+            assert!(response.messages[0].get("body").is_none());
+            assert!(
+                response.messages[0]["message"].as_str().is_some_and(
+                    |message| message.contains("active stopped source-simulator session")
+                )
+            );
+        }
+    }
+
     #[test]
     fn initialize_advertises_axiom_debug_capabilities() {
         let mut session = DapSession::default();
@@ -478,6 +707,10 @@ mod tests {
         assert_eq!(response.messages.len(), 2);
         assert_eq!(response.messages[0]["type"], json!("response"));
         assert_eq!(response.messages[0]["body"]["adapterID"], json!("axiom"));
+        assert_eq!(
+            response.messages[0]["body"]["axiomDebugging"]["processBacked"],
+            json!(false)
+        );
         assert_eq!(response.messages[1]["event"], json!("initialized"));
     }
 
@@ -490,9 +723,22 @@ mod tests {
         let mut session = DapSession::default();
 
         let launch = session
-            .handle_message(&request(1, "launch", json!({ "program": program_path })))
+            .handle_message(&request(
+                1,
+                "launch",
+                json!({ "program": program_path, "mode": SOURCE_SIMULATOR_MODE }),
+            ))
             .expect("launch");
         assert_eq!(launch.messages[0]["success"], json!(true));
+        assert_eq!(
+            launch.messages[0]["body"]["axiomDebugging"]["runtimeState"],
+            json!("source_simulation_stopped")
+        );
+        assert!(
+            launch.messages[0]["body"]["axiomDebugging"]["identity"]["sourceGeneration"]
+                .as_str()
+                .is_some_and(|value| value.starts_with("sha256:"))
+        );
         assert_eq!(launch.messages[1]["event"], json!("stopped"));
 
         let breakpoints = session
@@ -507,6 +753,10 @@ mod tests {
             .expect("set breakpoints");
         assert_eq!(
             breakpoints.messages[0]["body"]["breakpoints"][0]["verified"],
+            json!(false)
+        );
+        assert_eq!(
+            breakpoints.messages[0]["body"]["breakpoints"][0]["axiomSourceResolved"],
             json!(true)
         );
 
@@ -514,9 +764,15 @@ mod tests {
             .handle_message(&request(3, "continue", json!({ "threadId": 1 })))
             .expect("continue");
         assert_eq!(continued.messages[1]["event"], json!("stopped"));
+        assert_eq!(continued.messages[1]["body"]["reason"], json!("step"));
+
+        let threads = session
+            .handle_message(&request(4, "threads", json!({})))
+            .expect("threads");
+        assert_eq!(threads.messages[0]["body"]["threads"][0]["id"], json!(1));
 
         let stack = session
-            .handle_message(&request(4, "stackTrace", json!({ "threadId": 1 })))
+            .handle_message(&request(5, "stackTrace", json!({ "threadId": 1 })))
             .expect("stack");
         assert_eq!(
             stack.messages[0]["body"]["stackFrames"][0]["line"],
@@ -524,7 +780,7 @@ mod tests {
         );
 
         let scopes = session
-            .handle_message(&request(5, "scopes", json!({ "frameId": 1 })))
+            .handle_message(&request(6, "scopes", json!({ "frameId": 1 })))
             .expect("scopes");
         assert_eq!(
             scopes.messages[0]["body"]["scopes"][0]["variablesReference"],
@@ -533,7 +789,7 @@ mod tests {
 
         let variables = session
             .handle_message(&request(
-                6,
+                7,
                 "variables",
                 json!({ "variablesReference": LOCALS_VARIABLES_REFERENCE }),
             ))
@@ -553,7 +809,38 @@ mod tests {
     }
 
     #[test]
-    fn set_breakpoints_can_verify_source_before_launch() {
+    fn observations_fail_closed_before_source_simulator_launch() {
+        let mut session = DapSession::default();
+
+        assert_observations_unavailable(&mut session, 1);
+    }
+
+    #[test]
+    fn observations_fail_closed_after_source_simulator_termination() {
+        let dir = tempdir().expect("tempdir");
+        let program = dir.path().join("main.ax");
+        fs::write(&program, "print 1\n").expect("write program");
+        let mut session = DapSession::default();
+        session
+            .handle_message(&request(
+                1,
+                "launch",
+                json!({
+                    "program": program.display().to_string(),
+                    "mode": SOURCE_SIMULATOR_MODE
+                }),
+            ))
+            .expect("launch response");
+        let terminated = session
+            .handle_message(&request(2, "next", json!({ "threadId": 1 })))
+            .expect("step response");
+        assert_eq!(terminated.messages[1]["event"], json!("terminated"));
+
+        assert_observations_unavailable(&mut session, 3);
+    }
+
+    #[test]
+    fn set_breakpoints_can_resolve_source_without_verifying_runtime() {
         let dir = tempdir().expect("tempdir");
         let program = dir.path().join("main.ax");
         fs::write(&program, "let answer: int = 42\nprint answer\n").expect("write program");
@@ -572,7 +859,210 @@ mod tests {
 
         assert_eq!(
             breakpoints.messages[0]["body"]["breakpoints"][0]["verified"],
+            json!(false)
+        );
+        assert_eq!(
+            breakpoints.messages[0]["body"]["breakpoints"][0]["axiomSourceResolved"],
             json!(true)
+        );
+    }
+
+    #[test]
+    fn launch_requires_explicit_source_simulator_opt_in() {
+        let dir = tempdir().expect("tempdir");
+        let program = dir.path().join("main.ax");
+        fs::write(&program, "print 1\n").expect("write program");
+        let mut session = DapSession::default();
+
+        let response = session
+            .handle_message(&request(
+                1,
+                "launch",
+                json!({ "program": program.display().to_string() }),
+            ))
+            .expect("launch response");
+
+        assert_eq!(response.messages[0]["success"], json!(false));
+        assert!(
+            response.messages[0]["message"]
+                .as_str()
+                .is_some_and(|message| message.contains("process-backed launch is not implemented"))
+        );
+    }
+
+    #[test]
+    fn source_simulator_rejects_native_binary_paths() {
+        let dir = tempdir().expect("tempdir");
+        let binary = dir.path().join("main");
+        fs::write(&binary, b"fixture binary bytes").expect("write binary fixture");
+        let mut session = DapSession::default();
+
+        let response = session
+            .handle_message(&request(
+                1,
+                "launch",
+                json!({
+                    "program": binary.display().to_string(),
+                    "mode": SOURCE_SIMULATOR_MODE
+                }),
+            ))
+            .expect("launch response");
+
+        assert_eq!(response.messages[0]["success"], json!(false));
+        assert!(
+            response.messages[0]["message"]
+                .as_str()
+                .is_some_and(|message| message.contains("does not launch native binaries"))
+        );
+    }
+
+    #[test]
+    fn failed_relaunch_invalidates_the_previous_source_simulation() {
+        let dir = tempdir().expect("tempdir");
+        let program = dir.path().join("main.ax");
+        fs::write(&program, "print 1\nprint 2\n").expect("write program");
+        let missing = dir.path().join("missing.ax");
+        let mut session = DapSession::default();
+
+        let launched = session
+            .handle_message(&request(
+                1,
+                "launch",
+                json!({
+                    "program": program.display().to_string(),
+                    "mode": SOURCE_SIMULATOR_MODE
+                }),
+            ))
+            .expect("initial launch response");
+        assert_eq!(launched.messages[0]["success"], json!(true));
+        session
+            .handle_message(&request(
+                2,
+                "setBreakpoints",
+                json!({
+                    "source": { "path": program.display().to_string() },
+                    "breakpoints": [{ "line": 2 }]
+                }),
+            ))
+            .expect("set breakpoints response");
+        assert!(!session.breakpoints.is_empty());
+
+        let relaunched = session
+            .handle_message(&request(
+                3,
+                "launch",
+                json!({
+                    "program": missing.display().to_string(),
+                    "mode": SOURCE_SIMULATOR_MODE
+                }),
+            ))
+            .expect("failed relaunch response");
+        assert_eq!(relaunched.messages[0]["success"], json!(false));
+        assert_eq!(session.runtime_state, RuntimeState::SourceSimulationTerminated);
+        assert!(session.program.is_none());
+        assert!(session.breakpoints.is_empty());
+
+        let step = session
+            .handle_message(&request(4, "next", json!({ "threadId": 1 })))
+            .expect("step response");
+        assert_eq!(step.messages[0]["success"], json!(false));
+        assert!(step.messages[0]["message"]
+            .as_str()
+            .is_some_and(|message| message.contains("active source-simulator session")));
+    }
+
+    #[test]
+    fn failed_first_launch_clears_prelaunch_breakpoints() {
+        let dir = tempdir().expect("tempdir");
+        let program = dir.path().join("main.ax");
+        fs::write(&program, "print 1\n").expect("write program");
+        let mut session = DapSession::default();
+
+        session
+            .handle_message(&request(
+                1,
+                "setBreakpoints",
+                json!({
+                    "source": { "path": program.display().to_string() },
+                    "breakpoints": [{ "line": 1 }]
+                }),
+            ))
+            .expect("set breakpoints response");
+        assert!(!session.breakpoints.is_empty());
+
+        let failed = session
+            .handle_message(&request(
+                2,
+                "launch",
+                json!({ "program": program.display().to_string() }),
+            ))
+            .expect("failed launch response");
+        assert_eq!(failed.messages[0]["success"], json!(false));
+        assert!(session.breakpoints.is_empty());
+    }
+
+    #[test]
+    fn debug_status_never_claims_process_dwarf_or_profile_proof() {
+        let mut session = DapSession::default();
+        let response = session
+            .handle_message(&request(1, "axiom/debugStatus", json!({})))
+            .expect("debug status");
+        let status = &response.messages[0]["body"];
+
+        assert_eq!(status["schemaVersion"], NATIVE_DEBUG_STATUS_SCHEMA_VERSION);
+        assert_eq!(status["processBacked"], false);
+        assert_eq!(status["nativeAxiomDwarf"], false);
+        assert_eq!(status["profileSymbolization"], false);
+        assert_eq!(status["identity"]["binaryDigest"], Value::Null);
+        assert_eq!(status["identity"]["target"], Value::Null);
+        assert_eq!(status["runtimeState"], "not_started");
+    }
+
+    #[test]
+    fn runtime_controls_fail_closed_without_an_active_simulator() {
+        let mut session = DapSession::default();
+
+        for (seq, command) in [(1, "continue"), (2, "next"), (3, "stepIn"), (4, "stepOut")] {
+            let response = session
+                .handle_message(&request(seq, command, json!({ "threadId": 1 })))
+                .expect("runtime control response");
+
+            assert_eq!(response.messages.len(), 1);
+            assert_eq!(response.messages[0]["success"], json!(false));
+            assert!(
+                response.messages[0]["message"]
+                    .as_str()
+                    .is_some_and(|message| message.contains("active source-simulator session"))
+            );
+        }
+    }
+
+    #[test]
+    fn stepping_past_source_end_terminates_with_status() {
+        let dir = tempdir().expect("tempdir");
+        let program = dir.path().join("main.ax");
+        fs::write(&program, "print 1\n").expect("write program");
+        let mut session = DapSession::default();
+        session
+            .handle_message(&request(
+                1,
+                "launch",
+                json!({
+                    "program": program.display().to_string(),
+                    "mode": SOURCE_SIMULATOR_MODE
+                }),
+            ))
+            .expect("launch response");
+
+        let response = session
+            .handle_message(&request(2, "next", json!({ "threadId": 1 })))
+            .expect("step response");
+
+        assert_eq!(response.messages[0]["success"], json!(true));
+        assert_eq!(response.messages[1]["event"], json!("terminated"));
+        assert_eq!(
+            response.messages[1]["body"]["axiomDebugging"]["runtimeState"],
+            json!("source_simulation_terminated")
         );
     }
 
