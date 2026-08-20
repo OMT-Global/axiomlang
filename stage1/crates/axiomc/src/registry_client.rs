@@ -12,6 +12,7 @@ pub const MAX_PACKAGE_ARCHIVE_BODY_BYTES: usize = 64 * 1024 * 1024;
 pub const DEFAULT_MAX_HTTP_HEADER_BYTES: usize = 64 * 1024;
 pub const MAX_REGISTRY_URL_BYTES: usize = 4_096;
 pub const DEFAULT_REGISTRY_OPERATION_TIMEOUT: Duration = Duration::from_secs(60);
+pub const REGISTRY_NETWORK_DISABLED_ENV: &str = "AXIOM_REGISTRY_NETWORK_DISABLED";
 
 #[derive(Clone, Debug)]
 pub struct RegistryClient {
@@ -19,6 +20,7 @@ pub struct RegistryClient {
     max_header_bytes: usize,
     timeout: Duration,
     operation_timeout: Duration,
+    network_disabled: bool,
 }
 
 impl Default for RegistryClient {
@@ -34,6 +36,7 @@ impl RegistryClient {
             max_header_bytes: DEFAULT_MAX_HTTP_HEADER_BYTES,
             timeout: Duration::from_secs(5),
             operation_timeout: DEFAULT_REGISTRY_OPERATION_TIMEOUT,
+            network_disabled: registry_network_disabled(),
         }
     }
 
@@ -43,7 +46,13 @@ impl RegistryClient {
             max_header_bytes,
             timeout,
             operation_timeout: DEFAULT_REGISTRY_OPERATION_TIMEOUT,
+            network_disabled: registry_network_disabled(),
         }
+    }
+
+    pub fn with_network_disabled(mut self) -> Self {
+        self.network_disabled = true;
+        self
     }
 
     /// Set the maximum wall-clock time shared by a package operation's
@@ -128,6 +137,9 @@ impl RegistryClient {
             return self.fetch_file(parse_file_path(path)?, max_body_bytes, deadline);
         }
         if let Some(endpoint) = url.strip_prefix("http://") {
+            if self.network_disabled {
+                return Err(RegistryClientError::NetworkDisabled);
+            }
             return self.fetch_http(parse_http_endpoint(endpoint)?, max_body_bytes, deadline);
         }
         let scheme = url.split_once(':').map_or("", |(scheme, _)| scheme);
@@ -287,6 +299,10 @@ impl RegistryClient {
         // per-read timeout after an otherwise successful bounded fetch.
         Ok(body)
     }
+}
+
+fn registry_network_disabled() -> bool {
+    std::env::var_os(REGISTRY_NETWORK_DISABLED_ENV).is_some_and(|value| value == "1")
 }
 
 fn deadline_error(context: &str) -> RegistryClientError {
@@ -702,6 +718,7 @@ fn io_error(context: &str, error: std::io::Error) -> RegistryClientError {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum RegistryClientError {
     UnsupportedScheme(String),
+    NetworkDisabled,
     InvalidUrl(String),
     NonLoopbackHost(String),
     InvalidFile(String),
@@ -734,6 +751,7 @@ impl fmt::Display for RegistryClientError {
             Self::UnsupportedScheme(scheme) => {
                 write!(formatter, "unsupported registry URL scheme {scheme:?}")
             }
+            Self::NetworkDisabled => formatter.write_str("registry network access is disabled"),
             Self::InvalidUrl(message)
             | Self::InvalidFile(message)
             | Self::MalformedResponse(message) => formatter.write_str(message),
@@ -969,6 +987,25 @@ mod tests {
             client.fetch("http://localhost/index.json"),
             Err(RegistryClientError::NonLoopbackHost(_))
         ));
+    }
+
+    #[test]
+    fn network_disabled_mode_rejects_loopback_http_before_connecting_but_keeps_file_replay() {
+        let directory = tempfile::tempdir().expect("tempdir");
+        let path = directory.path().join("index.json");
+        std::fs::write(&path, b"offline").expect("write file registry fixture");
+        let client = RegistryClient::default().with_network_disabled();
+
+        assert_eq!(
+            client.fetch("http://127.0.0.1:1/index.json"),
+            Err(RegistryClientError::NetworkDisabled)
+        );
+        assert_eq!(
+            client
+                .fetch(&format!("file://{}", path.display()))
+                .expect("local file replay remains available"),
+            b"offline"
+        );
     }
 
     #[test]

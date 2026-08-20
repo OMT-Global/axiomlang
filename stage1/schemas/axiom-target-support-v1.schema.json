@@ -39,7 +39,40 @@
           "object_format": { "type": "string", "minLength": 1 },
           "abi": { "type": "string", "minLength": 1 },
           "linker": { "type": "string", "minLength": 1 },
+          "libc": {
+            "description": "Additive v1 qualification metadata. Optional for compatibility with earlier v1 producers; current axiomc reports always emit it.",
+            "enum": ["darwin-libsystem", "glibc-compatible"]
+          },
           "runtime": { "type": "string", "minLength": 1 },
+          "provider_policy": {
+            "description": "Additive v1 qualification metadata. Optional for compatibility with earlier v1 producers; current axiomc reports always emit it.",
+            "const": "capability-providers-qualified-separately"
+          },
+          "profiles": {
+            "description": "Additive v1 qualification metadata. Optional for compatibility with earlier v1 producers; current axiomc reports always emit it.",
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 2,
+            "uniqueItems": true,
+            "prefixItems": [
+              { "const": "debug" },
+              { "const": "release" }
+            ],
+            "items": false
+          },
+          "unsupported_features": {
+            "description": "Additive v1 qualification metadata. Optional for compatibility with earlier v1 producers; current axiomc reports always emit it.",
+            "type": "array",
+            "minItems": 3,
+            "maxItems": 3,
+            "uniqueItems": true,
+            "prefixItems": [
+              { "const": "cross-compilation" },
+              { "const": "direct-native-wasm" },
+              { "const": "windows-native" }
+            ],
+            "items": false
+          },
           "status": { "const": "supported-host-only" }
         }
       }
