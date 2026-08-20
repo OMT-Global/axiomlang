@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://axiom-lang.org/schemas/axiom.native_debug_status.v1.schema.json",
+  "title": "AxiOM Native Debug Status v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "mode", "processBacked", "nativeAxiomDwarf", "profileSymbolization", "runtimeState", "identity", "unavailableReason", "blockerIssues"],
+  "properties": {
+    "schemaVersion": {"const": "axiom.native_debug_status.v1"},
+    "mode": {"const": "source_simulator"},
+    "processBacked": {"const": false},
+    "nativeAxiomDwarf": {"const": false},
+    "profileSymbolization": {"const": false},
+    "runtimeState": {"enum": ["not_started", "source_simulation_stopped", "source_simulation_terminated"]},
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["binaryDigest", "sourceGeneration", "target"],
+      "properties": {
+        "binaryDigest": {"type": "null"},
+        "sourceGeneration": {
+          "oneOf": [
+            {"type": "null"},
+            {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+          ]
+        },
+        "target": {"type": "null"}
+      }
+    },
+    "unavailableReason": {"const": "native_debugging.dependencies_unmet"},
+    "blockerIssues": {"const": [1436, 1455]}
+  }
+}

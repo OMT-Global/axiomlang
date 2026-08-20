@@ -1201,6 +1201,18 @@
     },
     {
       "evidenceTier": "static_spike",
+      "name": "https://axiom-lang.org/schemas/axiom.native_debug_status.v1.schema.json",
+      "source": "stage1/compiler-contracts/schemas/axiom.native_debug_status.v1.schema.json",
+      "status": "checked"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "https://axiom-lang.org/schemas/axiom.native_debugging.v1.schema.json",
+      "source": "stage1/compiler-contracts/schemas/axiom.native_debugging.v1.schema.json",
+      "status": "checked"
+    },
+    {
+      "evidenceTier": "static_spike",
       "name": "https://omt-global.github.io/axiom/schemas/axiom.provider-abi.v1.schema.json",
       "source": "stage1/compiler-contracts/schemas/axiom.provider-abi.v1.schema.json",
       "status": "checked"
@@ -1888,11 +1900,11 @@
       "direct_runtime": 2,
       "production_qualified": 0,
       "scaffold": 5,
-      "static_spike": 222,
+      "static_spike": 224,
       "unsupported": 5
     },
     "runtimeAbiRows": 34,
-    "schemas": 61,
+    "schemas": 63,
     "stdlibFunctions": 304,
     "stdlibModules": 34,
     "supportedNativeBackend": "cranelift"

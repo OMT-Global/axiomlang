@@ -10,7 +10,7 @@
       "sha256": "0a7df662030a201d7953255a50ad4a5355758bc0626faa44ba879cd1d4eee00f"
     }
   },
-  "contract_version": "0.4.0",
+  "contract_version": "0.5.0",
   "edition": {
     "id": "2026",
     "source": {
@@ -95,7 +95,7 @@
           "path": "stage1/compiler-contracts/snapshots/capability-ledger.json",
           "role": "cli_top_level_parity",
           "selector": "commands[*].name",
-          "sha256": "35fe8421bc8754e1826ce65c5d11efb951070bb2a47f9995c25935771cbc1b17"
+          "sha256": "fa6045b5a8012164f59d44aab00518596aa82194994edba85de4aef999ffb49d"
         },
         {
           "path": "stage1/crates/axiomc/src/main.rs",
@@ -1005,6 +1005,36 @@
           "role": "published_schema",
           "selector": "$id,properties.schema_version.const",
           "sha256": "8b4aa2afff3020c87f6d9be72dd796479d198a755f8d6a20b660f29ddb1b7c5d"
+        }
+      ],
+      "stability": "experimental",
+      "version": "0.1.0"
+    },
+    {
+      "id": "axiom://schema/axiom.native_debug_status.v1",
+      "kind": "schema",
+      "signature": "published schema id=https://axiom-lang.org/schemas/axiom.native_debug_status.v1.schema.json; semantic_digest=17abd8987cecb51d6fd591220ee3e0f05ef67a530ccddffd75f80ead1c4407b5",
+      "sources": [
+        {
+          "path": "stage1/compiler-contracts/schemas/axiom.native_debug_status.v1.schema.json",
+          "role": "published_schema",
+          "selector": "$id,properties.schema_version.const",
+          "sha256": "c8bce24f349b529d6c046553e15803f0f2fa426928952e9a306f540248e840af"
+        }
+      ],
+      "stability": "experimental",
+      "version": "0.1.0"
+    },
+    {
+      "id": "axiom://schema/axiom.native_debugging.v1",
+      "kind": "schema",
+      "signature": "published schema id=https://axiom-lang.org/schemas/axiom.native_debugging.v1.schema.json; semantic_digest=fb44ebebef8279dae9c46d830bfbd44444a67eca34c76b5821cc77fdc9cd8ecc; envelope=axiom.native_debugging.v1",
+      "sources": [
+        {
+          "path": "stage1/compiler-contracts/schemas/axiom.native_debugging.v1.schema.json",
+          "role": "published_schema",
+          "selector": "$id,properties.schema_version.const",
+          "sha256": "6eafc704947e1408792e7403430fa97a4cb7a8b96967ed2a6ab98fb8eacfc507"
         }
       ],
       "stability": "experimental",
