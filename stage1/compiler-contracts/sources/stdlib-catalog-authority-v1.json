@@ -1,0 +1,191 @@
+{
+  "schema_version": "axiom.compiler.stdlib_catalog.authority.v1",
+  "catalog_version": "2.0.0",
+  "binding_policy": "module_provider_namespace",
+  "modules": [
+    {
+      "name": "std/async.ax",
+      "capabilities": ["async"],
+      "binding_namespace": "axiom://provider/stage1-v1/async"
+    },
+    {
+      "name": "std/async_net.ax",
+      "capabilities": ["async", "net"],
+      "binding_namespace": "axiom://provider/stage1-v1/async_net"
+    },
+    {
+      "name": "std/async_time.ax",
+      "capabilities": ["async", "clock"],
+      "binding_namespace": "axiom://provider/stage1-v1/async_time"
+    },
+    {
+      "name": "std/cli.ax",
+      "capabilities": [],
+      "binding_namespace": "axiom://provider/stage1-v1/cli"
+    },
+    {
+      "name": "std/collections.ax",
+      "capabilities": [],
+      "binding_namespace": "axiom://provider/stage1-v1/collections"
+    },
+    {
+      "name": "std/crypto.ax",
+      "capabilities": ["crypto"],
+      "binding_namespace": "axiom://provider/stage1-v1/crypto"
+    },
+    {
+      "name": "std/crypto_aead.ax",
+      "capabilities": ["crypto"],
+      "binding_namespace": "axiom://provider/stage1-v1/crypto_aead"
+    },
+    {
+      "name": "std/crypto_hash.ax",
+      "capabilities": ["crypto"],
+      "binding_namespace": "axiom://provider/stage1-v1/crypto_hash"
+    },
+    {
+      "name": "std/crypto_mac.ax",
+      "capabilities": ["crypto"],
+      "binding_namespace": "axiom://provider/stage1-v1/crypto_mac"
+    },
+    {
+      "name": "std/crypto_rand.ax",
+      "capabilities": ["crypto"],
+      "binding_namespace": "axiom://provider/stage1-v1/crypto_rand"
+    },
+    {
+      "name": "std/crypto_sign.ax",
+      "capabilities": ["crypto"],
+      "binding_namespace": "axiom://provider/stage1-v1/crypto_sign"
+    },
+    {
+      "name": "std/doc.ax",
+      "capabilities": [],
+      "binding_namespace": "axiom://provider/stage1-v1/doc"
+    },
+    {
+      "name": "std/encoding.ax",
+      "capabilities": [],
+      "binding_namespace": "axiom://provider/stage1-v1/encoding"
+    },
+    {
+      "name": "std/env.ax",
+      "capabilities": ["env"],
+      "binding_namespace": "axiom://provider/stage1-v1/env"
+    },
+    {
+      "name": "std/fs.ax",
+      "capabilities": ["fs", "fs:write"],
+      "symbol_capability_policy": {
+        "default": ["fs:write"],
+        "overrides": {
+          "file_exists": ["fs"],
+          "file_size": ["fs"],
+          "read_file": ["fs"]
+        }
+      },
+      "binding_namespace": "axiom://provider/stage1-v1/fs"
+    },
+    {
+      "name": "std/http.ax",
+      "capabilities": ["net"],
+      "binding_namespace": "axiom://provider/stage1-v1/http"
+    },
+    {
+      "name": "std/http_async.ax",
+      "capabilities": ["async", "net"],
+      "binding_namespace": "axiom://provider/stage1-v1/http_async"
+    },
+    {
+      "name": "std/io.ax",
+      "capabilities": [],
+      "binding_namespace": "axiom://provider/stage1-v1/io"
+    },
+    {
+      "name": "std/json.ax",
+      "capabilities": [],
+      "binding_namespace": "axiom://provider/stage1-v1/json"
+    },
+    {
+      "name": "std/log.ax",
+      "capabilities": [],
+      "binding_namespace": "axiom://provider/stage1-v1/log"
+    },
+    {
+      "name": "std/lsp.ax",
+      "capabilities": [],
+      "binding_namespace": "axiom://provider/stage1-v1/lsp"
+    },
+    {
+      "name": "std/net.ax",
+      "capabilities": ["net"],
+      "binding_namespace": "axiom://provider/stage1-v1/net"
+    },
+    {
+      "name": "std/net_tcp.ax",
+      "capabilities": ["net"],
+      "binding_namespace": "axiom://provider/stage1-v1/net_tcp"
+    },
+    {
+      "name": "std/net_udp.ax",
+      "capabilities": ["net"],
+      "binding_namespace": "axiom://provider/stage1-v1/net_udp"
+    },
+    {
+      "name": "std/outcome.ax",
+      "capabilities": [],
+      "binding_namespace": "axiom://provider/stage1-v1/outcome"
+    },
+    {
+      "name": "std/process.ax",
+      "capabilities": ["process"],
+      "binding_namespace": "axiom://provider/stage1-v1/process"
+    },
+    {
+      "name": "std/regex.ax",
+      "capabilities": [],
+      "binding_namespace": "axiom://provider/stage1-v1/regex"
+    },
+    {
+      "name": "std/serdes.ax",
+      "capabilities": [],
+      "binding_namespace": "axiom://provider/stage1-v1/serdes"
+    },
+    {
+      "name": "std/string.ax",
+      "capabilities": [],
+      "binding_namespace": "axiom://provider/stage1-v1/string"
+    },
+    {
+      "name": "std/string_builder.ax",
+      "capabilities": [],
+      "binding_namespace": "axiom://provider/stage1-v1/string_builder"
+    },
+    {
+      "name": "std/sync.ax",
+      "capabilities": [],
+      "binding_namespace": "axiom://provider/stage1-v1/sync"
+    },
+    {
+      "name": "std/testing.ax",
+      "capabilities": [],
+      "binding_namespace": "axiom://provider/stage1-v1/testing"
+    },
+    {
+      "name": "std/time.ax",
+      "capabilities": ["clock"],
+      "symbol_capability_policy": {
+        "default": ["clock"],
+        "overrides": {
+          "duration_ms": []
+        }
+      },
+      "binding_namespace": "axiom://provider/stage1-v1/time"
+    },
+    {
+      "name": "std/traits.ax",
+      "capabilities": [],
+      "binding_namespace": "axiom://provider/stage1-v1/traits"
+    }
+  ]
+}

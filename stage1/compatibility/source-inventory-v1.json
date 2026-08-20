@@ -1,11 +1,11 @@
 {
   "schema_version": "axiom.compatibility_source_inventory.v1",
-  "contract_version": "0.4.0",
+  "contract_version": "0.5.0",
   "surface_versions": {
     "default": "0.1.0",
     "overrides": {
       "axiom://cli/axiomc": "0.3.0",
-      "axiom://schema/axiom.compiler.stdlib_catalog.v1": "0.2.0",
+      "axiom://schema/axiom.compiler.stdlib_catalog.v1": "0.3.0",
       "axiom://package/lockfile": "0.2.0",
       "axiom://package/manifest": "0.2.0",
       "axiom://schema/axiom-build-lowering-evidence-v1": "0.2.0",
@@ -21,7 +21,7 @@
   },
   "surface_migrations": {
     "axiom://stdlib/catalog": {
-      "action": "Update stdlib consumers to catalog_version 1.1.0 before consuming the additive file_exists and file_size symbols."
+      "action": "Update stdlib consumers to catalog_version 2.0.0, where AxiOM-owned authority and per-symbol capability effects replace the bootstrap capability-ledger source."
     },
     "axiom://schema/axiom-build-lowering-evidence-v1": {
       "action": "Update consumers to understand the new lowering evidence variants before reading build-lowering evidence."
@@ -33,13 +33,10 @@
       "action": "Update consumers to understand the new diagnostic and lowering fields plus the optional structured trace and resolver fields before consuming axiom.stage1.v1 envelopes."
     },
     "axiom://schema/axiom.compiler.stdlib_catalog.v1": {
-      "action": "Update catalog consumers to accept catalog_version 1.1.0 and the additive file_exists and file_size stdlib symbols before consuming the refreshed catalog."
+      "action": "Update catalog consumers to accept the AxiOM-owned authority source, catalog_version 2.0.0, and per-symbol capability effects before consuming the refreshed catalog."
     },
     "axiom://schema/axiom.toml": {
       "action": "Existing path-only manifests remain valid. To adopt registry dependencies, add the root registry configuration and use the closed registry dependency object documented by the 0.2 schema, then run axiomc pkg fetch to create axiom.lock version 2."
-    },
-    "axiom://stdlib/catalog": {
-      "action": "Existing stdlib modules and functions remain valid. Consumers adopting the Unicode scalar helpers should use scalar_count for code-point cardinality and scalar_at for bounds-checked scalar access."
     }
   },
   "snapshot_id": "axiom://compatibility/current-source-contract",

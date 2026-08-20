@@ -233,11 +233,16 @@ def main() -> int:
     assert len(current_ids) == 68, "current contract must include package trust, quality, Provider ABI, runtime observability, Semantic MIR, runtime lifecycle, target support, persistent LSP, and package resolver schemas"
     assert set(baseline_ids) < set(current_ids)
     assert set(current_ids) - set(baseline_ids) == new_public_schema_ids | new_package_resolver_ids
-    assert current_payload["contract_version"] == "0.4.0"
+    assert current_payload["contract_version"] == "0.5.0"
     current_cli = surface(current_payload, "axiom://cli/axiomc")
     assert current_cli["version"] == "0.3.0"
     current_stage1_schema = surface(current_payload, "axiom://schema/axiom.stage1.v1")
     assert current_stage1_schema["version"] == "0.2.0"
+    current_stdlib_schema = surface(
+        current_payload, "axiom://schema/axiom.compiler.stdlib_catalog.v1"
+    )
+    assert current_stdlib_schema["version"] == "0.3.0"
+    assert surface(current_payload, "axiom://stdlib/catalog")["version"] == "2.0.0"
     compatibility_doc = (ROOT / "docs/compatibility-v1.md").read_text(encoding="utf-8")
     assert f"current source contract is version `{current_payload['contract_version']}` with {len(current_ids)} surfaces" in compatibility_doc
     assert f"CLI surface is version `{current_cli['version']}`" in compatibility_doc

@@ -10,7 +10,7 @@
       "sha256": "0a7df662030a201d7953255a50ad4a5355758bc0626faa44ba879cd1d4eee00f"
     }
   },
-  "contract_version": "0.4.0",
+  "contract_version": "0.5.0",
   "edition": {
     "id": "2026",
     "source": {
@@ -57,19 +57,19 @@
       "id": "axiom://stdlib/catalog",
       "kind": "stdlib",
       "migration": {
-        "action": "Existing stdlib modules and functions remain valid. Consumers adopting the Unicode scalar helpers should use scalar_count for code-point cardinality and scalar_at for bounds-checked scalar access."
+        "action": "Update stdlib consumers to catalog_version 2.0.0, where AxiOM-owned authority and per-symbol capability effects replace the bootstrap capability-ledger source."
       },
-      "signature": "axiom.compiler.stdlib_catalog.v1; catalog_semantic_digest=d120dc235e4ecfc96b512e6c0c2f9d9a24f84dac800d04600c6d0782dd7716ee; modules=34; symbols=304",
+      "signature": "axiom.compiler.stdlib_catalog.v1; catalog_semantic_digest=c76dc8843c2c1da2dc581ab756b084386bcaffc7df6763617ce9ad5805ca9ab3; modules=34; symbols=304",
       "sources": [
         {
           "path": "stage1/compiler-contracts/snapshots/stdlib-catalog.json",
           "role": "stdlib_catalog",
           "selector": "modules[*].name,symbols[*].signature",
-          "sha256": "1c1cb5b87d78f8b7ace5db35ceda705231afdc6e60c43c10d0d4293380d5d977"
+          "sha256": "06260250c3766a4c40d4f49ec0466d83e8c8bab7f9eb02e2bfe9243f8f435d68"
         }
       ],
       "stability": "experimental",
-      "version": "1.1.0"
+      "version": "2.0.0"
     },
     {
       "id": "axiom://cli/axiomc",
@@ -966,19 +966,19 @@
       "id": "axiom://schema/axiom.compiler.stdlib_catalog.v1",
       "kind": "schema",
       "migration": {
-        "action": "Update catalog consumers to accept catalog_version 1.1.0 and the additive file_exists and file_size stdlib symbols before consuming the refreshed catalog."
+        "action": "Update catalog consumers to accept the AxiOM-owned authority source, catalog_version 2.0.0, and per-symbol capability effects before consuming the refreshed catalog."
       },
-      "signature": "published schema id=https://omt-global.github.io/axiom/schemas/axiom.compiler.stdlib_catalog.v1.schema.json; semantic_digest=c04c6ae6929b0a68d376b0b3ea771d7cacca72b39dd668b6266c74b455a76708; envelope=axiom.compiler.stdlib_catalog.v1",
+      "signature": "published schema id=https://omt-global.github.io/axiom/schemas/axiom.compiler.stdlib_catalog.v1.schema.json; semantic_digest=20b32afd55067845488345888c7797a2d26cd9d263cb2b5c9c33a88762fb5277; envelope=axiom.compiler.stdlib_catalog.v1",
       "sources": [
         {
           "path": "stage1/compiler-contracts/schemas/axiom.compiler.stdlib_catalog.v1.schema.json",
           "role": "published_schema",
           "selector": "$id,properties.schema_version.const",
-          "sha256": "04d715c4e77a8f74e967b5953a0f63dd1bee1bb255cec18971f7f748830416f5"
+          "sha256": "89b342f17a319b81fbb369d12354576da9f667a89057bd4a1d177cffb73b8ee7"
         }
       ],
       "stability": "experimental",
-      "version": "0.2.0"
+      "version": "0.3.0"
     },
     {
       "id": "axiom://schema/axiom.docs.v1",
