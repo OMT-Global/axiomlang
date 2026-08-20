@@ -1,0 +1,136 @@
+{
+  "schema_version": "axiom.runtime_process.v1",
+  "contract": "runtime.process",
+  "issue": 1444,
+  "implementation": {
+    "tier": "static_spike",
+    "structured_api": "contract_only",
+    "legacy_entrypoint": "run_status(command: string): int",
+    "legacy_semantics": "one exact executable value, no arguments, inherited cwd and environment, inherited stdio, synchronous status only",
+    "evidence": [
+      "stage1/crates/axiomc-backend-cranelift/src/lib.rs",
+      "stage1/crates/axiomc/src/codegen.rs",
+      "stage1/crates/axiomc/src/stdlib.rs",
+      "stage1/examples/stdlib_process/axiom.toml",
+      "stage1/runtime-abi/direct-native-v0.json"
+    ],
+    "blockers": [1425, 1426, 1434, 1438, 1445, 1477]
+  },
+  "command": {
+    "fields": ["argv", "cwd", "environment", "executable", "resource_limits", "stdio", "timeout_ms"],
+    "implicit_shell": false,
+    "executable": "one exact executable identity",
+    "argv": "ordered UTF-8 arguments preserved as distinct values with argv[0] equal to executable identity",
+    "cwd": "optional authority-checked directory identity",
+    "environment": "inherit nothing by default; pass only policy-approved keys with explicit values"
+  },
+  "stdio": {
+    "modes": ["capture", "inherit", "null", "stream"],
+    "independent_stdout_stderr": true,
+    "stdin_close": "close after input is written or immediately when no input is supplied",
+    "capture_overflow": "terminate child and report process.output_limit_exceeded with bounded retained bytes"
+  },
+  "lifecycle": {
+    "states": ["cancelled", "exited", "running", "signaled", "spawn_failed", "spawning", "timed_out"],
+    "transitions": [
+      "cancelled->exited",
+      "cancelled->signaled",
+      "running->cancelled",
+      "running->exited",
+      "running->signaled",
+      "running->timed_out",
+      "spawning->running",
+      "spawning->spawn_failed",
+      "timed_out->exited",
+      "timed_out->signaled"
+    ],
+    "initiating_outcome_preservation": {
+      "cancelled": {"terminal_states": ["exited", "signaled"], "outcome": "cancelled"},
+      "timed_out": {"terminal_states": ["exited", "signaled"], "outcome": "timeout"}
+    },
+    "timeout_clock": "monotonic",
+    "cancellation": "request graceful termination, wait bounded grace, then force termination",
+    "signals": ["interrupt", "kill", "terminate"],
+    "terminal_outcomes": ["cancelled", "exit_code", "output_limit_exceeded", "resource_limit_exceeded", "signal", "spawn_error", "timeout"]
+  },
+  "terminal": {
+    "detection": "query each inherited or streamed endpoint independently",
+    "size": "optional positive columns and rows from the attached terminal endpoint",
+    "color_policy": ["always", "auto", "never"],
+    "non_terminal_size": "unavailable"
+  },
+  "authority": {
+    "deny_by_default": true,
+    "dimensions": ["argv", "cwd", "environment", "executable", "process_control", "signals", "stdio", "terminal"],
+    "executable_rule": "exact executable identity must be allowed before spawn",
+    "argv_rule": "argument count, origins, and structural policy are checked separately from executable identity",
+    "cwd_rule": "resolved cwd must remain inside an allowed root",
+    "environment_rule": "inheritance and each key are independently authorized; values never grant authority",
+    "process_control_rule": "caller wait, graceful termination, force termination, timeout handling, cancellation, and resource-limit ceilings are independently authorized",
+    "runtime_cleanup_rule": "process-control denial blocks only the caller-requested operation; runtime supervision remains mandatory, closes pipes and reaps every child, and handle abandonment triggers bounded graceful-then-forced termination",
+    "runtime_cleanup": {
+      "ownership": "runtime_owned",
+      "denial_scope": "caller_requested_operation_only",
+      "supervision_after_denial": true,
+      "abandonment": {
+        "grace_ms": 5000,
+        "graceful_termination_requested": true,
+        "force_termination_if_running": true,
+        "pipes_closed": true,
+        "child_reaped": true
+      }
+    },
+    "signals_rule": "signal subscription and each portable signal send are independently authorized",
+    "stdio_rule": "stdin, stdout, and stderr modes are authorized independently before spawn",
+    "terminal_rule": "terminal detection, size queries, and terminal inheritance or streaming are independently authorized"
+  },
+  "audit": {
+    "decision_before_spawn": true,
+    "decision_before_operation": true,
+    "fields": ["argv_count", "argv_origins", "authority_dimension", "cwd_identity", "decision", "denied_dimensions", "environment_keys", "executable_identity", "operation", "stdio_modes", "terminal_requested"],
+    "redacted_fields": ["argv_values", "environment_values", "stdin_bytes"],
+    "denied_rule": "record denied dimensions and stable identities without spawning or recording argument, environment, or stdin values"
+  },
+  "resource_limits": {
+    "supported": [
+      {"name": "cpu_time_ms", "unit": "milliseconds", "minimum": 1, "default": 30000, "maximum": 300000},
+      {"name": "memory_bytes", "unit": "bytes", "minimum": 1048576, "default": 268435456, "maximum": 1073741824},
+      {"name": "open_files", "unit": "count", "minimum": 3, "default": 64, "maximum": 1024},
+      {"name": "subprocesses", "unit": "count", "minimum": 0, "default": 1, "maximum": 64}
+    ],
+    "default_rule": "omitted values use finite published defaults; process_control authority may lower defaults but never remove a bound",
+    "authority_rule": "process_control authority sets a finite ceiling per supported limit; a request above its ceiling is denied before spawn",
+    "failures": {
+      "invalid_request": "reject before spawn with process.resource_limit_invalid",
+      "unauthorized": "reject before spawn with process.capability_denied",
+      "unsupported_host": "reject before spawn with process.resource_limit_unsupported",
+      "exceeded": "terminate and clean up with process.resource_limit_exceeded and the exceeded limit name"
+    }
+  },
+  "bounds": {
+    "max_argv_entries": 256,
+    "max_argument_bytes": 65536,
+    "max_environment_entries": 128,
+    "max_capture_bytes_per_stream": 1048576,
+    "max_stdin_bytes": 1048576,
+    "max_grace_ms": 5000
+  },
+  "inspection_fields": ["argv_count", "argv_origins", "authority_decision", "cancellation_state", "cwd_identity", "environment_keys", "executable_identity", "exit_reason", "resource_limits", "stdio_modes", "terminal_dependencies", "timeout_ms"],
+  "fixtures": [
+    {"id": "axiom://process/fixture/argv-unicode", "kind": "positive", "path": "argv-unicode.json", "asserts": ["argument boundaries, ordering, spaces, and Unicode survive without shell parsing"]},
+    {"id": "axiom://process/fixture/capability-denied", "kind": "negative", "path": "capability-denied.json", "asserts": ["every authority dimension has an allowed path and a denied path that cannot perform its protected action"]},
+    {"id": "axiom://process/fixture/environment-redaction", "kind": "positive", "path": "environment-redaction.json", "asserts": ["audit reports approved keys and redacts environment, argument, and stdin values"]},
+    {"id": "axiom://process/fixture/large-output", "kind": "negative", "path": "large-output.json", "asserts": ["capture is bounded and overflow terminates the child with a stable output-limit outcome and diagnostic"]},
+    {"id": "axiom://process/fixture/resource-limits", "kind": "negative", "path": "resource-limits.json", "asserts": ["supported limits use finite defaults and authority ceilings while invalid, unauthorized, unsupported, and exceeded limits fail closed"]},
+    {"id": "axiom://process/fixture/shell-literal", "kind": "positive", "path": "shell-literal.json", "asserts": ["shell metacharacters remain one literal argument"]},
+    {"id": "axiom://process/fixture/signaled", "kind": "positive", "path": "signaled.json", "asserts": ["portable signal outcome is distinct from exit code"]},
+    {"id": "axiom://process/fixture/terminal", "kind": "positive", "path": "terminal.json", "asserts": ["terminal detection, size, and color policy are explicit"]},
+    {"id": "axiom://process/fixture/timeout-cancellation", "kind": "negative", "path": "timeout-cancellation.json", "asserts": ["timeout and explicit cancellation have distinct bounded graceful-then-forced paths and outcomes"]}
+  ],
+  "migration": {
+    "compatibility": "run_status(command: string) remains a legacy synchronous status helper; it does not satisfy or implicitly opt into the structured Process v1 contract",
+    "dependencies": [1425, 1426, 1434, 1438, 1445, 1477],
+    "out_of_scope": ["host-specific process object layout", "platform-specific signal numbers", "shell command parsing", "terminal escape sequence implementation"],
+    "forbidden_terms": ["Cargo process wrapper", "POSIX wait status", "Rust std::process", "shell command string"]
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "limit_bytes": 1048576,
+  "produced_bytes": 1048577,
+  "captured_bytes": 1048576,
+  "truncated": true,
+  "child_terminated": true,
+  "outcome": "output_limit_exceeded",
+  "diagnostic": "process.output_limit_exceeded"
+}

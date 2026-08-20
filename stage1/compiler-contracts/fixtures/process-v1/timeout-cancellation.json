@@ -1,0 +1,14 @@
+{
+  "timeout": {
+    "request": {"timeout_ms": 25, "grace_ms": 10},
+    "transitions": ["spawning", "running", "timed_out", "exited"],
+    "termination": {"graceful_signal": "terminate", "forced_signal": "kill", "forced_after_grace": false},
+    "outcome": {"exit_reason": "timeout", "diagnostic": "process.timed_out", "cancellation_state": "not_requested", "cleanup_observed": true}
+  },
+  "cancellation": {
+    "request": {"cancel_requested": true, "grace_ms": 10},
+    "transitions": ["spawning", "running", "cancelled", "signaled"],
+    "termination": {"graceful_signal": "terminate", "forced_signal": "kill", "forced_after_grace": true},
+    "outcome": {"exit_reason": "cancelled", "diagnostic": "process.cancelled", "cancellation_state": "completed", "cleanup_observed": true}
+  }
+}
