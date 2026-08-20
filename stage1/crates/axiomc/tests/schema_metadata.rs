@@ -22,6 +22,77 @@ fn compile_validator(schema: &Value) -> Validator {
 }
 
 #[test]
+fn http_server_v1_schema_enforces_promotion_limits_and_overload_boundaries() {
+    let stage1 = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let schema: Value = serde_json::from_str(
+        &fs::read_to_string(
+            stage1.join("compiler-contracts/schemas/axiom.runtime_http_server.v1.schema.json"),
+        )
+        .expect("read HTTP Server v1 schema"),
+    )
+    .expect("HTTP Server v1 schema is valid JSON");
+    let snapshot: Value = serde_json::from_str(
+        &fs::read_to_string(stage1.join("compiler-contracts/snapshots/http-server-v1.json"))
+            .expect("read HTTP Server v1 snapshot"),
+    )
+    .expect("HTTP Server v1 snapshot is valid JSON");
+    let validator = compile_validator(&schema);
+
+    validator
+        .validate(&snapshot)
+        .expect("checked HTTP Server v1 snapshot matches its schema");
+
+    let mut missing_keep_alive_bound = snapshot.clone();
+    missing_keep_alive_bound["limits"]
+        .as_object_mut()
+        .expect("limits")
+        .remove("max_requests_per_connection");
+    assert!(
+        !validator.is_valid(&missing_keep_alive_bound),
+        "HTTP Server v1 requires a keep-alive request bound"
+    );
+
+    let mut invalid_listener_response = snapshot.clone();
+    invalid_listener_response["limits"]["backpressure"]["listener_capacity"]
+        ["http_response_possible"] = serde_json::json!(true);
+    assert!(
+        !validator.is_valid(&invalid_listener_response),
+        "an unaccepted connection cannot receive an HTTP overload response"
+    );
+
+    let mut incomplete_promotion = snapshot.clone();
+    incomplete_promotion["implementation"]["tier"] = serde_json::json!("runtime_complete");
+    assert!(
+        !validator.is_valid(&incomplete_promotion),
+        "runtime_complete requires complete HTTP server evidence"
+    );
+
+    let mut complete_promotion = snapshot;
+    complete_promotion["implementation"]["tier"] = serde_json::json!("runtime_complete");
+    complete_promotion["implementation"]["status"] = serde_json::json!("complete");
+    complete_promotion["implementation"]["loopback_only"] = serde_json::json!(false);
+    for feature in [
+        "dynamic_handler",
+        "external_bind",
+        "structured_concurrency",
+        "http_1_1_proxy",
+        "graceful_drain",
+        "observability_flush",
+    ] {
+        complete_promotion["implementation"][feature] = serde_json::json!(true);
+    }
+    for fixture in complete_promotion["fixtures"]
+        .as_array_mut()
+        .expect("HTTP Server v1 fixtures are an array")
+    {
+        fixture["evidence_tier"] = serde_json::json!("runtime");
+    }
+    validator
+        .validate(&complete_promotion)
+        .expect("fully evidenced HTTP Server v1 is promotion-capable");
+}
+
+#[test]
 fn quality_v1_schemas_reject_contradictory_reports() {
     let policy_schema: Value = serde_json::from_str(
         &fs::read_to_string(schema_dir().join("axiom-quality-policy-v1.schema.json"))

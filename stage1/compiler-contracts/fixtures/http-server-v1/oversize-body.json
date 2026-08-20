@@ -1,0 +1,1 @@
+{"schema_version":"axiom.http_server_fixture.v1","id":"axiom://http-server/fixture/oversize-body","kind":"negative","evidence_tier":"target","scenario":"declare a request body larger than the configured byte ceiling","authority":"listen","operation":"read_body","expected":"malformed_request","assertions":["body allocation is bounded","connection closes","handler is not invoked"]}

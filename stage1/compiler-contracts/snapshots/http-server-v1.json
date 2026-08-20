@@ -1,0 +1,186 @@
+{
+  "schema_version": "axiom.runtime_http_server.v1",
+  "contract": "runtime.http_server",
+  "issue": 1449,
+  "implementation": {
+    "tier": "static_spike",
+    "status": "partial",
+    "runtime_backed_subset": true,
+    "build_once_run_many": true,
+    "loopback_only": true,
+    "bounded_fixed_route": true,
+    "dynamic_handler": false,
+    "external_bind": false,
+    "structured_concurrency": false,
+    "http_1_1_proxy": false,
+    "graceful_drain": false,
+    "observability_flush": false
+  },
+  "authority": {
+    "required_kind": "listen",
+    "current_grant": "net",
+    "separate_listen_grant_required": true,
+    "default_deny": true,
+    "endpoint_fields": ["host", "ip", "port", "transport"],
+    "wildcard_policy": "explicit_exact_authority_only",
+    "runtime_resolution": "required",
+    "runtime_revalidation": true,
+    "fallback": "deny_without_rebind",
+    "proxy_authority": {
+      "required_kind": "proxy",
+      "selector_fields": ["peer_network", "peer_port", "prefix_length", "transport"],
+      "match_rule": "transport peer must match an explicit network prefix port and transport before forwarded metadata is trusted",
+      "forwarded_header": "Forwarded",
+      "proxy_rewrite_rule": "matching proxy must remove every client-supplied Forwarded field and emit exactly one field with exactly one canonical for parameter",
+      "duplicate_or_chain_policy": "reject duplicate Forwarded fields comma-separated chains unknown identifiers obfuscated identifiers and noncanonical for parameters",
+      "effective_client_identity": "canonical for parameter from the single proxy-rewritten Forwarded field",
+      "handler_peer": "transport_observed_proxy_peer_remains_request_peer",
+      "missing_or_mismatch": "deny forwarded metadata and retain the transport-observed peer"
+    }
+  },
+  "request": {
+    "fields": ["body_bytes", "body_text", "headers", "method", "path", "peer", "query"],
+    "body_representations": ["bytes", "text"],
+    "header_policy": "ordered_case_insensitive_names_preserve_duplicates",
+    "framing_policy": "validate_before_body_allocation",
+    "peer_policy": "transport_observed_not_forwarded_header"
+  },
+  "response": {
+    "fields": ["body", "headers", "status"],
+    "status_minimum": 200,
+    "status_maximum": 599,
+    "body_representations": ["bytes", "text"],
+    "header_policy": "transmit_non_framing_headers_in_declared_order_and_values",
+    "framing_policy": "reject_handler_content_length_and_transfer_encoding_then_emit_exact_content_length",
+    "bodyless_policy": {
+      "head": "suppress_body_content_length_may_describe_selected_representation",
+      "status_204": "reject_handler_body_and_omit_content_length",
+      "status_205": "reject_handler_body_and_emit_zero_content_length",
+      "status_304": "suppress_body_content_length_may_describe_selected_representation"
+    },
+    "terminal_rule": "exactly_one_response_or_explicit_abort",
+    "injection_policy": "require_rfc9110_field_name_token_and_reject_control_characters_in_values"
+  },
+  "handler": {
+    "semantic_node": "axiom://runtime/http-server/handler",
+    "input": "request",
+    "output": "response",
+    "task_scope": "request_child_of_server",
+    "resource_scope": "connection_child_of_server_requests_borrow_connection",
+    "panic_policy": "bounded_500_then_close_when_uncommitted",
+    "cancellation_policy": "cooperative_until_deadline_then_force_close",
+    "fallback": "no_thread_per_connection"
+  },
+  "limits": {
+    "max_connections": 1024,
+    "max_in_flight": 128,
+    "max_requests_per_connection": 100,
+    "accept_queue": 256,
+    "handler_queue": 256,
+    "start_line_bytes": 8192,
+    "header_count": 64,
+    "header_bytes": 65536,
+    "body_bytes": 1048576,
+    "read_timeout_ms": 5000,
+    "write_timeout_ms": 5000,
+    "idle_timeout_ms": 5000,
+    "handler_timeout_ms": 30000,
+    "shutdown_timeout_ms": 30000,
+    "backpressure": {
+      "bounded_queues": true,
+      "listener_capacity": {
+        "action": "pause_accept_until_capacity",
+        "connection_state": "not_accepted",
+        "http_response_possible": false
+      },
+      "handler_queue_capacity": {
+        "action": "reject_accepted_request",
+        "connection_state": "accepted",
+        "overload_status": 503,
+        "preserve_in_flight": true
+      },
+      "partial_write_progress": true,
+      "zero_progress_rule": "wait_for_writable_or_deadline"
+    }
+  },
+  "protocol": {
+    "versions": ["HTTP/1.1"],
+    "reverse_proxy": "supported_with_explicit_proxy_authority",
+    "keep_alive": "bounded_requests_and_idle_deadline",
+    "malformed_client": "bounded_error_then_close",
+    "content_length": "reject_conflicting_or_incomplete",
+    "transfer_encoding": "reject_ambiguous_or_unsupported",
+    "forwarded_headers": "single_proxy_rewritten_Forwarded_for_value_only_with_matching_proxy_authority",
+    "later_work": ["http_2", "websocket"]
+  },
+  "shutdown": {
+    "states": ["accepting", "draining", "starting", "stopped"],
+    "triggers": ["controlled", "sigterm"],
+    "transition_order": "starting_accepting_draining_stopped",
+    "stop_accepts_first": true,
+    "drain_to_deadline": true,
+    "cancel_remaining": true,
+    "flush_observability": true,
+    "close_resources": true,
+    "terminal_state": "stopped"
+  },
+  "inspection_fields": ["accept_queue_depth", "bind_authority", "handler_semantic_node", "in_flight", "limits", "listen_endpoint", "overload_count", "request_id", "response_evidence", "runtime_request_origin", "server_id", "shutdown_deadline", "shutdown_state"],
+  "outcomes": ["accepted", "authority_denied", "cancelled", "deadline_exceeded", "io_error", "malformed_request", "overloaded", "response_sent", "server_stopped", "unsupported"],
+  "fixtures": [
+    {"id": "axiom://http-server/fixture/authorized-proxy-forged-forwarded-input", "kind": "positive", "evidence_tier": "target", "file": "authorized-proxy-forged-forwarded-input.json"},
+    {"id": "axiom://http-server/fixture/cancellation-shutdown", "kind": "positive", "evidence_tier": "target", "file": "cancellation-shutdown.json"},
+    {"id": "axiom://http-server/fixture/conflicting-content-length", "kind": "negative", "evidence_tier": "target", "file": "conflicting-content-length.json"},
+    {"id": "axiom://http-server/fixture/current-loopback-floor", "kind": "positive", "evidence_tier": "runtime", "file": "current-loopback-floor.json"},
+    {"id": "axiom://http-server/fixture/current-loopback-policy-denial", "kind": "negative", "evidence_tier": "runtime", "file": "current-loopback-policy-denial.json"},
+    {"id": "axiom://http-server/fixture/double-response", "kind": "negative", "evidence_tier": "target", "file": "double-response.json"},
+    {"id": "axiom://http-server/fixture/dynamic-request-response", "kind": "positive", "evidence_tier": "target", "file": "dynamic-request-response.json"},
+    {"id": "axiom://http-server/fixture/external-authorized-bind", "kind": "positive", "evidence_tier": "target", "file": "external-authorized-bind.json"},
+    {"id": "axiom://http-server/fixture/graceful-drain", "kind": "positive", "evidence_tier": "target", "file": "graceful-drain.json"},
+    {"id": "axiom://http-server/fixture/handler-content-length", "kind": "negative", "evidence_tier": "target", "file": "handler-content-length.json"},
+    {"id": "axiom://http-server/fixture/handler-queue-overload", "kind": "positive", "evidence_tier": "target", "file": "handler-queue-overload.json"},
+    {"id": "axiom://http-server/fixture/handler-transfer-encoding", "kind": "negative", "evidence_tier": "target", "file": "handler-transfer-encoding.json"},
+    {"id": "axiom://http-server/fixture/head-response-body-suppressed", "kind": "positive", "evidence_tier": "target", "file": "head-response-body-suppressed.json"},
+    {"id": "axiom://http-server/fixture/incomplete-content-length", "kind": "negative", "evidence_tier": "target", "file": "incomplete-content-length.json"},
+    {"id": "axiom://http-server/fixture/invalid-response-header-name", "kind": "negative", "evidence_tier": "target", "file": "invalid-response-header-name.json"},
+    {"id": "axiom://http-server/fixture/listener-saturation", "kind": "positive", "evidence_tier": "target", "file": "listener-saturation.json"},
+    {"id": "axiom://http-server/fixture/malformed-request", "kind": "negative", "evidence_tier": "target", "file": "malformed-request.json"},
+    {"id": "axiom://http-server/fixture/oversize-body", "kind": "negative", "evidence_tier": "target", "file": "oversize-body.json"},
+    {"id": "axiom://http-server/fixture/oversize-header-bytes", "kind": "negative", "evidence_tier": "target", "file": "oversize-header-bytes.json"},
+    {"id": "axiom://http-server/fixture/oversize-start-line", "kind": "negative", "evidence_tier": "target", "file": "oversize-start-line.json"},
+    {"id": "axiom://http-server/fixture/proxy-http11", "kind": "positive", "evidence_tier": "target", "file": "proxy-http11.json"},
+    {"id": "axiom://http-server/fixture/response-header-injection", "kind": "negative", "evidence_tier": "target", "file": "response-header-injection.json"},
+    {"id": "axiom://http-server/fixture/sigterm-shutdown", "kind": "positive", "evidence_tier": "target", "file": "sigterm-shutdown.json"},
+    {"id": "axiom://http-server/fixture/slow-client", "kind": "negative", "evidence_tier": "target", "file": "slow-client.json"},
+    {"id": "axiom://http-server/fixture/status-204-body-rejected", "kind": "negative", "evidence_tier": "target", "file": "status-204-body-rejected.json"},
+    {"id": "axiom://http-server/fixture/status-205-body-rejected", "kind": "negative", "evidence_tier": "target", "file": "status-205-body-rejected.json"},
+    {"id": "axiom://http-server/fixture/status-304-response-body-suppressed", "kind": "positive", "evidence_tier": "target", "file": "status-304-response-body-suppressed.json"},
+    {"id": "axiom://http-server/fixture/thread-per-connection", "kind": "negative", "evidence_tier": "target", "file": "thread-per-connection.json"},
+    {"id": "axiom://http-server/fixture/too-many-headers", "kind": "negative", "evidence_tier": "target", "file": "too-many-headers.json"},
+    {"id": "axiom://http-server/fixture/transfer-encoding-content-length", "kind": "negative", "evidence_tier": "target", "file": "transfer-encoding-content-length.json"},
+    {"id": "axiom://http-server/fixture/unauthorized-bind", "kind": "negative", "evidence_tier": "target", "file": "unauthorized-bind.json"},
+    {"id": "axiom://http-server/fixture/unsupported-chunked-transfer", "kind": "negative", "evidence_tier": "target", "file": "unsupported-chunked-transfer.json"},
+    {"id": "axiom://http-server/fixture/untrusted-forwarded-headers", "kind": "negative", "evidence_tier": "target", "file": "untrusted-forwarded-headers.json"}
+  ],
+  "migration": {
+    "blocker_issues": [1425, 1426, 1441, 1445, 1446, 1447],
+    "current_evidence": [
+      {
+        "path": "docs/direct-native-runtime-abi-v0.md",
+        "anchors": ["The HTTP server row remains implemented for its evidenced native subset:", "Scheduler-backed serving, concurrent clients, cancellation, timeouts, and"]
+      },
+      {
+        "path": "stage1/crates/axiomc/src/codegen.rs",
+        "anchors": ["fn axiom_http_serve_route_on_listener(", "http server max_requests must be between 1 and 1024", "std::thread::spawn"]
+      },
+      {
+        "path": "stage1/crates/axiomc/src/stdlib.rs",
+        "anchors": ["pub fn serve(bind: string, selected_route: HttpRoute, max_requests: int): bool", "pub fn serve_once(bind: string, body: string): bool"]
+      },
+      {
+        "path": "stage1/crates/axiomc/tests/support/lib_unit.rs",
+        "anchors": ["fn stage1_stdlib_http_service_rejects_non_loopback_bind()", "fn stage1_stdlib_http_service_routes_multiple_requests()", "fn stage1_stdlib_http_service_serves_one_request()"]
+      }
+    ],
+    "out_of_scope": ["http_2", "websocket"]
+  }
+}
