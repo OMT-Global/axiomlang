@@ -76,23 +76,23 @@ run_cranelift_workload() {
   check_report="$(mktemp "${TMPDIR:-/tmp}/axiom-${example}-check.XXXXXX")"
   temp_reports+=("$check_report")
   capture_report "$check_report" \
-    cargo run --manifest-path stage1/Cargo.toml -p axiomc -- check "$project" --json
+    cargo run --locked --manifest-path stage1/Cargo.toml -p axiomc -- check "$project" --json
   assert_ok_report "$check_report" "check" "$example"
 
   build_report="$(mktemp "${TMPDIR:-/tmp}/axiom-${example}-build-cranelift.XXXXXX")"
   temp_reports+=("$build_report")
   capture_expected_failure_report "$build_report" \
-    cargo run --manifest-path stage1/Cargo.toml -p axiomc -- build "$project" --backend cranelift --json
+    cargo run --locked --manifest-path stage1/Cargo.toml -p axiomc -- build "$project" --backend cranelift --json
   assert_cranelift_report "$build_report" "build" "$example"
 
   test_report="$(mktemp "${TMPDIR:-/tmp}/axiom-${example}-test-cranelift.XXXXXX")"
   temp_reports+=("$test_report")
   if [[ -n "$test_filter" ]]; then
     capture_expected_failure_report "$test_report" \
-      cargo run --manifest-path stage1/Cargo.toml -p axiomc -- test "$project" --backend cranelift --filter "$test_filter" --json
+      cargo run --locked --manifest-path stage1/Cargo.toml -p axiomc -- test "$project" --backend cranelift --filter "$test_filter" --json
   else
     capture_expected_failure_report "$test_report" \
-      cargo run --manifest-path stage1/Cargo.toml -p axiomc -- test "$project" --backend cranelift --json
+      cargo run --locked --manifest-path stage1/Cargo.toml -p axiomc -- test "$project" --backend cranelift --json
   fi
   if [[ "$example" == "proof_cli" ]]; then
     assert_cranelift_report "$test_report" "test" "$example" \

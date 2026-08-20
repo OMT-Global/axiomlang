@@ -1099,6 +1099,12 @@
     },
     {
       "evidenceTier": "static_spike",
+      "name": "https://axiom.omt.global/schemas/axiom-target-support-evidence-v1.schema.json",
+      "source": "stage1/schemas/axiom-target-support-evidence-v1.schema.json",
+      "status": "checked"
+    },
+    {
+      "evidenceTier": "static_spike",
       "name": "https://axiom.omt.global/schemas/axiom-target-support-v1.schema.json",
       "source": "stage1/schemas/axiom-target-support-v1.schema.json",
       "status": "checked"
@@ -2017,11 +2023,11 @@
       "direct_runtime": 2,
       "production_qualified": 0,
       "scaffold": 5,
-      "static_spike": 243,
+      "static_spike": 244,
       "unsupported": 5
     },
     "runtimeAbiRows": 34,
-    "schemas": 81,
+    "schemas": 82,
     "stdlibFunctions": 307,
     "stdlibModules": 34,
     "supportedNativeBackend": "cranelift"

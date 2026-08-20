@@ -1,6 +1,6 @@
 {
   "schema_version": "axiom.compatibility_source_inventory.v1",
-  "contract_version": "0.22.0",
+  "contract_version": "0.23.0",
   "surface_versions": {
     "default": "0.1.0",
     "overrides": {
@@ -14,6 +14,7 @@
       "axiom://schema/axiom-package-verification-expectation-v1": "0.2.0",
       "axiom://schema/axiom-package-verification-v1": "0.2.0",
       "axiom://schema/axiom-registry-index-v2": "0.2.0",
+      "axiom://schema/axiom-target-support-v1": "0.2.0",
       "axiom://schema/axiom.stage1.command": "0.3.0",
       "axiom://schema/axiom.stage1.v1": "0.2.0",
       "axiom://schema/axiom-trust-roots-v1": "0.2.0",
@@ -46,6 +47,9 @@
     },
     "axiom://schema/axiom-quality-report-v1": {
       "action": "Quality reports retain the same single-test exclusion and profile semantics. The skippedTests field now uses the current renamed property-test identifier, matching the existing producer. Validate current reports with schema surface version 0.2.0; historical reports retain their historical schema."
+    },
+    "axiom://schema/axiom-target-support-v1": {
+      "action": "Accept schema surface version 0.2.0 with the additive target-row qualification fields libc, provider_policy, profiles, and unsupported_features. Current axiomc always emits them while the v1 schema keeps them optional, so reports from earlier v1 producers remain valid; qualification consumers must require those fields before relying on their newer claims."
     },
     "axiom://schema/axiom-selfhost-snapshot-manifest-v0": {
       "action": "Snapshot manifest entries must carry chain identity and offline provenance evidence: snapshot_id, chain_id, sequence, artifact_path, source_head_sha, predecessor, and provenance_sha256 are required, and built_by is restricted to the schema's two enumerated producer identities, with sequence zero reserved for the genesis producer. Producers must emit the hardened shape and validate against schema surface version 0.2.0. Legacy pre-hardening manifests remain accepted at schema level by the frozen trusted-CI readiness harness; manifests in the new shape are validated fail-closed against the hardened contract."
