@@ -95,7 +95,7 @@
           "path": "stage1/compiler-contracts/snapshots/capability-ledger.json",
           "role": "cli_top_level_parity",
           "selector": "commands[*].name",
-          "sha256": "35fe8421bc8754e1826ce65c5d11efb951070bb2a47f9995c25935771cbc1b17"
+          "sha256": "9294b775ba7c9db87cfd649f99ee37bf39ccfb7d353fb1058e216f178f39484b"
         },
         {
           "path": "stage1/crates/axiomc/src/main.rs",
@@ -979,6 +979,21 @@
       ],
       "stability": "experimental",
       "version": "0.2.0"
+    },
+    {
+      "id": "axiom://schema/axiom.compiler_native_backend_runtime.v1",
+      "kind": "schema",
+      "signature": "published schema id=https://omt-global.github.io/axiom/schemas/axiom.compiler_native_backend_runtime.v1.schema.json; semantic_digest=4a337d113ee63ad28d66c0abb901f8686486c5da621a3459f12f847f7d37a3ab; envelope=axiom.compiler_native_backend_runtime.v1",
+      "sources": [
+        {
+          "path": "stage1/compiler-contracts/schemas/axiom.compiler_native_backend_runtime.v1.schema.json",
+          "role": "published_schema",
+          "selector": "$id,properties.schema_version.const",
+          "sha256": "25a53220efcad7a3c66abbcb8c5beb8d97b922fe772538ede381dc1d954cb222"
+        }
+      ],
+      "stability": "experimental",
+      "version": "0.1.0"
     },
     {
       "id": "axiom://schema/axiom.docs.v1",
