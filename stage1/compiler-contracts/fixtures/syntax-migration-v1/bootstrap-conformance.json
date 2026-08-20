@@ -1,0 +1,10 @@
+{
+  "schema_version": "axiom.compiler.syntax_fixture.v1",
+  "id": "syntax-migration-v1/bootstrap-conformance",
+  "category": "conformance",
+  "status": "bootstrap_pass",
+  "input": {"pass_root": "stage1/conformance/pass", "fail_root": "stage1/conformance/fail", "supplied_after_build": false},
+  "expected": {"exit_outcome": "corpus_passes", "compiler_diagnostics": [], "recovered_nodes": [], "spans": [], "macro_provenance": [], "node_identities": []},
+  "evidence": ["scripts/ci/run-stage1-conformance.sh", "stage1/conformance/fail/macro_missing_argument/expected-error.json", "stage1/conformance/pass/line_comments/axiom.toml"],
+  "qualification": {"executor": "bash scripts/ci/run-stage1-conformance.sh", "proves": "bootstrap pass/fail grammar corpus only"}
+}

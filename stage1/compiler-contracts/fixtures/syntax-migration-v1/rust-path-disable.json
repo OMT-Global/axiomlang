@@ -1,0 +1,10 @@
+{
+  "schema_version": "axiom.compiler.syntax_fixture.v1",
+  "id": "syntax-migration-v1/rust-path-disable",
+  "category": "ownership",
+  "status": "target_gap",
+  "input": {"path": "runtime/disable.ax", "source": "print 42\n", "supplied_after_build": true},
+  "expected": {"exit_outcome": "not_executed_target_gap", "compiler_diagnostics": [], "recovered_nodes": [], "spans": [], "macro_provenance": [], "node_identities": []},
+  "evidence": ["docs/compiler-syntax-migration-v1.md::Differential and cutover proof"],
+  "qualification": {"rust_syntax_symbols_linked": false, "command_surface_unchanged": true, "rollback_path_tested": true}
+}

@@ -692,9 +692,9 @@
       "status": "blocked",
       "governingIssue": 1471,
       "blockerIssues": [1471],
-      "dependencies": [1473],
-      "evidence": ["docs/axiom-compiler-source-layout.md", "stage1/crates/axiomc/src/syntax.rs"],
-      "validatingCommand": "make stage1-diagnostics-syntax-boundary && make stage1-conformance",
+      "dependencies": [1427, 1468, 1473],
+      "evidence": ["docs/axiom-compiler-source-layout.md", "docs/compiler-syntax-migration-v1.md", "stage1/compiler-contracts/snapshots/syntax-migration-v1.json", "stage1/crates/axiomc/src/syntax.rs"],
+      "validatingCommand": "make stage1-syntax-migration-v1-test && make stage1-syntax-migration-v1 && cargo test --manifest-path stage1/Cargo.toml -p axiomc --test syntax_migration_v1 && make stage1-diagnostics-syntax-boundary && make stage1-conformance",
       "rustCaptureRisk": "high",
       "agentInspectionImpact": "Expose tokens, parse/recovery nodes, macros, spans, parity, and Rust-disable state."
     },

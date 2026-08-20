@@ -1,0 +1,10 @@
+{
+  "schema_version": "axiom.compiler.syntax_fixture.v1",
+  "id": "syntax-migration-v1/recovered-node-emission",
+  "category": "recovery",
+  "status": "target_gap",
+  "input": {"path": "runtime/recovery.ax", "source": "let broken int = 1\nprint 2\n", "supplied_after_build": true},
+  "expected": {"exit_outcome": "not_executed_target_gap", "compiler_diagnostics": [{"kind": "parse", "code": "parse.missing_token", "message": "let binding is missing ':'", "path": "runtime/recovery.ax", "line": 1, "column": 1}], "recovered_nodes": [{"node_id": "axiom://syntax/sha256/a251f5bacc41ef22fe5b41b8158dba7638614346d380ebb677252349e01237b8/recovered/declaration/1", "node_kind": "declaration", "skipped_start_byte": 0, "skipped_end_byte": 18, "diagnostic_ids": [0], "span": {"path": "runtime/recovery.ax", "start_byte": 0, "end_byte": 18, "line": 1, "column": 1}}], "spans": [{"kind": "recovered_declaration", "line": 1, "column": 1}], "macro_provenance": [], "node_identities": [{"id": "axiom://syntax/sha256/a251f5bacc41ef22fe5b41b8158dba7638614346d380ebb677252349e01237b8/recovered/declaration/1", "origin": "recovered", "kind": "declaration", "ordinal": 1}]},
+  "evidence": ["docs/compiler-syntax-migration-v1.md::Recovery contract"],
+  "qualification": {"ordered_diagnostics": true, "resumes_at": "statement_start", "bootstrap_emits_recovered_nodes": false}
+}
