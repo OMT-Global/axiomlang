@@ -25,6 +25,11 @@ IMPLEMENTATION_EVIDENCE = (
     Path("stage1/runtime-abi/direct-native-v0.json"),
 )
 BLOCKERS = [1425, 1426, 1434, 1438, 1445, 1477]
+LEGACY_SEMANTICS = (
+    "POSIX direct-native and generated-native execution use one exact executable value with no arguments; "
+    "Windows direct-native execution passes command text to system and is shell-parsing, so it is non-qualifying "
+    "legacy evidence; all paths inherit cwd, environment, and stdio and report synchronous status only"
+)
 
 COMMAND = {
     "fields": ["argv", "cwd", "environment", "executable", "resource_limits", "stdio", "timeout_ms"],
@@ -541,22 +546,54 @@ def validate_fixture(name: str, fixture: dict[str, Any], snapshot: dict[str, Any
         require(timeout["outcome"]["exit_reason"] != cancellation["outcome"]["exit_reason"], "fixture.timeout-cancellation must preserve distinct outcomes")
 
 
+def extract_rust_function(text: str, name: str) -> str:
+    start = text.find(f"fn {name}(")
+    require(start >= 0, f"missing direct-native legacy helper {name}")
+    opening = text.find("{", start)
+    require(opening >= 0, f"direct-native legacy helper {name} has no body")
+    depth = 0
+    for index in range(opening, len(text)):
+        if text[index] == "{":
+            depth += 1
+        elif text[index] == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start : index + 1]
+    raise ContractError(f"direct-native legacy helper {name} has an unterminated body")
+
+
+def extract_generated_process_helper(text: str) -> str:
+    start = text.find('out.push_str("fn axiom_process_status(program: String) -> i64 {\\n");')
+    require(start >= 0, "missing generated-native process status helper")
+    end = text.find('out.push_str("}\\n\\n");', start)
+    require(end >= 0, "generated-native process status helper has no closing emission")
+    return text[start:end]
+
+
+def extract_stdlib_process_helper(text: str) -> str:
+    start = text.find('        "process.ax",')
+    require(start >= 0, "missing legacy process stdlib module")
+    end = text.find("    ),", start)
+    require(end >= 0, "legacy process stdlib module has no closing entry")
+    return text[start:end]
+
+
 def validate_codegen_evidence(path: Path) -> None:
-    text = path.read_text(encoding="utf-8")
-    require("std::process::Command::new(program)" in text, "generated-native legacy evidence no longer uses one executable value")
-    require(".status()" in text and ".and_then(|status| status.code())" in text, "generated-native legacy process status evidence drifted")
+    helper = extract_generated_process_helper(path.read_text(encoding="utf-8"))
+    require("std::process::Command::new(program)" in helper, "generated-native legacy evidence no longer uses one executable value")
+    require(".status()" in helper and ".and_then(|status| status.code())" in helper, "generated-native legacy process status evidence drifted")
 
 
 def validate_direct_native_evidence(path: Path) -> None:
-    text = path.read_text(encoding="utf-8")
-    require('declare_function("execv"' in text, "direct-native legacy evidence no longer declares execv")
-    require(".call(runtime_refs.execv" in text, "direct-native legacy evidence no longer calls execv")
+    helper = extract_rust_function(path.read_text(encoding="utf-8"), "emit_i64_process_status_expr")
+    require(".call(runtime_refs.execv" in helper, "direct-native legacy evidence no longer calls execv")
+    require(".call(runtime_refs.system" in helper, "direct-native Windows legacy evidence no longer invokes system")
 
 
 def validate_stdlib_evidence(path: Path) -> None:
-    text = path.read_text(encoding="utf-8")
-    require("pub fn run_status(command: string): int" in text, "legacy stdlib process signature drifted")
-    require("return process_status(command)" in text, "legacy stdlib process binding drifted")
+    helper = extract_stdlib_process_helper(path.read_text(encoding="utf-8"))
+    require("pub fn run_status(command: string): int" in helper, "legacy stdlib process signature drifted")
+    require("return process_status(command)" in helper, "legacy stdlib process binding drifted")
 
 
 def validate_example_evidence(path: Path) -> None:
@@ -582,7 +619,7 @@ def validate_implementation_evidence(root: Path, snapshot: dict[str, Any]) -> No
         "tier": "static_spike",
         "structured_api": "contract_only",
         "legacy_entrypoint": "run_status(command: string): int",
-        "legacy_semantics": "one exact executable value, no arguments, inherited cwd and environment, inherited stdio, synchronous status only",
+        "legacy_semantics": LEGACY_SEMANTICS,
         "evidence": [path.as_posix() for path in IMPLEMENTATION_EVIDENCE],
         "blockers": BLOCKERS,
     }

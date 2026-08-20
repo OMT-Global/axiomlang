@@ -6,7 +6,7 @@
     "tier": "static_spike",
     "structured_api": "contract_only",
     "legacy_entrypoint": "run_status(command: string): int",
-    "legacy_semantics": "one exact executable value, no arguments, inherited cwd and environment, inherited stdio, synchronous status only",
+    "legacy_semantics": "POSIX direct-native and generated-native execution use one exact executable value with no arguments; Windows direct-native execution passes command text to system and is shell-parsing, so it is non-qualifying legacy evidence; all paths inherit cwd, environment, and stdio and report synchronous status only",
     "evidence": [
       "stage1/crates/axiomc-backend-cranelift/src/lib.rs",
       "stage1/crates/axiomc/src/codegen.rs",

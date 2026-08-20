@@ -71,9 +71,12 @@ and cleans up the child with the distinct
 
 The existing `run_status(command: string): int` helper is legacy evidence, not
 the Process v1 API. Generated-native execution uses one exact executable value,
-and the POSIX direct-native path uses `execv` rather than shell parsing. The
-legacy helper still lacks argv, explicit environment/cwd policy, pipes,
-timeouts, cancellation, terminal state, and portable Windows parity.
+and the POSIX direct-native path uses `execv` rather than shell parsing.
+Windows direct-native execution currently passes command text to `system`, so
+it reparses shell syntax and is explicitly non-qualifying legacy evidence; it
+does not establish argv-safe Process v1 behavior. The legacy helper still lacks
+argv, explicit environment/cwd policy, pipes, timeouts, cancellation, terminal
+state, and portable Windows parity.
 The snapshot pins the exact five-file legacy evidence set, and the checker
 validates the relevant executable, stdlib binding, manifest authority, and
 direct-native readiness content in each file.

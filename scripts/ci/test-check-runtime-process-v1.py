@@ -302,6 +302,62 @@ class RuntimeProcessContractTests(unittest.TestCase):
                 lambda: checker.validate_contract(root),
             )
 
+    def test_temporary_root_rejects_windows_shell_evidence_drift(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = copy_contract_root(temporary)
+            path = root / checker.IMPLEMENTATION_EVIDENCE[0]
+            text = path.read_text(encoding="utf-8").replace(
+                ".call(runtime_refs.system",
+                ".call(runtime_refs.replaced_system",
+            )
+            path.write_text(text, encoding="utf-8")
+            self.assert_contract_error(
+                "direct-native Windows legacy evidence no longer invokes system",
+                lambda: checker.validate_contract(root),
+            )
+
+    def test_evidence_checks_reject_decoys_outside_the_real_helpers(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = copy_contract_root(temporary)
+
+            codegen = root / checker.IMPLEMENTATION_EVIDENCE[1]
+            codegen_text = codegen.read_text(encoding="utf-8").replace(
+                "std::process::Command::new(program)",
+                "std::process::Command::new(shell_command)",
+                1,
+            )
+            codegen.write_text(codegen_text + "\n// std::process::Command::new(program)\n", encoding="utf-8")
+            self.assert_contract_error(
+                "generated-native legacy evidence no longer uses one executable value",
+                lambda: checker.validate_contract(root),
+            )
+
+            codegen.write_text(ROOT.joinpath(checker.IMPLEMENTATION_EVIDENCE[1]).read_text(encoding="utf-8"), encoding="utf-8")
+            direct_native = root / checker.IMPLEMENTATION_EVIDENCE[0]
+            direct_native_text = direct_native.read_text(encoding="utf-8").replace(
+                ".call(runtime_refs.system",
+                ".call(runtime_refs.replaced_system",
+                1,
+            )
+            direct_native.write_text(direct_native_text + "\n// .call(runtime_refs.system\n", encoding="utf-8")
+            self.assert_contract_error(
+                "direct-native Windows legacy evidence no longer invokes system",
+                lambda: checker.validate_contract(root),
+            )
+
+            direct_native.write_text(ROOT.joinpath(checker.IMPLEMENTATION_EVIDENCE[0]).read_text(encoding="utf-8"), encoding="utf-8")
+            stdlib = root / checker.IMPLEMENTATION_EVIDENCE[2]
+            stdlib_text = stdlib.read_text(encoding="utf-8").replace(
+                "return process_status(command)",
+                "return process_status(shell_command)",
+                1,
+            )
+            stdlib.write_text(stdlib_text + "\n// return process_status(command)\n", encoding="utf-8")
+            self.assert_contract_error(
+                "legacy stdlib process binding drifted",
+                lambda: checker.validate_contract(root),
+            )
+
     def test_migration_compatibility_is_pinned(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = copy_contract_root(temporary)
