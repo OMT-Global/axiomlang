@@ -83,6 +83,8 @@ axiomc_bin_suite=$(printf '%s\n' "$full_lib_suite_section" | grep -F -- 'cargo t
 proof_workload_test=$(grep -nF 'bash scripts/ci/run-stage1-proof-test.sh' "$fast_checks_script" || true)
 stdlib_catalog_check=$(grep -nF 'scripts/ci/check-stdlib-catalog.py' "$fast_checks_script" || true)
 stdlib_catalog_regression=$(grep -nF 'scripts/ci/test-check-stdlib-catalog.py' "$fast_checks_script" || true)
+runtime_process_check=$(grep -nF 'python3 "$script_repo_root/scripts/ci/check-runtime-process-v1.py" --root "$repo_root"' "$fast_checks_script" || true)
+runtime_process_regression=$(grep -nF 'python3 "$script_repo_root/scripts/ci/test-check-runtime-process-v1.py"' "$fast_checks_script" || true)
 makefile_route_count=$(grep -cF "              - 'Makefile'" "$workflow" || true)
 
 if [[ -n "$checkout_line" ]]; then
@@ -218,6 +220,16 @@ fi
 
 if [[ -z "$stdlib_catalog_check" || -z "$stdlib_catalog_regression" ]]; then
   echo "run-fast-checks must validate and regression-test the typed stdlib catalog" >&2
+  exit 1
+fi
+
+if [[ -z "$runtime_process_check" ]]; then
+  echo "trusted fast checks must validate Runtime Process v1 evidence from the PR-head checkout root" >&2
+  exit 1
+fi
+
+if [[ -z "$runtime_process_regression" ]]; then
+  echo "trusted fast checks must retain the trusted Runtime Process v1 checker self-tests" >&2
   exit 1
 fi
 

@@ -236,10 +236,10 @@
       "governingIssue": 1444,
       "blockerIssues": [1444],
       "dependencies": [1434, 1438, 1425, 1426, 1445, 1477],
-      "evidence": ["stage1/examples/stdlib_process/axiom.toml", "stage1/crates/axiomc/src/stdlib.rs"],
-      "validatingCommand": "make stage1-stdlib-test && make stage1-conformance",
-      "rustCaptureRisk": "medium",
-      "agentInspectionImpact": "Expose executable authority, argv origins, stdio, signal, cancellation, and terminal dependencies."
+      "evidence": ["docs/process-v1.md", "stage1/compiler-contracts/schemas/axiom.runtime_process.v1.schema.json", "stage1/compiler-contracts/snapshots/runtime-process-v1.json", "stage1/compiler-contracts/fixtures/process-v1", "scripts/ci/check-runtime-process-v1.py", "stage1/examples/stdlib_process/axiom.toml", "stage1/crates/axiomc/src/stdlib.rs"],
+      "validatingCommand": "make stage1-runtime-process-v1 stage1-runtime-process-v1-test && cargo test --manifest-path stage1/Cargo.toml -p axiomc process_status",
+      "rustCaptureRisk": "high",
+      "agentInspectionImpact": "Expose separately authorized executable identity, argv origins, cwd, environment keys, stdio, signal, cancellation, timeout, redaction, bounds, and terminal dependencies without claiming the legacy helper implements Process v1."
     },
     {
       "id": "structured_concurrency",

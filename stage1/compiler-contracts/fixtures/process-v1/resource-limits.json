@@ -1,0 +1,24 @@
+{
+  "request": {
+    "limits": {"cpu_time_ms": 250, "memory_bytes": 67108864},
+    "omitted_limits": ["open_files", "subprocesses"]
+  },
+  "authority": {
+    "dimension": "process_control",
+    "ceilings": {"cpu_time_ms": 1000, "memory_bytes": 134217728, "open_files": 32, "subprocesses": 1},
+    "decision": "allowed"
+  },
+  "effective": {"cpu_time_ms": 250, "memory_bytes": 67108864, "open_files": 32, "subprocesses": 1},
+  "invalid_request": {"limit": "open_files", "requested": 0, "diagnostic": "process.resource_limit_invalid", "spawned": false},
+  "denied_request": {"limit": "memory_bytes", "requested": 268435456, "authority_ceiling": 134217728, "diagnostic": "process.capability_denied", "spawned": false},
+  "unsupported_host": {"limit": "subprocesses", "diagnostic": "process.resource_limit_unsupported", "spawned": false},
+  "exceeded": {
+    "limit": "cpu_time_ms",
+    "effective_value": 250,
+    "observed_value": 251,
+    "outcome": "resource_limit_exceeded",
+    "diagnostic": "process.resource_limit_exceeded",
+    "child_terminated": true,
+    "cleanup_observed": true
+  }
+}
