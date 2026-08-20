@@ -48,6 +48,18 @@ DEFAULT_CHECKS = [
     },
     {"id": "supply_chain", "command": "bash scripts/ci/run-toolchain-supply-chain.sh", "requiredTools": ["cargo-vet"]},
     {"id": "readiness_self_tests", "command": "bash scripts/ci/test-check-production-language-readiness.sh && bash scripts/ci/test-check-self-hosting-language-readiness.sh && bash scripts/ci/test-check-snapshot-bootstrap-readiness.sh && bash scripts/ci/test-check-python-exit-readiness.sh && bash scripts/ci/test-check-rust-exit-readiness.sh && python3 scripts/ci/check-production-language-readiness.py --validate-only"},
+    {
+        "id": "readiness_gates",
+        "command": "python3 scripts/ci/run-readiness-gates.py --output-dir artifacts/readiness --head-sha \"$AXIOM_QUALIFICATION_HEAD_SHA\" --require-issue-states",
+        "artifactPaths": [
+            "artifacts/readiness/readiness-gates.json",
+            "artifacts/readiness/rust-exit-readiness.json",
+            "artifacts/readiness/self-hosting-language-readiness.json",
+            "artifacts/readiness/snapshot-bootstrap-readiness.json",
+            "artifacts/readiness/native-build-purity.log",
+            "artifacts/readiness/self-hosting-spike-parity.log",
+        ],
+    },
 ]
 
 

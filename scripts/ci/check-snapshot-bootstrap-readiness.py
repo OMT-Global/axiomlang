@@ -15,7 +15,10 @@ def check(name, status, detail):
 
 def load_json(path):
     with path.open(encoding="utf-8") as handle:
-        return json.load(handle)
+        payload = json.load(handle)
+    if not isinstance(payload, dict):
+        raise ValueError(f"{path} root must be an object")
+    return payload
 
 
 def validate_schema_node(value, schema, path, defs):
@@ -80,7 +83,7 @@ def validate_snapshot_manifest(path, schema_path):
     checks.append(check("snapshot_manifest_present", "pass", f"{path} exists"))
     try:
         payload = load_json(path)
-    except json.JSONDecodeError as error:
+    except (OSError, json.JSONDecodeError, ValueError) as error:
         return checks + [check("snapshot_manifest_json", "fail", str(error))], []
     checks.append(check("snapshot_manifest_json", "pass", "snapshot manifest is valid JSON"))
     if not schema_path.is_file():
@@ -90,7 +93,7 @@ def validate_snapshot_manifest(path, schema_path):
             schema = load_json(schema_path)
             validate_against_schema(payload, schema)
             checks.append(check("snapshot_manifest_schema", "pass", f"{path} matches {schema_path}"))
-        except (json.JSONDecodeError, ValueError) as error:
+        except (OSError, json.JSONDecodeError, ValueError, TypeError) as error:
             checks.append(check("snapshot_manifest_schema", "fail", str(error)))
     snapshots = payload.get("snapshots")
     if not isinstance(snapshots, list):
@@ -137,7 +140,7 @@ def main():
         try:
             payload = load_json(manifest_path)
             checks.append(check("snapshot_readiness_manifest_json", "pass", "readiness manifest is valid JSON"))
-        except json.JSONDecodeError as error:
+        except (OSError, json.JSONDecodeError, ValueError) as error:
             payload = {}
             checks.append(check("snapshot_readiness_manifest_json", "fail", str(error)))
 
@@ -145,6 +148,9 @@ def main():
     rows = payload.get("rows", []) if isinstance(payload.get("rows"), list) else []
     checks.append(check("snapshot_readiness_rows_present", "pass" if rows else "fail", f"manifest contains {len(rows)} rows"))
     for row in rows:
+        if not isinstance(row, dict):
+            checks.append(check("snapshot_readiness_row_unknown", "fail", "readiness row must be an object"))
+            continue
         row_id = row.get("id", "unknown")
         status = row.get("status")
         if status not in VALID_STATUSES:

@@ -9,16 +9,15 @@
       "group": "semantic truth",
       "requirement": "Compilation never executes runtime effects or freezes runtime inputs into replay output.",
       "governingIssue": 1434,
-      "status": "blocked",
-      "directNativeStatus": "blocked",
-      "blockerIssues": [1434],
+      "status": "implemented",
+      "directNativeStatus": "implemented",
       "evidence": [
         "docs/production-language-roadmap.md",
         "stage1/crates/axiomc/src/cranelift_backend.rs",
         "stage1/crates/axiomc/src/cranelift_backend/evaluator.rs"
       ],
-      "validatingCommand": "cargo test --manifest-path stage1/Cargo.toml -p axiomc --test cranelift_backend build_never_executes_runtime_effects -- --nocapture && make stage1-direct-native-runtime-abi-test",
-      "notes": "Unsupported runtime lowering currently reaches compiler-side evaluation; #1434 must replace that behavior with fail-closed diagnostics and runtime-sensitive evidence."
+      "validatingCommand": "cargo test --manifest-path stage1/Cargo.toml -p axiomc --test cranelift_backend cranelift_backend_pure_artifact_is_invariant_to_build_env_and_stdin -- --nocapture && make stage1-direct-native-runtime-abi-test",
+      "notes": "#1434 is closed; the native build-purity regression and direct-native ABI test provide the executable proof that unsupported runtime lowering fails closed."
     },
     {
       "id": "executable_mir_runtime",
@@ -176,7 +175,7 @@
       "governingIssue": 1251,
       "status": "blocked",
       "directNativeStatus": "blocked",
-      "blockerIssues": [1434, 1443, 1444, 1477, 1481],
+      "blockerIssues": [1443, 1444, 1477, 1481],
       "evidence": [
         "stage1/examples/stdlib_fs/axiom.toml",
         "stage1/examples/stdlib_env/axiom.toml",
@@ -205,7 +204,7 @@
         "stage1/examples/stdlib_io/axiom.toml",
         "stage1/runtime-abi/direct-native-v0.json"
       ],
-      "validatingCommand": "make stage1-direct-native-example-smoke && cargo test --manifest-path stage1/Cargo.toml -p axiomc --test cranelift_backend program_host_abi_build_once_run_many -- --nocapture",
+      "validatingCommand": "make stage1-direct-native-example-smoke && cargo test --manifest-path stage1/Cargo.toml -p axiomc --test cranelift_backend cranelift_backend_lowers_i64_main_to_runtime_exit_code -- --nocapture",
       "notes": "Program runtime inputs and streams must be separate from compiler/build inputs before AxiOM can host its own command surface."
     },
     {

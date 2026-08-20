@@ -42,6 +42,14 @@ add_check() {
   local status="$2"
   local detail="$3"
 
+  local existing
+  if ((${#checks[@]})); then
+    for existing in "${checks[@]}"; do
+      if [[ "${existing%%|*}" == "$name" ]]; then
+        return
+      fi
+    done
+  fi
   checks+=("$name|$status|$detail")
 
   if [[ "$status" != "pass" ]]; then
@@ -81,19 +89,29 @@ read_issue_state() {
   return 1
 }
 
-blocking_issues_from_manifest() {
-  python3 - <<'PY'
+manifest_issues() {
+  local field="$1"
+  AXIOM_READINESS_ISSUE_FIELD="$field" python3 - <<'PY'
 import json
+import os
 
 with open("docs/rust-exit-readiness.json", encoding="utf-8") as handle:
     payload = json.load(handle)
 
-for entry in payload.get("blockingIssues", []):
+for entry in payload.get(os.environ["AXIOM_READINESS_ISSUE_FIELD"], []):
     print(entry["issue"])
 PY
 }
 
-all_blocking_issues_closed() {
+blocking_issues_from_manifest() {
+  manifest_issues blockingIssues
+}
+
+proof_issues_from_manifest() {
+  manifest_issues proofIssues
+}
+
+all_blocking_issues_open() {
   local issue_state
   local issue
 
@@ -106,7 +124,7 @@ all_blocking_issues_closed() {
     if ! issue_state="$(read_issue_state "$issue")" || [[ -z "$issue_state" ]]; then
       return 1
     fi
-    if [[ "$issue_state" != "CLOSED" ]]; then
+    if [[ "$issue_state" != "OPEN" ]]; then
       return 1
     fi
   done < <(blocking_issues_from_manifest)
@@ -141,6 +159,22 @@ closed_blocking_issues_from_manifest() {
   done < <(blocking_issues_from_manifest)
 }
 
+non_closed_proof_issues_from_manifest() {
+  local issue
+  local issue_state
+
+  while IFS= read -r issue; do
+    issue_state=""
+    if issue_state="$(read_issue_state "$issue")" && [[ -n "$issue_state" ]]; then
+      if [[ "$issue_state" != "CLOSED" ]]; then
+        printf '%s:%s\n' "$issue" "$issue_state"
+      fi
+    else
+      printf '%s:UNKNOWN\n' "$issue"
+    fi
+  done < <(proof_issues_from_manifest)
+}
+
 open_blocking_issues_from_manifest() {
   local issue
   local issue_state
@@ -149,7 +183,7 @@ open_blocking_issues_from_manifest() {
     issue_state=""
     if ! issue_state="$(read_issue_state "$issue")" || [[ -z "$issue_state" ]]; then
       printf '%s:UNKNOWN\n' "$issue"
-    elif [[ "$issue_state" != "CLOSED" ]]; then
+    elif [[ "$issue_state" != "OPEN" ]]; then
       printf '%s:%s\n' "$issue" "$issue_state"
     fi
   done < <(blocking_issues_from_manifest)
@@ -365,6 +399,27 @@ else
 fi
 
 if [[ -f docs/rust-exit-readiness.json ]]; then
+  blocking_issue_count="$(blocking_issues_from_manifest | wc -l | tr -d ' ')"
+  if [[ "$blocking_issue_count" == "0" ]]; then
+    add_check "readiness_blockers_resolved" "pass" "No Rust-exit blocker issues remain"
+  elif all_blocking_issues_open; then
+    add_check "readiness_blockers_resolved" "fail" "Rust-exit blocker issues remain OPEN"
+  else
+    unresolved_blockers=()
+    while IFS= read -r unresolved_issue; do
+      unresolved_blockers+=("#${unresolved_issue}")
+    done < <(open_blocking_issues_from_manifest)
+    if [[ "${#unresolved_blockers[@]}" -eq 0 ]]; then
+      add_check "readiness_blockers_resolved" "pass" "All Rust-exit blocker issues are CLOSED"
+    else
+      add_check "readiness_blockers_resolved" "fail" "Rust-exit blocker issue state is unresolved: ${unresolved_blockers[*]}"
+    fi
+  fi
+else
+  add_check "readiness_blockers_resolved" "fail" "Rust exit readiness manifest is unavailable"
+fi
+
+if [[ -f docs/rust-exit-readiness.json ]]; then
   add_check "readiness_manifest_present" "pass" "docs/rust-exit-readiness.json exists"
 else
   add_check "readiness_manifest_present" "fail" "docs/rust-exit-readiness.json is missing"
@@ -379,7 +434,7 @@ if abi_report="$(direct_native_runtime_abi_report 2>/dev/null)" && [[ -n "$abi_r
 fi
 
 if [[ -f docs/rust-exit-readiness.json ]]; then
-  python3 - <<'PY'
+  if manifest_validation_output="$(python3 - <<'PY' 2>&1
 import json
 import sys
 
@@ -393,43 +448,49 @@ if payload.get("finalBootstrapIssue") != 721:
     print("finalBootstrapIssue must be 721", file=sys.stderr)
     sys.exit(1)
 
+proof_entries = payload.get("proofIssues", [])
+if not isinstance(proof_entries, list) or not proof_entries:
+    print("proofIssues must be a non-empty list", file=sys.stderr)
+    sys.exit(1)
 blocking_entries = payload.get("blockingIssues", [])
-if not isinstance(blocking_entries, list) or not blocking_entries:
-    print("blockingIssues must be a non-empty list", file=sys.stderr)
+if not isinstance(blocking_entries, list):
+    print("blockingIssues must be a list", file=sys.stderr)
     sys.exit(1)
 
-issues = []
-for index, entry in enumerate(blocking_entries):
-    if not isinstance(entry, dict):
-        print(f"blockingIssues[{index}] must be an object", file=sys.stderr)
+def parse_entries(field, entries):
+    issues = []
+    for index, entry in enumerate(entries):
+        if not isinstance(entry, dict):
+            print(f"{field}[{index}] must be an object", file=sys.stderr)
+            sys.exit(1)
+        issue = entry.get("issue")
+        if not isinstance(issue, int) or isinstance(issue, bool):
+            print(f"{field}[{index}].issue must be an integer", file=sys.stderr)
+            sys.exit(1)
+        if not entry.get("lane"):
+            print(f"{field}[{index}].lane must be non-empty", file=sys.stderr)
+            sys.exit(1)
+        if not entry.get("check"):
+            print(f"{field}[{index}].check must be non-empty", file=sys.stderr)
+            sys.exit(1)
+        issues.append(issue)
+    if len(set(issues)) != len(issues):
+        print(f"{field} contains duplicate issue ids", file=sys.stderr)
         sys.exit(1)
-    issue = entry.get("issue")
-    if not isinstance(issue, int):
-        print(f"blockingIssues[{index}].issue must be an integer", file=sys.stderr)
-        sys.exit(1)
-    if not entry.get("lane"):
-        print(f"blockingIssues[{index}].lane must be non-empty", file=sys.stderr)
-        sys.exit(1)
-    if not entry.get("check"):
-        print(f"blockingIssues[{index}].check must be non-empty", file=sys.stderr)
-        sys.exit(1)
-    issues.append(issue)
+    return issues
 
-if payload["finalBootstrapIssue"] in issues:
-    print("finalBootstrapIssue must not also be listed as a blocker", file=sys.stderr)
+proofs = parse_entries("proofIssues", proof_entries)
+issues = parse_entries("blockingIssues", blocking_entries)
+all_issues = set(proofs) | set(issues)
+if set(proofs) & set(issues):
+    print("proofIssues and blockingIssues must be disjoint", file=sys.stderr)
     sys.exit(1)
-
-required = {731}
-missing = sorted(required - set(issues))
-if missing:
-    print("missing required blocking issues: " + ", ".join(f"#{issue}" for issue in missing), file=sys.stderr)
+if payload["finalBootstrapIssue"] in all_issues:
+    print("finalBootstrapIssue must not also be listed as a proof or blocker", file=sys.stderr)
     sys.exit(1)
-unexpected = sorted(set(issues) - required)
-if unexpected:
-    print("unexpected stale blocking issues: " + ", ".join(f"#{issue}" for issue in unexpected), file=sys.stderr)
-    sys.exit(1)
-if len(set(issues)) != len(issues):
-    print("blocking issue list contains duplicates", file=sys.stderr)
+missing_proofs = sorted({731} - set(proofs))
+if missing_proofs:
+    print("missing required proof issues: " + ", ".join(f"#{issue}" for issue in missing_proofs), file=sys.stderr)
     sys.exit(1)
 
 with open("stage1/runtime-abi/direct-native-v0.json", encoding="utf-8") as handle:
@@ -449,42 +510,111 @@ if missing_abi_blockers:
         file=sys.stderr,
     )
     sys.exit(1)
+unexpected = sorted(set(issues) - abi_blockers)
+if unexpected:
+    print("unexpected stale blocking issues: " + ", ".join(f"#{issue}" for issue in unexpected), file=sys.stderr)
+    sys.exit(1)
 PY
-  add_check "readiness_manifest_valid" "pass" "docs/rust-exit-readiness.json has schema-valid live blockers and covers ABI blockers"
+)"; then
+    add_check "readiness_manifest_valid" "pass" "docs/rust-exit-readiness.json has proof/open blocker schema and covers ABI blockers"
+  else
+    add_check "readiness_manifest_valid" "fail" "$manifest_validation_output"
+  fi
 else
   add_check "readiness_manifest_valid" "fail" "docs/rust-exit-readiness.json cannot be validated"
 fi
 
 if [[ ! -f docs/rust-exit-readiness.json ]]; then
-  add_check "readiness_blockers_closed" "fail" "Rust exit readiness manifest is unavailable"
-elif all_blocking_issues_closed; then
-  add_check "readiness_blockers_closed" "pass" "All blocking issues listed in docs/rust-exit-readiness.json are CLOSED"
+  add_check "readiness_blockers_live" "fail" "Rust exit readiness manifest is unavailable"
+elif all_blocking_issues_open; then
+  add_check "readiness_blockers_live" "pass" "All blocking issues listed in docs/rust-exit-readiness.json are OPEN"
 else
   open_blocking_issues=()
   while IFS= read -r open_issue; do
     open_blocking_issues+=("#${open_issue}")
   done < <(open_blocking_issues_from_manifest)
   if [[ "${#open_blocking_issues[@]}" -gt 0 ]]; then
-    add_check "readiness_blockers_closed" "fail" "Blocking issue(s) not closed: ${open_blocking_issues[*]}"
+    add_check "readiness_blockers_live" "fail" "Blocking issue(s) are not OPEN: ${open_blocking_issues[*]}"
   else
-    add_check "readiness_blockers_closed" "fail" "One or more blocking issues listed in docs/rust-exit-readiness.json are not CLOSED"
+    add_check "readiness_blockers_live" "fail" "One or more blocking issues listed in docs/rust-exit-readiness.json are not OPEN"
   fi
 fi
 
-if [[ "$abi_ready" != true && -f docs/rust-exit-readiness.json ]]; then
-  closed_blocking_issues=()
-  while IFS= read -r closed_issue; do
-    closed_blocking_issues+=("$closed_issue")
-  done < <(closed_blocking_issues_from_manifest)
-  if [[ "${#closed_blocking_issues[@]}" -gt 0 ]]; then
-    closed_issue_detail="$(printf '#%s, ' "${closed_blocking_issues[@]}")"
-    closed_issue_detail="${closed_issue_detail%, }"
-    add_check "readiness_blockers_live_when_not_ready" "fail" "closed blockers cannot represent remaining Rust-exit work while the ABI is not ready: ${closed_issue_detail}"
+if [[ -f docs/rust-exit-readiness.json ]]; then
+  non_closed_proofs=()
+  while IFS= read -r proof_issue; do
+    non_closed_proofs+=("#${proof_issue}")
+  done < <(non_closed_proof_issues_from_manifest)
+  if [[ "${#non_closed_proofs[@]}" -eq 0 ]]; then
+    add_check "readiness_proofs_closed" "pass" "All proof issues listed in docs/rust-exit-readiness.json are CLOSED"
   else
-    add_check "readiness_blockers_live_when_not_ready" "pass" "listed blockers remain live while the ABI is not ready"
+    add_check "readiness_proofs_closed" "fail" "Proof issue(s) are not CLOSED: ${non_closed_proofs[*]}"
   fi
 else
-  add_check "readiness_blockers_live_when_not_ready" "pass" "ABI is ready or no readiness manifest is present"
+  add_check "readiness_proofs_closed" "fail" "Rust exit readiness manifest is unavailable"
+fi
+
+while IFS='|' read -r boundary_name boundary_status boundary_detail; do
+  add_check "$boundary_name" "$boundary_status" "$boundary_detail"
+done < <(self_hosted_boundary_report)
+
+while IFS='|' read -r lsp_name lsp_status lsp_detail; do
+  add_check "$lsp_name" "$lsp_status" "$lsp_detail"
+done < <(lsp_driver_ownership_report)
+
+while IFS='|' read -r gate_name gate_status gate_detail; do
+  add_check "$gate_name" "$gate_status" "$gate_detail"
+done < <(generated_rust_cli_gate_report)
+
+while IFS='|' read -r gate_name gate_status gate_detail; do
+  add_check "$gate_name" "$gate_status" "$gate_detail"
+done < <(generated_rust_contract_gate_report)
+
+for target in rust-exit-readiness rust-exit-readiness-github rust-exit-readiness-test; do
+  if has_make_target "$target"; then
+    add_check "make_${target}" "pass" "Makefile exposes $target"
+  else
+    add_check "make_${target}" "fail" "Makefile does not expose $target"
+  fi
+done
+
+if [[ -n "$issue_state_file" && ! -f "$issue_state_file" ]]; then
+  add_check "rust_exit_issue_state_source" "fail" "issue state file does not exist: $issue_state_file"
+elif [[ -n "$issue_state_file" ]]; then
+  add_check "rust_exit_issue_state_source" "pass" "issue states loaded from $issue_state_file"
+elif command -v gh >/dev/null 2>&1; then
+  add_check "rust_exit_issue_state_source" "pass" "issue states loaded from GitHub"
+elif [[ "$require_issue_states" == true ]]; then
+  add_check "rust_exit_issue_state_source" "fail" "issue states are required but no --issue-state-file was provided and gh is unavailable"
+else
+  add_check "rust_exit_issue_state_source" "pass" "issue states not checked; pass --require-issue-states for deletion PRs"
+fi
+
+if [[ -f docs/rust-exit-readiness.json ]]; then
+  while IFS= read -r issue; do
+    issue_state=""
+    if issue_state="$(read_issue_state "$issue")" && [[ -n "$issue_state" ]]; then
+      if [[ "$issue_state" == "OPEN" ]]; then
+        add_check "rust_exit_issue_${issue}_open" "pass" "issue #$issue is OPEN"
+      else
+        add_check "rust_exit_issue_${issue}_open" "fail" "issue #$issue is $issue_state; blocking issues must remain OPEN"
+      fi
+    elif [[ "$require_issue_states" == true ]]; then
+      add_check "rust_exit_issue_${issue}_open" "fail" "issue #$issue state is unavailable"
+    fi
+  done < <(blocking_issues_from_manifest)
+  while IFS= read -r issue; do
+    issue_state=""
+    if issue_state="$(read_issue_state "$issue")" && [[ -n "$issue_state" ]]; then
+      if [[ "$issue_state" == "CLOSED" ]]; then
+        add_check "rust_exit_proof_${issue}_closed" "pass" "proof issue #$issue is CLOSED"
+      else
+        add_check "rust_exit_proof_${issue}_closed" "fail" "proof issue #$issue is $issue_state"
+      fi
+    elif [[ "$require_issue_states" == true ]]; then
+      add_check "rust_exit_proof_${issue}_closed" "fail" "proof issue #$issue state is unavailable"
+    fi
+  done < <(proof_issues_from_manifest)
 fi
 
 if [[ -n "$abi_report" ]]; then
@@ -539,12 +669,12 @@ if [[ -f docs/rust-exit-readiness.json ]]; then
     issue_state=""
     if issue_state="$(read_issue_state "$issue")" && [[ -n "$issue_state" ]]; then
       if [[ "$issue_state" == "CLOSED" ]]; then
-        add_check "rust_exit_issue_${issue}_closed" "pass" "issue #$issue is CLOSED"
+        add_check "rust_exit_issue_${issue}_open" "pass" "issue #$issue is CLOSED"
       else
-        add_check "rust_exit_issue_${issue}_closed" "fail" "issue #$issue is $issue_state"
+        add_check "rust_exit_issue_${issue}_open" "fail" "issue #$issue is $issue_state"
       fi
     elif [[ "$require_issue_states" == true ]]; then
-      add_check "rust_exit_issue_${issue}_closed" "fail" "issue #$issue state is unavailable"
+      add_check "rust_exit_issue_${issue}_open" "fail" "issue #$issue state is unavailable"
     fi
   done < <(blocking_issues_from_manifest)
 fi

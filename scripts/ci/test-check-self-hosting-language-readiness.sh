@@ -153,4 +153,45 @@ fi
 
 grep -Fq "missing evidence: missing.ax" "$tmpdir/missing-evidence.json"
 
+python3 - "$manifest" <<'PY'
+import json
+import sys
+
+path = sys.argv[1]
+payload = json.load(open(path, encoding="utf-8"))
+payload["rows"][0]["evidence"] = ["/tmp/does-not-matter.ax"]
+payload["rows"][0]["validatingCommand"] = (
+    "cargo test --manifest-path stage1/Cargo.toml -p axiomc "
+    "--test cranelift_backend build_never_executes_runtime_effects -- --nocapture"
+)
+json.dump(payload, open(path, "w", encoding="utf-8"))
+PY
+
+if python3 scripts/ci/check-self-hosting-language-readiness.py \
+  --json \
+  --manifest "$manifest" \
+  --doc "$doc" > "$tmpdir/zero-test-filter.json"; then
+  echo "expected readiness check to reject a nonexistent Cargo test filter" >&2
+  exit 1
+fi
+
+grep -Fq "has no in-tree test" "$tmpdir/zero-test-filter.json"
+
+printf '[' > "$tmpdir/malformed.json"
+if python3 scripts/ci/check-self-hosting-language-readiness.py \
+  --json \
+  --manifest "$tmpdir/malformed.json" \
+  --doc "$doc" > "$tmpdir/malformed-report.json"; then
+  echo "expected malformed readiness manifest to fail" >&2
+  exit 1
+fi
+python3 - "$tmpdir/malformed-report.json" <<'PY'
+import json
+import sys
+
+payload = json.load(open(sys.argv[1], encoding="utf-8"))
+assert payload["ready"] is False
+assert payload["schema"] == "axiom.self_hosting.language_readiness.v0"
+PY
+
 echo "check-self-hosting-language-readiness regression cases passed"

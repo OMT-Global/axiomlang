@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 import json
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -38,7 +39,34 @@ def check(name: str, status: str, detail: str) -> dict:
 
 def load_json(path: Path):
     with path.open(encoding="utf-8") as handle:
-        return json.load(handle)
+        payload = json.load(handle)
+    if not isinstance(payload, dict):
+        raise ValueError(f"{path} root must be an object")
+    return payload
+
+
+def validating_command_errors(command: object) -> list[str]:
+    if not isinstance(command, str) or not command.strip():
+        return ["missing validatingCommand"]
+    try:
+        tokens = shlex.split(command)
+    except ValueError as error:
+        return [f"validatingCommand is not shell-parseable: {error}"]
+    errors: list[str] = []
+    for index, token in enumerate(tokens):
+        if token != "--test" or index + 2 >= len(tokens):
+            continue
+        test_target = tokens[index + 1]
+        test_filter = tokens[index + 2]
+        if test_filter.startswith("-") or test_filter == "--":
+            continue
+        source_root = Path("stage1/crates")
+        source_files = list(source_root.rglob("*.rs")) if source_root.is_dir() else []
+        if not any(test_filter in source.read_text(encoding="utf-8", errors="ignore") for source in source_files):
+            errors.append(
+                f"cargo test filter {test_filter!r} for --test {test_target!r} has no in-tree test"
+            )
+    return errors
 
 
 def read_issue_states(path: str | None) -> dict[int, str]:
@@ -199,7 +227,7 @@ def main() -> int:
                     "manifest is valid JSON",
                 )
             )
-        except json.JSONDecodeError as error:
+        except (OSError, json.JSONDecodeError, ValueError) as error:
             checks.append(
                 check(
                     "language_readiness_manifest_json",
@@ -266,8 +294,7 @@ def main() -> int:
             row_checks.append("missing requirement")
         if not isinstance(row.get("governingIssue"), int):
             row_checks.append("missing numeric governingIssue")
-        if not row.get("validatingCommand"):
-            row_checks.append("missing validatingCommand")
+        row_checks.extend(validating_command_errors(row.get("validatingCommand")))
 
         evidence = row.get("evidence", [])
         if not isinstance(evidence, list) or not evidence:
