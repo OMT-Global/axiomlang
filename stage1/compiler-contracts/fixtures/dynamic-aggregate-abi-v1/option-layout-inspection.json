@@ -1,0 +1,21 @@
+{
+  "schema_version": "axiom.dynamic_aggregate_abi.fixture.v1",
+  "id": "dynamic-aggregate-abi-v1/option-layout-inspection",
+  "kind": "positive",
+  "scenario": "option layout uses the governed source-ordinal tag and aligned payload rule",
+  "shape": ["option", "struct"],
+  "runtime_origin": false,
+  "function_boundaries": 0,
+  "evidence": {
+    "mode": "layout_model",
+    "case": {
+      "layout_id": "optional-header-v1",
+      "target": {"abi_profile": "aapcs64-v1", "byte_order": "little", "pointer_width_bits": 64, "target_triple": "aarch64-apple-darwin"},
+      "type_model": {"kind": "option", "payload": {"kind": "struct", "fields": [{"kind": "scalar", "name": "u32"}, {"kind": "scalar", "name": "bool"}]}}
+    },
+    "expected": {
+      "outcome": "accepted",
+      "record": {"abi_profile": "aapcs64-v1", "alignment_bytes": 4, "argument_passing": "direct_value", "byte_order": "little", "discriminant_offset_bytes": 0, "discriminant_width_bytes": 1, "field_offsets_bytes": [4, 8], "layout_id": "optional-header-v1", "payload_offset_bytes": 4, "pointer_width_bits": 64, "return_passing": "direct_value", "size_bytes": 12, "target_triple": "aarch64-apple-darwin", "variant_field_offsets_bytes": [{"variant_ordinal": 0, "field_offsets_bytes": []}, {"variant_ordinal": 1, "field_offsets_bytes": [4, 8]}]}
+    }
+  }
+}

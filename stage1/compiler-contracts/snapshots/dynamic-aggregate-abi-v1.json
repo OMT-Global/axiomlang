@@ -1,0 +1,90 @@
+{
+  "schema_version": "axiom.dynamic_aggregate_abi.v1",
+  "contract": "runtime.dynamic_aggregate_abi",
+  "issue": 1439,
+  "semantic_mir_version": "axiom.semantic_mir.v1",
+  "lifecycle_contract": "axiom.runtime_lifecycle.v1",
+  "logical_layout": {
+    "kinds": ["array", "enum", "option", "result", "struct", "tuple"],
+    "field_order": "declaration_order",
+    "tuple_order": "ascending_index",
+    "array_order": "ascending_index",
+    "alignment_rule": "align_up(current_offset, field_alignment); final_size=align_up(end, aggregate_alignment)",
+    "enum_rule": "smallest_unsigned_1_2_4_8_byte_source_ordinal_tag_then_aligned_max_variant_payload",
+    "payload_rule": "payload_offset=align_up(discriminant_width_bytes,max_variant_alignment); payload_size=max_variant_size",
+    "padding": "zeroed_and_not_semantically_observable",
+    "target_inputs": ["abi_profile", "byte_order", "pointer_width_bits", "target_triple"],
+    "passing": {
+      "direct_limit_pointer_words": 2,
+      "selection": "size_bytes<=2*pointer_bytes_and_alignment_bytes<=pointer_bytes",
+      "argument_direct": "direct_value",
+      "argument_indirect": "indirect_pointer",
+      "return_direct": "direct_value",
+      "return_indirect": "caller_provided_storage"
+    },
+    "prohibited_capture": ["backend_instruction_names", "host_enum_layout", "host_language_type_names", "host_package_paths"]
+  },
+  "boundary": {
+    "minimum_function_boundaries": 3,
+    "operations": ["argument", "borrow", "clone", "drop", "move", "mutation", "return", "storage"],
+    "argument_rule": "target_layout_record_selects_direct_value_or_indirect_pointer",
+    "return_rule": "target_layout_record_selects_direct_value_or_caller_provided_storage",
+    "storage_rule": "layout_identity_and_cleanup_obligations_survive_storage",
+    "mutation_rule": "replace_only_after_new_value_is_valid_then_drop_old_value",
+    "alias_rule": "borrow_extent_prevents_conflicting_move_mutation_or_drop"
+  },
+  "ownership": {
+    "transition_model": "axiom.dynamic_aggregate_ownership.v1",
+    "move": "transfer_cleanup_obligation_and_invalidate_source",
+    "borrow": "preserve_owner_and_bound_alias_extent",
+    "clone": "create_independent_value_and_cleanup_obligation",
+    "drop": "destroy_owned_children_then_release_aggregate",
+    "recursive_order": "reverse_declaration_or_insertion",
+    "early_exit": "model_discharges_live_obligations_in_reverse_creation_order",
+    "exactly_once": true,
+    "runtime_target_gaps": ["cancellation_cleanup", "double_drop_runtime_diagnostic", "early_return_owned_cleanup", "panic_unwind_cleanup", "recursive_owned_cleanup"]
+  },
+  "backend": {
+    "required_declarations": ["aggregate_layouts", "argument_lowering", "return_lowering", "storage_lowering", "unsupported_shapes"],
+    "unsupported_diagnostic": "backend.runtime_lowering_required",
+    "diagnostic_fields": ["backend_id", "layout_id", "shape", "source_span", "target_triple"],
+    "fail_closed": true,
+    "prohibited_fallbacks": ["compile_time_effect_replay", "generated_host_source", "undocumented_host_layout"]
+  },
+  "current_floor": {
+    "tier": "static_spike",
+    "status": "partial",
+    "direct_native": true,
+    "generated_host_source": false,
+    "representation": "projected_i64_slots",
+    "supported": ["fixed_array_scalar_bool", "nested_option_result_scalar", "scalar_bool_custom_enum", "scalar_bool_struct", "scalar_bool_tuple", "three_boundary_aggregate_forwarding"],
+    "unsupported": ["dynamic_non_copy_storage", "owned_field_projection", "recursive_owned_cleanup", "runtime_origin_string_aggregate", "static_projection_retirement"],
+    "static_projection_retired": false,
+    "runtime_origin_non_copy": false,
+    "dynamic_storage": false,
+    "recursive_cleanup": false,
+    "three_boundary_nested_scalar": true,
+    "evidence": ["docs/direct-native-runtime-abi-v0.md", "scripts/ci/check-dynamic-aggregate-abi-v1.py", "stage1/compiler-contracts/fixtures/dynamic-aggregate-abi-v1/programs", "stage1/runtime-abi/direct-native-v0.json"]
+  },
+  "inspection_fields": ["abi_profile", "alignment_bytes", "argument_passing", "byte_order", "cleanup_obligations", "discriminant_offset_bytes", "discriminant_width_bytes", "drop_order", "field_offsets_bytes", "layout_id", "move_state", "payload_offset_bytes", "pointer_width_bits", "return_passing", "size_bytes", "source_provenance", "target_triple", "variant_field_offsets_bytes"],
+  "fixtures": [
+    {"id": "dynamic-aggregate-abi-v1/aggregate-helper-return", "kind": "positive", "path": "aggregate-helper-return.json"},
+    {"id": "dynamic-aggregate-abi-v1/alignment-overflow", "kind": "negative", "path": "alignment-overflow.json"},
+    {"id": "dynamic-aggregate-abi-v1/borrow-conflict", "kind": "negative", "path": "borrow-conflict.json"},
+    {"id": "dynamic-aggregate-abi-v1/clone-independence", "kind": "positive", "path": "clone-independence.json"},
+    {"id": "dynamic-aggregate-abi-v1/double-drop-rejected", "kind": "negative", "path": "double-drop-rejected.json"},
+    {"id": "dynamic-aggregate-abi-v1/early-return-owned-cleanup", "kind": "target_gap", "path": "early-return-owned-cleanup.json"},
+    {"id": "dynamic-aggregate-abi-v1/enum-discriminant-payload", "kind": "positive", "path": "enum-discriminant-payload.json"},
+    {"id": "dynamic-aggregate-abi-v1/exactly-once-drop", "kind": "positive", "path": "exactly-once-drop.json"},
+    {"id": "dynamic-aggregate-abi-v1/move-after-move", "kind": "negative", "path": "move-after-move.json"},
+    {"id": "dynamic-aggregate-abi-v1/owned-string-three-boundary", "kind": "negative", "path": "owned-string-three-boundary.json"},
+    {"id": "dynamic-aggregate-abi-v1/option-layout-inspection", "kind": "positive", "path": "option-layout-inspection.json"},
+    {"id": "dynamic-aggregate-abi-v1/recursive-owned-drop", "kind": "target_gap", "path": "recursive-owned-drop.json"},
+    {"id": "dynamic-aggregate-abi-v1/result-layout-inspection", "kind": "positive", "path": "result-layout-inspection.json"},
+    {"id": "dynamic-aggregate-abi-v1/static-projection-production-claim", "kind": "negative", "path": "static-projection-production-claim.json"},
+    {"id": "dynamic-aggregate-abi-v1/struct-layout-inspection", "kind": "positive", "path": "struct-layout-inspection.json"},
+    {"id": "dynamic-aggregate-abi-v1/target-layout-record", "kind": "positive", "path": "target-layout-record.json"},
+    {"id": "dynamic-aggregate-abi-v1/three-boundary-nested-scalar", "kind": "positive", "path": "three-boundary-nested-scalar.json"},
+    {"id": "dynamic-aggregate-abi-v1/tuple-layout-inspection", "kind": "positive", "path": "tuple-layout-inspection.json"}
+  ]
+}

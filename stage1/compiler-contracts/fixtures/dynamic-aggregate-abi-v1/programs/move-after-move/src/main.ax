@@ -1,0 +1,9 @@
+struct Label {
+value: string
+}
+
+let original: Label = Label { value: "alpha" }
+let first: Label = original
+let second: Label = original
+print first.value
+print second.value

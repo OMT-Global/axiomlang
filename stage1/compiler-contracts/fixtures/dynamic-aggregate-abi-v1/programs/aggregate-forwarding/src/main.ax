@@ -1,0 +1,29 @@
+struct Step {
+value: int
+ready: bool
+}
+
+fn make_step(): Step {
+return Step { value: 48, ready: true }
+}
+
+fn forward_one(): Step {
+return make_step()
+}
+
+fn forward_two(): Step {
+return forward_one()
+}
+
+fn forward_three(): Step {
+return forward_two()
+}
+
+fn main(): int {
+let step: Step = forward_three()
+if step.ready && step.value == 48 {
+return step.value
+} else {
+return 1
+}
+}

@@ -1,0 +1,15 @@
+{
+  "schema_version": "axiom.dynamic_aggregate_abi.fixture.v1",
+  "id": "dynamic-aggregate-abi-v1/owned-string-three-boundary",
+  "kind": "negative",
+  "scenario": "a runtime-dependent owned string helper path fails closed before emitting a binary",
+  "shape": ["string", "struct"],
+  "runtime_origin": true,
+  "function_boundaries": 3,
+  "evidence": {
+    "mode": "compiler_build_diagnostic",
+    "program": "owned-string-runtime",
+    "program_sha256": "73e2d00e7301410063a742631befaa97c8095030344a2d0823f6d44d5fc24b30",
+    "expected": {"code": "backend.runtime_lowering_required", "generated_rust": null, "kind": "build", "ok": false}
+  }
+}

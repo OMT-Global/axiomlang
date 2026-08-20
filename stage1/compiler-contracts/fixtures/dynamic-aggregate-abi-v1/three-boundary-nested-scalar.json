@@ -1,0 +1,15 @@
+{
+  "schema_version": "axiom.dynamic_aggregate_abi.fixture.v1",
+  "id": "dynamic-aggregate-abi-v1/three-boundary-nested-scalar",
+  "kind": "positive",
+  "scenario": "a scalar struct is created forwarded and consumed across three helper boundaries",
+  "shape": ["struct"],
+  "runtime_origin": false,
+  "function_boundaries": 3,
+  "evidence": {
+    "mode": "native_execution",
+    "program": "aggregate-forwarding",
+    "program_sha256": "5ddf74889e1e52fc8f9b5b7ea52c879ac5511b3b2ad6243dbf0fa99d327f30c7",
+    "expected": {"backend": "cranelift", "exit_code": 48, "generated_rust": null, "stderr": "", "stdout": ""}
+  }
+}

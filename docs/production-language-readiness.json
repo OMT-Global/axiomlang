@@ -140,8 +140,8 @@
       "governingIssue": 1439,
       "blockerIssues": [1439],
       "dependencies": [1436, 1438, 1425, 1426],
-      "evidence": ["stage1/runtime-abi/direct-native-v0.json", "stage1/conformance/pass/type_system_aggregates/axiom.toml"],
-      "validatingCommand": "make stage1-direct-native-runtime-abi && make stage1-conformance",
+      "evidence": ["docs/dynamic-aggregate-abi-v1.md", "stage1/compiler-contracts/snapshots/dynamic-aggregate-abi-v1.json", "stage1/runtime-abi/direct-native-v0.json", "stage1/conformance/pass/type_system_aggregates/axiom.toml"],
+      "validatingCommand": "make stage1-dynamic-aggregate-abi-v1-test && make stage1-dynamic-aggregate-abi-v1 && make stage1-direct-native-runtime-abi && make stage1-conformance",
       "rustCaptureRisk": "high",
       "agentInspectionImpact": "Expose value layouts, lifecycle, argument/return lowering, and unsupported shapes."
     },

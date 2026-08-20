@@ -1,0 +1,25 @@
+{
+  "schema_version": "axiom.dynamic_aggregate_abi.fixture.v1",
+  "id": "dynamic-aggregate-abi-v1/result-layout-inspection",
+  "kind": "positive",
+  "scenario": "result layout selects the widest aligned variant payload",
+  "shape": ["result", "struct"],
+  "runtime_origin": false,
+  "function_boundaries": 0,
+  "evidence": {
+    "mode": "layout_model",
+    "case": {
+      "layout_id": "scalar-result-v1",
+      "target": {"abi_profile": "sysv64-v1", "byte_order": "little", "pointer_width_bits": 64, "target_triple": "x86_64-unknown-linux-gnu"},
+      "type_model": {
+        "kind": "result",
+        "ok": {"kind": "struct", "fields": [{"kind": "scalar", "name": "u64"}, {"kind": "scalar", "name": "u8"}]},
+        "error": {"kind": "struct", "fields": [{"kind": "scalar", "name": "u32"}, {"kind": "scalar", "name": "bool"}]}
+      }
+    },
+    "expected": {
+      "outcome": "accepted",
+      "record": {"abi_profile": "sysv64-v1", "alignment_bytes": 8, "argument_passing": "indirect_pointer", "byte_order": "little", "discriminant_offset_bytes": 0, "discriminant_width_bytes": 1, "field_offsets_bytes": [8, 16], "layout_id": "scalar-result-v1", "payload_offset_bytes": 8, "pointer_width_bits": 64, "return_passing": "caller_provided_storage", "size_bytes": 24, "target_triple": "x86_64-unknown-linux-gnu", "variant_field_offsets_bytes": [{"variant_ordinal": 0, "field_offsets_bytes": [8, 16]}, {"variant_ordinal": 1, "field_offsets_bytes": [8, 12]}]}
+    }
+  }
+}
