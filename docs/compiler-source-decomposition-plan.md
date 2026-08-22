@@ -247,7 +247,7 @@ Snapshot updated 2026-07-29 after the Package Resolver v1 security review:
 | ---: | --- | ---: | --- | --- |
 | 1 | `stage1/crates/axiomc/src/cranelift_backend.rs` | 20,076 | `compiler.backend.native` | Runtime-intrinsic implementations live in `.../cranelift_backend/intrinsics.rs`, the compile-time evaluator in `.../cranelift_backend/evaluator.rs`, host-capability lowering in the `host_*` siblings, and static-output eligibility in `.../cranelift_backend/static_output_purity.rs`; the remaining work is sub-partitioning the mutually-recursive value/control core by value shape. |
 
-| 2 | `stage1/crates/axiomc/src/project.rs` | 13,767 | `compiler.package_graph`, `compiler.commands`, `compiler.evidence` | Build lowering evidence now lives in `stage1/crates/axiomc/src/project/build_contract.rs`; Documentation v1 now derives public symbols here; Package Resolver v1 now consumes authenticated registry manifests and sources from a bounded in-memory archive view. Continue splitting manifest/workspace loading, command orchestration, provenance/debug records, artifact planning, and the future `compiler.docs` semantic projection along package ownership. |
+| 2 | `stage1/crates/axiomc/src/project.rs` | 13,774 | `compiler.package_graph`, `compiler.commands`, `compiler.evidence` | Build lowering evidence now lives in `stage1/crates/axiomc/src/project/build_contract.rs`; Documentation v1 now derives public symbols here; Package Resolver v1 now consumes authenticated registry manifests and sources from a bounded in-memory archive view. Continue splitting manifest/workspace loading, command orchestration, provenance/debug records, artifact planning, and the future `compiler.docs` semantic projection along package ownership. |
 | 3 | `stage1/crates/axiomc/src/main.rs` | 11,964 | `compiler.commands` | Formatter reporting and edit planning now live in `stage1/crates/axiomc/src/formatter.rs`; Documentation v1 owns deterministic rendering, HTML/Markdown link validation, search, and doctest orchestration here; Package Trust v1 adds package verification and signed-registry command dispatch, while Package Resolver v1 adds bounded fetch/update/vendor parsing, structured failure evidence, and dispatch. Continue moving command parsing, JSON envelope construction, check/build/run/test/doc/trace orchestration, and package-management dispatch behind package-owned APIs. |
 | 4 | `stage1/crates/axiomc/src/codegen.rs` | 7,919 | `compiler.backend.generated_rust`, `compiler.backend.contracts` | Isolate generated-Rust compatibility emission from backend target selection and unsupported-feature contracts. |
 | 5 | `stage1/crates/axiomc/src/syntax.rs` | 6,370 | `compiler.syntax`, `compiler.diagnostics` | Split lexer/parser, parse recovery, source spans, macros, and syntax diagnostics behind the syntax boundary. |
@@ -265,7 +265,7 @@ matching ceiling in this table in the same PR.
 | Tracked item | Ceiling |
 | --- | ---: |
 | `summary.top_file_line_share` | 0.5767 |
-| `summary.top_file_lines` | 71454 |
+| `summary.top_file_lines` | 71461 |
 | `stage1/crates/axiomc/src/cranelift_backend.rs` | 20120 |
 | `stage1/crates/axiomc/src/cranelift_backend/static_output_purity.rs` | 282 |
 | `stage1/crates/axiomc/src/cranelift_backend/host_env_proc_clock.rs` | 620 |
@@ -276,7 +276,7 @@ matching ceiling in this table in the same PR.
 | `stage1/crates/axiomc/src/cranelift_backend/host_crypto.rs` | 783 |
 | `stage1/crates/axiomc/src/cranelift_backend/host_net_http.rs` | 1121 |
 | `stage1/crates/axiomc/src/hir.rs` | 5904 |
-| `stage1/crates/axiomc/src/project.rs` | 13767 |
+| `stage1/crates/axiomc/src/project.rs` | 13774 |
 | `stage1/crates/axiomc/src/project/build_contract.rs` | 118 |
 | `stage1/crates/axiomc/src/main.rs` | 11964 |
 | `stage1/crates/axiomc/src/formatter.rs` | 191 |
@@ -305,7 +305,7 @@ matching ceiling in this table in the same PR.
 | `stage1/crates/axiomc/src/hir/variants.rs` | 188 |
 | `stage1/crates/axiomc/src/package_trust.rs` | 5410 |
 | `stage1/crates/axiomc/src/registry.rs` | 4319 |
-| `stage1/crates/axiomc/src/lib.rs` | 36 |
+| `stage1/crates/axiomc/src/lib.rs` | 37 |
 
 ## Extraction Order
 
