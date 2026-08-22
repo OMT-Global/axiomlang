@@ -373,6 +373,22 @@ pub struct TestOutput {
     pub skipped: usize,
     pub kinds: BTreeMap<TestKind, usize>,
     pub duration_ms: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub execution: Option<TestExecutionOutput>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct TestExecutionOutput {
+    pub seed: Option<u64>,
+    pub max_retries: usize,
+    pub cases: BTreeMap<String, TestExecutionCase>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct TestExecutionCase {
+    pub attempts: usize,
+    pub retries: usize,
+    pub flaky: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -539,6 +555,10 @@ pub struct TestOptions {
     pub conformance: bool,
     /// Optional execution budget for test cases that need bounded runtime behavior.
     pub run_limits: Option<RunLimits>,
+    /// Stable base seed exposed to each test process as `AXIOM_TEST_SEED`.
+    pub seed: Option<u64>,
+    /// Number of additional attempts for failed test cases.
+    pub retries: usize,
 }
 
 pub fn check_project(project_root: &Path) -> Result<CheckOutput, Diagnostic> {
@@ -1152,6 +1172,7 @@ fn run_project_tests_with_graph(
     let manifest_path_text = manifest_path(&project_root).display().to_string();
     let mut packages = Vec::new();
     let mut cases = Vec::new();
+    let mut execution_cases = BTreeMap::new();
     let mut parse_cache = ModuleParseCache::default();
     let started = Instant::now();
     for package_root in workspace_package_roots(graph, project_root, options.package.as_deref())? {
@@ -1170,7 +1191,7 @@ fn run_project_tests_with_graph(
                 &package_root_text,
             ) {
                 packages.push(package_root_text.clone());
-                cases.push(if expected_build_error.exists() {
+                let case = if expected_build_error.exists() {
                     run_build_fail_case(&package_root, graph, manifest, &test.name, test.kind)
                 } else {
                     run_compile_fail_case(
@@ -1181,7 +1202,20 @@ fn run_project_tests_with_graph(
                         test.kind,
                         &mut parse_cache,
                     )
-                });
+                };
+                if options.seed.is_some() || options.retries > 0 {
+                    let package_identity =
+                        package_execution_identity(project_root, &package_root, manifest);
+                    execution_cases.insert(
+                        execution_key(&package_identity, &test),
+                        TestExecutionCase {
+                            attempts: 1,
+                            retries: 0,
+                            flaky: false,
+                        },
+                    );
+                }
+                cases.push(case);
             }
             continue;
         }
@@ -1197,16 +1231,24 @@ fn run_project_tests_with_graph(
             continue;
         }
         packages.push(package_root_text.clone());
+        let package_identity = package_execution_identity(project_root, &package_root, manifest);
         for test in &tests {
-            cases.push(run_test_case(
+            let seed = options
+                .seed
+                .map(|base| derive_test_seed(base, &package_identity, &test.name, &test.entry));
+            let (case, execution) = run_test_case_with_retries(
                 &package_root,
                 graph,
                 manifest,
                 test,
                 options.backend,
                 options.run_limits,
+                seed,
+                options.retries,
                 &mut parse_cache,
-            ));
+            );
+            cases.push(case);
+            execution_cases.insert(execution_key(&package_identity, test), execution);
         }
     }
     if cases.is_empty() {
@@ -1228,6 +1270,11 @@ fn run_project_tests_with_graph(
         skipped: 0,
         kinds,
         duration_ms: started.elapsed().as_millis() as u64,
+        execution: (options.seed.is_some() || options.retries > 0).then(|| TestExecutionOutput {
+            seed: options.seed,
+            max_retries: options.retries,
+            cases: execution_cases,
+        }),
     })
 }
 
@@ -4875,6 +4922,89 @@ fn hash_bytes(value: &[u8]) -> String {
     format!("{hash:016x}")
 }
 
+fn derive_test_seed(base: u64, package_root: &str, name: &str, entry: &str) -> u64 {
+    let mut hash = 0xcbf29ce484222325_u64 ^ base;
+    for value in [package_root, name, entry] {
+        for byte in value.as_bytes() {
+            hash ^= u64::from(*byte);
+            hash = hash.wrapping_mul(0x100000001b3);
+        }
+        hash ^= 0xff;
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    hash
+}
+
+fn execution_key(package_identity: &str, test: &crate::manifest::TestTarget) -> String {
+    format!("{package_identity}::{}::{}", test.name, test.entry)
+}
+
+fn package_execution_identity(
+    project_root: &Path,
+    package_root: &Path,
+    manifest: &Manifest,
+) -> String {
+    if let Some(name) = manifest
+        .package
+        .as_ref()
+        .map(|package| package.name.as_str())
+    {
+        return name.to_string();
+    }
+    package_root
+        .strip_prefix(project_root)
+        .ok()
+        .filter(|relative| !relative.as_os_str().is_empty())
+        .map(|relative| normalize_path(relative).display().to_string())
+        .unwrap_or_else(|| ".".to_string())
+}
+
+fn run_test_case_with_retries(
+    project_root: &Path,
+    graph: &PackageGraph,
+    manifest: &Manifest,
+    test: &crate::manifest::TestTarget,
+    backend: NativeBackendKind,
+    run_limits: Option<RunLimits>,
+    seed: Option<u64>,
+    retries: usize,
+    parse_cache: &mut ModuleParseCache,
+) -> (TestCaseResult, TestExecutionCase) {
+    let max_attempts = retries.saturating_add(1);
+    let mut attempts = 0;
+    loop {
+        attempts += 1;
+        let case = run_test_case(
+            project_root,
+            graph,
+            manifest,
+            test,
+            backend,
+            run_limits,
+            seed,
+            attempts,
+            parse_cache,
+        );
+        if case.ok || attempts >= max_attempts || !retryable_test_case(&case) {
+            let flaky = attempts > 1 && case.ok;
+            return (
+                case,
+                TestExecutionCase {
+                    attempts,
+                    retries: attempts.saturating_sub(1),
+                    flaky,
+                },
+            );
+        }
+    }
+}
+
+fn retryable_test_case(case: &TestCaseResult) -> bool {
+    case.error
+        .as_ref()
+        .is_some_and(|error| error.kind == "test")
+}
+
 fn run_test_case(
     project_root: &Path,
     graph: &PackageGraph,
@@ -4882,6 +5012,8 @@ fn run_test_case(
     test: &crate::manifest::TestTarget,
     backend: NativeBackendKind,
     run_limits: Option<RunLimits>,
+    seed: Option<u64>,
+    attempt: usize,
     parse_cache: &mut ModuleParseCache,
 ) -> TestCaseResult {
     if test.expected_error.is_some() {
@@ -4934,25 +5066,33 @@ fn run_test_case(
         },
     ) {
         Ok(report) => report.lowering,
-        Err(error) => return failed_test_case_result(
-            project_root,
-            test,
-            &started,
-            error,
-            generated_rust_output(backend, &generated_rust),
-            Some(binary.display().to_string()),
-        ),
+        Err(error) => {
+            return failed_test_case_result(
+                project_root,
+                test,
+                &started,
+                error,
+                generated_rust_output(backend, &generated_rust),
+                Some(binary.display().to_string()),
+            );
+        }
     };
 
     let build_output_dir = out_dir_path(project_root, manifest);
     let command_result = if test.http.is_some() {
-        run_http_fixture_case(&binary, &build_output_dir, test)
+        run_http_fixture_case(&binary, &build_output_dir, test, seed, attempt)
     } else if let Some(stdin) = &test.stdin {
         command_for_build_output(&binary, &build_output_dir)
+            .map(|mut command| {
+                configure_test_environment(&mut command, seed, attempt);
+                command
+            })
             .and_then(|command| run_command_with_stdin(command, stdin))
     } else {
-        command_for_build_output(&binary, &build_output_dir)
-            .and_then(|mut command| run_test_command(&mut command, run_limits))
+        command_for_build_output(&binary, &build_output_dir).and_then(|mut command| {
+            configure_test_environment(&mut command, seed, attempt);
+            run_test_command(&mut command, run_limits)
+        })
     };
 
     match command_result {
@@ -5086,6 +5226,8 @@ fn run_http_fixture_case(
     binary: &Path,
     build_output_dir: &Path,
     test: &crate::manifest::TestTarget,
+    seed: Option<u64>,
+    attempt: usize,
 ) -> io::Result<std::process::Output> {
     let fixture = test.http.as_ref().expect("http fixture present");
     let (target_addr, injected_bind) = if let Some(bind) = &fixture.bind {
@@ -5100,6 +5242,7 @@ fn run_http_fixture_case(
     let path = normalize_http_fixture_path(&fixture.path)?;
 
     let mut command = command_for_build_output(binary, build_output_dir)?;
+    configure_test_environment(&mut command, seed, attempt);
     if let Some(bind) = injected_bind {
         command.env("AXIOM_TEST_BIND", bind);
     }
@@ -5140,6 +5283,13 @@ fn run_http_fixture_case(
     }
 
     child.wait_with_output()
+}
+
+fn configure_test_environment(command: &mut Command, seed: Option<u64>, attempt: usize) {
+    if let Some(seed) = seed {
+        command.env("AXIOM_TEST_SEED", seed.to_string());
+    }
+    command.env("AXIOM_TEST_ATTEMPT", attempt.to_string());
 }
 
 fn parse_http_fixture_bind(bind: &str) -> io::Result<std::net::SocketAddr> {
@@ -12344,6 +12494,59 @@ return async_serve_route(1, "/", "ok", 1)
             !legacy_generated.exists(),
             "cranelift test should not emit generated Rust"
         );
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn property_retries_reuse_seed_and_expose_attempt_context() {
+        if which::which("cc").is_err() {
+            eprintln!("skipping property retry test because cc is unavailable");
+            return;
+        }
+
+        let dir = tempdir().unwrap_or_else(|err| panic!("tempdir: {err}"));
+        let project = dir.path().join("property-retries");
+        fs::create_dir_all(project.join("src")).expect("create src");
+        fs::write(
+            project.join("axiom.toml"),
+            "[package]\nname = \"property-retries\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nenv = [\"AXIOM_TEST_ATTEMPT\"]\n",
+        )
+        .expect("write manifest");
+        let manifest = load_manifest(&project).expect("load manifest");
+        fs::write(
+            project.join("axiom.lock"),
+            crate::lockfile::render_lockfile(&manifest).expect("render lockfile"),
+        )
+        .expect("write lockfile");
+        fs::write(project.join("src/main.ax"), "print \"main\"\n").expect("write main source");
+        fs::write(
+            project.join("src/main_property.ax"),
+            "import \"std/env.ax\"\nimport \"std/testing.ax\"\nmatch get_env(\"AXIOM_TEST_ATTEMPT\") {\nSome(value) {\nprint property(\"retry attempt\", value == \"2\")\n}\nNone {\nprint property(\"retry attempt\", false)\n}\n}\n",
+        )
+        .expect("write property source");
+        fs::write(project.join("src/main_property.stdout"), "0\n").expect("write property golden");
+
+        let output = run_project_tests_with_options(
+            &project,
+            &TestOptions {
+                backend: NativeBackendKind::GeneratedRust,
+                properties_only: true,
+                seed: Some(7),
+                retries: 1,
+                ..TestOptions::default()
+            },
+        )
+        .expect("run retried property");
+
+        assert_eq!(output.passed, 1, "{output:#?}");
+        assert_eq!(output.failed, 0, "{output:#?}");
+        let execution = output.execution.expect("execution report");
+        assert_eq!(execution.seed, Some(7));
+        assert_eq!(execution.max_retries, 1);
+        let report = execution.cases.values().next().expect("case report");
+        assert_eq!(report.attempts, 2);
+        assert_eq!(report.retries, 1);
+        assert!(report.flaky);
     }
 
     #[cfg(unix)]

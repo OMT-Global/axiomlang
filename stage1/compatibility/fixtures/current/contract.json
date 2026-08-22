@@ -89,7 +89,7 @@
           "path": "stage1/compiler-contracts/schemas/axiom.stage1.command.schema.json",
           "role": "cli_json_envelope",
           "selector": "$id,oneOf",
-          "sha256": "7cc009c7e11ec2396416169ebef3bfd50a78163613614465436c1f2b427408ec"
+          "sha256": "ea0a10b239f002b2eb746d14770efa2d99150edfa0d4ea3ba51353e0394e1458"
         },
         {
           "path": "stage1/compiler-contracts/snapshots/capability-ledger.json",
@@ -101,7 +101,7 @@
           "path": "stage1/crates/axiomc/src/main.rs",
           "role": "cli_command_graph_parity",
           "selector": "Command and nested command variant names",
-          "sha256": "bc45caf55899c1dc1457ea48ac8bcca0e7722c7b8bfb350a917be115f34bd73b"
+          "sha256": "a750b2fa00f1c8a975dcfd9ec7bcad18e6997ce736b65d88c4c9bef9dcd369e9"
         }
       ],
       "stability": "experimental",
@@ -1091,13 +1091,13 @@
       "migration": {
         "action": "Update consumers to understand the new diagnostic and lowering fields before consuming axiom.stage1.command envelopes."
       },
-      "signature": "published schema id=https://omt-global.github.io/axiom/schemas/axiom.stage1.command.schema.json; semantic_digest=aa49a0885cba0e06e4f0bf79ca00a8f0b3c58bf16f6148a8c72af070ea701239",
+      "signature": "published schema id=https://omt-global.github.io/axiom/schemas/axiom.stage1.command.schema.json; semantic_digest=eed1b9516bc965140bbe80bfcc6f739e5785df018b456a250a1651acb666841a",
       "sources": [
         {
           "path": "stage1/compiler-contracts/schemas/axiom.stage1.command.schema.json",
           "role": "published_schema",
           "selector": "$id,properties.schema_version.const",
-          "sha256": "7cc009c7e11ec2396416169ebef3bfd50a78163613614465436c1f2b427408ec"
+          "sha256": "ea0a10b239f002b2eb746d14770efa2d99150edfa0d4ea3ba51353e0394e1458"
         }
       ],
       "stability": "experimental",

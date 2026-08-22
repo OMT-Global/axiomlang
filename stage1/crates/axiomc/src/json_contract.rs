@@ -141,7 +141,7 @@ pub fn test_success(
     properties_only: bool,
     output: &TestOutput,
 ) -> Value {
-    json!({
+    let mut payload = json!({
         "schema_version": JSON_SCHEMA_VERSION,
         "ok": output.failed == 0,
         "command": "test",
@@ -158,7 +158,11 @@ pub fn test_success(
         "properties": test_property_summary(output),
         "duration_ms": output.duration_ms,
         "cases": output.cases,
-    })
+    });
+    if let Some(execution) = &output.execution {
+        payload["execution"] = json!(execution);
+    }
+    payload
 }
 
 pub fn caps_success(project: &Path, capabilities: &[CapabilityDescriptor]) -> Value {
