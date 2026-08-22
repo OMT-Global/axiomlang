@@ -116,6 +116,7 @@ int main(void) {{
   axiom_owned_bytes output = {{0}};
   axiom_borrowed_bytes input = {{NULL, 0}};
   if (axiom_provider_v1(&descriptor) != 0 || descriptor.major != 1 || descriptor.minor != 0 || descriptor.features != 0) return 1;
+  if (axiom_provider_call(0, input, &output) == 0 || output.data != NULL || output.len != 0) return 4;
   if (axiom_provider_call(1, input, &output) != 0 || output.data != NULL || output.len != 0) return 2;
   axiom_provider_release_owned_buffer(output);
   if (axiom_provider_close_handle(1) != 0 || axiom_provider_close_handle(0) == 0) return 3;
