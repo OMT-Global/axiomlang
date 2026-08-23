@@ -270,7 +270,7 @@ matching ceiling in this table in the same PR.
 | `stage1/crates/axiomc/src/cranelift_backend/host_crypto.rs` | 783 |
 | `stage1/crates/axiomc/src/cranelift_backend/host_net_http.rs` | 1121 |
 | `stage1/crates/axiomc/src/hir.rs` | 5904 |
-| `stage1/crates/axiomc/src/project.rs` | 13564 |
+| `stage1/crates/axiomc/src/project.rs` | 13571 |
 | `stage1/crates/axiomc/src/project/build_contract.rs` | 118 |
 | `stage1/crates/axiomc/src/main.rs` | 11917 |
 | `stage1/crates/axiomc/src/formatter.rs` | 191 |
@@ -299,7 +299,7 @@ matching ceiling in this table in the same PR.
 | `stage1/crates/axiomc/src/hir/variants.rs` | 188 |
 | `stage1/crates/axiomc/src/package_trust.rs` | 5410 |
 | `stage1/crates/axiomc/src/registry.rs` | 4319 |
-| `stage1/crates/axiomc/src/lib.rs` | 36 |
+| `stage1/crates/axiomc/src/lib.rs` | 37 |
 
 ## Extraction Order
 

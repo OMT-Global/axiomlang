@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://axiom-lang.org/schemas/axiom.runtime_observability.v1.schema.json",
+  "title": "AxiOM runtime observability v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "contract", "issue", "event", "redaction", "correlation", "sinks", "shutdown", "fixtures"],
+  "properties": {
+    "schema_version": {"const": "axiom.runtime_observability.v1"},
+    "contract": {"const": "runtime.observability"},
+    "issue": {"const": 1451},
+    "event": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["levels", "max_event_bytes", "max_fields", "max_label_values", "labels", "required_fields"],
+      "properties": {
+        "levels": {"type": "array", "minItems": 1, "items": {"enum": ["debug", "error", "info", "trace", "warn"]}},
+        "max_event_bytes": {"type": "integer", "minimum": 1},
+        "max_fields": {"type": "integer", "minimum": 1},
+        "max_label_values": {"type": "integer", "minimum": 1},
+        "labels": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+        "required_fields": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}}
+      }
+    },
+    "redaction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["strategy", "secret_keys", "replacement", "before_sink"],
+      "properties": {
+        "strategy": {"enum": ["denylist_and_secret_patterns", "allowlist"]},
+        "secret_keys": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+        "replacement": {"type": "string", "minLength": 1},
+        "before_sink": {"type": "boolean"}
+      }
+    },
+    "correlation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fields", "source", "trust_rule"],
+      "properties": {
+        "fields": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+        "source": {"type": "string", "minLength": 1},
+        "trust_rule": {"type": "string", "minLength": 1}
+      }
+    },
+    "sinks": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kinds", "queue_capacity", "backpressure", "failure_rule"],
+      "properties": {
+        "kinds": {"type": "array", "minItems": 1, "items": {"enum": ["stderr", "stdout", "audit_jsonl", "otlp"]}},
+        "queue_capacity": {"type": "integer", "minimum": 1},
+        "backpressure": {"enum": ["drop_newest", "drop_oldest", "block"]},
+        "failure_rule": {"type": "string", "minLength": 1}
+      }
+    },
+    "shutdown": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["states", "flush_timeout_ms", "ordering", "failure_rule"],
+      "properties": {
+        "states": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+        "flush_timeout_ms": {"type": "integer", "minimum": 1},
+        "ordering": {"type": "string", "minLength": 1},
+        "failure_rule": {"type": "string", "minLength": 1}
+      }
+    },
+    "fixtures": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "kind", "path", "asserts"],
+        "properties": {
+          "id": {"type": "string", "minLength": 1},
+          "kind": {"type": "string", "minLength": 1},
+          "path": {"type": "string", "minLength": 1},
+          "asserts": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}}
+        }
+      }
+    }
+  }
+}

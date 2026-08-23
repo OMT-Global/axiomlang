@@ -23,6 +23,64 @@ fn compile_validator(schema: &Value) -> Validator {
 }
 
 #[test]
+fn filesystem_v1_schema_enforces_promotion_boundaries() {
+    let stage1 = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let schema: Value = serde_json::from_str(
+        &fs::read_to_string(
+            stage1.join("compiler-contracts/schemas/axiom.filesystem.v1.schema.json"),
+        )
+        .expect("read Filesystem v1 schema"),
+    )
+    .expect("Filesystem v1 schema is valid JSON");
+    let snapshot: Value = serde_json::from_str(
+        &fs::read_to_string(stage1.join("compiler-contracts/snapshots/filesystem-v1.json"))
+            .expect("read Filesystem v1 snapshot"),
+    )
+    .expect("Filesystem v1 snapshot is valid JSON");
+    let validator = compile_validator(&schema);
+
+    validator
+        .validate(&snapshot)
+        .expect("checked Filesystem v1 snapshot matches its schema");
+
+    let mut incomplete_promotion = snapshot.clone();
+    incomplete_promotion["implementation"]["tier"] = serde_json::json!("runtime_complete");
+    assert!(
+        !validator.is_valid(&incomplete_promotion),
+        "runtime_complete requires complete executable evidence"
+    );
+
+    let mut complete_promotion = snapshot;
+    complete_promotion["implementation"]["tier"] = serde_json::json!("runtime_complete");
+    complete_promotion["implementation"]["status"] = serde_json::json!("qualified");
+    complete_promotion["implementation"]["blockers"] = serde_json::json!([]);
+    for field in [
+        "scoped_text_io",
+        "root_scoped_metadata",
+        "root_scoped_write",
+        "typed_paths",
+        "binary_handles",
+        "deterministic_traversal",
+        "atomic_replace",
+        "secure_temporary_resources",
+        "runtime_effects_only",
+        "descriptor_anchored_replace",
+        "pathname_operations_toctou_safe",
+    ] {
+        complete_promotion["implementation"][field] = serde_json::json!(true);
+    }
+    for fixture in complete_promotion["fixtures"]
+        .as_array_mut()
+        .expect("Filesystem v1 fixtures are an array")
+    {
+        fixture["evidence"] = serde_json::json!("runtime");
+    }
+    validator
+        .validate(&complete_promotion)
+        .expect("fully evidenced runtime_complete contract is promotion-capable");
+}
+
+#[test]
 fn quality_v1_schemas_reject_contradictory_reports() {
     let policy_schema: Value = serde_json::from_str(
         &fs::read_to_string(schema_dir().join("axiom-quality-policy-v1.schema.json"))

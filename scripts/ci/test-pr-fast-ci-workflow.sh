@@ -84,6 +84,9 @@ axiomc_bin_suite=$(printf '%s\n' "$full_lib_suite_section" | grep -F -- 'cargo t
 proof_workload_test=$(grep -nF 'bash scripts/ci/run-stage1-proof-test.sh' "$fast_checks_script" || true)
 stdlib_catalog_check=$(grep -nF 'scripts/ci/check-stdlib-catalog.py' "$fast_checks_script" || true)
 stdlib_catalog_regression=$(grep -nF 'scripts/ci/test-check-stdlib-catalog.py' "$fast_checks_script" || true)
+filesystem_check=$(grep -nF 'python3 "$script_repo_root/scripts/ci/check-filesystem-v1.py" --root "$repo_root"' "$fast_checks_script" || true)
+filesystem_regression=$(grep -nF 'python3 "$script_repo_root/scripts/ci/test-check-filesystem-v1.py"' "$fast_checks_script" || true)
+filesystem_behavior=$(grep -nF 'bash "$script_repo_root/scripts/ci/run-filesystem-v1-behavioral-tests.sh" "$repo_root"' "$fast_checks_script" || true)
 makefile_route_count=$(grep -cF "              - 'Makefile'" "$workflow" || true)
 
 if [[ -n "$checkout_line" ]]; then
@@ -224,6 +227,11 @@ fi
 
 if [[ -z "$stdlib_catalog_check" || -z "$stdlib_catalog_regression" ]]; then
   echo "run-fast-checks must validate and regression-test the typed stdlib catalog" >&2
+  exit 1
+fi
+
+if [[ -z "$filesystem_check" || -z "$filesystem_regression" || -z "$filesystem_behavior" ]]; then
+  echo "run-fast-checks must validate PR-head Filesystem v1 data, retain checker self-tests, and execute current-backend behavior" >&2
   exit 1
 fi
 
