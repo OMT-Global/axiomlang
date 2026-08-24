@@ -1120,6 +1120,14 @@ version = "0.1.0"
 path = "../dep"
 version = "^1.2.3"
 "#,
+        r#"[package]
+name = "demo"
+version = "0.1.0"
+
+[build]
+entry = "src/main copy.ax"
+out_dir = "build output"
+"#,
     ];
     for source in schema_and_parser_valid {
         let decoded = decoded_manifest(source);
@@ -1157,6 +1165,36 @@ version = "0.1.0"
 
 [dependencies.dep]
 path = ""
+"#,
+        r#"[package]
+name = "demo"
+version = "0.1.0"
+
+[build]
+entry = " "
+out_dir = "dist"
+"#,
+        r#"[package]
+name = "demo"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = " "
+"#,
+        r#"[package]
+name = "demo"
+version = "0.1.0"
+
+[dependencies]
+dep = " "
+"#,
+        r#"[package]
+name = "demo"
+version = "0.1.0"
+
+[dependencies.dep]
+path = " "
 "#,
     ];
     for source in both_invalid {
