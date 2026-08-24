@@ -1778,6 +1778,8 @@
         "is_null",
         "object_field",
         "parse_error_message",
+        "parse_error_offset",
+        "parse_error_path",
         "stringify",
         "text_field",
         "to_json",

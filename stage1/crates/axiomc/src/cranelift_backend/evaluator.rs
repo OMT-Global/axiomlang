@@ -2098,7 +2098,44 @@ pub(crate) fn std_serdes_as_object_value(value: &SpikeValue) -> Result<Option<Sp
     })
 }
 
-pub(crate) fn json_serdes_result(value: Result<SpikeValue, String>) -> SpikeValue {
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct JsonSerdesError {
+    pub(crate) message: String,
+    pub(crate) offset: usize,
+    pub(crate) path: String,
+}
+
+pub(crate) fn json_serdes_error(
+    message: impl Into<String>,
+    offset: usize,
+    path: &str,
+) -> JsonSerdesError {
+    JsonSerdesError {
+        message: message.into(),
+        offset,
+        path: path.to_string(),
+    }
+}
+
+pub(crate) fn json_serdes_field_path(path: &str, key: &str) -> String {
+    if !key.is_empty()
+        && key.chars().enumerate().all(|(index, ch)| {
+            ch == '_'
+                || ch.is_ascii_alphanumeric()
+                    && (index > 0 || ch.is_ascii_alphabetic() || ch == '_')
+        })
+    {
+        format!("{path}.{key}")
+    } else {
+        format!("{path}[{}]", json_serdes_escape_string(key))
+    }
+}
+
+pub(crate) fn json_serdes_index_path(path: &str, index: usize) -> String {
+    format!("{path}[{index}]")
+}
+
+pub(crate) fn json_serdes_result(value: Result<SpikeValue, JsonSerdesError>) -> SpikeValue {
     match value {
         Ok(value) => SpikeValue::Enum {
             enum_name: String::from("Result"),
@@ -2106,30 +2143,39 @@ pub(crate) fn json_serdes_result(value: Result<SpikeValue, String>) -> SpikeValu
             field_names: Vec::new(),
             payloads: vec![value],
         },
-        Err(message) => SpikeValue::Enum {
+        Err(error) => SpikeValue::Enum {
             enum_name: String::from("Result"),
             variant: String::from("Err"),
             field_names: Vec::new(),
             payloads: vec![SpikeValue::Struct {
                 name: String::from("std_serdes_ParseError"),
-                fields: vec![(String::from("message"), SpikeValue::Text(message))],
+                fields: vec![
+                    (String::from("message"), SpikeValue::Text(error.message)),
+                    (String::from("offset"), SpikeValue::Int(error.offset as i64)),
+                    (String::from("path"), SpikeValue::Text(error.path)),
+                ],
             }],
         },
     }
 }
 
-pub(crate) fn json_serdes_parse_document(text: &str) -> Result<SpikeValue, String> {
+pub(crate) fn json_serdes_parse_document(text: &str) -> Result<SpikeValue, JsonSerdesError> {
     if text.len() > JSON_MAX_DOCUMENT_BYTES {
-        return Err(format!(
-            "JSON document exceeds {} byte limit",
-            JSON_MAX_DOCUMENT_BYTES
+        return Err(json_serdes_error(
+            format!("JSON document exceeds {} byte limit", JSON_MAX_DOCUMENT_BYTES),
+            JSON_MAX_DOCUMENT_BYTES,
+            "$",
         ));
     }
-    let (value, index) = json_serdes_parse_value(text, json_skip_ws(text, 0), 0)?;
+    let (value, index) = json_serdes_parse_value(text, json_skip_ws(text, 0), 0, "$")?;
     if json_skip_ws(text, index) == text.len() {
         Ok(value)
     } else {
-        Err(String::from("trailing characters after JSON value"))
+        Err(json_serdes_error(
+            "trailing characters after JSON value",
+            json_skip_ws(text, index),
+            "$",
+        ))
     }
 }
 
@@ -4222,17 +4268,39 @@ mod json_limit_tests {
     }
 
     #[test]
+    fn rejects_control_characters_inside_json_strings() {
+        let error = json_serdes_parse_document("\"line\nbreak\"")
+            .expect_err("raw control character in JSON string");
+        assert_eq!(error.message, "invalid JSON string");
+        assert_eq!(error.offset, 0);
+        assert_eq!(error.path, "$");
+    }
+
+    #[test]
+    fn reports_structured_nested_json_error_location() {
+        let error = json_serdes_parse_document("{\"outer\":[true,}")
+            .expect_err("malformed nested JSON");
+        assert_eq!(error.path, "$.outer[1]");
+        assert_eq!(error.offset, 15);
+        assert_eq!(error.message, "unexpected JSON token");
+    }
+
+    #[test]
     fn rejects_documents_over_byte_limit() {
         let document = "x".repeat(JSON_MAX_DOCUMENT_BYTES + 1);
         let error = json_serdes_parse_document(&document).expect_err("oversized JSON");
-        assert!(error.contains("byte limit"));
+        assert!(error.message.contains("byte limit"));
+        assert_eq!(error.path, "$");
+        assert_eq!(error.offset, JSON_MAX_DOCUMENT_BYTES);
     }
 
     #[test]
     fn rejects_excessive_nesting() {
         let document = "[".repeat(JSON_MAX_DEPTH + 1) + &"]".repeat(JSON_MAX_DEPTH + 1);
         let error = json_serdes_parse_document(&document).expect_err("deep JSON");
-        assert!(error.contains("level limit"));
+        assert!(error.message.contains("level limit"));
+        assert!(error.path.starts_with("$[0]"));
+        assert!(error.offset > 0);
     }
 
     #[test]
@@ -4244,14 +4312,16 @@ mod json_limit_tests {
                 .join(",")
         );
         let error = json_serdes_parse_document(&document).expect_err("large JSON array");
-        assert!(error.contains("item limit"));
+        assert!(error.message.contains("item limit"));
+        assert_eq!(error.path, "$");
     }
 
     #[test]
     fn rejects_excessive_number_digits() {
         let document = "1".repeat(JSON_MAX_NUMBER_DIGITS + 1);
         let error = json_serdes_parse_document(&document).expect_err("large JSON number");
-        assert!(error.contains("digit limit"));
+        assert!(error.message.contains("digit limit"));
+        assert_eq!(error.path, "$");
     }
 }
 

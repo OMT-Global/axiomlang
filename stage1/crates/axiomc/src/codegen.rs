@@ -149,7 +149,7 @@ mod tests {
         assert!(rendered.contains("AXIOM_JSON_MAX_DEPTH: usize = 128"));
         assert!(rendered.contains("AXIOM_JSON_MAX_COLLECTION_ITEMS: usize = 100_000"));
         assert!(rendered.contains("AXIOM_JSON_MAX_NUMBER_DIGITS: usize = 1_024"));
-        assert!(rendered.contains("fn parse_value(&mut self, depth: usize)"));
+        assert!(rendered.contains("fn parse_value("));
         assert!(rendered.contains("JSON collection exceeds"));
     }
 
@@ -5328,6 +5328,43 @@ fn axiom_json_serdes_to_json_object(values: HashMap<String, std_serdes_Value>) -
 }
 
 #[allow(dead_code)]
+#[derive(Clone, Debug)]
+struct AxiomJsonSerdesError {
+    message: String,
+    offset: usize,
+    path: String,
+}
+
+#[allow(dead_code)]
+fn axiom_json_serdes_error(message: impl Into<String>, offset: usize, path: &str) -> AxiomJsonSerdesError {
+    AxiomJsonSerdesError {
+        message: message.into(),
+        offset,
+        path: path.to_string(),
+    }
+}
+
+#[allow(dead_code)]
+fn axiom_json_serdes_field_path(path: &str, key: &str) -> String {
+    if !key.is_empty()
+        && key.chars().enumerate().all(|(index, ch)| {
+            ch == '_'
+                || ch.is_ascii_alphanumeric()
+                    && (index > 0 || ch.is_ascii_alphabetic() || ch == '_')
+        })
+    {
+        format!("{path}.{key}")
+    } else {
+        format!("{path}[{}]", axiom_json_serdes_string_to_json(key.to_string()))
+    }
+}
+
+#[allow(dead_code)]
+fn axiom_json_serdes_index_path(path: &str, index: usize) -> String {
+    format!("{path}[{index}]")
+}
+
+#[allow(dead_code)]
 struct AxiomJsonSerdesParser<'a> {
     text: &'a str,
     index: usize,
@@ -5368,29 +5405,42 @@ impl<'a> AxiomJsonSerdesParser<'a> {
         }
     }
 
-    fn parse_value(&mut self, depth: usize) -> Result<std_serdes_Value, String> {
+    fn parse_value(
+        &mut self,
+        depth: usize,
+        path: &str,
+    ) -> Result<std_serdes_Value, AxiomJsonSerdesError> {
         self.skip_ws();
         match self.peek_byte() {
             Some(b'n') if self.consume_literal("null") => Ok(std_serdes_Value::Null),
             Some(b't') if self.consume_literal("true") => Ok(std_serdes_Value::Bool(true)),
             Some(b'f') if self.consume_literal("false") => Ok(std_serdes_Value::Bool(false)),
-            Some(b'"') => Ok(std_serdes_Value::Text(self.parse_string()?)),
-            Some(b'[') => self.parse_array(depth),
-            Some(b'{') => self.parse_object(depth),
-            Some(b'-' | b'0'..=b'9') => self.parse_number(),
-            Some(_) => Err(String::from("unexpected JSON token")),
-            None => Err(String::from("empty JSON input")),
+            Some(b'"') => Ok(std_serdes_Value::Text(self.parse_string(path)?)),
+            Some(b'[') => self.parse_array(depth, path),
+            Some(b'{') => self.parse_object(depth, path),
+            Some(b'-' | b'0'..=b'9') => self.parse_number(path),
+            Some(_) => Err(axiom_json_serdes_error(
+                "unexpected JSON token",
+                self.index,
+                path,
+            )),
+            None => Err(axiom_json_serdes_error("empty JSON input", self.index, path)),
         }
     }
 
-    fn parse_array(&mut self, depth: usize) -> Result<std_serdes_Value, String> {
+    fn parse_array(
+        &mut self,
+        depth: usize,
+        path: &str,
+    ) -> Result<std_serdes_Value, AxiomJsonSerdesError> {
         if depth >= AXIOM_JSON_MAX_DEPTH {
-            return Err(format!(
-                "JSON nesting exceeds {} level limit",
-                AXIOM_JSON_MAX_DEPTH
+            return Err(axiom_json_serdes_error(
+                format!("JSON nesting exceeds {} level limit", AXIOM_JSON_MAX_DEPTH),
+                self.index,
+                path,
             ));
         }
-        self.expect_byte(b'[', "array")?;
+        self.expect_byte(b'[', "array", path)?;
         self.skip_ws();
         let mut values = Vec::new();
         if self.peek_byte() == Some(b']') {
@@ -5399,31 +5449,47 @@ impl<'a> AxiomJsonSerdesParser<'a> {
         }
         loop {
             if values.len() >= AXIOM_JSON_MAX_COLLECTION_ITEMS {
-                return Err(format!(
-                    "JSON collection exceeds {} item limit",
-                    AXIOM_JSON_MAX_COLLECTION_ITEMS
+                return Err(axiom_json_serdes_error(
+                    format!(
+                        "JSON collection exceeds {} item limit",
+                        AXIOM_JSON_MAX_COLLECTION_ITEMS
+                    ),
+                    self.index,
+                    path,
                 ));
             }
-            values.push(self.parse_value(depth + 1)?);
+            let value_path = axiom_json_serdes_index_path(path, values.len());
+            values.push(self.parse_value(depth + 1, &value_path)?);
             self.skip_ws();
             match self.next_byte() {
                 Some(b',') => {
                     self.skip_ws();
                 }
                 Some(b']') => return Ok(std_serdes_Value::Array(values)),
-                _ => return Err(String::from("array expects ',' or ']'")),
+                _ => {
+                    return Err(axiom_json_serdes_error(
+                        "array expects ',' or ']'",
+                        self.index.saturating_sub(1),
+                        path,
+                    ));
+                }
             }
         }
     }
 
-    fn parse_object(&mut self, depth: usize) -> Result<std_serdes_Value, String> {
+    fn parse_object(
+        &mut self,
+        depth: usize,
+        path: &str,
+    ) -> Result<std_serdes_Value, AxiomJsonSerdesError> {
         if depth >= AXIOM_JSON_MAX_DEPTH {
-            return Err(format!(
-                "JSON nesting exceeds {} level limit",
-                AXIOM_JSON_MAX_DEPTH
+            return Err(axiom_json_serdes_error(
+                format!("JSON nesting exceeds {} level limit", AXIOM_JSON_MAX_DEPTH),
+                self.index,
+                path,
             ));
         }
-        self.expect_byte(b'{', "object")?;
+        self.expect_byte(b'{', "object", path)?;
         self.skip_ws();
         let mut values = HashMap::new();
         if self.peek_byte() == Some(b'}') {
@@ -5432,16 +5498,21 @@ impl<'a> AxiomJsonSerdesParser<'a> {
         }
         loop {
             if values.len() >= AXIOM_JSON_MAX_COLLECTION_ITEMS {
-                return Err(format!(
-                    "JSON collection exceeds {} item limit",
-                    AXIOM_JSON_MAX_COLLECTION_ITEMS
+                return Err(axiom_json_serdes_error(
+                    format!(
+                        "JSON collection exceeds {} item limit",
+                        AXIOM_JSON_MAX_COLLECTION_ITEMS
+                    ),
+                    self.index,
+                    path,
                 ));
             }
             self.skip_ws();
-            let key = self.parse_string()?;
+            let key = self.parse_string(path)?;
+            let value_path = axiom_json_serdes_field_path(path, &key);
             self.skip_ws();
-            self.expect_byte(b':', "object field")?;
-            let value = self.parse_value(depth + 1)?;
+            self.expect_byte(b':', "object field", &value_path)?;
+            let value = self.parse_value(depth + 1, &value_path)?;
             values.insert(key, value);
             self.skip_ws();
             match self.next_byte() {
@@ -5449,12 +5520,21 @@ impl<'a> AxiomJsonSerdesParser<'a> {
                     self.skip_ws();
                 }
                 Some(b'}') => return Ok(std_serdes_Value::Object(values)),
-                _ => return Err(String::from("object expects ',' or '}'")),
+                _ => {
+                    return Err(axiom_json_serdes_error(
+                        "object expects ',' or '}'",
+                        self.index.saturating_sub(1),
+                        path,
+                    ));
+                }
             }
         }
     }
 
-    fn parse_number(&mut self) -> Result<std_serdes_Value, String> {
+    fn parse_number(
+        &mut self,
+        path: &str,
+    ) -> Result<std_serdes_Value, AxiomJsonSerdesError> {
         let start = self.index;
         if self.peek_byte() == Some(b'-') {
             self.index += 1;
@@ -5467,14 +5547,14 @@ impl<'a> AxiomJsonSerdesParser<'a> {
                 self.index += 1;
                 self.consume_digits();
             }
-            _ => return Err(String::from("invalid JSON number")),
+            _ => return Err(axiom_json_serdes_error("invalid JSON number", start, path)),
         }
         let mut is_float = false;
         if self.peek_byte() == Some(b'.') {
             is_float = true;
             self.index += 1;
             if self.consume_digits() == 0 {
-                return Err(String::from("invalid JSON fraction"));
+                return Err(axiom_json_serdes_error("invalid JSON fraction", start, path));
             }
         }
         if matches!(self.peek_byte(), Some(b'e' | b'E')) {
@@ -5484,49 +5564,67 @@ impl<'a> AxiomJsonSerdesParser<'a> {
                 self.index += 1;
             }
             if self.consume_digits() == 0 {
-                return Err(String::from("invalid JSON exponent"));
+                return Err(axiom_json_serdes_error("invalid JSON exponent", start, path));
             }
         }
         let raw = &self.text[start..self.index];
         if raw.bytes().filter(u8::is_ascii_digit).count() > AXIOM_JSON_MAX_NUMBER_DIGITS {
-            return Err(format!(
-                "JSON number exceeds {} digit limit",
-                AXIOM_JSON_MAX_NUMBER_DIGITS
+            return Err(axiom_json_serdes_error(
+                format!(
+                    "JSON number exceeds {} digit limit",
+                    AXIOM_JSON_MAX_NUMBER_DIGITS
+                ),
+                start,
+                path,
             ));
         }
         if is_float {
             let value = raw
                 .parse::<f64>()
-                .map_err(|_| String::from("invalid JSON float"))?;
+                .map_err(|_| axiom_json_serdes_error("invalid JSON float", start, path))?;
             if !value.is_finite() {
-                return Err(String::from("non-finite JSON float"));
+                return Err(axiom_json_serdes_error("non-finite JSON float", start, path));
             }
             Ok(std_serdes_Value::Float(value))
         } else {
             raw.parse::<i64>()
                 .map(std_serdes_Value::Int)
-                .map_err(|_| String::from("invalid JSON int"))
+                .map_err(|_| axiom_json_serdes_error("invalid JSON int", start, path))
         }
     }
 
-    fn parse_string(&mut self) -> Result<String, String> {
-        self.expect_byte(b'"', "string")?;
+    fn parse_string(&mut self, path: &str) -> Result<String, AxiomJsonSerdesError> {
+        self.expect_byte(b'"', "string", path)?;
         let mut value = String::new();
         loop {
             let Some(ch) = self.text[self.index..].chars().next() else {
-                return Err(String::from("unterminated JSON string"));
+                return Err(axiom_json_serdes_error(
+                    "unterminated JSON string",
+                    self.index,
+                    path,
+                ));
             };
             self.index += ch.len_utf8();
             match ch {
                 '"' => return Ok(value),
-                '\\' => self.parse_escape(&mut value)?,
-                ch if ch <= '\u{1f}' => return Err(String::from("control character in JSON string")),
+                '\\' => self.parse_escape(&mut value, path)?,
+                ch if ch <= '\u{1f}' => {
+                    return Err(axiom_json_serdes_error(
+                        "control character in JSON string",
+                        self.index.saturating_sub(ch.len_utf8()),
+                        path,
+                    ));
+                }
                 ch => value.push(ch),
             }
         }
     }
 
-    fn parse_escape(&mut self, value: &mut String) -> Result<(), String> {
+    fn parse_escape(
+        &mut self,
+        value: &mut String,
+        path: &str,
+    ) -> Result<(), AxiomJsonSerdesError> {
         match self.next_byte() {
             Some(b'"') => value.push('"'),
             Some(b'\\') => value.push('\\'),
@@ -5537,51 +5635,73 @@ impl<'a> AxiomJsonSerdesParser<'a> {
             Some(b'r') => value.push('\r'),
             Some(b't') => value.push('\t'),
             Some(b'u') => {
-                let high = self.parse_hex4()?;
+                let high = self.parse_hex4(path)?;
                 if (0xD800..=0xDBFF).contains(&high) {
                     if self.next_byte() != Some(b'\\') || self.next_byte() != Some(b'u') {
-                        return Err(String::from("missing low surrogate escape"));
+                        return Err(axiom_json_serdes_error(
+                            "missing low surrogate escape",
+                            self.index,
+                            path,
+                        ));
                     }
-                    let low = self.parse_hex4()?;
+                    let low = self.parse_hex4(path)?;
                     if !(0xDC00..=0xDFFF).contains(&low) {
-                        return Err(String::from("invalid low surrogate escape"));
+                        return Err(axiom_json_serdes_error(
+                            "invalid low surrogate escape",
+                            self.index,
+                            path,
+                        ));
                     }
                     let scalar =
                         0x10000 + (((high as u32) - 0xD800) << 10) + ((low as u32) - 0xDC00);
                     value.push(
                         char::from_u32(scalar)
-                            .ok_or_else(|| String::from("invalid unicode scalar"))?,
+                            .ok_or_else(|| axiom_json_serdes_error("invalid unicode scalar", self.index, path))?,
                     );
                 } else if (0xDC00..=0xDFFF).contains(&high) {
-                    return Err(String::from("unpaired low surrogate escape"));
+                    return Err(axiom_json_serdes_error(
+                        "unpaired low surrogate escape",
+                        self.index,
+                        path,
+                    ));
                 } else {
                     value.push(
                         char::from_u32(high as u32)
-                            .ok_or_else(|| String::from("invalid unicode escape"))?,
+                            .ok_or_else(|| axiom_json_serdes_error("invalid unicode escape", self.index, path))?,
                     );
                 }
             }
-            _ => return Err(String::from("invalid JSON string escape")),
+            _ => return Err(axiom_json_serdes_error("invalid JSON string escape", self.index, path)),
         }
         Ok(())
     }
 
-    fn parse_hex4(&mut self) -> Result<u16, String> {
+    fn parse_hex4(&mut self, path: &str) -> Result<u16, AxiomJsonSerdesError> {
         let mut value = 0u16;
         for _ in 0..4 {
             let digit = self
                 .next_byte()
                 .and_then(|byte| (byte as char).to_digit(16))
-                .ok_or_else(|| String::from("invalid unicode escape"))?;
+                .ok_or_else(|| axiom_json_serdes_error("invalid unicode escape", self.index, path))?;
             value = (value << 4) + digit as u16;
         }
         Ok(value)
     }
 
-    fn expect_byte(&mut self, expected: u8, context: &str) -> Result<(), String> {
+    fn expect_byte(
+        &mut self,
+        expected: u8,
+        context: &str,
+        path: &str,
+    ) -> Result<(), AxiomJsonSerdesError> {
+        let offset = self.index;
         match self.next_byte() {
             Some(actual) if actual == expected => Ok(()),
-            _ => Err(format!("{context} expects '{}'", expected as char)),
+            _ => Err(axiom_json_serdes_error(
+                format!("{context} expects '{}'", expected as char),
+                offset,
+                path,
+            )),
         }
     }
 
@@ -5607,10 +5727,12 @@ fn axiom_json_serdes_parse_str(text: &str) -> Result<std_serdes_Value, std_serde
                 "JSON document exceeds {} byte limit",
                 AXIOM_JSON_MAX_DOCUMENT_BYTES
             ),
+            offset: AXIOM_JSON_MAX_DOCUMENT_BYTES as i64,
+            path: String::from("$"),
         });
     }
     let mut parser = AxiomJsonSerdesParser::new(text);
-    match parser.parse_value(0) {
+    match parser.parse_value(0, "$") {
         Ok(value) => {
             parser.skip_ws();
             if parser.is_end() {
@@ -5618,10 +5740,16 @@ fn axiom_json_serdes_parse_str(text: &str) -> Result<std_serdes_Value, std_serde
             } else {
                 Err(std_serdes_ParseError {
                     message: String::from("trailing characters after JSON value"),
+                    offset: parser.index as i64,
+                    path: String::from("$"),
                 })
             }
         }
-        Err(message) => Err(std_serdes_ParseError { message }),
+        Err(error) => Err(std_serdes_ParseError {
+            message: error.message,
+            offset: error.offset as i64,
+            path: error.path,
+        }),
     }
 }
 

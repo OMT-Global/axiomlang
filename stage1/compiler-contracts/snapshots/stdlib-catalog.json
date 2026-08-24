@@ -3012,7 +3012,7 @@
       "module_loading": {
         "kind": "embedded_source",
         "source_path": "stage1/crates/axiomc/src/stdlib.rs",
-        "source_digest": "e8441e2f4c63b0a97e1526e155d09a26dc3c834b2de2f5f7634789158132265f"
+        "source_digest": "6dd3815e1cec4d96ac1b7f37d8b4b9a99765f0179639b4e56166ca77f3f741f8"
       },
       "capabilities": [],
       "symbols": [
@@ -3189,6 +3189,28 @@
           "binding_kind": "provider_contract",
           "provider": {
             "id": "axiom://provider/stage1-v1/serdes/parse_error_message",
+            "kind": "declared_provider"
+          }
+        },
+        {
+          "name": "parse_error_offset",
+          "signature": "fn parse_error_offset(error: ParseError): int",
+          "effect": "pure",
+          "binding": "axiom://provider/stage1-v1/serdes/parse_error_offset",
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/serdes/parse_error_offset",
+            "kind": "declared_provider"
+          }
+        },
+        {
+          "name": "parse_error_path",
+          "signature": "fn parse_error_path(error: ParseError): string",
+          "effect": "pure",
+          "binding": "axiom://provider/stage1-v1/serdes/parse_error_path",
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/serdes/parse_error_path",
             "kind": "declared_provider"
           }
         },
@@ -3796,7 +3818,7 @@
       "symbols": []
     }
   ],
-  "release_digest": "fb6f4db3b4c664f2b001edee117ffedae64d07af40eb05563e4ade7a2804758c",
+  "release_digest": "d2630d3390704132289b99a86d47f03ea77a11893aaff913e4149d01149a60c8",
   "rollback_boundary": "stage1/crates/axiomc/src/stdlib.rs remains the bootstrap loader until #1436 qualifies a catalog consumer.",
   "acceptance_boundary": {
     "status": "pending",

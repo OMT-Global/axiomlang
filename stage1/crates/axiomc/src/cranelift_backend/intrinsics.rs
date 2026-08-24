@@ -90,6 +90,9 @@ pub(crate) fn json_parse_string(text: &str) -> Option<String> {
     let mut chars = text[1..text.len() - 1].chars();
     while let Some(ch) = chars.next() {
         if ch != '\\' {
+            if ch <= '\u{001f}' {
+                return None;
+            }
             out.push(ch);
             continue;
         }
