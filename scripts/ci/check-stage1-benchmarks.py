@@ -2,7 +2,10 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import os
+import re
 import shutil
 import statistics
 import subprocess
@@ -33,6 +36,7 @@ AXIOMC_BIN = REPO_ROOT / "stage1/target/debug/axiomc"
 BASELINE_PATH = REPO_ROOT / "stage1/benchmarks/baselines/stage1-build-median.json"
 DIAGNOSTIC_FIXTURE = REPO_ROOT / "stage1/conformance/fail/ownership_use_after_move"
 CAPABILITY_NAMES = ["fs", "fs:write", "net", "process", "env", "clock", "crypto", "ffi", "async"]
+ARTIFACT_SCHEMA_VERSION = "axiom.stage1.artifact-equivalence.v1"
 
 
 @dataclass(frozen=True)
@@ -101,6 +105,13 @@ def axiom_binary_from_build(workload: Workload, result: CommandResult) -> Path:
     return binary if binary.is_absolute() else REPO_ROOT / binary
 
 
+def axiom_payload(result: CommandResult) -> dict[str, Any]:
+    payload = json.loads(result.stdout)
+    if not isinstance(payload, dict):
+        raise SystemExit("axiom build did not emit a JSON object")
+    return payload
+
+
 def go_build(workload: Workload, temp_dir: Path) -> tuple[CommandResult, Path]:
     output = temp_dir / f"{workload.name}-go"
     output.unlink(missing_ok=True)
@@ -121,6 +132,167 @@ def run_binary(binary: Path) -> CommandResult:
 
 def file_size(path: Path) -> int | None:
     return path.stat().st_size if path.exists() else None
+
+
+def _normalized_artifact_bytes(path: Path, artifact_root: Path) -> bytes:
+    """Normalize textual metadata without changing executable/object bytes."""
+    raw = path.read_bytes()
+    if raw[:4] in {b"\xcf\xfa\xed\xfe", b"\xce\xfa\xed\xfe"}:
+        return _normalized_macho_bytes(raw)
+    if path.suffix not in {".json", ".toml", ".txt"}:
+        return raw
+    text = raw.decode("utf-8")
+    root = str(artifact_root)
+    normalized_root = root.replace(os.sep, "/")
+    text = text.replace(root, "<artifact-root>").replace(normalized_root, "<artifact-root>")
+    if path.suffix == ".json":
+        try:
+            value = json.loads(text)
+        except json.JSONDecodeError:
+            pass
+        else:
+            def redact_binary_hashes(item: Any, key: str | None = None) -> Any:
+                if isinstance(item, dict):
+                    return {
+                        name: "<artifact-hash>"
+                        if name == "hash" and key == "artifacts"
+                        else redact_binary_hashes(child, name)
+                        for name, child in item.items()
+                    }
+                if isinstance(item, list):
+                    return [redact_binary_hashes(child, key) for child in item]
+                return item
+
+            value = redact_binary_hashes(value)
+            text = json.dumps(value, indent=2, sort_keys=True) + "\n"
+    elif path.suffix == ".toml":
+        text = re.sub(r'(?m)^binary_hash\s*=\s*"[^"]*"$', 'binary_hash = "<artifact-hash>"', text)
+    return text.encode("utf-8")
+
+
+def _normalized_macho_bytes(raw: bytes) -> bytes:
+    """Ignore per-link UUID and code-signature bytes in thin macOS binaries."""
+    normalized = bytearray(raw)
+    little_endian = raw[:4] in {b"\xcf\xfa\xed\xfe", b"\xce\xfa\xed\xfe"}
+    if not little_endian:
+        return raw
+    word = lambda offset: int.from_bytes(raw[offset : offset + 4], "little")
+    header_size = 32 if raw[:4] == b"\xcf\xfa\xed\xfe" else 28
+    command_count = word(16)
+    cursor = header_size
+    for _ in range(command_count):
+        if cursor + 8 > len(raw):
+            break
+        command = word(cursor)
+        command_size = word(cursor + 4)
+        if command_size < 8 or cursor + command_size > len(raw):
+            break
+        if command == 0x1B and command_size >= 24:
+            normalized[cursor + 8 : cursor + 24] = b"\0" * 16
+        elif command == 0x1D and command_size >= 16:
+            data_offset = word(cursor + 8)
+            data_size = word(cursor + 12)
+            if data_offset < len(raw):
+                end = min(data_offset + data_size, len(raw))
+                normalized[data_offset:end] = b"\0" * (end - data_offset)
+        cursor += command_size
+    return bytes(normalized)
+
+
+def snapshot_artifacts(artifact_root: Path) -> dict[str, Any]:
+    """Return a deterministic, relative-path artifact manifest for one build."""
+    if not artifact_root.is_dir():
+        return {
+            "schema_version": ARTIFACT_SCHEMA_VERSION,
+            "files": [],
+            "error": f"artifact directory is missing: {artifact_root}",
+        }
+    files: list[dict[str, Any]] = []
+    for path in sorted(item for item in artifact_root.rglob("*") if item.is_file()):
+        relative = path.relative_to(artifact_root).as_posix()
+        content = _normalized_artifact_bytes(path, artifact_root)
+        files.append(
+            {
+                "path": relative,
+                "size": len(content),
+                "sha256": hashlib.sha256(content).hexdigest(),
+            }
+        )
+    return {"schema_version": ARTIFACT_SCHEMA_VERSION, "files": files}
+
+
+def normalized_build_evidence(payload: dict[str, Any], project_root: Path) -> dict[str, Any]:
+    """Keep reproducibility-relevant build fields and omit timing/cache state."""
+    def relative_path(value: Any) -> str | None:
+        if not isinstance(value, str):
+            return None
+        path = Path(value)
+        try:
+            return path.relative_to(project_root).as_posix()
+        except ValueError:
+            return value
+
+    packages = []
+    for package in payload.get("packages", []):
+        if not isinstance(package, dict):
+            continue
+        packages.append(
+            {
+                "package_root": relative_path(package.get("package_root")),
+                "binary": relative_path(package.get("binary")),
+                "lowering": package.get("lowering"),
+            }
+        )
+    return {
+        "binary": relative_path(payload.get("binary")),
+        "lowering": payload.get("lowering"),
+        "packages": packages,
+    }
+
+
+def compare_artifact_snapshots(
+    cold: dict[str, Any], warm: dict[str, Any]
+) -> dict[str, Any]:
+    """Compare normalized artifacts and report exact additions/removals/changes."""
+    cold_files = {item["path"]: item for item in cold.get("files", [])}
+    warm_files = {item["path"]: item for item in warm.get("files", [])}
+    added = sorted(set(warm_files) - set(cold_files))
+    removed = sorted(set(cold_files) - set(warm_files))
+    changed = sorted(
+        path for path in set(cold_files) & set(warm_files) if cold_files[path] != warm_files[path]
+    )
+    errors = [value for value in (cold.get("error"), warm.get("error")) if value]
+    if cold.get("schema_version") != warm.get("schema_version"):
+        errors.append("artifact manifest schema versions differ")
+    if cold.get("schema_version") != ARTIFACT_SCHEMA_VERSION:
+        errors.append("artifact manifest schema version is unsupported")
+    return {
+        "status": "pass" if not (added or removed or changed or errors) else "fail",
+        "added": added,
+        "removed": removed,
+        "changed": changed,
+        "errors": errors,
+    }
+
+
+def compare_clean_warm_evidence(
+    cold_payload: dict[str, Any],
+    warm_payload: dict[str, Any],
+    cold_artifacts: dict[str, Any],
+    warm_artifacts: dict[str, Any],
+    project_root: Path,
+) -> dict[str, Any]:
+    cold_build = normalized_build_evidence(cold_payload, project_root)
+    warm_build = normalized_build_evidence(warm_payload, project_root)
+    artifact_comparison = compare_artifact_snapshots(cold_artifacts, warm_artifacts)
+    build_match = cold_build == warm_build
+    return {
+        "status": "pass" if build_match and artifact_comparison["status"] == "pass" else "fail",
+        "build_evidence_match": build_match,
+        "cold_build": cold_build,
+        "warm_build": warm_build,
+        "artifacts": artifact_comparison,
+    }
 
 
 def compare_limit(actual_ms: float, limit_ms: float) -> str:
@@ -214,6 +386,7 @@ def benchmark_workload(workload: Workload, temp_dir: Path) -> dict[str, Any]:
     print(f"warming comparison commands for {workload.name} ({workload.kind})...", file=sys.stderr)
     axiom_warm_build = axiom_build(workload, cold=True)
     axiom_binary = axiom_binary_from_build(workload, axiom_warm_build)
+    cold_artifacts = snapshot_artifacts(axiom_binary.parent)
     go_warm_build, go_binary = go_build(workload, temp_dir)
     rust_warm_build, rust_binary = rust_build(workload, temp_dir)
     run_binary(axiom_binary)
@@ -224,6 +397,14 @@ def benchmark_workload(workload: Workload, temp_dir: Path) -> dict[str, Any]:
     axiom_cold_samples, axiom_cold_median = collect_samples(lambda: axiom_build(workload, cold=True))
     final_axiom_build = axiom_build(workload, cold=False)
     axiom_binary = axiom_binary_from_build(workload, final_axiom_build)
+    warm_artifacts = snapshot_artifacts(axiom_binary.parent)
+    artifact_equivalence = compare_clean_warm_evidence(
+        axiom_payload(axiom_warm_build),
+        axiom_payload(final_axiom_build),
+        cold_artifacts,
+        warm_artifacts,
+        workload.project,
+    )
     axiom_warm_samples, axiom_warm_median = collect_samples(lambda: axiom_build(workload, cold=False))
     go_build_samples, go_build_median = collect_samples(lambda: go_build(workload, temp_dir)[0])
     _, go_binary = go_build(workload, temp_dir)
@@ -271,11 +452,13 @@ def benchmark_workload(workload: Workload, temp_dir: Path) -> dict[str, Any]:
                 "axiom_cold_build": compare_limit(axiom_cold_median, cold_limit),
                 "axiom_warm_build": compare_limit(axiom_warm_median, warm_limit),
                 "semantic_output_parity": "pass" if semantic_match else "fail",
+                "artifact_equivalence": artifact_equivalence["status"],
             },
         },
         "execution_contract": {
             "expected_lowering_mode": workload.expected_lowering_mode,
             "semantic_output_match": semantic_match,
+            "artifact_equivalence": artifact_equivalence,
             "results": {
                 name: {
                     "returncode": result.returncode,
