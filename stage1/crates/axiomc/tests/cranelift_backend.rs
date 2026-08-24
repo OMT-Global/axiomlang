@@ -4452,7 +4452,17 @@ fn cranelift_backend_lowers_fs_write_to_runtime_exit_code() {
     let runtime_file = project.join("scratch/data.txt");
     let append_file = project.join("scratch/append.txt");
     let replace_file = project.join("scratch/replace.txt");
-    let replace_temp_file = project.join("scratch/.replace.txt.axiom-replace.tmp");
+    let replace_temps_exist = || {
+        fs::read_dir(project.join("scratch"))
+            .expect("read replacement temp directory")
+            .filter_map(Result::ok)
+            .any(|entry| {
+                entry
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with(".axiom-replace-")
+            })
+    };
     let removed_file = project.join("scratch/remove.txt");
     let created_file = project.join("scratch/created.txt");
     let runtime_dir = project.join("scratch/native-dir");
@@ -4472,7 +4482,7 @@ fn cranelift_backend_lowers_fs_write_to_runtime_exit_code() {
         "build should not create the fs_replace runtime fixture"
     );
     assert!(
-        !replace_temp_file.exists(),
+        !replace_temps_exist(),
         "build should not create the fs_replace temp fixture"
     );
     assert!(
@@ -4495,6 +4505,19 @@ fn cranelift_backend_lowers_fs_write_to_runtime_exit_code() {
         !audit_log.exists(),
         "build should not create the native fs audit log"
     );
+    #[cfg(unix)]
+    let replace_sentinel = project
+        .parent()
+        .expect("project parent")
+        .join("replace-sentinel.txt");
+    #[cfg(unix)]
+    let planted_temp = project.join("scratch/.replace.txt.axiom-replace.tmp");
+    #[cfg(unix)]
+    {
+        fs::write(&replace_sentinel, "sentinel-safe").expect("write replace sentinel");
+        std::os::unix::fs::symlink(&replace_sentinel, &planted_temp)
+            .expect("plant legacy replace temp symlink");
+    }
     let run = Command::new(binary)
         .env("AXIOM_HOST_AUDIT_LOG", &audit_log)
         .output()
@@ -4509,17 +4532,58 @@ fn cranelift_backend_lowers_fs_write_to_runtime_exit_code() {
         fs::read_to_string(&append_file).expect("read fs_append runtime fixture"),
         "runtime-seed+runtime-append"
     );
+    #[cfg(any(
+        target_os = "linux",
+        target_os = "android",
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "freebsd",
+        target_os = "netbsd",
+        target_os = "openbsd",
+        target_os = "dragonfly"
+    ))]
     assert_eq!(
         fs::read_to_string(&replace_file).expect("read fs_replace runtime fixture"),
         "runtime-replace"
+    );
+    #[cfg(not(any(
+        target_os = "linux",
+        target_os = "android",
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "freebsd",
+        target_os = "netbsd",
+        target_os = "openbsd",
+        target_os = "dragonfly"
+    )))]
+    assert_eq!(
+        fs::read_to_string(&replace_file).expect("read denied fs_replace runtime fixture"),
+        "stale"
+    );
+    #[cfg(unix)]
+    assert_eq!(
+        fs::read_to_string(&replace_sentinel).expect("read replace sentinel"),
+        "sentinel-safe"
+    );
+    #[cfg(unix)]
+    assert!(
+        fs::symlink_metadata(&planted_temp)
+            .expect("stat planted replace temp")
+            .file_type()
+            .is_symlink(),
+        "a preplanted legacy temp symlink must never be followed"
     );
     assert!(
         !removed_file.exists(),
         "runtime remove_file should remove the remove_file fixture"
     );
     assert!(
-        !replace_temp_file.exists(),
-        "runtime replace_file should not leave the temp fixture"
+        !replace_temps_exist(),
+        "runtime replace_file should not leave a temp fixture"
+    );
+    assert!(
+        !temp.path().join("escape.txt").exists(),
+        "denied filesystem operations must remain beneath the authorized root"
     );
     assert_eq!(
         fs::read_to_string(&created_file).expect("read create_file runtime fixture"),
@@ -16103,6 +16167,17 @@ source = "path"
 "#,
     )
     .expect("write fs-write main lockfile");
+    let replace_supported = cfg!(any(
+        target_os = "linux",
+        target_os = "android",
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "freebsd",
+        target_os = "netbsd",
+        target_os = "openbsd",
+        target_os = "dragonfly"
+    ));
+    let expected_replace_status = if replace_supported { "0" } else { "-1" };
     fs::write(
         project.join("src/main.ax"),
         r#"import "std/fs.ax"
@@ -16123,6 +16198,7 @@ let mkdir_name: string = "native-dir"
 let remove_dir_name: string = "native-dir"
 let nested_leaf: string = "deep"
 let blocked_path: string = "../escape.txt"
+let blocked_replace_path: string = "../escape.txt"
 let write_content: string = "runtime-write"
 let append_suffix: string = "append"
 let replace_suffix: string = "replace"
@@ -16139,13 +16215,15 @@ let made_dir: int = mkdir(DIR_PREFIX + mkdir_name)
 let removed_dir: int = remove_dir(DIR_PREFIX + remove_dir_name)
 let made_all: int = mkdir_all(DIR_PREFIX + "native-all/" + nested_leaf)
 let blocked: int = write_file(blocked_path, blocked_content)
-if wrote == 0 && append_seeded == 0 && appended == 0 && replace_seeded == 0 && replaced == 0 && remove_seeded == 0 && removed == 0 && created == 0 && made_dir == 0 && removed_dir == 0 && made_all == 0 && blocked == -1 {
+let blocked_replace: int = replace_file(blocked_replace_path, "blocked")
+if wrote == 0 && append_seeded == 0 && appended == 0 && replace_seeded == 0 && replaced == EXPECTED_REPLACE_STATUS && remove_seeded == 0 && removed == 0 && created == 0 && made_dir == 0 && removed_dir == 0 && made_all == 0 && blocked == -1 && blocked_replace == -1 {
 return 48
 } else {
 return 1
 }
 }
-"#,
+"#
+        .replace("EXPECTED_REPLACE_STATUS", expected_replace_status),
     )
     .expect("write fs-write main source");
 }

@@ -9,7 +9,15 @@ if grep -Eq 'mktemp .*[.]XXXXXX[.]' "$script"; then
   exit 1
 fi
 
-harness_tmp="$(mktemp -d)"
+if [[ "${GITHUB_ACTIONS:-}" == "true" && -n "${RUNNER_TEMP:-}" ]]; then
+  # The self-hosted runner may reclaim nested /tmp paths while a long-running
+  # Actions job is still using them. Keep the simulated checkout and its
+  # report path under the checked-out workspace for the same reason as the
+  # production property-check script.
+  harness_tmp="$(mktemp -d "${repo_root%/}/.ci-property-checks.XXXXXX")"
+else
+  harness_tmp="$(mktemp -d)"
+fi
 cleanup() {
   rm -rf "$harness_tmp"
 }
