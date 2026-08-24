@@ -202,6 +202,10 @@ criteria = "safe-to-deploy"
 version = "0.16.1"
 criteria = "safe-to-deploy"
 
+[[exemptions.hmac]]
+version = "0.12.1"
+criteria = "safe-to-deploy"
+
 [[exemptions.icu_collections]]
 version = "2.2.0"
 criteria = "safe-to-deploy"

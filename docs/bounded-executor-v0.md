@@ -62,6 +62,13 @@ reset them.
 When an effect may have occurred but cannot be proven, resume is rejected and
 rollback is required.
 
+MACs use the exact v0 `hmac-sha256:<64 lowercase hex>` wire form, now backed by
+the vetted `hmac` and `sha2` crates. The two production domains are represented
+by a closed `HmacDomain` enum, so callers cannot supply an ambiguous or
+unregistered domain. The historical `domain || 0x00 || payload` transcript is
+intentionally preserved byte-for-byte for serialized reports, resume requests,
+and delivery evidence; unknown MAC prefixes fail closed.
+
 ## Retry and stop policy
 
 Failures are classified as `code`, `evidence`, `environment`, `conflict`,

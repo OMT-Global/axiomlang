@@ -7,7 +7,7 @@
       "path": "stage1/Cargo.toml",
       "role": "compiler_version",
       "selector": "workspace.package.version",
-      "sha256": "0a7df662030a201d7953255a50ad4a5355758bc0626faa44ba879cd1d4eee00f"
+      "sha256": "30e92d85d0e0cc6cf14a32477e5b45afbc44d3d36803a8e456d55ef93860767a"
     }
   },
   "contract_version": "0.5.0",
