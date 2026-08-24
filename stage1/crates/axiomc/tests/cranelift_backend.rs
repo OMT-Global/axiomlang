@@ -3580,6 +3580,129 @@ fn cranelift_backend_lowers_unicode_scalar_intrinsics_without_generated_rust() {
 
 #[cfg(not(windows))]
 #[test]
+fn cranelift_backend_lowers_unicode_scalar_count_from_stdin_runtime_text() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("unicode-scalar-count-stdin");
+    write_unicode_scalar_count_stdin_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift unicode scalar count stdin build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    assert_eq!(payload["lowering"]["direct_native_runtime"], true);
+    let binary = payload["binary"].as_str().expect("binary path");
+
+    for (input, expected) in [("aé🙂", 3), ("aé🙂🙂b", 5), ("", 0)] {
+        let mut child = Command::new(binary)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("spawn cranelift unicode scalar count stdin binary");
+        {
+            let stdin = child.stdin.as_mut().expect("open child stdin");
+            std::io::Write::write_all(stdin, input.as_bytes()).expect("write child stdin");
+        }
+        let run = child
+            .wait_with_output()
+            .expect("run cranelift unicode scalar count stdin binary");
+        assert_eq!(
+            run.status.code(),
+            Some(expected),
+            "input={input:?} stdout={} stderr={}",
+            String::from_utf8_lossy(&run.stdout),
+            String::from_utf8_lossy(&run.stderr)
+        );
+        assert_eq!(String::from_utf8_lossy(&run.stdout), "");
+        assert_eq!(String::from_utf8_lossy(&run.stderr), "");
+    }
+}
+
+#[cfg(not(windows))]
+#[test]
+fn cranelift_backend_lowers_unicode_scalar_at_from_stdin_runtime_text_and_index() {
+    if which::which("cc").is_err() {
+        eprintln!("skipping cranelift backend smoke test because cc is unavailable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("unicode-scalar-at-stdin");
+    write_unicode_scalar_at_stdin_project(&project);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run axiomc build --backend cranelift");
+    assert!(
+        output.status.success(),
+        "cranelift unicode scalar at stdin build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    assert_eq!(payload["lowering"]["direct_native_runtime"], true);
+    let binary = payload["binary"].as_str().expect("binary path");
+
+    let cases: [(&str, i32); 4] = [("1\naé🙂", 7), ("1234\naé", 9), ("\naé", 9), ("", 11)];
+    for (input, expected) in cases {
+        let mut child = Command::new(binary)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("spawn cranelift unicode scalar at stdin binary");
+        {
+            let stdin = child.stdin.as_mut().expect("open child stdin");
+            std::io::Write::write_all(stdin, input.as_bytes()).expect("write child stdin");
+        }
+        let run = child
+            .wait_with_output()
+            .expect("run cranelift unicode scalar at stdin binary");
+        assert_eq!(
+            run.status.code(),
+            Some(expected),
+            "input={input:?} stdout={} stderr={}",
+            String::from_utf8_lossy(&run.stdout),
+            String::from_utf8_lossy(&run.stderr)
+        );
+        assert_eq!(String::from_utf8_lossy(&run.stdout), "");
+        assert_eq!(String::from_utf8_lossy(&run.stderr), "");
+    }
+}
+
+#[cfg(not(windows))]
+#[test]
 fn cranelift_backend_builds_numeric_cross_width_binary() {
     if which::which("cc").is_err() {
         eprintln!("skipping cranelift backend smoke test because cc is unavailable");
@@ -8707,7 +8830,10 @@ fn cranelift_backend_builds_once_and_reads_cwd_at_each_run() {
         .output()
         .expect("run binary from first cwd");
     assert!(first.status.success());
-    assert_eq!(String::from_utf8_lossy(&first.stdout), format!("{}\n", first_cwd.display()));
+    assert_eq!(
+        String::from_utf8_lossy(&first.stdout),
+        format!("{}\n", first_cwd.display())
+    );
 
     let second = Command::new(binary)
         .current_dir(&second_cwd)
@@ -11386,6 +11512,79 @@ return 1
 "#,
     )
     .expect("write unicode scalar source");
+}
+
+fn write_unicode_scalar_count_stdin_project(project: &Path) {
+    fs::create_dir_all(project.join("src")).expect("create unicode scalar count stdin project src");
+    fs::write(
+        project.join("axiom.toml"),
+        "[package]\nname = \"cranelift-unicode-scalar-count-stdin\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
+    )
+    .expect("write unicode scalar count stdin manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        "version = 1\n\n[[package]]\nname = \"cranelift-unicode-scalar-count-stdin\"\nversion = \"0.1.0\"\nsource = \"path\"\n",
+    )
+    .expect("write unicode scalar count stdin lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        r#"import "std/io.ax"
+
+fn main(): int {
+let text: string = read_to_string()
+return string_scalar_count(text)
+}
+"#,
+    )
+    .expect("write unicode scalar count stdin source");
+}
+
+fn write_unicode_scalar_at_stdin_project(project: &Path) {
+    fs::create_dir_all(project.join("src")).expect("create unicode scalar at stdin project src");
+    fs::write(
+        project.join("axiom.toml"),
+        "[package]\nname = \"cranelift-unicode-scalar-at-stdin\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
+    )
+    .expect("write unicode scalar at stdin manifest");
+    fs::write(
+        project.join("axiom.lock"),
+        "version = 1\n\n[[package]]\nname = \"cranelift-unicode-scalar-at-stdin\"\nversion = \"0.1.0\"\nsource = \"path\"\n",
+    )
+    .expect("write unicode scalar at stdin lockfile");
+    fs::write(
+        project.join("src/main.ax"),
+        r#"import "std/io.ax"
+
+fn main(): int {
+let status: int = 13
+let first: Option<string> = readline()
+match first {
+Some(line) {
+let index: int = len(line) - 1
+let text: string = read_to_string()
+let scalar: Option<string> = string_scalar_at(text, index)
+match scalar {
+Some(value) {
+if len(value) > 0 {
+status = 7
+} else {
+status = 15
+}
+}
+None {
+status = 9
+}
+}
+}
+None {
+status = 11
+}
+}
+return status
+}
+"#,
+    )
+    .expect("write unicode scalar at stdin source");
 }
 
 fn write_numeric_cross_width_project(project: &Path) {

@@ -136,6 +136,7 @@ pub(crate) struct I64StaticBindings {
     io_eprintln_wrappers: HashSet<String>,
     io_readline_wrappers: HashSet<String>,
     io_read_to_string_wrappers: HashSet<String>,
+    stdin_text_bindings: HashSet<String>,
     log_wrappers: HashSet<String>,
     log_field_string_wrappers: HashSet<String>,
     log_field_int_wrappers: HashSet<String>,
@@ -2146,6 +2147,8 @@ fn lower_i64_aggregate_return_body(
                     expr,
                     &mut locals,
                     &mut local_indexes,
+                    &local_conditions,
+                    helper_signatures,
                     static_bindings,
                 ) {
                     lowered_stmts.extend(assigns);
@@ -3069,6 +3072,24 @@ fn lower_i64_body(
     let mut seen_runtime_stmt = false;
     let mut static_bindings = static_bindings.clone();
     let static_bindings = &mut static_bindings;
+    for (stmt_index, stmt) in body_stmts.iter().enumerate() {
+        if let Stmt::Let {
+            name,
+            ty: Type::String | Type::Str,
+            expr,
+            ..
+        } = stmt
+            && i64_expr_is_io_read_to_string_call(expr, static_bindings)
+        {
+            let mut usage = i64_scan_stdin_text_usage(name, &body_stmts[stmt_index + 1..]);
+            i64_scan_stdin_text_usage_stmt(name, return_stmt, &mut usage, 0);
+            if usage.scalar_uses == 1 && usage.len_uses == 0 {
+                static_bindings.stdin_text_bindings.insert(name.clone());
+            } else if usage.scalar_uses > 0 {
+                return None;
+            }
+        }
+    }
     for param in params {
         if !is_i64_param_type(&param.ty, struct_defs, static_bindings) {
             return None;
@@ -3307,6 +3328,9 @@ fn lower_i64_body(
                 expr,
                 ..
             } if !seen_runtime_stmt => {
+                if static_bindings.stdin_text_bindings.contains(name) {
+                    continue;
+                }
                 lower_i64_string_len_projection_local(
                     name,
                     expr,
@@ -3526,6 +3550,8 @@ fn lower_i64_body(
                     expr,
                     &mut locals,
                     &mut local_indexes,
+                    &local_conditions,
+                    helper_signatures,
                     static_bindings,
                 ) {
                     lowered_stmts.extend(assigns);
@@ -4890,7 +4916,22 @@ fn lower_i64_runtime_stmts(
     let mut lowered = Vec::new();
     let mut scoped_static_bindings = static_bindings.clone();
     let static_bindings = &mut scoped_static_bindings;
-    for stmt in stmts {
+    for (stmt_index, stmt) in stmts.iter().enumerate() {
+        if let Stmt::Let {
+            name,
+            ty: Type::String | Type::Str,
+            expr,
+            ..
+        } = stmt
+            && i64_expr_is_io_read_to_string_call(expr, static_bindings)
+        {
+            let usage = i64_scan_stdin_text_usage(name, &stmts[stmt_index + 1..]);
+            if usage.scalar_uses == 1 && usage.len_uses == 0 {
+                static_bindings.stdin_text_bindings.insert(name.clone());
+            } else if usage.scalar_uses > 0 {
+                return None;
+            }
+        }
         if matches!(stmt, Stmt::Let { .. }) {
             if record_i64_known_string_let(stmt, static_bindings).unwrap_or(false) {
                 continue;
@@ -5129,6 +5170,8 @@ fn lower_i64_runtime_let_stmts(
             expr,
             locals,
             local_indexes,
+            local_conditions,
+            helper_signatures,
             static_bindings,
         )
     {
@@ -6170,6 +6213,9 @@ fn lower_i64_runtime_string_len_let_stmts(
     else {
         return None;
     };
+    if static_bindings.stdin_text_bindings.contains(name) {
+        return Some(Vec::new());
+    }
     let value = lower_i64_string_len_expr(
         expr,
         local_indexes,
@@ -7595,12 +7641,12 @@ fn lower_i64_string_option_len_call_let_stmts(
     locals: &mut Vec<CraneliftI64Expr>,
     local_indexes: &mut HashMap<String, usize>,
 ) -> Option<Vec<CraneliftI64Stmt>> {
-    let payload_local = local_indexes.len();
+    let payload_local = locals.len();
     local_indexes.insert(i64_option_payload_slot_key(name, 0), payload_local);
     local_indexes.insert(i64_option_payload_key(name), payload_local);
     locals.push(CraneliftI64Expr::Literal(0));
 
-    let tag_local = local_indexes.len();
+    let tag_local = locals.len();
     local_indexes.insert(i64_option_tag_key(name), tag_local);
     locals.push(CraneliftI64Expr::Literal(0));
 
@@ -7625,23 +7671,226 @@ fn lower_i64_string_option_len_call_let_stmts(
     ])
 }
 
+fn lower_i64_unicode_scalar_count_intrinsic_expr(
+    name: &str,
+    args: &[Expr],
+    static_bindings: &I64StaticBindings,
+) -> Option<CraneliftI64Expr> {
+    if name != "string_scalar_count" {
+        return None;
+    }
+    let [text] = args else {
+        return None;
+    };
+    if !i64_expr_is_stdin_text_source(text, static_bindings) {
+        return None;
+    }
+    Some(CraneliftI64Expr::StdinScalarCount {
+        max_bytes: I64_STDIN_BUFFER_BYTES,
+    })
+}
+
+fn i64_expr_is_io_read_to_string_call(expr: &Expr, static_bindings: &I64StaticBindings) -> bool {
+    matches!(
+        expr,
+        Expr::Call { name, args, .. }
+            if args.is_empty() && is_i64_io_read_to_string_name(name, static_bindings)
+    )
+}
+
+fn i64_expr_is_stdin_text_source(expr: &Expr, static_bindings: &I64StaticBindings) -> bool {
+    match expr {
+        Expr::Call { .. } => i64_expr_is_io_read_to_string_call(expr, static_bindings),
+        Expr::StringBorrow { expr: inner, .. } => {
+            i64_expr_is_stdin_text_source(inner, static_bindings)
+        }
+        Expr::VarRef { name, .. } => static_bindings.stdin_text_bindings.contains(name),
+        _ => false,
+    }
+}
+
+fn i64_stdin_text_binding_name(expr: &Expr) -> Option<&str> {
+    match expr {
+        Expr::VarRef { name, .. } => Some(name),
+        Expr::StringBorrow { expr: inner, .. } => i64_stdin_text_binding_name(inner),
+        _ => None,
+    }
+}
+
+#[derive(Default)]
+struct I64StdinTextUsage {
+    len_uses: usize,
+    scalar_uses: usize,
+}
+
+fn i64_scan_stdin_text_usage(name: &str, stmts: &[Stmt]) -> I64StdinTextUsage {
+    let mut usage = I64StdinTextUsage::default();
+    for stmt in stmts {
+        i64_scan_stdin_text_usage_stmt(name, stmt, &mut usage, 0);
+    }
+    usage
+}
+
+fn i64_scan_stdin_text_usage_stmt(
+    name: &str,
+    stmt: &Stmt,
+    usage: &mut I64StdinTextUsage,
+    depth: usize,
+) {
+    if depth > 8 {
+        return;
+    }
+    match stmt {
+        Stmt::Let { expr, .. }
+        | Stmt::Return { expr, .. }
+        | Stmt::Print { expr, .. }
+        | Stmt::Defer { expr, .. } => i64_scan_stdin_text_usage_expr(name, expr, usage, depth + 1),
+        Stmt::Assign { target, expr, .. } => {
+            i64_scan_stdin_text_usage_expr(name, target, usage, depth + 1);
+            i64_scan_stdin_text_usage_expr(name, expr, usage, depth + 1);
+        }
+        Stmt::Panic { message, .. } => {
+            i64_scan_stdin_text_usage_expr(name, message, usage, depth + 1)
+        }
+        Stmt::If {
+            cond,
+            then_block,
+            else_block,
+            ..
+        } => {
+            i64_scan_stdin_text_usage_expr(name, cond, usage, depth + 1);
+            for inner in then_block {
+                i64_scan_stdin_text_usage_stmt(name, inner, usage, depth + 1);
+            }
+            if let Some(else_block) = else_block {
+                for inner in else_block {
+                    i64_scan_stdin_text_usage_stmt(name, inner, usage, depth + 1);
+                }
+            }
+        }
+        Stmt::While { cond, body, .. } => {
+            i64_scan_stdin_text_usage_expr(name, cond, usage, depth + 1);
+            for inner in body {
+                i64_scan_stdin_text_usage_stmt(name, inner, usage, depth + 1);
+            }
+        }
+        Stmt::Match { expr, arms, .. } => {
+            i64_scan_stdin_text_usage_expr(name, expr, usage, depth + 1);
+            for arm in arms {
+                for inner in &arm.body {
+                    i64_scan_stdin_text_usage_stmt(name, inner, usage, depth + 1);
+                }
+            }
+        }
+        Stmt::Break { .. } | Stmt::Continue { .. } => {}
+    }
+}
+
+fn i64_scan_stdin_text_usage_expr(
+    name: &str,
+    expr: &Expr,
+    usage: &mut I64StdinTextUsage,
+    depth: usize,
+) {
+    if depth > 12 {
+        return;
+    }
+    match expr {
+        Expr::Call {
+            name: call_name,
+            args,
+            ..
+        } => {
+            if let [first, ..] = args.as_slice()
+                && i64_stdin_text_binding_name(first) == Some(name)
+            {
+                match call_name.as_str() {
+                    "len" => usage.len_uses += 1,
+                    "string_scalar_count" | "string_scalar_at" => usage.scalar_uses += 1,
+                    _ => {}
+                }
+            }
+            for arg in args {
+                i64_scan_stdin_text_usage_expr(name, arg, usage, depth + 1);
+            }
+        }
+        Expr::BinaryAdd { lhs, rhs, .. }
+        | Expr::BinaryCompare { lhs, rhs, .. }
+        | Expr::BinaryLogic { lhs, rhs, .. } => {
+            i64_scan_stdin_text_usage_expr(name, lhs, usage, depth + 1);
+            i64_scan_stdin_text_usage_expr(name, rhs, usage, depth + 1);
+        }
+        Expr::StringBorrow { expr: inner, .. } | Expr::Cast { expr: inner, .. } => {
+            i64_scan_stdin_text_usage_expr(name, inner, usage, depth + 1)
+        }
+        Expr::Index { base, index, .. } => {
+            i64_scan_stdin_text_usage_expr(name, base, usage, depth + 1);
+            i64_scan_stdin_text_usage_expr(name, index, usage, depth + 1);
+        }
+        Expr::FieldAccess { base, .. } | Expr::TupleIndex { base, .. } => {
+            i64_scan_stdin_text_usage_expr(name, base, usage, depth + 1)
+        }
+        Expr::ArrayLiteral { elements, .. } | Expr::TupleLiteral { elements, .. } => {
+            for element in elements {
+                i64_scan_stdin_text_usage_expr(name, element, usage, depth + 1);
+            }
+        }
+        Expr::MapLiteral { entries, .. } => {
+            for entry in entries {
+                i64_scan_stdin_text_usage_expr(name, &entry.key, usage, depth + 1);
+                i64_scan_stdin_text_usage_expr(name, &entry.value, usage, depth + 1);
+            }
+        }
+        Expr::EnumVariant { payloads, .. } => {
+            for payload in payloads {
+                i64_scan_stdin_text_usage_expr(name, payload, usage, depth + 1);
+            }
+        }
+        Expr::StructLiteral { fields, .. } => {
+            for field in fields {
+                i64_scan_stdin_text_usage_expr(name, &field.expr, usage, depth + 1);
+            }
+        }
+        Expr::Match {
+            expr: inner, arms, ..
+        } => {
+            i64_scan_stdin_text_usage_expr(name, inner, usage, depth + 1);
+            for arm in arms {
+                i64_scan_stdin_text_usage_expr(name, &arm.expr, usage, depth + 1);
+            }
+        }
+        _ => {}
+    }
+}
+
 fn lower_i64_runtime_string_option_call_let_stmts(
     name: &str,
     inner: &Type,
     expr: &Expr,
     locals: &mut Vec<CraneliftI64Expr>,
     local_indexes: &mut HashMap<String, usize>,
+    local_conditions: &HashMap<String, CraneliftI64Condition>,
+    helper_signatures: &HashMap<&str, I64HelperSignature>,
     static_bindings: &I64StaticBindings,
 ) -> Option<Vec<CraneliftI64Stmt>> {
     if !matches!(inner, Type::String | Type::Str) {
         return None;
     }
-    let payload_len = lower_i64_runtime_string_option_len_expr(expr, static_bindings)?;
+    let payload_len = lower_i64_runtime_string_option_len_expr(
+        expr,
+        local_indexes,
+        local_conditions,
+        helper_signatures,
+        static_bindings,
+    )?;
     lower_i64_string_option_len_call_let_stmts(name, payload_len, locals, local_indexes)
 }
 
 fn lower_i64_runtime_string_option_len_expr(
     expr: &Expr,
+    local_indexes: &HashMap<String, usize>,
+    local_conditions: &HashMap<String, CraneliftI64Condition>,
+    helper_signatures: &HashMap<&str, I64HelperSignature>,
     static_bindings: &I64StaticBindings,
 ) -> Option<CraneliftI64Expr> {
     if let Some(key) = i64_env_get_key(expr, static_bindings) {
@@ -7660,6 +7909,25 @@ fn lower_i64_runtime_string_option_len_expr(
     };
     if is_i64_io_readline_name(call_name, static_bindings) && args.is_empty() {
         return Some(CraneliftI64Expr::StdinLineLen {
+            max_bytes: I64_STDIN_BUFFER_BYTES,
+        });
+    }
+    if call_name == "string_scalar_at" {
+        let [text, index] = args.as_slice() else {
+            return None;
+        };
+        if !i64_expr_is_stdin_text_source(text, static_bindings) {
+            return None;
+        }
+        let index = lower_i64_expr(
+            index,
+            local_indexes,
+            local_conditions,
+            helper_signatures,
+            static_bindings,
+        )?;
+        return Some(CraneliftI64Expr::StdinScalarLenAt {
+            index: Box::new(index),
             max_bytes: I64_STDIN_BUFFER_BYTES,
         });
     }
@@ -13343,6 +13611,7 @@ fn lower_i64_expr(
                     static_bindings,
                 )
             })
+            .or_else(|| lower_i64_unicode_scalar_count_intrinsic_expr(name, args, static_bindings))
             .or_else(|| i64_known_helper_call_i64_expr(name, args, static_bindings))
             .or_else(|| {
                 lower_i64_call_expr(
