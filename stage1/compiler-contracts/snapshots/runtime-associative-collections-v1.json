@@ -1,45 +1,168 @@
 {
-  "schema_version": "axiom.runtime_associative_collections.v1",
+  "schema_version": "axiom.runtime-associative-collections.v1",
   "contract": "runtime.associative_collections",
   "issue": 1476,
-  "status": "contract_only",
-  "key_types": ["bool", "int", "text"],
-  "operations": [
-    {"id": "axiom://collections/map/lookup", "kind": "lookup", "collection": "map", "failure": "missing_key"},
-    {"id": "axiom://collections/map/insert", "kind": "insert", "collection": "map", "failure": "allocation_failure"},
-    {"id": "axiom://collections/map/replace", "kind": "replace", "collection": "map", "failure": "allocation_failure"},
-    {"id": "axiom://collections/map/remove", "kind": "remove", "collection": "map", "failure": "missing_key"},
-    {"id": "axiom://collections/both/contains", "kind": "contains", "collection": "both", "failure": "unsupported_key"},
-    {"id": "axiom://collections/both/length", "kind": "length", "collection": "both", "failure": "none"},
-    {"id": "axiom://collections/both/iterate", "kind": "iterate", "collection": "both", "failure": "mutation_during_iteration"},
-    {"id": "axiom://collections/both/clear", "kind": "clear", "collection": "both", "failure": "none"},
-    {"id": "axiom://collections/both/reserve", "kind": "reserve", "collection": "both", "failure": "limit_exceeded"},
-    {"id": "axiom://collections/set/insert", "kind": "insert", "collection": "set", "failure": "allocation_failure"},
-    {"id": "axiom://collections/set/remove", "kind": "remove", "collection": "set", "failure": "missing_key"},
-    {"id": "axiom://collections/set/hash", "kind": "hash", "collection": "set", "failure": "unsupported_key"}
+  "collections": {
+    "map": [
+      "construct",
+      "lookup",
+      "insert_or_replace",
+      "remove",
+      "clear",
+      "len",
+      "capacity",
+      "iterate"
+    ],
+    "set": [
+      "construct",
+      "contains",
+      "insert",
+      "remove",
+      "clear",
+      "len",
+      "capacity",
+      "iterate"
+    ],
+    "replacement": "one_value_per_equal_key"
+  },
+  "keys": {
+    "equality": {
+      "mode": "total_deterministic_axiom_semantics",
+      "cross_type": "never_equal",
+      "primitive": "same_type_and_value",
+      "text": "same_unicode_scalar_sequence",
+      "tuple": "same_arity_and_recursive_component_equality",
+      "enum": "same_declared_type_variant_and_recursive_payload_equality",
+      "user_defined": "same_declared_immutable_type_and_declaration_order_fields",
+      "hash_compatibility": "equal_keys_same_hash"
+    },
+    "accepted": [
+      "primitive",
+      "text",
+      "tuple_recursive",
+      "enum_recursive",
+      "accepted_immutable_value_shape"
+    ],
+    "rejected": [
+      "float",
+      "mutable",
+      "resource",
+      "function",
+      "borrowed",
+      "unaccepted_user_shape"
+    ]
+  },
+  "hashing": {
+    "equal_keys": "same_stable_hash",
+    "algorithm": "runtime_defined_versioned_stable",
+    "host_seed": "forbidden_for_default_or_reproducible_output",
+    "randomized_hardening": "explicit_opt_in_preserves_observable_order"
+  },
+  "iteration": {
+    "order": "insertion_order",
+    "replace": "does_not_move_key",
+    "remove_reinsert": "appends",
+    "clear": "resets_order",
+    "mutation": "generation_checked_fail_closed"
+  },
+  "resources": {
+    "collision": "separate_chaining_bounded_probes",
+    "limits": [
+      "entries",
+      "bytes",
+      "load_factor",
+      "collision_chain"
+    ],
+    "growth": "checked_before_mutation",
+    "failure": "structured_error_no_partial_mutation"
+  },
+  "ownership": {
+    "lookup": "borrowed_key_no_transfer",
+    "insert": "owned_key_value_transfer",
+    "iterator": "scoped_generation_checked",
+    "nested": "clone_drop_exactly_once",
+    "aliasing": "ownership_and_borrow_contract_enforced"
+  },
+  "errors": [
+    "invalid_key_type",
+    "allocation_failed",
+    "collection_limit",
+    "collision_limit",
+    "concurrent_collection_mutation",
+    "use_after_move",
+    "borrow_violation"
   ],
-  "equality": {"mode": "semantic_key_equality", "type_aware": true, "hashing": "deterministic_per_contract_version", "hash_visibility": "implementation_detail"},
-  "ordering": {"iteration": "insertion_order", "replace_existing_position": "preserve", "remove_then_insert": "append"},
-  "limits": {"element_limit": "explicit", "operation_limit": "explicit", "failure_behavior": "preserve_existing_entries"},
-  "lifecycle": {"ownership": "collection_owns_entries", "cleanup": "exactly_once", "borrow": "declared_extent", "authority": "cannot_escape_creator_authority"},
   "fixtures": [
-    {"id": "axiom://collections/fixture/map-lookup", "kind": "positive", "scenario": "map lookup returns the value for a supported runtime key", "expected": "value or missing_key"},
-    {"id": "axiom://collections/fixture/map-replace", "kind": "positive", "scenario": "replacing a key preserves its insertion position", "expected": "one value and original position"},
-    {"id": "axiom://collections/fixture/set-idempotent", "kind": "positive", "scenario": "set insertion of an existing key is idempotent", "expected": "length unchanged"},
-    {"id": "axiom://collections/fixture/type-aware-equality", "kind": "positive", "scenario": "bool, int, and text keys remain type-aware", "expected": "similar text forms do not alias"},
-    {"id": "axiom://collections/fixture/deterministic-iteration", "kind": "positive", "scenario": "iteration follows insertion order", "expected": "repeatable key sequence"},
-    {"id": "axiom://collections/fixture/remove-reinsert", "kind": "positive", "scenario": "remove then insert appends the key", "expected": "new final position"},
-    {"id": "axiom://collections/fixture/runtime-origin", "kind": "positive", "scenario": "key and value originate from a prior runtime result", "expected": "build-once run-many observes different entries"},
-    {"id": "axiom://collections/fixture/allocation-failure", "kind": "negative", "scenario": "allocation fails during insertion", "expected": "existing entries preserved"},
-    {"id": "axiom://collections/fixture/unsupported-key", "kind": "negative", "scenario": "an unsupported key shape is inserted", "expected": "collections.unsupported_key"},
-    {"id": "axiom://collections/fixture/limit-exceeded", "kind": "negative", "scenario": "element or operation limit is exceeded", "expected": "collections.limit_exceeded"},
-    {"id": "axiom://collections/fixture/mutation-during-iteration", "kind": "negative", "scenario": "a collection mutates during an active iterator", "expected": "collections.mutation_during_iteration"},
-    {"id": "axiom://collections/fixture/borrow-escape", "kind": "negative", "scenario": "a collection or iterator outlives its authority", "expected": "collections.borrow_escape"}
+    {
+      "id": "map-runtime-origin-growth-replace-remove",
+      "kind": "positive"
+    },
+    {
+      "id": "set-runtime-origin-contains-remove-clear",
+      "kind": "positive"
+    },
+    {
+      "id": "deterministic-insertion-order",
+      "kind": "positive"
+    },
+    {
+      "id": "equal-keys-stable-hash",
+      "kind": "positive"
+    },
+    {
+      "id": "tuple-enum-user-value-key",
+      "kind": "positive"
+    },
+    {
+      "id": "invalid-float-resource-function-borrowed-key",
+      "kind": "negative"
+    },
+    {
+      "id": "mutation-during-iteration",
+      "kind": "negative"
+    },
+    {
+      "id": "use-after-move-and-alias-borrow",
+      "kind": "negative"
+    },
+    {
+      "id": "allocation-and-limit-failure-no-partial-mutation",
+      "kind": "resource"
+    },
+    {
+      "id": "adversarial-collision-bounded",
+      "kind": "adversarial"
+    },
+    {
+      "id": "nested-clone-drop-cleanup",
+      "kind": "lifecycle"
+    },
+    {
+      "id": "compiler-symbol-table-determinism",
+      "kind": "compiler-proof"
+    }
   ],
+  "status": "contract_only",
   "migration": {
     "semantic_input": "Axiom semantic collection operations and lifecycle provenance",
-    "dependencies": [1425, 1438, 1440],
-    "out_of_scope": ["runtime lowering", "allocator implementation", "host container layout", "readiness completion"],
-    "forbidden_terms": ["Rust HashMap", "Rust HashSet", "Cargo", "Cranelift instruction", "host address"]
+    "dependencies": [
+      1425,
+      1437,
+      1438,
+      1440
+    ],
+    "out_of_scope": [
+      "runtime lowering",
+      "allocator implementation",
+      "host container layout",
+      "readiness completion"
+    ],
+    "forbidden_terms": [
+      "Rust HashMap",
+      "Rust HashSet",
+      "Cargo",
+      "Cranelift instruction",
+      "host address"
+    ]
   }
 }

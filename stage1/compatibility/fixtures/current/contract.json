@@ -1043,13 +1043,13 @@
     {
       "id": "axiom://schema/axiom.runtime_associative_collections.v1",
       "kind": "schema",
-      "signature": "published schema id=https://omt-global.github.io/axiom/schemas/axiom.runtime_associative_collections.v1.schema.json; semantic_digest=c59639af2678162389ce2da8b515abf2f166b82d5b6f0037178e287c4d9b6867; envelope=axiom.runtime_associative_collections.v1",
+      "signature": "published schema id=https://omt-global.github.io/axiom/schemas/axiom.runtime_associative_collections.v1.schema.json; semantic_digest=ba6637c12d6b994da9d6d574db1ea30169b718bfd47077e8c768e618af43f112; envelope=axiom.runtime-associative-collections.v1",
       "sources": [
         {
           "path": "stage1/compiler-contracts/schemas/axiom.runtime_associative_collections.v1.schema.json",
           "role": "published_schema",
           "selector": "$id,properties.schema_version.const",
-          "sha256": "52c64fcb597bd6275a9e5e8e42177f9e74cf6aceb37d040feaf2cc80017b60ff"
+          "sha256": "898623b51919c8e12140c784c923d380e5aa903c12fa69c0bf4538223424fc2f"
         }
       ],
       "stability": "experimental",

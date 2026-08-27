@@ -1,92 +1,109 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://omt-global.github.io/axiom/schemas/axiom.runtime_associative_collections.v1.schema.json",
-  "title": "Axiom Runtime Associative Collections v1",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "contract", "issue", "status", "key_types", "operations", "equality", "ordering", "limits", "lifecycle", "fixtures", "migration"],
+  "required": [
+    "schema_version",
+    "contract",
+    "issue",
+    "status",
+    "collections",
+    "keys",
+    "hashing",
+    "iteration",
+    "resources",
+    "ownership",
+    "errors",
+    "fixtures",
+    "migration"
+  ],
   "properties": {
-    "schema_version": {"const": "axiom.runtime_associative_collections.v1"},
-    "contract": {"const": "runtime.associative_collections"},
-    "issue": {"const": 1476},
-    "status": {"const": "contract_only"},
-    "key_types": {"type": "array", "minItems": 3, "items": {"enum": ["bool", "int", "text"]}},
-    "operations": {"type": "array", "minItems": 10, "items": {"$ref": "#/$defs/operation"}},
-    "equality": {"$ref": "#/$defs/equality"},
-    "ordering": {"$ref": "#/$defs/ordering"},
-    "limits": {"$ref": "#/$defs/limits"},
-    "lifecycle": {"$ref": "#/$defs/lifecycle"},
-    "fixtures": {"type": "array", "minItems": 12, "items": {"$ref": "#/$defs/fixture"}},
-    "migration": {"$ref": "#/$defs/migration"}
-  },
-  "$defs": {
-    "operation": {
-      "type": "object", "additionalProperties": false,
-      "required": ["id", "kind", "collection", "failure"],
-      "properties": {
-        "id": {"type": "string", "pattern": "^axiom://collections/(map|set|both)/[a-z_]+$"},
-        "kind": {"enum": ["lookup", "insert", "replace", "remove", "contains", "length", "iterate", "clear", "reserve", "hash"]},
-        "collection": {"enum": ["map", "set", "both"]},
-        "failure": {"enum": ["none", "missing_key", "unsupported_key", "allocation_failure", "limit_exceeded", "mutation_during_iteration"]}
+    "schema_version": {
+      "const": "axiom.runtime-associative-collections.v1"
+    },
+    "contract": {
+      "const": "runtime.associative_collections"
+    },
+    "issue": {
+      "const": 1476
+    },
+    "collections": {
+      "type": "object"
+    },
+    "keys": {
+      "type": "object"
+    },
+    "hashing": {
+      "type": "object"
+    },
+    "iteration": {
+      "type": "object"
+    },
+    "resources": {
+      "type": "object"
+    },
+    "ownership": {
+      "type": "object"
+    },
+    "errors": {
+      "type": "array",
+      "minItems": 7,
+      "items": {
+        "enum": [
+          "invalid_key_type",
+          "allocation_failed",
+          "collection_limit",
+          "collision_limit",
+          "concurrent_collection_mutation",
+          "use_after_move",
+          "borrow_violation"
+        ]
       }
     },
-    "equality": {
-      "type": "object", "additionalProperties": false,
-      "required": ["mode", "type_aware", "hashing", "hash_visibility"],
-      "properties": {
-        "mode": {"const": "semantic_key_equality"},
-        "type_aware": {"const": true},
-        "hashing": {"const": "deterministic_per_contract_version"},
-        "hash_visibility": {"const": "implementation_detail"}
-      }
+    "fixtures": {
+      "type": "array"
     },
-    "ordering": {
-      "type": "object", "additionalProperties": false,
-      "required": ["iteration", "replace_existing_position", "remove_then_insert"],
-      "properties": {
-        "iteration": {"const": "insertion_order"},
-        "replace_existing_position": {"const": "preserve"},
-        "remove_then_insert": {"const": "append"}
-      }
-    },
-    "limits": {
-      "type": "object", "additionalProperties": false,
-      "required": ["element_limit", "operation_limit", "failure_behavior"],
-      "properties": {
-        "element_limit": {"const": "explicit"},
-        "operation_limit": {"const": "explicit"},
-        "failure_behavior": {"const": "preserve_existing_entries"}
-      }
-    },
-    "lifecycle": {
-      "type": "object", "additionalProperties": false,
-      "required": ["ownership", "cleanup", "borrow", "authority"],
-      "properties": {
-        "ownership": {"const": "collection_owns_entries"},
-        "cleanup": {"const": "exactly_once"},
-        "borrow": {"const": "declared_extent"},
-        "authority": {"const": "cannot_escape_creator_authority"}
-      }
-    },
-    "fixture": {
-      "type": "object", "additionalProperties": false,
-      "required": ["id", "kind", "scenario", "expected"],
-      "properties": {
-        "id": {"type": "string", "pattern": "^axiom://collections/fixture/[a-z0-9-]+$"},
-        "kind": {"enum": ["positive", "negative"]},
-        "scenario": {"type": "string", "minLength": 1},
-        "expected": {"type": "string", "minLength": 1}
-      }
+    "status": {
+      "const": "contract_only"
     },
     "migration": {
-      "type": "object", "additionalProperties": false,
-      "required": ["semantic_input", "dependencies", "out_of_scope", "forbidden_terms"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "semantic_input",
+        "dependencies",
+        "out_of_scope",
+        "forbidden_terms"
+      ],
       "properties": {
-        "semantic_input": {"const": "Axiom semantic collection operations and lifecycle provenance"},
-        "dependencies": {"type": "array", "minItems": 3, "items": {"type": "integer"}},
-        "out_of_scope": {"type": "array", "minItems": 3, "items": {"type": "string", "minLength": 1}},
-        "forbidden_terms": {"type": "array", "minItems": 4, "items": {"type": "string", "minLength": 1}}
+        "semantic_input": {
+          "const": "Axiom semantic collection operations and lifecycle provenance"
+        },
+        "dependencies": {
+          "type": "array",
+          "minItems": 4,
+          "items": {
+            "type": "integer"
+          }
+        },
+        "out_of_scope": {
+          "type": "array",
+          "minItems": 3,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "forbidden_terms": {
+          "type": "array",
+          "minItems": 5,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
       }
     }
-  }
+  },
+  "$id": "https://omt-global.github.io/axiom/schemas/axiom.runtime_associative_collections.v1.schema.json"
 }
