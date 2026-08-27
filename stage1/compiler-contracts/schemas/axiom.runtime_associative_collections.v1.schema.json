@@ -1,12 +1,13 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://omt-global.github.io/axiom/schemas/axiom.runtime_associative_collections.v1.schema.json",
+  "title": "Axiom Runtime Associative Collections v1",
   "type": "object",
   "additionalProperties": false,
   "required": [
     "schema_version",
     "contract",
     "issue",
-    "status",
     "collections",
     "keys",
     "hashing",
@@ -15,55 +16,351 @@
     "ownership",
     "errors",
     "fixtures",
+    "status",
     "migration"
   ],
   "properties": {
     "schema_version": {
+      "type": "string",
       "const": "axiom.runtime-associative-collections.v1"
     },
     "contract": {
+      "type": "string",
       "const": "runtime.associative_collections"
     },
     "issue": {
+      "type": "integer",
       "const": 1476
     },
     "collections": {
-      "type": "object"
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "map",
+        "set",
+        "replacement"
+      ],
+      "properties": {
+        "map": {
+          "type": "array",
+          "minItems": 8,
+          "maxItems": 8,
+          "const": [
+            "construct",
+            "lookup",
+            "insert_or_replace",
+            "remove",
+            "clear",
+            "len",
+            "capacity",
+            "iterate"
+          ]
+        },
+        "set": {
+          "type": "array",
+          "minItems": 8,
+          "maxItems": 8,
+          "const": [
+            "construct",
+            "contains",
+            "insert",
+            "remove",
+            "clear",
+            "len",
+            "capacity",
+            "iterate"
+          ]
+        },
+        "replacement": {
+          "type": "string",
+          "const": "one_value_per_equal_key"
+        }
+      }
     },
     "keys": {
-      "type": "object"
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "equality",
+        "accepted",
+        "rejected"
+      ],
+      "properties": {
+        "equality": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "mode",
+            "cross_type",
+            "primitive",
+            "text",
+            "tuple",
+            "enum",
+            "user_defined",
+            "hash_compatibility"
+          ],
+          "properties": {
+            "mode": {
+              "type": "string",
+              "const": "total_deterministic_axiom_semantics"
+            },
+            "cross_type": {
+              "type": "string",
+              "const": "never_equal"
+            },
+            "primitive": {
+              "type": "string",
+              "const": "same_type_and_value"
+            },
+            "text": {
+              "type": "string",
+              "const": "same_unicode_scalar_sequence"
+            },
+            "tuple": {
+              "type": "string",
+              "const": "same_arity_and_recursive_component_equality"
+            },
+            "enum": {
+              "type": "string",
+              "const": "same_declared_type_variant_and_recursive_payload_equality"
+            },
+            "user_defined": {
+              "type": "string",
+              "const": "same_declared_immutable_type_and_declaration_order_fields"
+            },
+            "hash_compatibility": {
+              "type": "string",
+              "const": "equal_keys_same_hash"
+            }
+          }
+        },
+        "accepted": {
+          "type": "array",
+          "minItems": 5,
+          "maxItems": 5,
+          "const": [
+            "primitive",
+            "text",
+            "tuple_recursive",
+            "enum_recursive",
+            "accepted_immutable_value_shape"
+          ]
+        },
+        "rejected": {
+          "type": "array",
+          "minItems": 6,
+          "maxItems": 6,
+          "const": [
+            "float",
+            "mutable",
+            "resource",
+            "function",
+            "borrowed",
+            "unaccepted_user_shape"
+          ]
+        }
+      }
     },
     "hashing": {
-      "type": "object"
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "equal_keys",
+        "algorithm",
+        "host_seed",
+        "randomized_hardening"
+      ],
+      "properties": {
+        "equal_keys": {
+          "type": "string",
+          "const": "same_stable_hash"
+        },
+        "algorithm": {
+          "type": "string",
+          "const": "runtime_defined_versioned_stable"
+        },
+        "host_seed": {
+          "type": "string",
+          "const": "forbidden_for_default_or_reproducible_output"
+        },
+        "randomized_hardening": {
+          "type": "string",
+          "const": "explicit_opt_in_preserves_observable_order"
+        }
+      }
     },
     "iteration": {
-      "type": "object"
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "order",
+        "replace",
+        "remove_reinsert",
+        "clear",
+        "mutation"
+      ],
+      "properties": {
+        "order": {
+          "type": "string",
+          "const": "insertion_order"
+        },
+        "replace": {
+          "type": "string",
+          "const": "does_not_move_key"
+        },
+        "remove_reinsert": {
+          "type": "string",
+          "const": "appends"
+        },
+        "clear": {
+          "type": "string",
+          "const": "resets_order"
+        },
+        "mutation": {
+          "type": "string",
+          "const": "generation_checked_fail_closed"
+        }
+      }
     },
     "resources": {
-      "type": "object"
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "collision",
+        "limits",
+        "growth",
+        "failure"
+      ],
+      "properties": {
+        "collision": {
+          "type": "string",
+          "const": "separate_chaining_bounded_probes"
+        },
+        "limits": {
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 4,
+          "const": [
+            "entries",
+            "bytes",
+            "load_factor",
+            "collision_chain"
+          ]
+        },
+        "growth": {
+          "type": "string",
+          "const": "checked_before_mutation"
+        },
+        "failure": {
+          "type": "string",
+          "const": "structured_error_no_partial_mutation"
+        }
+      }
     },
     "ownership": {
-      "type": "object"
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "lookup",
+        "insert",
+        "iterator",
+        "nested",
+        "aliasing"
+      ],
+      "properties": {
+        "lookup": {
+          "type": "string",
+          "const": "borrowed_key_no_transfer"
+        },
+        "insert": {
+          "type": "string",
+          "const": "owned_key_value_transfer"
+        },
+        "iterator": {
+          "type": "string",
+          "const": "scoped_generation_checked"
+        },
+        "nested": {
+          "type": "string",
+          "const": "clone_drop_exactly_once"
+        },
+        "aliasing": {
+          "type": "string",
+          "const": "ownership_and_borrow_contract_enforced"
+        }
+      }
     },
     "errors": {
       "type": "array",
       "minItems": 7,
-      "items": {
-        "enum": [
-          "invalid_key_type",
-          "allocation_failed",
-          "collection_limit",
-          "collision_limit",
-          "concurrent_collection_mutation",
-          "use_after_move",
-          "borrow_violation"
-        ]
-      }
+      "maxItems": 7,
+      "const": [
+        "invalid_key_type",
+        "allocation_failed",
+        "collection_limit",
+        "collision_limit",
+        "concurrent_collection_mutation",
+        "use_after_move",
+        "borrow_violation"
+      ]
     },
     "fixtures": {
-      "type": "array"
+      "type": "array",
+      "minItems": 12,
+      "maxItems": 12,
+      "const": [
+        {
+          "id": "map-runtime-origin-growth-replace-remove",
+          "kind": "positive"
+        },
+        {
+          "id": "set-runtime-origin-contains-remove-clear",
+          "kind": "positive"
+        },
+        {
+          "id": "deterministic-insertion-order",
+          "kind": "positive"
+        },
+        {
+          "id": "equal-keys-stable-hash",
+          "kind": "positive"
+        },
+        {
+          "id": "tuple-enum-user-value-key",
+          "kind": "positive"
+        },
+        {
+          "id": "invalid-float-resource-function-borrowed-key",
+          "kind": "negative"
+        },
+        {
+          "id": "mutation-during-iteration",
+          "kind": "negative"
+        },
+        {
+          "id": "use-after-move-and-alias-borrow",
+          "kind": "negative"
+        },
+        {
+          "id": "allocation-and-limit-failure-no-partial-mutation",
+          "kind": "resource"
+        },
+        {
+          "id": "adversarial-collision-bounded",
+          "kind": "adversarial"
+        },
+        {
+          "id": "nested-clone-drop-cleanup",
+          "kind": "lifecycle"
+        },
+        {
+          "id": "compiler-symbol-table-determinism",
+          "kind": "compiler-proof"
+        }
+      ]
     },
     "status": {
+      "type": "string",
       "const": "contract_only"
     },
     "migration": {
@@ -77,33 +374,44 @@
       ],
       "properties": {
         "semantic_input": {
+          "type": "string",
           "const": "Axiom semantic collection operations and lifecycle provenance"
         },
         "dependencies": {
           "type": "array",
           "minItems": 4,
-          "items": {
-            "type": "integer"
-          }
+          "maxItems": 4,
+          "const": [
+            1425,
+            1437,
+            1438,
+            1440
+          ]
         },
         "out_of_scope": {
           "type": "array",
-          "minItems": 3,
-          "items": {
-            "type": "string",
-            "minLength": 1
-          }
+          "minItems": 4,
+          "maxItems": 4,
+          "const": [
+            "runtime lowering",
+            "allocator implementation",
+            "host container layout",
+            "readiness completion"
+          ]
         },
         "forbidden_terms": {
           "type": "array",
           "minItems": 5,
-          "items": {
-            "type": "string",
-            "minLength": 1
-          }
+          "maxItems": 5,
+          "const": [
+            "Rust HashMap",
+            "Rust HashSet",
+            "Cargo",
+            "Cranelift instruction",
+            "host address"
+          ]
         }
       }
     }
-  },
-  "$id": "https://omt-global.github.io/axiom/schemas/axiom.runtime_associative_collections.v1.schema.json"
+  }
 }

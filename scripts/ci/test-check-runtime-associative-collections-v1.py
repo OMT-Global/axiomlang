@@ -49,6 +49,12 @@ def main() -> None:
             raise SystemExit("missing adversarial fixture classification was accepted")
 
         value = json.loads((ROOT / "stage1/compiler-contracts/snapshots/runtime-associative-collections-v1.json").read_text())
+        del value["keys"]["equality"]["tuple"]
+        path.write_text(json.dumps(value))
+        if run(root).returncode == 0:
+            raise SystemExit("missing nested schema constraint was accepted")
+
+        value = json.loads((ROOT / "stage1/compiler-contracts/snapshots/runtime-associative-collections-v1.json").read_text())
         value["hashing"]["host_seed"] = "Rust HashMap detail"
         path.write_text(json.dumps(value))
         if run(root).returncode == 0:
