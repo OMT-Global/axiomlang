@@ -28,6 +28,16 @@ def main() -> None:
         shutil.copy2(CHECKER, root / "scripts/ci/check-runtime-associative-collections-v1.py")
         if run(root).returncode != 0:
             raise SystemExit("valid associative collections contract was rejected")
+
+        schema_path = root / "stage1/compiler-contracts/schemas/axiom.runtime_associative_collections.v1.schema.json"
+        original_schema = schema_path.read_bytes()
+        schema = json.loads(original_schema)
+        del schema["properties"]["keys"]["properties"]["equality"]["properties"]["tuple"]["const"]
+        schema_path.write_text(json.dumps(schema))
+        if run(root).returncode == 0:
+            raise SystemExit("weakened nested published-schema constraint was accepted")
+        schema_path.write_bytes(original_schema)
+
         path = root / "stage1/compiler-contracts/snapshots/runtime-associative-collections-v1.json"
 
         value = json.loads(path.read_text())

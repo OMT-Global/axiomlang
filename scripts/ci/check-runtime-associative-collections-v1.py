@@ -76,6 +76,19 @@ MIGRATION = {
     "semantic_input": "Axiom semantic collection operations and lifecycle provenance",
     "dependencies": [1425, 1437, 1438, 1440],
 }
+MIGRATION_OUT_OF_SCOPE = [
+    "runtime lowering",
+    "allocator implementation",
+    "host container layout",
+    "readiness completion",
+]
+MIGRATION_FORBIDDEN_TERMS = [
+    "Rust HashMap",
+    "Rust HashSet",
+    "Cargo",
+    "Cranelift instruction",
+    "host address",
+]
 
 
 def fail(message: str) -> None:
@@ -143,9 +156,139 @@ def validate_schema_node(value: Any, schema: dict[str, Any], path: str, defs: di
         fail(f"{path} uses unsupported schema type {expected_type}")
 
 
+def require_object_schema(schema: dict[str, Any], path: str, required: list[str]) -> dict[str, Any]:
+    require(schema.get("type") == "object", f"{path} schema type drift")
+    require(schema.get("additionalProperties") is False, f"{path} schema openness drift")
+    actual_required = schema.get("required")
+    require(
+        isinstance(actual_required, list)
+        and len(actual_required) == len(required)
+        and set(actual_required) == set(required),
+        f"{path} schema required surface drift",
+    )
+    properties = schema.get("properties")
+    require(isinstance(properties, dict), f"{path} schema properties missing")
+    require(set(properties) == set(required), f"{path} schema property surface drift")
+    return properties
+
+
+def require_const_schema(
+    schema: dict[str, Any], path: str, expected_type: str, expected: Any
+) -> None:
+    require(schema.get("type") == expected_type, f"{path} schema type drift")
+    require(schema.get("const") == expected, f"{path} schema constraint drift")
+
+
+def require_array_const_schema(schema: dict[str, Any], path: str, expected: list[Any]) -> None:
+    require_const_schema(schema, path, "array", expected)
+    require(schema.get("minItems") == len(expected), f"{path} schema minimum drift")
+    require(schema.get("maxItems") == len(expected), f"{path} schema maximum drift")
+
+
+def validate_published_schema(schema: dict[str, Any]) -> None:
+    """Ensure the published schema still carries the complete semantic contract."""
+    top = require_object_schema(
+        schema,
+        "$",
+        [
+            "schema_version",
+            "contract",
+            "issue",
+            "collections",
+            "keys",
+            "hashing",
+            "iteration",
+            "resources",
+            "ownership",
+            "errors",
+            "fixtures",
+            "status",
+            "migration",
+        ],
+    )
+    require_const_schema(
+        top["schema_version"], "$.schema_version", "string", "axiom.runtime-associative-collections.v1"
+    )
+    require_const_schema(top["contract"], "$.contract", "string", "runtime.associative_collections")
+    require_const_schema(top["issue"], "$.issue", "integer", 1476)
+
+    collections = require_object_schema(
+        top["collections"], "$.collections", ["map", "set", "replacement"]
+    )
+    require_array_const_schema(collections["map"], "$.collections.map", COLLECTIONS["map"])
+    require_array_const_schema(collections["set"], "$.collections.set", COLLECTIONS["set"])
+    require_const_schema(
+        collections["replacement"],
+        "$.collections.replacement",
+        "string",
+        COLLECTIONS["replacement"],
+    )
+
+    keys = require_object_schema(top["keys"], "$.keys", ["equality", "accepted", "rejected"])
+    equality = require_object_schema(
+        keys["equality"], "$.keys.equality", list(KEY_EQUALITY)
+    )
+    for name, expected in KEY_EQUALITY.items():
+        require_const_schema(equality[name], f"$.keys.equality.{name}", "string", expected)
+    require_array_const_schema(keys["accepted"], "$.keys.accepted", KEYS["accepted"])
+    require_array_const_schema(keys["rejected"], "$.keys.rejected", KEYS["rejected"])
+
+    hashing = require_object_schema(
+        top["hashing"], "$.hashing", ["equal_keys", "algorithm", "host_seed", "randomized_hardening"]
+    )
+    for name, expected in HASHING.items():
+        require_const_schema(hashing[name], f"$.hashing.{name}", "string", expected)
+
+    iteration = require_object_schema(
+        top["iteration"], "$.iteration", ["order", "replace", "remove_reinsert", "clear", "mutation"]
+    )
+    for name, expected in ITERATION.items():
+        require_const_schema(iteration[name], f"$.iteration.{name}", "string", expected)
+
+    resources = require_object_schema(
+        top["resources"], "$.resources", ["collision", "limits", "growth", "failure"]
+    )
+    require_const_schema(resources["collision"], "$.resources.collision", "string", RESOURCES["collision"])
+    require_array_const_schema(resources["limits"], "$.resources.limits", RESOURCES["limits"])
+    require_const_schema(resources["growth"], "$.resources.growth", "string", RESOURCES["growth"])
+    require_const_schema(resources["failure"], "$.resources.failure", "string", RESOURCES["failure"])
+
+    ownership = require_object_schema(
+        top["ownership"], "$.ownership", ["lookup", "insert", "iterator", "nested", "aliasing"]
+    )
+    for name, expected in OWNERSHIP.items():
+        require_const_schema(ownership[name], f"$.ownership.{name}", "string", expected)
+
+    require_array_const_schema(top["errors"], "$.errors", ERRORS)
+    require_array_const_schema(top["fixtures"], "$.fixtures", FIXTURES)
+    require_const_schema(top["status"], "$.status", "string", "contract_only")
+
+    migration = require_object_schema(
+        top["migration"],
+        "$.migration",
+        ["semantic_input", "dependencies", "out_of_scope", "forbidden_terms"],
+    )
+    require_const_schema(
+        migration["semantic_input"],
+        "$.migration.semantic_input",
+        "string",
+        MIGRATION["semantic_input"],
+    )
+    require_array_const_schema(
+        migration["dependencies"], "$.migration.dependencies", MIGRATION["dependencies"]
+    )
+    require_array_const_schema(
+        migration["out_of_scope"], "$.migration.out_of_scope", MIGRATION_OUT_OF_SCOPE
+    )
+    require_array_const_schema(
+        migration["forbidden_terms"], "$.migration.forbidden_terms", MIGRATION_FORBIDDEN_TERMS
+    )
+
+
 def main() -> None:
     schema = json.loads(SCHEMA.read_text(encoding="utf-8"))
     snapshot: dict[str, Any] = json.loads(SNAPSHOT.read_text(encoding="utf-8"))
+    validate_published_schema(schema)
     validate_against_schema(snapshot, schema)
     required = {"schema_version", "contract", "issue", "status", "collections", "keys", "hashing", "iteration", "resources", "ownership", "errors", "fixtures", "migration"}
     require(schema["type"] == "object" and schema["additionalProperties"] is False, "schema envelope drift")
