@@ -25,6 +25,7 @@ pub mod package_store;
 pub mod package_trust;
 pub mod package_version;
 pub mod project;
+mod protocol_framing;
 pub mod registry;
 pub mod registry_client;
 pub mod runtime_lifecycle;
