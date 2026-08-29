@@ -4,17 +4,20 @@ use crate::manifest::load_manifest;
 use crate::mir;
 use crate::project::{analyze_package_for_lsp, package_graph_metadata, project_capabilities};
 use crate::syntax;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fs;
-use std::io::{BufRead, Write};
+use std::io::{BufRead, Read, Write};
 use std::path::{Path, PathBuf};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 const TEXT_DOCUMENT_SYNC_KIND_INCREMENTAL: u8 = 2;
 const MAX_DOCUMENT_BYTES: usize = 1024 * 1024;
 const MAX_WORKSPACE_BYTES: usize = 16 * 1024 * 1024;
 const MAX_WORKSPACE_DOCUMENTS: usize = 2048;
+const MAX_WORKSPACE_DISCOVERY_DEPTH: usize = 16;
+const MAX_WORKSPACE_DISCOVERY_ENTRIES: usize = 65_536;
+const MAX_WORKSPACE_DISCOVERY_MILLIS: u64 = 250;
 const MAX_LATENCY_SAMPLES: usize = 128;
 const DOCUMENT_METADATA_BYTES: usize = 256;
 
@@ -315,9 +318,11 @@ impl LspServer {
                 .sum::<usize>(),
         );
         let remaining_documents = MAX_WORKSPACE_DOCUMENTS.saturating_sub(documents.len());
-        for (uri, text) in
-            workspace_files(&self.workspace_roots, remaining_bytes, remaining_documents)
-        {
+        let discovery = workspace_files(
+            &self.workspace_roots,
+            &default_workspace_discovery_limits(remaining_bytes, remaining_documents),
+        );
+        for (uri, text) in discovery.documents {
             documents.entry(uri).or_insert(text);
         }
         let overlays = documents
@@ -362,6 +367,16 @@ impl LspServer {
                 }
             }
         }
+        if let Some(budget) = discovery.stopped_at {
+            let truncation = workspace_discovery_truncation_diagnostic(budget);
+            for root in &self.workspace_roots {
+                let uri = workspace_uri_for_path(root, &documents);
+                diagnostics
+                    .entry(uri)
+                    .or_default()
+                    .push(truncation.clone());
+            }
+        }
         for (uri, text) in &documents {
             if resolved.contains(uri) {
                 continue;
@@ -396,7 +411,7 @@ impl LspServer {
 
     fn publish_workspace_diagnostics(&mut self) -> Vec<Value> {
         let index = self.workspace_index();
-        index
+        let mut messages = index
             .documents
             .iter()
             .map(|(uri, source)| {
@@ -406,7 +421,14 @@ impl LspServer {
                     publish_diagnostics(uri, source)
                 }
             })
-            .collect()
+            .collect::<Vec<_>>();
+        for (uri, diagnostics) in &index.diagnostics {
+            if index.documents.contains_key(uri) {
+                continue;
+            }
+            messages.push(publish_diagnostic_values(uri, "", diagnostics.clone()));
+        }
+        messages
     }
 
     fn hover_response(&mut self, id: Value, message: &Value) -> Value {
@@ -702,24 +724,124 @@ fn package_root_for_path(path: &Path) -> Option<PathBuf> {
     }
 }
 
-fn workspace_files(
-    roots: &BTreeSet<PathBuf>,
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WorkspaceDiscoveryBudget {
+    Documents,
+    Bytes,
+    Depth,
+    Entries,
+    Time,
+}
+
+impl WorkspaceDiscoveryBudget {
+    fn as_str(self) -> &'static str {
+        match self {
+            WorkspaceDiscoveryBudget::Documents => "document",
+            WorkspaceDiscoveryBudget::Bytes => "byte",
+            WorkspaceDiscoveryBudget::Depth => "directory-depth",
+            WorkspaceDiscoveryBudget::Entries => "directory-entry",
+            WorkspaceDiscoveryBudget::Time => "elapsed-time",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct WorkspaceDiscoveryLimits {
     byte_limit: usize,
     document_limit: usize,
-) -> BTreeMap<String, String> {
-    let mut documents = BTreeMap::new();
-    let mut pending = roots.iter().cloned().collect::<Vec<_>>();
-    let mut bytes = 0usize;
-    while let Some(path) = pending.pop() {
-        if documents.len() >= document_limit || bytes >= byte_limit {
+    depth_limit: usize,
+    entry_limit: usize,
+    time_limit: Duration,
+}
+
+fn default_workspace_discovery_limits(
+    byte_limit: usize,
+    document_limit: usize,
+) -> WorkspaceDiscoveryLimits {
+    WorkspaceDiscoveryLimits {
+        byte_limit,
+        document_limit,
+        depth_limit: MAX_WORKSPACE_DISCOVERY_DEPTH,
+        entry_limit: MAX_WORKSPACE_DISCOVERY_ENTRIES,
+        time_limit: Duration::from_millis(MAX_WORKSPACE_DISCOVERY_MILLIS),
+    }
+}
+
+#[derive(Debug, Default, PartialEq)]
+struct WorkspaceDiscovery {
+    documents: BTreeMap<String, String>,
+    stopped_at: Option<WorkspaceDiscoveryBudget>,
+    directories_visited: usize,
+    entries_visited: usize,
+    bytes: usize,
+}
+
+fn workspace_discovery_truncation_diagnostic(budget: WorkspaceDiscoveryBudget) -> Diagnostic {
+    Diagnostic::new(
+        "lsp",
+        format!(
+            "workspace discovery stopped at the {} budget; remaining workspace files were not indexed",
+            budget.as_str()
+        ),
+    )
+    .with_code("workspace-discovery-truncated")
+}
+
+/// Collects workspace sources from `roots` with a deterministic, path-ordered
+/// breadth-first traversal.
+///
+/// Traversal is bounded by every budget in `limits`: total stored bytes,
+/// document count, directory depth below each root, visited directory-entry
+/// count, and elapsed wall-clock time. Discovery stops at the first budget
+/// edge and reports the exhausted budget through
+/// [`WorkspaceDiscovery::stopped_at`] so callers can publish a stable
+/// truncation diagnostic instead of silently omitting files (#1581).
+fn workspace_files(
+    roots: &BTreeSet<PathBuf>,
+    limits: &WorkspaceDiscoveryLimits,
+) -> WorkspaceDiscovery {
+    let started = Instant::now();
+    let mut discovery = WorkspaceDiscovery::default();
+    let mut pending = roots
+        .iter()
+        .map(|root| (root.clone(), 0usize))
+        .collect::<VecDeque<_>>();
+    'discovery: while let Some((path, depth)) = pending.pop_front() {
+        if discovery.documents.len() >= limits.document_limit {
+            discovery.stopped_at = Some(WorkspaceDiscoveryBudget::Documents);
+            break;
+        }
+        if discovery.bytes >= limits.byte_limit {
+            discovery.stopped_at = Some(WorkspaceDiscoveryBudget::Bytes);
+            break;
+        }
+        if started.elapsed() >= limits.time_limit {
+            discovery.stopped_at = Some(WorkspaceDiscoveryBudget::Time);
             break;
         }
         let Ok(entries) = fs::read_dir(&path) else {
             continue;
         };
-        for entry in entries.flatten() {
-            if documents.len() >= document_limit || bytes >= byte_limit {
-                break;
+        discovery.directories_visited += 1;
+        let mut entries = entries.filter_map(Result::ok).collect::<Vec<_>>();
+        entries.sort_by_key(|entry| entry.path());
+        for entry in entries {
+            if discovery.documents.len() >= limits.document_limit {
+                discovery.stopped_at = Some(WorkspaceDiscoveryBudget::Documents);
+                break 'discovery;
+            }
+            if discovery.bytes >= limits.byte_limit {
+                discovery.stopped_at = Some(WorkspaceDiscoveryBudget::Bytes);
+                break 'discovery;
+            }
+            if started.elapsed() >= limits.time_limit {
+                discovery.stopped_at = Some(WorkspaceDiscoveryBudget::Time);
+                break 'discovery;
+            }
+            discovery.entries_visited += 1;
+            if discovery.entries_visited > limits.entry_limit {
+                discovery.stopped_at = Some(WorkspaceDiscoveryBudget::Entries);
+                break 'discovery;
             }
             let entry_path = entry.path();
             let Ok(file_type) = entry.file_type() else {
@@ -729,9 +851,25 @@ fn workspace_files(
                 continue;
             }
             if file_type.is_dir() {
-                if !matches!(entry.file_name().to_str(), Some("target" | ".git" | "dist")) {
-                    pending.push(entry_path);
+                if matches!(
+                    entry.file_name().to_str(),
+                    Some("target" | ".git" | "dist")
+                ) {
+                    continue;
                 }
+                if depth + 1 > limits.depth_limit {
+                    if discovery.stopped_at.is_none() {
+                        discovery.stopped_at = Some(WorkspaceDiscoveryBudget::Depth);
+                    }
+                    continue;
+                }
+                pending.push_back((entry_path, depth + 1));
+                continue;
+            }
+            let Ok(metadata) = entry.metadata() else {
+                continue;
+            };
+            if !metadata.file_type().is_file() {
                 continue;
             }
             if entry_path
@@ -741,19 +879,42 @@ fn workspace_files(
             {
                 continue;
             }
-            let Ok(text) = fs::read_to_string(&entry_path) else {
-                continue;
-            };
             let uri = uri_for_path(&entry_path);
-            let storage_bytes = document_memory_bytes(&uri, &text);
-            if text.len() > MAX_DOCUMENT_BYTES || bytes.saturating_add(storage_bytes) > byte_limit {
+            let file_size = usize::try_from(metadata.len()).unwrap_or(usize::MAX);
+            let reserved = DOCUMENT_METADATA_BYTES.saturating_add(uri.len());
+            if file_size > MAX_DOCUMENT_BYTES
+                || discovery
+                    .bytes
+                    .saturating_add(reserved)
+                    .saturating_add(file_size)
+                    > limits.byte_limit
+            {
                 continue;
             }
-            bytes += storage_bytes;
-            documents.insert(uri, text);
+            let Ok(mut file) = fs::File::open(&entry_path) else {
+                continue;
+            };
+            let mut source = Vec::with_capacity(file_size.min(MAX_DOCUMENT_BYTES));
+            if Read::by_ref(&mut file)
+                .take((MAX_DOCUMENT_BYTES as u64).saturating_add(1))
+                .read_to_end(&mut source)
+                .is_err()
+                || source.len() > MAX_DOCUMENT_BYTES
+            {
+                continue;
+            }
+            let Ok(text) = String::from_utf8(source) else {
+                continue;
+            };
+            let storage_bytes = document_memory_bytes(&uri, &text);
+            if discovery.bytes.saturating_add(storage_bytes) > limits.byte_limit {
+                continue;
+            }
+            discovery.bytes += storage_bytes;
+            discovery.documents.insert(uri, text);
         }
     }
-    documents
+    discovery
 }
 
 fn document_memory_bytes(uri: &str, source: &str) -> usize {
@@ -2031,6 +2192,162 @@ mod tests {
                     .as_array()
                     .is_some_and(|items| !items.is_empty())),
             "{capability:?}"
+        );
+    }
+
+    #[test]
+    fn workspace_files_selects_entries_in_path_order() {
+        let directory = tempfile::tempdir().expect("workspace");
+        let first = directory.path().join("a.ax");
+        let second = directory.path().join("z.ax");
+        fs::write(&second, "pub fn later(): int {\nreturn 2\n}\n").expect("later");
+        fs::write(&first, "pub fn first(): int {\nreturn 1\n}\n").expect("first");
+
+        let roots = BTreeSet::from([directory.path().to_path_buf()]);
+        let discovery = workspace_files(
+            &roots,
+            &default_workspace_discovery_limits(MAX_WORKSPACE_BYTES, 1),
+        );
+        assert_eq!(discovery.documents.len(), 1);
+        assert!(discovery.documents.contains_key(&uri_for_path(&first)));
+        assert!(!discovery.documents.contains_key(&uri_for_path(&second)));
+    }
+
+    #[test]
+    fn workspace_files_checks_metadata_before_reading_oversized_sources() {
+        let directory = tempfile::tempdir().expect("workspace");
+        let oversized = directory.path().join("a-oversized.ax");
+        let small = directory.path().join("small.ax");
+        let file = fs::File::create(&oversized).expect("oversized source");
+        file.set_len((MAX_DOCUMENT_BYTES as u64) + 1)
+            .expect("set oversized source length");
+        fs::write(&small, "pub fn small(): int {\nreturn 1\n}\n").expect("small source");
+
+        let roots = BTreeSet::from([directory.path().to_path_buf()]);
+        let discovery = workspace_files(
+            &roots,
+            &default_workspace_discovery_limits(MAX_WORKSPACE_BYTES, 2),
+        );
+        assert!(!discovery.documents.contains_key(&uri_for_path(&oversized)));
+        assert!(discovery.documents.contains_key(&uri_for_path(&small)));
+    }
+
+    #[test]
+    fn workspace_files_stops_before_visiting_every_directory_in_a_deep_wide_tree() {
+        let directory = tempfile::tempdir().expect("workspace");
+        let total_depth = MAX_WORKSPACE_DISCOVERY_DEPTH + 64;
+        let mut total_directories = 0usize;
+        let mut current = directory.path().to_path_buf();
+        for level in 0..total_depth {
+            let noise = current.join(format!("noise-{level:04}"));
+            fs::create_dir(&noise).expect("noise directory");
+            fs::write(noise.join("notes.txt"), "not an axiom source")
+                .expect("noise file");
+            total_directories += 1;
+            current = current.join(format!("level-{level:04}"));
+            fs::create_dir(&current).expect("deep directory");
+            total_directories += 1;
+        }
+
+        let roots = BTreeSet::from([directory.path().to_path_buf()]);
+        let discovery = workspace_files(
+            &roots,
+            &default_workspace_discovery_limits(MAX_WORKSPACE_BYTES, MAX_WORKSPACE_DOCUMENTS),
+        );
+        assert!(discovery.documents.is_empty());
+        assert_eq!(
+            discovery.stopped_at,
+            Some(WorkspaceDiscoveryBudget::Depth),
+            "deep trees of empty and excluded-only directories must stop at the depth budget"
+        );
+        assert!(
+            discovery.directories_visited < total_directories,
+            "discovery visited {} of {} directories",
+            discovery.directories_visited,
+            total_directories
+        );
+    }
+
+    #[test]
+    fn workspace_files_stops_at_the_entry_budget_on_wide_empty_trees() {
+        let directory = tempfile::tempdir().expect("workspace");
+        let total_directories = 64usize;
+        for index in 0..total_directories {
+            fs::create_dir(directory.path().join(format!("directory-{index:04}")))
+                .expect("wide directory");
+        }
+
+        let roots = BTreeSet::from([directory.path().to_path_buf()]);
+        let mut limits =
+            default_workspace_discovery_limits(MAX_WORKSPACE_BYTES, MAX_WORKSPACE_DOCUMENTS);
+        limits.entry_limit = 8;
+        let discovery = workspace_files(&roots, &limits);
+        assert!(discovery.documents.is_empty());
+        assert_eq!(discovery.stopped_at, Some(WorkspaceDiscoveryBudget::Entries));
+        assert!(discovery.entries_visited <= limits.entry_limit + 1);
+        assert_eq!(discovery.directories_visited, 1);
+    }
+
+    #[test]
+    fn workspace_files_stops_at_the_time_budget_when_elapsed_time_is_exhausted() {
+        let directory = tempfile::tempdir().expect("workspace");
+        let source_path = directory.path().join("main.ax");
+        fs::write(&source_path, "pub fn main(): int {\nreturn 1\n}\n").expect("source");
+
+        let roots = BTreeSet::from([directory.path().to_path_buf()]);
+        let mut limits =
+            default_workspace_discovery_limits(MAX_WORKSPACE_BYTES, MAX_WORKSPACE_DOCUMENTS);
+        limits.time_limit = Duration::ZERO;
+        let discovery = workspace_files(&roots, &limits);
+        assert!(discovery.documents.is_empty());
+        assert_eq!(discovery.stopped_at, Some(WorkspaceDiscoveryBudget::Time));
+        assert_eq!(discovery.directories_visited, 0);
+    }
+
+    #[test]
+    fn workspace_discovery_truncation_publishes_a_stable_diagnostic() {
+        let directory = tempfile::tempdir().expect("workspace");
+        fs::write(
+            directory.path().join("axiom.toml"),
+            "[package]\nname = \"lsp-truncation\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"main.ax\"\nout_dir = \"dist\"\n",
+        )
+        .expect("manifest");
+        let main_path = directory.path().join("main.ax");
+        fs::write(&main_path, "pub fn main(): int {\nreturn 1\n}\n").expect("main");
+        let mut deep = directory.path().join("deep");
+        fs::create_dir(&deep).expect("deep root");
+        for level in 0..(MAX_WORKSPACE_DISCOVERY_DEPTH + 32) {
+            deep = deep.join(format!("level-{level:04}"));
+            fs::create_dir(&deep).expect("deep directory");
+        }
+
+        let main_uri = uri_for_path(&main_path);
+        let mut server = LspServer::default();
+        server
+            .handle_message(&request(
+                1,
+                "initialize",
+                json!({ "rootUri": uri_for_path(directory.path()) }),
+            ))
+            .expect("initialize");
+        let response = server
+            .handle_message(&notification(
+                "textDocument/didOpen",
+                json!({ "textDocument": { "uri": main_uri, "languageId": "axiom", "version": 1, "text": "pub fn main(): int {\nreturn 1\n}\n" } }),
+            ))
+            .expect("open");
+        assert!(
+            response.messages.iter().any(|message| {
+                message["method"] == json!("textDocument/publishDiagnostics")
+                    && message["params"]["diagnostics"]
+                        .as_array()
+                        .is_some_and(|items| items.iter().any(|item| {
+                            item["code"] == json!("workspace-discovery-truncated")
+                                && item["message"].as_str().is_some_and(|text| text
+                                    == "workspace discovery stopped at the directory-depth budget; remaining workspace files were not indexed")
+                        }))
+            }),
+            "{response:?}"
         );
     }
 }
