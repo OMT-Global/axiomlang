@@ -145,6 +145,24 @@ class QualificationTests(unittest.TestCase):
         self.assertNotIn("hir_unit", lsp_tokens)
         self.assertNotIn("lib_unit", lsp_tokens)
 
+    def test_default_plan_keeps_complete_cranelift_target_in_extended_qualification(self):
+        cranelift = next(
+            check
+            for check in toolchain_qualification.DEFAULT_CHECKS
+            if check["id"] == "cranelift_backend_integration"
+        )
+        cranelift_tokens = shlex.split(cranelift["command"])
+        self.assertEqual(
+            cranelift_tokens[cranelift_tokens.index("--test") + 1],
+            "cranelift_backend",
+        )
+        self.assertIn("--test-threads=1", cranelift_tokens)
+
+        fast_checks = (ROOT / "scripts/ci/run-fast-checks.sh").read_text(encoding="utf-8")
+        pr_workflow = (ROOT / ".github/workflows/pr-fast-ci.yml").read_text(encoding="utf-8")
+        self.assertNotIn("--test cranelift_backend", fast_checks)
+        self.assertNotIn("--test cranelift_backend", pr_workflow)
+
     def test_declared_artifact_is_copied_and_listed_without_cargo(self):
         root = self.fixture_repo()
         checks = [{

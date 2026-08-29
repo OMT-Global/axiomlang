@@ -7,6 +7,11 @@
       "reason": "compiler changes require toolchain qualification"
     },
     {
+      "path": "stage1/crates/axiomc/tests/cranelift_backend.rs",
+      "extended": true,
+      "reason": "the complete Cranelift integration target runs only in extended qualification"
+    },
+    {
       "path": "stage1/schemas/axiom-production-language-readiness-v1.schema.json",
       "extended": true,
       "reason": "readiness schema changes require toolchain qualification"
