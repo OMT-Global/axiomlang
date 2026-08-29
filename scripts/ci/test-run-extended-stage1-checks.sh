@@ -29,4 +29,14 @@ grep -Fq 'default targeted builds must not silently fall back to generated Rust'
   exit 1
 }
 
+grep -Fq 'error.get("code") != "target.unsupported"' "$script" || {
+  echo "extended stage1 checks must assert the structured unsupported-target code" >&2
+  exit 1
+}
+
+if grep -Fq 'cranelift backend spike currently supports only the host target' "$script"; then
+  echo "extended stage1 checks must not depend on unsupported-target message text" >&2
+  exit 1
+fi
+
 echo "run-extended-stage1-checks regression cases passed"

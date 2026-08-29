@@ -14,6 +14,14 @@ required = (
     "capture_expected_failure_report",
     "validate-stage1-smoke-report.py",
     '--expect "$expectation"',
+    "run_stdlib_env_project",
+    '__AXIOM_STAGE1_MISSING__=first-runtime-value',
+    '__AXIOM_STAGE1_MISSING__=second-runtime-value',
+    '"execution_mode") != "direct_native_runtime"',
+    '"direct_native_runtime") is not True',
+    '"known_value_static_folds") is not False',
+    '"generated_rust") is not None',
+    "stdlib_env did not produce runtime-sensitive output",
     '"bounded-static"',
     "--expect blocked",
     "run_fail_closed_stdlib_project",
@@ -33,7 +41,6 @@ if missing:
     )
 
 fail_closed = {
-    "stdlib_env",
     "stdlib_fs",
     "stdlib_net",
     "stdlib_process",
