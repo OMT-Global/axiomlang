@@ -22,6 +22,7 @@ fi
 echo "compiler property corpus has ${property_count} property fn clauses"
 
 keep_outputs_writable() {
+  trap - EXIT HUP INT TERM
   local dir="$1"
   while true; do
     chmod -R u+rwX "$dir" 2>/dev/null || true
