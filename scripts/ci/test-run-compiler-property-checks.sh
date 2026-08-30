@@ -4,6 +4,20 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 script="$repo_root/scripts/ci/run-compiler-property-checks.sh"
 
+if ! awk '
+  /^keep_outputs_writable\(\) \{$/ {
+    if (getline != 1 || $0 != "  trap - EXIT HUP INT TERM") {
+      exit 1
+    }
+    found=1
+    exit
+  }
+  END { exit found ? 0 : 1 }
+' "$script"; then
+  echo "keep_outputs_writable must clear inherited traps before starting its loop" >&2
+  exit 1
+fi
+
 if grep -Eq 'mktemp .*[.]XXXXXX[.]' "$script"; then
   echo "compiler property checks must use BSD-compatible mktemp templates" >&2
   exit 1
