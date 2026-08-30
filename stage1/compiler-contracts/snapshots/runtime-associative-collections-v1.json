@@ -1,0 +1,168 @@
+{
+  "schema_version": "axiom.runtime-associative-collections.v1",
+  "contract": "runtime.associative_collections",
+  "issue": 1476,
+  "collections": {
+    "map": [
+      "construct",
+      "lookup",
+      "insert_or_replace",
+      "remove",
+      "clear",
+      "len",
+      "capacity",
+      "iterate"
+    ],
+    "set": [
+      "construct",
+      "contains",
+      "insert",
+      "remove",
+      "clear",
+      "len",
+      "capacity",
+      "iterate"
+    ],
+    "replacement": "one_value_per_equal_key"
+  },
+  "keys": {
+    "equality": {
+      "mode": "total_deterministic_axiom_semantics",
+      "cross_type": "never_equal",
+      "primitive": "same_type_and_value",
+      "text": "same_unicode_scalar_sequence",
+      "tuple": "same_arity_and_recursive_component_equality",
+      "enum": "same_declared_type_variant_and_recursive_payload_equality",
+      "user_defined": "same_declared_immutable_type_and_declaration_order_fields",
+      "hash_compatibility": "equal_keys_same_hash"
+    },
+    "accepted": [
+      "primitive",
+      "text",
+      "tuple_recursive",
+      "enum_recursive",
+      "accepted_immutable_value_shape"
+    ],
+    "rejected": [
+      "float",
+      "mutable",
+      "resource",
+      "function",
+      "borrowed",
+      "unaccepted_user_shape"
+    ]
+  },
+  "hashing": {
+    "equal_keys": "same_stable_hash",
+    "algorithm": "runtime_defined_versioned_stable",
+    "host_seed": "forbidden_for_default_or_reproducible_output",
+    "randomized_hardening": "explicit_opt_in_preserves_observable_order"
+  },
+  "iteration": {
+    "order": "insertion_order",
+    "replace": "does_not_move_key",
+    "remove_reinsert": "appends",
+    "clear": "resets_order",
+    "mutation": "generation_checked_fail_closed"
+  },
+  "resources": {
+    "collision": "separate_chaining_bounded_probes",
+    "limits": [
+      "entries",
+      "bytes",
+      "load_factor",
+      "collision_chain"
+    ],
+    "growth": "checked_before_mutation",
+    "failure": "structured_error_no_partial_mutation"
+  },
+  "ownership": {
+    "lookup": "borrowed_key_no_transfer",
+    "insert": "owned_key_value_transfer",
+    "iterator": "scoped_generation_checked",
+    "nested": "clone_drop_exactly_once",
+    "aliasing": "ownership_and_borrow_contract_enforced"
+  },
+  "errors": [
+    "invalid_key_type",
+    "allocation_failed",
+    "collection_limit",
+    "collision_limit",
+    "concurrent_collection_mutation",
+    "use_after_move",
+    "borrow_violation"
+  ],
+  "fixtures": [
+    {
+      "id": "map-runtime-origin-growth-replace-remove",
+      "kind": "positive"
+    },
+    {
+      "id": "set-runtime-origin-contains-remove-clear",
+      "kind": "positive"
+    },
+    {
+      "id": "deterministic-insertion-order",
+      "kind": "positive"
+    },
+    {
+      "id": "equal-keys-stable-hash",
+      "kind": "positive"
+    },
+    {
+      "id": "tuple-enum-user-value-key",
+      "kind": "positive"
+    },
+    {
+      "id": "invalid-float-resource-function-borrowed-key",
+      "kind": "negative"
+    },
+    {
+      "id": "mutation-during-iteration",
+      "kind": "negative"
+    },
+    {
+      "id": "use-after-move-and-alias-borrow",
+      "kind": "negative"
+    },
+    {
+      "id": "allocation-and-limit-failure-no-partial-mutation",
+      "kind": "resource"
+    },
+    {
+      "id": "adversarial-collision-bounded",
+      "kind": "adversarial"
+    },
+    {
+      "id": "nested-clone-drop-cleanup",
+      "kind": "lifecycle"
+    },
+    {
+      "id": "compiler-symbol-table-determinism",
+      "kind": "compiler-proof"
+    }
+  ],
+  "status": "contract_only",
+  "migration": {
+    "semantic_input": "Axiom semantic collection operations and lifecycle provenance",
+    "dependencies": [
+      1425,
+      1437,
+      1438,
+      1440
+    ],
+    "out_of_scope": [
+      "runtime lowering",
+      "allocator implementation",
+      "host container layout",
+      "readiness completion"
+    ],
+    "forbidden_terms": [
+      "Rust HashMap",
+      "Rust HashSet",
+      "Cargo",
+      "Cranelift instruction",
+      "host address"
+    ]
+  }
+}

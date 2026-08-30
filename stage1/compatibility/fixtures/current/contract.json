@@ -10,7 +10,7 @@
       "sha256": "30e92d85d0e0cc6cf14a32477e5b45afbc44d3d36803a8e456d55ef93860767a"
     }
   },
-  "contract_version": "0.5.0",
+  "contract_version": "0.6.0",
   "edition": {
     "id": "2026",
     "source": {
@@ -95,7 +95,7 @@
           "path": "stage1/compiler-contracts/snapshots/capability-ledger.json",
           "role": "cli_top_level_parity",
           "selector": "commands[*].name",
-          "sha256": "670f2740f738ca528c5090376e2bd3ccf391ccef7a0e1dc827aeb2e530df3a73"
+          "sha256": "66fda49f6b44c625ff0dd7cfe7980c3ff14a1e94da89177829613465da26fce7"
         },
         {
           "path": "stage1/crates/axiomc/src/main.rs",
@@ -1035,6 +1035,21 @@
           "role": "published_schema",
           "selector": "$id,properties.schema_version.const",
           "sha256": "d5ae5f985f29f744e026e599c4f5af7da8b658f605fe38b26b3c7874a53ee5fa"
+        }
+      ],
+      "stability": "experimental",
+      "version": "0.1.0"
+    },
+    {
+      "id": "axiom://schema/axiom.runtime_associative_collections.v1",
+      "kind": "schema",
+      "signature": "published schema id=https://omt-global.github.io/axiom/schemas/axiom.runtime_associative_collections.v1.schema.json; semantic_digest=d8712e60c4ed9dad0bf3ca6b2c5380ec8b6ba4932df94b58ec64d7e2c6a88391; envelope=axiom.runtime-associative-collections.v1",
+      "sources": [
+        {
+          "path": "stage1/compiler-contracts/schemas/axiom.runtime_associative_collections.v1.schema.json",
+          "role": "published_schema",
+          "selector": "$id,properties.schema_version.const",
+          "sha256": "a78ac31a3fed455ba7fb5d701ee4e9a535b2805434b845a224ae7ab91ee04d30"
         }
       ],
       "stability": "experimental",
