@@ -113,7 +113,7 @@
       "cranelift_backend_rejects_crypto_signature_denial_before_backend_lowering"
     ],
     "env.read": [
-      "cranelift_backend_rejects_env_precomputed_output_without_runtime_lowering",
+      "cranelift_backend_lowers_unrestricted_env_at_runtime",
       "cranelift_backend_lowers_env_read_to_runtime_exit_code",
       "cranelift_backend_builds_once_and_reads_environment_at_each_run",
       "cranelift_backend_runtime_env_match_prints_string_payload_at_runtime",

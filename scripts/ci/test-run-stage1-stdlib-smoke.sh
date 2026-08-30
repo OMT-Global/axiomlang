@@ -20,6 +20,7 @@ required = (
     'run_fail_closed_stdlib_test "stdlib_async"',
     'run_fail_closed_stdlib_test "stdlib_testing" --include-benchmarks',
     'run_stdlib_project "$example" "bounded-static"',
+    'run_stdlib_project "stdlib_env"',
     'run_stdlib_test "$example" "bounded-static"',
     "--expected-success-case src/json_bench",
     "--expected-success-case src/json_snapshot_test",
@@ -33,7 +34,6 @@ if missing:
     )
 
 fail_closed = {
-    "stdlib_env",
     "stdlib_fs",
     "stdlib_net",
     "stdlib_process",
