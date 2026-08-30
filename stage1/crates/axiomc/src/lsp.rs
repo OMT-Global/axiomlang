@@ -1993,13 +1993,13 @@ mod tests {
         let provider = json!({
             "jsonrpc": "2.0",
             "method": "textDocument/didOpen",
-            "params": { "textDocument": { "uri": "file:///tmp/lsp-stdio/provider.ax", "languageId": "axiom", "version": 1, "text": "pub fn health(): int {\nreturn 1\n}\n" } }
+            "params": { "textDocument": { "uri": "file:///tmp/lsp-stdio/provider.ax", "languageId": "axiom", "version": 1, "text": "pub fn health(first: int, second: int): int {\nreturn first\n}\n" } }
         })
         .to_string();
         let consumer = json!({
             "jsonrpc": "2.0",
             "method": "textDocument/didOpen",
-            "params": { "textDocument": { "uri": "file:///tmp/lsp-stdio/consumer.ax", "languageId": "axiom", "version": 1, "text": "print health()\n" } }
+            "params": { "textDocument": { "uri": "file:///tmp/lsp-stdio/consumer.ax", "languageId": "axiom", "version": 1, "text": "print health(\n" } }
         })
         .to_string();
         let definition = json!({
@@ -2009,7 +2009,14 @@ mod tests {
             "params": { "textDocument": { "uri": "file:///tmp/lsp-stdio/consumer.ax" }, "position": { "line": 0, "character": 8 } }
         })
         .to_string();
-        let input = [provider, consumer, definition]
+        let signature_help = json!({
+            "jsonrpc": "2.0",
+            "id": 10,
+            "method": "textDocument/signatureHelp",
+            "params": { "textDocument": { "uri": "file:///tmp/lsp-stdio/consumer.ax" }, "position": { "line": 0, "character": 13 } }
+        })
+        .to_string();
+        let input = [provider, consumer, definition, signature_help]
             .into_iter()
             .map(|body| format!("Content-Length: {}\r\n\r\n{body}", body.len()))
             .collect::<String>();
@@ -2020,6 +2027,8 @@ mod tests {
 
         let output = String::from_utf8(output).expect("utf8 output");
         assert!(output.contains(r#""id":9"#));
+        assert!(output.contains(r#""id":10"#));
+        assert!(output.contains("health(first: int, second: int): int"));
         assert!(output.contains("file:///tmp/lsp-stdio/provider.ax"));
     }
 
@@ -2183,18 +2192,26 @@ mod tests {
     fn completion_respects_module_and_package_visibility() {
         let workspace = tempfile::tempdir().expect("temporary workspace");
         let source_dir = workspace.path().join("src");
+        let dependency = workspace.path().join("deps/support");
+        let dependency_source_dir = dependency.join("src");
         fs::create_dir_all(&source_dir).expect("source directory");
+        fs::create_dir_all(&dependency_source_dir).expect("dependency source directory");
         fs::write(
             workspace.path().join("axiom.toml"),
-            "[package]\nname = \"lsp-visibility\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n",
+            "[package]\nname = \"lsp-visibility\"\nversion = \"0.1.0\"\n\n[dependencies.support]\npath = \"deps/support\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n",
         )
         .expect("manifest");
         fs::write(
-            source_dir.join("support.ax"),
+            dependency.join("axiom.toml"),
+            "[package]\nname = \"support\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/lib.ax\"\nout_dir = \"dist\"\n",
+        )
+        .expect("dependency manifest");
+        fs::write(
+            dependency_source_dir.join("lib.ax"),
             "fn hidden(): int { return 1 }\npub(pkg) fn package_visible(): int { return 2 }\npub fn public_visible(): int { return 3 }\n",
         )
-        .expect("support module");
-        let main = "import \"support.ax\"\nprint package_visible()\n";
+        .expect("dependency module");
+        let main = "import \"support/lib.ax\"\nprint \n";
         let main_path = source_dir.join("main.ax");
         fs::write(&main_path, main).expect("main module");
         let main_uri = uri_for_path(&main_path);
@@ -2219,11 +2236,14 @@ mod tests {
             .iter()
             .filter_map(|item| item["label"].as_str())
             .collect::<BTreeSet<_>>();
-        assert!(labels.contains("package_visible"), "{labels:?}");
         assert!(labels.contains("public_visible"), "{labels:?}");
         assert!(
             !labels.contains("hidden"),
             "private symbol leaked: {labels:?}"
+        );
+        assert!(
+            !labels.contains("package_visible"),
+            "cross-package pub(pkg) symbol leaked: {labels:?}"
         );
     }
 
@@ -2239,10 +2259,10 @@ mod tests {
         .expect("manifest");
         fs::write(
             source_dir.join("support.ax"),
-            "pub fn target(first: int, second: int): int {\nreturn first\n}\npub fn nested(value: int): int {\nreturn value\n}\n",
+            "pub fn target(first: int, second: int, third: int): int {\nreturn first\n}\npub fn nested(value: int): int {\nreturn value\n}\n",
         )
         .expect("support module");
-        let main = "import \"support.ax\"\nprint \"target(\"\n// target(\nprint target(\n  nested(\n    1\n  ),\n  \n";
+        let main = "import \"support.ax\"\nprint \"target(\"\n// target(\nprint target(\n  nested(\n    1\n  ),\n  2,\n  \n";
         let main_path = source_dir.join("main.ax");
         fs::write(&main_path, main).expect("main module");
         let main_uri = uri_for_path(&main_path);
@@ -2267,23 +2287,55 @@ mod tests {
         );
         assert_eq!(nested.messages[0]["result"]["activeParameter"], json!(0));
 
-        let outer_after_comma = server
+        let outer_after_open = server
             .handle_message(&request(
                 2,
                 "textDocument/signatureHelp",
-                json!({ "textDocument": { "uri": main_uri }, "position": { "line": 7, "character": 2 } }),
+                json!({ "textDocument": { "uri": main_uri }, "position": { "line": 3, "character": 13 } }),
             ))
-            .expect("outer signature help");
+            .expect("outer signature help after open");
         assert_eq!(
-            outer_after_comma.messages[0]["result"]["signatures"][0]["label"],
-            json!("target(first: int, second: int): int")
+            outer_after_open.messages[0]["result"]["signatures"][0]["label"],
+            json!("target(first: int, second: int, third: int): int")
         );
         assert_eq!(
-            outer_after_comma.messages[0]["result"]["activeParameter"],
+            outer_after_open.messages[0]["result"]["activeParameter"],
+            json!(0)
+        );
+
+        let outer_after_first_comma = server
+            .handle_message(&request(
+                3,
+                "textDocument/signatureHelp",
+                json!({ "textDocument": { "uri": main_uri }, "position": { "line": 6, "character": 4 } }),
+            ))
+            .expect("outer signature help after first comma");
+        assert_eq!(
+            outer_after_first_comma.messages[0]["result"]["signatures"][0]["label"],
+            json!("target(first: int, second: int, third: int): int")
+        );
+        assert_eq!(
+            outer_after_first_comma.messages[0]["result"]["activeParameter"],
             json!(1)
         );
 
-        for (id, line, character) in [(3, 1, 10), (4, 2, 10)] {
+        let outer_after_second_comma = server
+            .handle_message(&request(
+                4,
+                "textDocument/signatureHelp",
+                json!({ "textDocument": { "uri": main_uri }, "position": { "line": 7, "character": 4 } }),
+            ))
+            .expect("outer signature help after second comma");
+        assert_eq!(
+            outer_after_second_comma.messages[0]["result"]["signatures"][0]["label"],
+            json!("target(first: int, second: int, third: int): int")
+        );
+        assert_eq!(
+            outer_after_second_comma.messages[0]["result"]["activeParameter"],
+            json!(2)
+        );
+
+        for (id, line, character) in [(5, 1, 10), (6, 2, 10)] {
             let response = server
                 .handle_message(&request(
                     id,
