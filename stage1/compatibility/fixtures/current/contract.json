@@ -1043,13 +1043,13 @@
     {
       "id": "axiom://schema/axiom.runtime_http_client.v1",
       "kind": "schema",
-      "signature": "published schema id=https://axiom-lang.org/schemas/axiom.runtime_http_client.v1.schema.json; semantic_digest=33d2db8b5c44ba39d9c8bcc4c95bfb65dceeebba220d503911b8d5db09fbe33b; envelope=axiom.runtime_http_client.v1",
+      "signature": "published schema id=https://axiom-lang.org/schemas/axiom.runtime_http_client.v1.schema.json; semantic_digest=738e10782ad2e2d57b75e2f7065c70d9a2b3c742c3866fba490862b4df42a944; envelope=axiom.runtime_http_client.v1",
       "sources": [
         {
           "path": "stage1/compiler-contracts/schemas/axiom.runtime_http_client.v1.schema.json",
           "role": "published_schema",
           "selector": "$id,properties.schema_version.const",
-          "sha256": "d4964a27538eb7d784244118a9bc1dc8cd6b7f3746dfc253142d9a44f025afd6"
+          "sha256": "73dc79a78c1b94a76ab5e8f9efc5ac67bef9284860e1061e79f4146d3f87d832"
         }
       ],
       "stability": "experimental",
