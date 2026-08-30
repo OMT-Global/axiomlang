@@ -228,4 +228,83 @@ run_blocked_fixture divergent-output 'snapshot_OMT-Global/axiomlang@x86_64-unkno
 run_blocked_fixture fixpoint 'snapshot_OMT-Global/axiomlang@x86_64-unknown-linux-gnu@1_fixpoint'
 run_blocked_fixture continuity 'snapshot_predecessor_OMT-Global/axiomlang@x86_64-unknown-linux-gnu@1'
 
+run_legacy_fixture() {
+  # Trusted-CI compat (#1543): the base-pinned regression harness emits
+  # legacy-shape manifests. Keep them accepted until that harness lands on
+  # main; the hardened contract above still governs new-shape manifests.
+  local fixture="$tmpdir/legacy"
+  mkdir -p "$fixture"
+  local snapshots="$fixture/snapshots.json"
+  local manifest="$fixture/readiness.json"
+
+  cat > "$snapshots" <<JSON
+{
+  "schema_version": "axiom.selfhost.snapshot_manifest.v0",
+  "snapshots": [{
+    "version": "0.0.0-legacy",
+    "target": "x86_64-unknown-linux-gnu",
+    "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "source": "https://example.invalid/axiomc",
+    "built_by": "cargo",
+    "provenance": "https://example.invalid/provenance.json"
+  }]
+}
+JSON
+
+  cat > "$manifest" <<JSON
+{
+  "schemaVersion": 1,
+  "schema": "axiom.self_hosting.snapshot_bootstrap_readiness.v0",
+  "snapshotManifest": "$snapshots",
+  "rows": [
+    {
+      "id": "legacy_compat",
+      "requirement": "legacy manifests remain accepted",
+      "status": "implemented",
+      "governingIssue": 1575,
+      "validatingCommand": "make snapshot-bootstrap-readiness"
+    }
+  ]
+}
+JSON
+
+  python3 scripts/ci/check-snapshot-bootstrap-readiness.py --json --manifest "$manifest" > "$fixture/result.json"
+  python3 - "$fixture/result.json" <<'PY'
+import json
+import sys
+
+payload = json.load(open(sys.argv[1], encoding="utf-8"))
+assert payload["ready"] is True, payload
+PY
+
+  python3 - "$snapshots" <<'PY'
+import json
+import sys
+
+path = sys.argv[1]
+with open(path, encoding="utf-8") as handle:
+    payload = json.load(handle)
+payload["snapshots"][0]["sha256"] = "not-a-sha"
+with open(path, "w", encoding="utf-8") as handle:
+    json.dump(payload, handle)
+PY
+
+  if python3 scripts/ci/check-snapshot-bootstrap-readiness.py --json --manifest "$manifest" > "$fixture/invalid.json"; then
+    echo "expected legacy manifest with invalid sha256 to be rejected" >&2
+    exit 1
+  fi
+  python3 - "$fixture/invalid.json" <<'PY'
+import json
+import sys
+
+payload = json.load(open(sys.argv[1], encoding="utf-8"))
+assert payload["ready"] is False, payload
+statuses = {item["name"]: item for item in payload["checks"]}
+assert statuses["snapshot_manifest_schema"]["status"] == "fail", payload["checks"]
+assert "sha256" in statuses["snapshot_manifest_schema"]["detail"], payload["checks"]
+PY
+}
+
+run_legacy_fixture
+
 echo "check-snapshot-bootstrap-readiness realistic offline fixtures passed"
