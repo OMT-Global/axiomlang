@@ -1041,6 +1041,21 @@
       "version": "0.1.0"
     },
     {
+      "id": "axiom://schema/axiom.runtime_concurrency.v1",
+      "kind": "schema",
+      "signature": "published schema id=https://omt-global.github.io/axiom/schemas/axiom.runtime_concurrency.v1.schema.json; semantic_digest=0a47351fd91b6faf513d7336ada439673f30f45a9e12925510f0a56ebb6d12aa; envelope=axiom.runtime_concurrency.v1",
+      "sources": [
+        {
+          "path": "stage1/compiler-contracts/schemas/axiom.runtime_concurrency.v1.schema.json",
+          "role": "published_schema",
+          "selector": "$id,properties.schema_version.const",
+          "sha256": "63c5a5b9f5446c9eace094a151940bd2f222b3b7e777c2ea91e1aed37b10e423"
+        }
+      ],
+      "stability": "experimental",
+      "version": "0.1.0"
+    },
+    {
       "id": "axiom://schema/axiom.runtime_lifecycle.v1",
       "kind": "schema",
       "signature": "published schema id=https://omt-global.github.io/axiom/schemas/axiom.runtime_lifecycle.v1.schema.json; semantic_digest=67e7c80a1bb8e7a9331ae311dd616608188bc86db87eff015798c73961a10af6; envelope=axiom.runtime_lifecycle.v1",
