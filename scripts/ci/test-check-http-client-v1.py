@@ -21,13 +21,18 @@ spec.loader.exec_module(checker)
 class HttpClientContractTests(unittest.TestCase):
     def test_contract_and_negative_fixtures_pass(self) -> None:
         result = checker.validate_contract(ROOT)
-        self.assertEqual(result, {"schema": "axiom.runtime_http_client.v1", "ok": True, "fixtures": 5})
+        self.assertEqual(result, {"schema": "axiom.runtime_http_client.v1", "ok": True, "fixtures": 6})
 
     def test_cli_json_is_deterministic(self) -> None:
         first = subprocess.run([sys.executable, str(CHECKER), "--json"], check=True, capture_output=True, text=True)
         second = subprocess.run([sys.executable, str(CHECKER), "--json"], check=True, capture_output=True, text=True)
         self.assertEqual(first.stdout, second.stdout)
         self.assertEqual(json.loads(first.stdout)["ok"], True)
+
+    def test_error_details_are_code_specific(self) -> None:
+        snapshot = checker.load_json(ROOT / checker.SNAPSHOT)
+        mismatch = checker.load_json(ROOT / checker.FIXTURES / "structured-error-mismatch.json")
+        self.assertFalse(checker.structured_error_matches(mismatch["error"], snapshot))
 
     def test_snapshot_rejects_unverified_tls_and_redirects(self) -> None:
         snapshot_path = ROOT / checker.SNAPSHOT

@@ -21,6 +21,20 @@ class ContractError(ValueError):
     pass
 
 
+EXPECTED_ERROR_KINDS = [
+    {"code": "authority_denied", "phase": "authorization", "details": ["authority", "policy"]},
+    {"code": "cancelled", "phase": "cancellation", "details": ["state", "outcome"]},
+    {"code": "conflicting_content_length", "phase": "response", "details": ["header", "values"]},
+    {"code": "malformed_status", "phase": "response", "details": ["status"]},
+    {"code": "redirect_policy_rejected", "phase": "redirect", "details": ["location", "policy"]},
+    {"code": "request_too_large", "phase": "request", "details": ["limit", "size"]},
+    {"code": "response_too_large", "phase": "response", "details": ["limit", "size"]},
+    {"code": "timeout", "phase": "transport", "details": ["timeout_ms", "phase"]},
+    {"code": "tls_policy_rejected", "phase": "tls", "details": ["authority", "policy", "verification"]},
+    {"code": "transport", "phase": "transport", "details": ["kind", "retryable"]},
+]
+
+
 def require(condition: bool, message: str) -> None:
     if not condition:
         raise ContractError(message)
@@ -100,6 +114,26 @@ def duplicate_content_lengths(headers: list[dict[str, Any]]) -> bool:
     return len(set(values)) > 1
 
 
+def structured_error_matches(error: Any, snapshot: dict[str, Any]) -> bool:
+    if not isinstance(error, dict) or set(error) != {"code", "phase", "message", "details"}:
+        return False
+    if not isinstance(error["code"], str) or not error["code"]:
+        return False
+    if not isinstance(error["phase"], str) or not error["phase"]:
+        return False
+    if not isinstance(error["message"], str) or not error["message"]:
+        return False
+    if not isinstance(error["details"], dict):
+        return False
+    kinds = {item["code"]: item for item in snapshot["errors"]["kinds"]}
+    expected = kinds.get(error["code"])
+    if expected is None or error["phase"] != expected["phase"]:
+        return False
+    if set(error["details"]) != set(expected["details"]):
+        return False
+    return all(value is not None for value in error["details"].values())
+
+
 def validate_negative_fixture(kind: str, fixture: dict[str, Any], snapshot: dict[str, Any]) -> None:
     if kind == "malformed-status":
         status = fixture.get("status")
@@ -120,11 +154,17 @@ def validate_negative_fixture(kind: str, fixture: dict[str, Any], snapshot: dict
     elif kind == "cancellation-error":
         require(
             not (
-                fixture.get("error") == "cancelled"
-                and fixture.get("cancellation_outcome") in {"acknowledged", "too_late"}
-                and fixture.get("body_delivered") is False
+                structured_error_matches(fixture.get("error"), snapshot)
+                and fixture["error"]["code"] == "cancelled"
+                and fixture["error"]["details"].get("outcome") == "acknowledged"
+                and fixture.get("body_delivered") is not False
             ),
             "cancellation-error fixture is valid",
+        )
+    elif kind == "structured-error-mismatch":
+        require(
+            not structured_error_matches(fixture.get("error"), snapshot),
+            "structured-error-mismatch fixture is valid",
         )
     else:
         raise ContractError(f"unknown negative fixture kind {kind}")
@@ -143,11 +183,19 @@ def validate_contract(root: Path) -> dict[str, Any]:
     require({"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"} <= set(methods), "request method surface is incomplete")
     status = snapshot["response"]["status"]
     require(status["minimum"] == 100 and status["maximum"] == 599, "response status range drift")
+    require(
+        snapshot["response"]["final_url"] == "absolute effective URL after approved redirect processing",
+        "response final_url semantics drift",
+    )
     require(snapshot["response"]["body"]["max_bytes"] <= 8 * 1024 * 1024, "response limit is unbounded")
     require(snapshot["request"]["limits"]["max_bytes"] <= 1 * 1024 * 1024, "request limit is unbounded")
     require(snapshot["policies"]["redirects"] == "deny", "redirects must default to deny")
     require(snapshot["policies"]["tls"] in {"system_roots", "pinned"}, "TLS policy is not verified")
-    require("cancelled" in snapshot["errors"] and "response_too_large" in snapshot["errors"], "required errors missing")
+    require(
+        snapshot["errors"]["shape"]["required_fields"] == ["code", "phase", "message", "details"],
+        "structured error shape drift",
+    )
+    require(snapshot["errors"]["kinds"] == EXPECTED_ERROR_KINDS, "structured error kinds drift")
     require(snapshot["cancellation"]["outcomes"] == sorted(snapshot["cancellation"]["outcomes"]), "cancellation outcomes must be deterministic")
     fixture_root = root / FIXTURES
     seen: set[str] = set()

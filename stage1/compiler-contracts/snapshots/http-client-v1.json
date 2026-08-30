@@ -32,24 +32,31 @@
       "duplicate_rule": "preserve duplicates as ordered fields"
     },
     "body": {"max_bytes": 8388608, "oversize_error": "response_too_large"},
+    "final_url": "absolute effective URL after approved redirect processing",
     "framing": {
       "allowed": ["chunked", "connection_close", "content_length"],
       "conflicting_length_rule": "reject conflicting Content-Length values before allocation",
       "truncation_rule": "reject incomplete Content-Length and chunked bodies"
     }
   },
-  "errors": [
-    "malformed_status",
-    "conflicting_content_length",
-    "response_too_large",
-    "request_too_large",
-    "tls_policy_rejected",
-    "redirect_policy_rejected",
-    "authority_denied",
-    "cancelled",
-    "timeout",
-    "transport"
-  ],
+  "errors": {
+    "shape": {
+      "required_fields": ["code", "phase", "message", "details"],
+      "details": "bounded, code-specific object containing non-sensitive failure context"
+    },
+    "kinds": [
+      {"code": "authority_denied", "phase": "authorization", "details": ["authority", "policy"]},
+      {"code": "cancelled", "phase": "cancellation", "details": ["state", "outcome"]},
+      {"code": "conflicting_content_length", "phase": "response", "details": ["header", "values"]},
+      {"code": "malformed_status", "phase": "response", "details": ["status"]},
+      {"code": "redirect_policy_rejected", "phase": "redirect", "details": ["location", "policy"]},
+      {"code": "request_too_large", "phase": "request", "details": ["limit", "size"]},
+      {"code": "response_too_large", "phase": "response", "details": ["limit", "size"]},
+      {"code": "timeout", "phase": "transport", "details": ["timeout_ms", "phase"]},
+      {"code": "tls_policy_rejected", "phase": "tls", "details": ["authority", "policy", "verification"]},
+      {"code": "transport", "phase": "transport", "details": ["kind", "retryable"]}
+    ]
+  },
   "policies": {
     "redirects": "deny",
     "tls": "system_roots",
@@ -73,6 +80,7 @@
     {"id": "http-client-v1/conflicting-lengths", "kind": "negative", "path": "conflicting-lengths.json", "asserts": ["different Content-Length values are rejected"]},
     {"id": "http-client-v1/oversize-body", "kind": "negative", "path": "oversize-body.json", "asserts": ["body allocation is bounded before delivery"]},
     {"id": "http-client-v1/unsupported-policy", "kind": "negative", "path": "unsupported-policy.json", "asserts": ["disabled TLS and unrestricted redirects are rejected"]},
+    {"id": "http-client-v1/structured-error-mismatch", "kind": "negative", "path": "structured-error-mismatch.json", "asserts": ["error phase and detail keys must match the error code"]},
     {"id": "http-client-v1/cancellation-error", "kind": "negative", "path": "cancellation-error.json", "asserts": ["cancelled requests cannot report completed delivery"]}
   ]
 }

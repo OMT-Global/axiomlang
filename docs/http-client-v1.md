@@ -17,7 +17,11 @@ The contract requires:
   the text representation;
 - bounded request (1 MiB), response (8 MiB), and header envelopes;
 - status validation before body allocation, rejection of conflicting
-  `Content-Length` values, and rejection of truncated framed bodies;
+  `Content-Length` values, rejection of truncated framed bodies, and an
+  effective `final_url` after approved redirect processing;
+- structured errors with a stable `code`, `phase`, `message`, and
+  code-specific, bounded `details` object for status, framing, TLS,
+  cancellation, and transport failures;
 - redirect denial by default and verified system-root or pinned TLS policy;
 - explicit cancellation outcomes with one terminal result and no post-cancel
   body delivery;

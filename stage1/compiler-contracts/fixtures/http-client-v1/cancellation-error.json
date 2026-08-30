@@ -1,1 +1,1 @@
-{"error": "cancelled", "cancellation_outcome": "already_completed", "body_delivered": true}
+{"error": {"code": "cancelled", "phase": "cancellation", "message": "cancellation arrived after completion", "details": {"state": "completed", "outcome": "already_completed"}}, "body_delivered": true}
