@@ -5,7 +5,12 @@ script_repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 repo_root="${AXIOM_CHECKOUT_PATH:-$script_repo_root}"
 cd "$repo_root"
 
-target_dir="${CARGO_TARGET_DIR:-${RUNNER_TEMP:-/tmp}/axiom-fast-ci-target}"
+if [[ -n "${CARGO_TARGET_DIR:-}" ]]; then
+  target_dir="$CARGO_TARGET_DIR"
+else
+  checkout_head="$(git rev-parse --verify HEAD)"
+  target_dir="${RUNNER_TEMP:-/tmp}/axiom-fast-ci-target-${checkout_head:0:12}"
+fi
 mkdir -p "$target_dir"
 export CARGO_TARGET_DIR="$target_dir"
 
@@ -74,7 +79,7 @@ bash "$script_repo_root/scripts/ci/test-propose-stage1-crap-thresholds.sh"
 python3 "$script_repo_root/scripts/ci/test-run-toolchain-qualification.py"
 python3 "$script_repo_root/scripts/ci/test-report-toolchain-qualification.py"
 cargo test --manifest-path "$repo_root/stage1/Cargo.toml" -p axiomc \
-  --test schema_metadata --locked
+  --bin axiomc --test schema_metadata --locked
 cargo test --manifest-path "$repo_root/stage1/Cargo.toml" -p axiomc \
   --test migration_plan_cli --locked
 python3 "$script_repo_root/scripts/ci/check-capability-ledger.py" \

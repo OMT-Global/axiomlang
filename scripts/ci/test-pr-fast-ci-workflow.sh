@@ -67,6 +67,7 @@ fast_checks_trusted_base_ref=$(awk '
 benchmark_gate_reference=$(grep -nE 'check-stage1-benchmarks\.py|stage1-comparison-report\.json' "$workflow" || true)
 runtime_abi_status_check=$(grep -nF 'scripts/ci/render-direct-native-runtime-abi-status.py' "$fast_checks_script" || true)
 runtime_abi_coverage_check=$(grep -nF -- '--coverage-matrix' "$fast_checks_script" || true)
+schema_metadata_bin_check=$(grep -nA1 -F 'cargo test --manifest-path "$repo_root/stage1/Cargo.toml" -p axiomc \' "$fast_checks_script" | grep -F -- '--bin axiomc --test schema_metadata --locked' || true)
 full_lib_triage_check=$(grep -nF 'scripts/ci/check-stage1-full-lib-triage.py' "$fast_checks_script" || true)
 full_lib_suite_job=$(grep -nF 'full-lib-suite:' "$workflow" || true)
 full_lib_suite_run=$(grep -nF 'cargo test --manifest-path stage1/Cargo.toml -p axiomc --lib --features run-native-tests' "$workflow" || true)
@@ -193,6 +194,11 @@ fi
 
 if [[ -z "$runtime_abi_coverage_check" ]]; then
   echo "run-fast-checks must validate the direct-native runtime ABI coverage matrix" >&2
+  exit 1
+fi
+
+if [[ -z "$schema_metadata_bin_check" ]]; then
+  echo "run-fast-checks must select the axiomc binary for schema metadata CLI tests (#1195)" >&2
   exit 1
 fi
 
