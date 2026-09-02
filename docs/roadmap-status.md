@@ -37,11 +37,13 @@ define completion.
   shipped foundations. Real-package and workspace Intent IR emission is
   available through `axiomc inspect intent <path> --json`.
 - Package Trust v1 is the resolver trust boundary. Package Resolver v1 (#1459)
-  is currently a local static/file and loopback-fixture spike covering registry
-  manifests, lockfile v2, authenticated catalog candidates, bounded transport,
-  content-addressed cache/vendor contracts, and deterministic decision
-  evidence. It remains `partial` until the CLI round trips and
-  `make stage1-package-resolver` prove the integrated runtime.
+  is an executable static spike for a bounded signed-static, regular-local-file, and
+  numeric-loopback surface covering registry manifests, lockfile v2,
+  authenticated catalog candidates, bounded transport, atomic
+  content-addressed cache/vendor lifecycles, and deterministic decision
+  evidence. It remains below production qualification pending the immutable
+  exact-head promotion receipt and Compatibility v1 qualification. Public
+  hosted transport and edition selection remain separate.
 
 ## Active Roadmap Families
 
@@ -58,7 +60,7 @@ define completion.
 | Snapshot bootstrap | #1428 | Human-gated release work | Pin the genesis snapshot and prove offline build/test, no Cargo after genesis, and fixpoint evidence. |
 | Unattended agent coding | #1417-#1424 | Ready for staged planning | Follow `docs/autonomous-agent-roadmap.md`; do not skip semantic authority, containment, evidence, or independent review. |
 | Repeatable autonomy validation | #1430 | Ready for implementation | Make the compiler-property fast check portable, repeatable, parallel-safe, and self-cleaning on macOS/BSD `mktemp`. |
-| Trusted package resolution | #1458-#1459 | Local resolver qualification active | Require signed static catalog authentication, full per-release verification, lockfile v2, atomic content-addressed storage, locked-offline/vendor round trips, deterministic traces, and package-graph inspection. Do not claim public hosted transport or edition selection. |
+| Trusted package resolution | #1458-#1459 | Bounded resolver v1 executable static spike | Maintain signed static catalog authentication, full per-release verification, lockfile v2, atomic content-addressed storage, locked-offline/vendor round trips, deterministic traces, and package-graph inspection. Add the immutable exact-head receipt before runtime-complete promotion; do not claim public hosted transport or edition selection. |
 | Repository branch hygiene | #1164 | Narrow maintenance remainder | Preserve protected/historical branches while reducing the remaining remote-branch inventory. |
 
 ## Readiness Commands
@@ -80,9 +82,9 @@ Expected current outcomes:
 
 - production-language ledger validation: green; readiness: red with 3 of 39
   required rows at target;
-- package resolver: partial until the local static/loopback fetch, update,
-  locked-offline, vendor, trust-tamper/replay, and graph-inspection fixtures pass
-  the resolver target;
+- package resolver: executable static spike for the bounded signed-static,
+  local-file, and numeric-loopback contract; runtime-complete promotion awaits
+  the immutable exact-head supported-host receipt;
 - direct-native ABI, command surface, Rust exit, and monolith ratchet:
   structurally green, but not a substitute for #1434 runtime truth;
 - self-hosting language entry readiness: red until the runtime foundation,
