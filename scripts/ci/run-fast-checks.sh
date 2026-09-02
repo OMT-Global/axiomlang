@@ -105,6 +105,8 @@ python3 "$script_repo_root/scripts/ci/check-filesystem-v1.py" --root "$repo_root
 bash "$script_repo_root/scripts/ci/run-filesystem-v1-behavioral-tests.sh" "$repo_root"
 python3 "$script_repo_root/scripts/ci/test-check-runtime-observability-v1.py"
 python3 "$script_repo_root/scripts/ci/check-runtime-observability-v1.py"
+python3 "$script_repo_root/scripts/ci/test-check-http-client-v1.py"
+python3 "$script_repo_root/scripts/ci/check-http-client-v1.py"
 bash "$script_repo_root/scripts/ci/test-check-snapshot-bootstrap-readiness.sh"
 python3 "$script_repo_root/scripts/ci/test-run-agent-autonomy-benchmark.py"
 python3 "$script_repo_root/scripts/ci/run-agent-autonomy-benchmark.py" --subset ci --check >/dev/null
