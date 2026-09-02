@@ -204,6 +204,13 @@ pub enum I64Expr {
     StdinLineLen {
         max_bytes: u32,
     },
+    StdinScalarCount {
+        max_bytes: u32,
+    },
+    StdinScalarLenAt {
+        index: Box<I64Expr>,
+        max_bytes: u32,
+    },
     AuditEnv {
         intrinsic: String,
         package: String,
@@ -895,9 +902,7 @@ fn emit_i64_exit_object(
                 module
                     .declare_function("syncfs", Linkage::Import, &signature)
                     .map_err(|message| {
-                        CraneliftBackendError::new(format!(
-                            "declare syncfs import: {message}"
-                        ))
+                        CraneliftBackendError::new(format!("declare syncfs import: {message}"))
                     })?,
             )
         }
@@ -1606,20 +1611,14 @@ fn define_i64_function(
     atoll_id: FuncId,
     open_id: FuncId,
     creat_id: FuncId,
-    #[cfg(not(windows))]
-    openat_id: FuncId,
-    #[cfg(not(windows))]
-    fchmod_id: FuncId,
-    #[cfg(not(windows))]
-    renameat_id: FuncId,
-    #[cfg(not(windows))]
-    unlinkat_id: FuncId,
+    #[cfg(not(windows))] openat_id: FuncId,
+    #[cfg(not(windows))] fchmod_id: FuncId,
+    #[cfg(not(windows))] renameat_id: FuncId,
+    #[cfg(not(windows))] unlinkat_id: FuncId,
     lseek_id: FuncId,
     close_id: FuncId,
-    #[cfg(not(windows))]
-    fsync_id: FuncId,
-    #[cfg(not(windows))]
-    syncfs_id: Option<FuncId>,
+    #[cfg(not(windows))] fsync_id: FuncId,
+    #[cfg(not(windows))] syncfs_id: Option<FuncId>,
     access_id: FuncId,
     #[cfg(windows)] system_id: FuncId,
     #[cfg(not(windows))] fork_id: FuncId,
@@ -3358,6 +3357,13 @@ fn emit_i64_expr(
         I64Expr::StdinLineLen { max_bytes } => {
             emit_i64_stdin_line_len_expr(builder, runtime_refs, *max_bytes)
         }
+        I64Expr::StdinScalarCount { max_bytes } => {
+            emit_i64_stdin_scalar_count_expr(builder, runtime_refs, *max_bytes)
+        }
+        I64Expr::StdinScalarLenAt { index, max_bytes } => {
+            let index = emit_i64_expr(builder, locals, function_refs, runtime_refs, index)?;
+            emit_i64_stdin_scalar_len_at_expr(builder, runtime_refs, index, *max_bytes)
+        }
         I64Expr::AuditEnv {
             intrinsic,
             package,
@@ -4536,9 +4542,7 @@ fn emit_i64_cwd_len_expr(
     builder.seal_block(present_block);
     let call = builder.ins().call(strlen_ref, &[value_ptr]);
     let length = builder.inst_results(call)[0];
-    builder
-        .ins()
-        .jump(merge_block, &[BlockArg::Value(length)]);
+    builder.ins().jump(merge_block, &[BlockArg::Value(length)]);
 
     builder.switch_to_block(merge_block);
     builder.seal_block(merge_block);
@@ -4701,6 +4705,264 @@ fn emit_i64_stdin_line_len_expr(
     builder.switch_to_block(merge_block);
     builder.seal_block(merge_block);
     Ok(builder.block_params(merge_block)[0])
+}
+
+fn emit_i64_stdin_scalar_count_expr(
+    builder: &mut FunctionBuilder<'_>,
+    runtime_refs: I64RuntimeRefs,
+    max_bytes: u32,
+) -> Result<cranelift_codegen::ir::Value, CraneliftBackendError> {
+    if max_bytes == 0 {
+        return Ok(builder.ins().iconst(types::I64, 0));
+    }
+    let byte_slot =
+        builder.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 1, 0));
+    let byte_ptr = builder.ins().stack_addr(types::I64, byte_slot, 0);
+    let fd = builder.ins().iconst(types::I32, 0);
+    let one = builder.ins().iconst(types::I64, 1);
+    let zero = builder.ins().iconst(types::I64, 0);
+    let failure = builder.ins().iconst(types::I64, -1);
+
+    let loop_block = builder.create_block();
+    let read_block = builder.create_block();
+    let continue_block = builder.create_block();
+    let byte_block = builder.create_block();
+    let finish_block = builder.create_block();
+    builder.append_block_param(loop_block, types::I64);
+    builder.append_block_param(loop_block, types::I64);
+    builder.append_block_param(finish_block, types::I64);
+
+    let requested = builder.ins().iconst(types::I64, i64::from(max_bytes));
+    builder.ins().jump(
+        loop_block,
+        &[BlockArg::Value(zero), BlockArg::Value(requested)],
+    );
+
+    builder.switch_to_block(loop_block);
+    let count = builder.block_params(loop_block)[0];
+    let remaining = builder.block_params(loop_block)[1];
+    let exhausted = builder.ins().icmp_imm(IntCC::Equal, remaining, 0);
+    builder.ins().brif(
+        exhausted,
+        finish_block,
+        &[BlockArg::Value(count)],
+        read_block,
+        &[],
+    );
+
+    builder.switch_to_block(read_block);
+    builder.seal_block(read_block);
+    let read_call = builder.ins().call(runtime_refs.read, &[fd, byte_ptr, one]);
+    let bytes_read = builder.inst_results(read_call)[0];
+    let failed = builder.ins().icmp_imm(IntCC::SignedLessThan, bytes_read, 0);
+    builder.ins().brif(
+        failed,
+        finish_block,
+        &[BlockArg::Value(failure)],
+        continue_block,
+        &[],
+    );
+
+    builder.switch_to_block(continue_block);
+    builder.seal_block(continue_block);
+    let eof = builder.ins().icmp_imm(IntCC::Equal, bytes_read, 0);
+    builder.ins().brif(
+        eof,
+        finish_block,
+        &[BlockArg::Value(count)],
+        byte_block,
+        &[],
+    );
+
+    builder.switch_to_block(byte_block);
+    builder.seal_block(byte_block);
+    let byte = builder.ins().stack_load(types::I8, byte_slot, 0);
+    let masked = builder.ins().band_imm(byte, 0xC0);
+    let is_continuation = builder.ins().icmp_imm(IntCC::Equal, masked, 0x80);
+    let bump = builder.ins().select(is_continuation, zero, one);
+    let next_count = builder.ins().iadd(count, bump);
+    let next_remaining = builder.ins().isub(remaining, one);
+    builder.ins().jump(
+        loop_block,
+        &[BlockArg::Value(next_count), BlockArg::Value(next_remaining)],
+    );
+
+    builder.seal_block(loop_block);
+    builder.switch_to_block(finish_block);
+    builder.seal_block(finish_block);
+    Ok(builder.block_params(finish_block)[0])
+}
+
+fn emit_i64_stdin_scalar_len_at_expr(
+    builder: &mut FunctionBuilder<'_>,
+    runtime_refs: I64RuntimeRefs,
+    index: cranelift_codegen::ir::Value,
+    max_bytes: u32,
+) -> Result<cranelift_codegen::ir::Value, CraneliftBackendError> {
+    let failure = builder.ins().iconst(types::I64, -1);
+    if max_bytes == 0 {
+        return Ok(failure);
+    }
+    let byte_slot =
+        builder.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 1, 0));
+    let byte_ptr = builder.ins().stack_addr(types::I64, byte_slot, 0);
+    let fd = builder.ins().iconst(types::I32, 0);
+    let one = builder.ins().iconst(types::I64, 1);
+    let zero = builder.ins().iconst(types::I64, 0);
+
+    let loop_block = builder.create_block();
+    let read_block = builder.create_block();
+    let continue_block = builder.create_block();
+    let byte_block = builder.create_block();
+    let check_block = builder.create_block();
+    let found_loop_block = builder.create_block();
+    let found_read_block = builder.create_block();
+    let found_continue_block = builder.create_block();
+    let found_byte_block = builder.create_block();
+    let finish_block = builder.create_block();
+    builder.append_block_param(loop_block, types::I64);
+    builder.append_block_param(loop_block, types::I64);
+    builder.append_block_param(check_block, types::I64);
+    builder.append_block_param(check_block, types::I64);
+    builder.append_block_param(found_loop_block, types::I64);
+    builder.append_block_param(found_loop_block, types::I64);
+    builder.append_block_param(finish_block, types::I64);
+
+    let requested = builder.ins().iconst(types::I64, i64::from(max_bytes));
+    builder.ins().jump(
+        loop_block,
+        &[BlockArg::Value(requested), BlockArg::Value(zero)],
+    );
+
+    builder.switch_to_block(loop_block);
+    let remaining = builder.block_params(loop_block)[0];
+    let scalar_idx = builder.block_params(loop_block)[1];
+    let exhausted = builder.ins().icmp_imm(IntCC::Equal, remaining, 0);
+    builder.ins().brif(
+        exhausted,
+        finish_block,
+        &[BlockArg::Value(failure)],
+        read_block,
+        &[],
+    );
+
+    builder.switch_to_block(read_block);
+    builder.seal_block(read_block);
+    let read_call = builder.ins().call(runtime_refs.read, &[fd, byte_ptr, one]);
+    let bytes_read = builder.inst_results(read_call)[0];
+    let failed = builder.ins().icmp_imm(IntCC::SignedLessThan, bytes_read, 0);
+    builder.ins().brif(
+        failed,
+        finish_block,
+        &[BlockArg::Value(failure)],
+        continue_block,
+        &[],
+    );
+
+    builder.switch_to_block(continue_block);
+    builder.seal_block(continue_block);
+    let eof = builder.ins().icmp_imm(IntCC::Equal, bytes_read, 0);
+    builder.ins().brif(
+        eof,
+        finish_block,
+        &[BlockArg::Value(failure)],
+        byte_block,
+        &[],
+    );
+
+    builder.switch_to_block(byte_block);
+    builder.seal_block(byte_block);
+    let byte = builder.ins().stack_load(types::I8, byte_slot, 0);
+    let masked = builder.ins().band_imm(byte, 0xC0);
+    let is_continuation = builder.ins().icmp_imm(IntCC::Equal, masked, 0x80);
+    let next_remaining = builder.ins().isub(remaining, one);
+    builder.ins().brif(
+        is_continuation,
+        loop_block,
+        &[BlockArg::Value(next_remaining), BlockArg::Value(scalar_idx)],
+        check_block,
+        &[BlockArg::Value(remaining), BlockArg::Value(scalar_idx)],
+    );
+
+    builder.switch_to_block(check_block);
+    builder.seal_block(check_block);
+    let check_remaining = builder.block_params(check_block)[0];
+    let check_scalar_idx = builder.block_params(check_block)[1];
+    let matches = builder.ins().icmp(IntCC::Equal, check_scalar_idx, index);
+    let after_start_remaining = builder.ins().isub(check_remaining, one);
+    let next_scalar_idx = builder.ins().iadd(check_scalar_idx, one);
+    builder.ins().brif(
+        matches,
+        found_loop_block,
+        &[BlockArg::Value(after_start_remaining), BlockArg::Value(one)],
+        loop_block,
+        &[
+            BlockArg::Value(after_start_remaining),
+            BlockArg::Value(next_scalar_idx),
+        ],
+    );
+
+    builder.switch_to_block(found_loop_block);
+    let found_remaining = builder.block_params(found_loop_block)[0];
+    let found_len = builder.block_params(found_loop_block)[1];
+    let found_exhausted = builder.ins().icmp_imm(IntCC::Equal, found_remaining, 0);
+    builder.ins().brif(
+        found_exhausted,
+        finish_block,
+        &[BlockArg::Value(found_len)],
+        found_read_block,
+        &[],
+    );
+
+    builder.switch_to_block(found_read_block);
+    builder.seal_block(found_read_block);
+    let found_read_call = builder.ins().call(runtime_refs.read, &[fd, byte_ptr, one]);
+    let found_bytes_read = builder.inst_results(found_read_call)[0];
+    let found_failed = builder
+        .ins()
+        .icmp_imm(IntCC::SignedLessThan, found_bytes_read, 0);
+    builder.ins().brif(
+        found_failed,
+        finish_block,
+        &[BlockArg::Value(failure)],
+        found_continue_block,
+        &[],
+    );
+
+    builder.switch_to_block(found_continue_block);
+    builder.seal_block(found_continue_block);
+    let found_eof = builder.ins().icmp_imm(IntCC::Equal, found_bytes_read, 0);
+    builder.ins().brif(
+        found_eof,
+        finish_block,
+        &[BlockArg::Value(found_len)],
+        found_byte_block,
+        &[],
+    );
+
+    builder.switch_to_block(found_byte_block);
+    builder.seal_block(found_byte_block);
+    let found_byte = builder.ins().stack_load(types::I8, byte_slot, 0);
+    let found_masked = builder.ins().band_imm(found_byte, 0xC0);
+    let found_is_continuation = builder.ins().icmp_imm(IntCC::Equal, found_masked, 0x80);
+    let next_found_remaining = builder.ins().isub(found_remaining, one);
+    let next_found_len = builder.ins().iadd(found_len, one);
+    builder.ins().brif(
+        found_is_continuation,
+        found_loop_block,
+        &[
+            BlockArg::Value(next_found_remaining),
+            BlockArg::Value(next_found_len),
+        ],
+        finish_block,
+        &[BlockArg::Value(found_len)],
+    );
+
+    builder.seal_block(loop_block);
+    builder.seal_block(found_loop_block);
+    builder.switch_to_block(finish_block);
+    builder.seal_block(finish_block);
+    Ok(builder.block_params(finish_block)[0])
 }
 
 fn emit_i64_c_string_len_expr(
@@ -6033,7 +6295,13 @@ fn emit_i64_replace_file_expr(
         // Unsupported hosts, including Windows, have no safe runtime boundary
         // for this descriptor-relative flow. Fail closed instead of restoring
         // the vulnerable pathname-based temporary-file implementation.
-        let _ = (runtime_refs, root, parent_components, destination_name, content);
+        let _ = (
+            runtime_refs,
+            root,
+            parent_components,
+            destination_name,
+            content,
+        );
         return Ok(builder.ins().iconst(types::I64, -1));
     }
 
@@ -6055,22 +6323,14 @@ fn emit_i64_replace_file_expr(
         // pre-planted symlink.
         let root_ptr = emit_i64_path_ptr(builder, root)?;
         let destination_ptr = emit_i64_path_ptr(builder, destination_name)?;
-        let temp_slot = builder.create_sized_stack_slot(StackSlotData::new(
-            StackSlotKind::ExplicitSlot,
-            32,
-            0,
-        ));
+        let temp_slot =
+            builder.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 32, 0));
         let temp_ptr = builder.ins().stack_addr(types::I64, temp_slot, 0);
         for (offset, byte) in b".axiom-replace-".iter().enumerate() {
             let value = builder.ins().iconst(types::I8, i64::from(*byte));
             builder.ins().stack_store(value, temp_slot, offset as i32);
         }
-        let random = emit_i64_random_u64_expr(
-            builder,
-            runtime_refs,
-            "fs_replace",
-            "axiomc",
-        )?;
+        let random = emit_i64_random_u64_expr(builder, runtime_refs, "fs_replace", "axiomc")?;
         for index in 0..16 {
             let shift = 60 - index * 4;
             let nibble = builder.ins().ushr_imm(random, shift);
@@ -6096,16 +6356,14 @@ fn emit_i64_replace_file_expr(
             target_os = "netbsd"
         ))]
         let directory_search_flags = libc::O_SEARCH | libc::O_DIRECTORY | libc::O_NOFOLLOW;
-        #[cfg(any(
-            target_os = "android",
-            target_os = "openbsd",
-            target_os = "dragonfly"
-        ))]
+        #[cfg(any(target_os = "android", target_os = "openbsd", target_os = "dragonfly"))]
         let directory_search_flags = libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW;
         let root_flags = builder
             .ins()
             .iconst(types::I32, i64::from(directory_search_flags));
-        let root_open = builder.ins().call(runtime_refs.open, &[root_ptr, root_flags]);
+        let root_open = builder
+            .ins()
+            .call(runtime_refs.open, &[root_ptr, root_flags]);
         let mut parent_fd = builder.inst_results(root_open)[0];
         let walk_flags = builder
             .ins()
@@ -6154,7 +6412,9 @@ fn emit_i64_replace_file_expr(
         builder.append_block_param(post_publish_close_block, types::I32);
         builder.append_block_param(merge_block, types::I64);
 
-        let parent_valid = builder.ins().icmp_imm(IntCC::SignedGreaterThanOrEqual, parent_fd, 0);
+        let parent_valid = builder
+            .ins()
+            .icmp_imm(IntCC::SignedGreaterThanOrEqual, parent_fd, 0);
         builder
             .ins()
             .brif(parent_valid, create_block, &[], failed_block, &[]);
@@ -6190,13 +6450,9 @@ fn emit_i64_replace_file_expr(
             .call(runtime_refs.fchmod, &[file, restrictive_mode]);
         let chmod_result = builder.inst_results(chmod_call)[0];
         let chmod_ok = builder.ins().icmp_imm(IntCC::Equal, chmod_result, 0);
-        builder.ins().brif(
-            chmod_ok,
-            write_block,
-            &[],
-            close_failed_block,
-            &[],
-        );
+        builder
+            .ins()
+            .brif(chmod_ok, write_block, &[], close_failed_block, &[]);
 
         builder.switch_to_block(write_block);
         builder.seal_block(write_block);
@@ -6205,26 +6461,18 @@ fn emit_i64_replace_file_expr(
             .call(runtime_refs.write, &[file, content_ptr, content_count]);
         let written = builder.inst_results(write_call)[0];
         let full_write = builder.ins().icmp(IntCC::Equal, written, content_count);
-        builder.ins().brif(
-            full_write,
-            sync_block,
-            &[],
-            close_failed_block,
-            &[],
-        );
+        builder
+            .ins()
+            .brif(full_write, sync_block, &[], close_failed_block, &[]);
 
         builder.switch_to_block(sync_block);
         builder.seal_block(sync_block);
         let sync_call = builder.ins().call(runtime_refs.fsync, &[file]);
         let sync_result = builder.inst_results(sync_call)[0];
         let sync_ok = builder.ins().icmp_imm(IntCC::Equal, sync_result, 0);
-        builder.ins().brif(
-            sync_ok,
-            rename_block,
-            &[],
-            close_failed_block,
-            &[],
-        );
+        builder
+            .ins()
+            .brif(sync_ok, rename_block, &[], close_failed_block, &[]);
 
         builder.switch_to_block(close_failed_block);
         builder.ins().call(runtime_refs.close, &[file]);
@@ -6268,13 +6516,9 @@ fn emit_i64_replace_file_expr(
         let parent_sync_ok = builder.ins().icmp_imm(IntCC::Equal, parent_sync_result, 0);
         let close_ok = builder.ins().icmp_imm(IntCC::Equal, close_result, 0);
         let publish_ok = builder.ins().band(parent_sync_ok, close_ok);
-        builder.ins().brif(
-            publish_ok,
-            success_block,
-            &[],
-            published_failed_block,
-            &[],
-        );
+        builder
+            .ins()
+            .brif(publish_ok, success_block, &[], published_failed_block, &[]);
 
         builder.switch_to_block(success_block);
         builder.seal_block(success_block);
@@ -7574,8 +7818,7 @@ mod tests {
         fs::create_dir(&outside).expect("create outside directory");
         let outside_fixture = outside.join("fixture.txt");
         fs::write(&outside_fixture, "outside-safe").expect("write outside fixture");
-        std::os::unix::fs::symlink(&outside, root.join("redirect"))
-            .expect("plant parent symlink");
+        std::os::unix::fs::symlink(&outside, root.join("redirect")).expect("plant parent symlink");
         let object = temp.path().join("i64-exit-replace-symlink-parent.o");
         let binary = temp.path().join("i64-exit-replace-symlink-parent");
         compile_i64_exit_program(
@@ -7663,7 +7906,10 @@ mod tests {
             .output()
             .expect("run replace cleanup binary");
         assert_eq!(output.status.code(), Some(255));
-        assert!(occupied.is_dir(), "failed publish must preserve destination");
+        assert!(
+            occupied.is_dir(),
+            "failed publish must preserve destination"
+        );
         assert!(
             fs::read_dir(temp.path())
                 .expect("read replacement cleanup directory")
