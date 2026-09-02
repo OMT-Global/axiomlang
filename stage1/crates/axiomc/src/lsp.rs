@@ -5,6 +5,7 @@ use crate::mir;
 use crate::project::{analyze_package_for_lsp, package_graph_metadata, project_capabilities};
 use crate::syntax::{self, Visibility};
 use serde_json::{Value, json};
+use std::any::Any;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fs;
 use std::io::{BufRead, Write};
@@ -44,7 +45,23 @@ struct LspSymbol {
     signature: Option<String>,
 }
 
-#[derive(Debug, Default)]
+/// Opaque cache storage shared with the project LSP adapter without exposing
+/// the project's private cache implementation through the public project API.
+#[derive(Default)]
+pub struct LspAnalysisCache {
+    pub(crate) state: Option<Box<dyn Any>>,
+}
+
+impl std::fmt::Debug for LspAnalysisCache {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("LspAnalysisCache")
+            .field("initialized", &self.state.is_some())
+            .finish()
+    }
+}
+
+#[derive(Debug, Clone, Default)]
 struct WorkspaceIndex {
     documents: BTreeMap<String, String>,
     symbols: Vec<LspSymbol>,
@@ -99,6 +116,9 @@ pub struct LspServer {
     documents: BTreeMap<String, LspDocument>,
     workspace_roots: BTreeSet<PathBuf>,
     cancelled_requests: BTreeSet<String>,
+    analysis_cache: LspAnalysisCache,
+    source_diagnostics_cache: BTreeMap<String, (u64, Vec<Diagnostic>)>,
+    published_diagnostics: BTreeMap<String, Vec<Diagnostic>>,
     workspace_generation: u64,
     last_analysis_ms: u128,
     analysis_latency_samples_ms: VecDeque<u128>,
@@ -292,6 +312,8 @@ impl LspServer {
         if self.documents.remove(uri).is_none() {
             return Vec::new();
         }
+        self.source_diagnostics_cache.remove(uri);
+        self.published_diagnostics.remove(uri);
         vec![
             json!({ "jsonrpc": "2.0", "method": "textDocument/publishDiagnostics", "params": { "uri": uri, "diagnostics": [] } }),
         ]
@@ -342,7 +364,7 @@ impl LspServer {
         let mut diagnostics = BTreeMap::<String, Vec<Diagnostic>>::new();
         let mut resolved = BTreeSet::new();
         for root in &self.workspace_roots {
-            match analyze_package_for_lsp(root, &overlays) {
+            match analyze_package_for_lsp(root, &overlays, &mut self.analysis_cache) {
                 Ok(modules) => {
                     for module in modules {
                         let uri = workspace_uri_for_path(&module.path, &documents);
@@ -379,6 +401,10 @@ impl LspServer {
             if resolved.contains(uri) {
                 continue;
             }
+            let source_diagnostics = self.cached_source_diagnostics(uri, text);
+            if !source_diagnostics.is_empty() && !diagnostics.contains_key(uri) {
+                diagnostics.insert(uri.clone(), source_diagnostics);
+            }
             match syntax::parse_program_with_recovery(text, &path_for_uri(uri)) {
                 Ok(program) => symbols.extend(symbols_for_program(uri, text, &program)),
                 Err(_) => symbols.extend(symbols_for_incomplete_source(uri, text)),
@@ -409,17 +435,52 @@ impl LspServer {
 
     fn publish_workspace_diagnostics(&mut self) -> Vec<Value> {
         let index = self.workspace_index();
-        index
+        let current = index
             .documents
-            .iter()
-            .map(|(uri, source)| {
-                if let Some(diagnostics) = index.diagnostics.get(uri) {
-                    publish_diagnostic_values(uri, source, diagnostics.clone())
-                } else {
-                    publish_diagnostics(uri, source)
-                }
+            .keys()
+            .map(|uri| {
+                (
+                    uri.clone(),
+                    index.diagnostics.get(uri).cloned().unwrap_or_default(),
+                )
             })
-            .collect()
+            .collect::<BTreeMap<_, _>>();
+        let mut messages = Vec::new();
+        let uris = current
+            .keys()
+            .chain(self.published_diagnostics.keys())
+            .cloned()
+            .collect::<BTreeSet<_>>();
+        for uri in uris {
+            let diagnostics = current.get(&uri).cloned().unwrap_or_default();
+            if self.published_diagnostics.get(&uri) == Some(&diagnostics) {
+                continue;
+            }
+            messages.push(publish_diagnostic_values(
+                &uri,
+                index
+                    .documents
+                    .get(&uri)
+                    .map(String::as_str)
+                    .unwrap_or_default(),
+                diagnostics,
+            ));
+        }
+        self.published_diagnostics = current;
+        messages
+    }
+
+    fn cached_source_diagnostics(&mut self, uri: &str, source: &str) -> Vec<Diagnostic> {
+        let generation = source_generation(source);
+        if let Some((cached_generation, diagnostics)) = self.source_diagnostics_cache.get(uri) {
+            if *cached_generation == generation {
+                return diagnostics.clone();
+            }
+        }
+        let diagnostics = analyze_source(uri, source);
+        self.source_diagnostics_cache
+            .insert(uri.to_owned(), (generation, diagnostics.clone()));
+        diagnostics
     }
 
     fn hover_response(&mut self, id: Value, message: &Value) -> Value {
@@ -1522,6 +1583,14 @@ pub fn analyze_source(uri: &str, source: &str) -> Vec<Diagnostic> {
     }
 }
 
+fn source_generation(source: &str) -> u64 {
+    use std::hash::{Hash, Hasher};
+
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    source.hash(&mut hasher);
+    hasher.finish()
+}
+
 fn diagnostics_with_default_path(diagnostics: Vec<Diagnostic>, path: &Path) -> Vec<Diagnostic> {
     diagnostics
         .into_iter()
@@ -2508,6 +2577,150 @@ mod tests {
                 .unwrap()
                 <= maximum_p95
         );
+    }
+
+    #[test]
+    fn persistent_analysis_cache_reuses_results_and_invalidates_reverse_dependencies_only() {
+        let directory = tempfile::tempdir().expect("workspace");
+        let package_a = directory.path().join("package-a");
+        let package_b = directory.path().join("package-b");
+        for package in [&package_a, &package_b] {
+            fs::create_dir_all(package.join("src")).expect("package source directory");
+            fs::write(
+                package.join("axiom.toml"),
+                "[package]\nname = \"cache-test\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n",
+            )
+            .expect("manifest");
+        }
+        let provider = package_a.join("src/provider.ax");
+        let main_a = package_a.join("src/main.ax");
+        let main_b = package_b.join("src/main.ax");
+        fs::write(&provider, "pub fn health(): int {\nreturn 1\n}\n").expect("provider");
+        fs::write(&main_a, "import \"provider.ax\"\nprint health()\n").expect("package A entry");
+        fs::write(&main_b, "pub fn unrelated(): int {\nreturn 2\n}\n").expect("package B entry");
+
+        let provider_uri = uri_for_path(&provider);
+        let mut server = LspServer::default();
+        server.workspace_roots = BTreeSet::from([package_a.clone(), package_b.clone()]);
+        server.documents.insert(
+            provider_uri,
+            LspDocument {
+                version: 1,
+                text: "pub fn health(): int {\nreturn 1\n}\n".to_owned(),
+            },
+        );
+
+        server.workspace_index();
+        let first_runs = server.analysis_cache.analysis_runs();
+        assert_eq!(
+            first_runs, 2,
+            "both packages should analyze on first request"
+        );
+
+        server.workspace_index();
+        assert_eq!(server.analysis_cache.analysis_runs(), first_runs);
+        assert!(server.analysis_cache.cache_hits() >= 2);
+
+        server.documents.insert(
+            uri_for_path(&provider),
+            LspDocument {
+                version: 2,
+                text: "pub fn health(): int {\nreturn 3\n}\n".to_owned(),
+            },
+        );
+        server.workspace_index();
+        assert_eq!(server.analysis_cache.analysis_runs(), first_runs + 1);
+        let invalidated = server.analysis_cache.last_invalidated();
+        assert!(invalidated.contains(&fs::canonicalize(&provider).expect("provider path")));
+        assert!(invalidated.contains(&fs::canonicalize(&main_a).expect("entry path")));
+        assert!(!invalidated.contains(&fs::canonicalize(&main_b).expect("unrelated path")));
+    }
+
+    #[test]
+    fn malformed_package_overlay_is_reanalyzed_after_did_change_fix() {
+        let directory = tempfile::tempdir().expect("workspace");
+        let src = directory.path().join("src");
+        fs::create_dir_all(&src).expect("package source directory");
+        fs::write(
+            directory.path().join("axiom.toml"),
+            "[package]\nname = \"lsp-repair\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n",
+        )
+        .expect("manifest");
+        let main_path = src.join("main.ax");
+        fs::write(&main_path, "print 1\n").expect("disk source");
+        let uri = uri_for_path(&main_path);
+        let mut server = LspServer::default();
+        server
+            .workspace_roots
+            .insert(directory.path().to_path_buf());
+
+        let opened = server
+            .handle_message(&notification(
+                "textDocument/didOpen",
+                json!({
+                    "textDocument": {
+                        "uri": uri,
+                        "languageId": "axiom",
+                        "version": 1,
+                        "text": "}\n"
+                    }
+                }),
+            ))
+            .expect("open malformed package source");
+        assert_eq!(opened.messages.len(), 1);
+        assert!(
+            !opened.messages[0]["params"]["diagnostics"]
+                .as_array()
+                .expect("diagnostics")
+                .is_empty()
+        );
+        assert_eq!(server.analysis_cache.analysis_runs(), 1);
+
+        let fixed = server
+            .handle_message(&notification(
+                "textDocument/didChange",
+                json!({
+                    "textDocument": { "uri": uri, "version": 2 },
+                    "contentChanges": [{ "text": "print 2\n" }]
+                }),
+            ))
+            .expect("fix malformed package source");
+        assert_eq!(fixed.messages.len(), 1);
+        assert_eq!(fixed.messages[0]["params"]["diagnostics"], json!([]));
+        assert_eq!(server.analysis_cache.analysis_runs(), 2);
+    }
+
+    #[test]
+    fn unchanged_diagnostics_are_not_republished_and_clears_are_emitted() {
+        let uri = "file:///tmp/lsp-diagnostic-delta/main.ax";
+        let mut server = LspServer::default();
+        let open = server
+            .handle_message(&notification(
+                "textDocument/didOpen",
+                json!({ "textDocument": { "uri": uri, "languageId": "axiom", "version": 1, "text": "print missing_name\n" } }),
+            ))
+            .expect("open");
+        assert_eq!(open.messages.len(), 1);
+
+        let unchanged = server
+            .handle_message(&notification(
+                "textDocument/didChange",
+                json!({ "textDocument": { "uri": uri, "version": 2 }, "contentChanges": [{ "text": "print missing_name\n" }] }),
+            ))
+            .expect("unchanged edit");
+        assert!(
+            unchanged.messages.is_empty(),
+            "unchanged diagnostics should be cached"
+        );
+
+        let fixed = server
+            .handle_message(&notification(
+                "textDocument/didChange",
+                json!({ "textDocument": { "uri": uri, "version": 3 }, "contentChanges": [{ "text": "print 1\n" }] }),
+            ))
+            .expect("fix");
+        assert_eq!(fixed.messages.len(), 1);
+        assert_eq!(fixed.messages[0]["params"]["diagnostics"], json!([]));
     }
 
     #[test]
