@@ -629,7 +629,7 @@ fn lower_block(
             .with_span(stmt.line(), stmt.column()));
         }
         let lowered_stmt = lower_stmt(stmt, env, ctx)?;
-        guaranteed_return = lowered_stmt.always_returns();
+        guaranteed_return = lowered_stmt.always_returns() || matches!(lowered_stmt, Stmt::Break { .. } | Stmt::Continue { .. });
         lowered.push(lowered_stmt);
     }
     let mut after = env.clone();
@@ -660,7 +660,7 @@ fn lower_block_recovering(
         let mut candidate_env = env.clone();
         match lower_stmt(stmt, &mut candidate_env, ctx) {
             Ok(lowered_stmt) => {
-                guaranteed_return = lowered_stmt.always_returns();
+                guaranteed_return = lowered_stmt.always_returns() || matches!(lowered_stmt, Stmt::Break { .. } | Stmt::Continue { .. });
                 *env = candidate_env;
                 lowered.push(lowered_stmt);
             }
