@@ -1,5 +1,6 @@
+use axiomc::{diagnostics::Diagnostic, json_contract};
 use jsonschema::Validator;
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -47,6 +48,68 @@ fn cli_json_outputs_match_checked_in_contract_snapshots() {
         let snapshot = read_json(&contracts.join(format!("snapshots/{command}.json")));
         assert_eq!(normalized, snapshot, "{command} JSON contract drifted");
     }
+}
+
+#[test]
+fn command_failure_envelopes_validate_against_the_published_schema() {
+    let schema = read_json(&contract_root().join("schemas/axiom.stage1.command.schema.json"));
+    let validator = jsonschema::validator_for(&schema).expect("compile JSON contract schema");
+    let diagnostic = Diagnostic::new("manifest", "fixture failure");
+
+    for command in [
+        "check",
+        "build",
+        "run",
+        "test",
+        "caps",
+        "mutation-report",
+        "parse",
+        "doc",
+        "lsp",
+    ] {
+        let payload = json_contract::error(command, &diagnostic);
+        validator
+            .validate(&payload)
+            .unwrap_or_else(|error| panic!("{command} failure envelope must validate: {error}"));
+    }
+
+    for (group, name) in [
+        ("check", "parse-error.json"),
+        ("build", "runtime-lowering-required.json"),
+        ("doc", "failure.json"),
+    ] {
+        let payload = read_json(
+            &contract_root()
+                .parent()
+                .expect("stage1 root")
+                .join("json-fixtures")
+                .join(group)
+                .join(name),
+        );
+        validator
+            .validate(&payload)
+            .unwrap_or_else(|error| panic!("{group}/{name} must validate: {error}"));
+    }
+}
+
+#[test]
+fn command_failure_envelopes_reject_unrelated_commands_and_fields() {
+    let schema = read_json(&contract_root().join("schemas/axiom.stage1.command.schema.json"));
+    let validator = jsonschema::validator_for(&schema).expect("compile JSON contract schema");
+    let diagnostic = Diagnostic::new("manifest", "fixture failure");
+
+    let mut unrelated = json_contract::error("doctor", &diagnostic);
+    assert!(
+        !validator.is_valid(&unrelated),
+        "failure envelope must reject commands outside the published command branches"
+    );
+
+    unrelated["command"] = serde_json::json!("check");
+    unrelated["unexpected"] = serde_json::json!(true);
+    assert!(
+        !validator.is_valid(&unrelated),
+        "failure envelope must reject unrelated fields"
+    );
 }
 
 #[cfg(not(windows))]
