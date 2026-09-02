@@ -109,6 +109,24 @@ int axiom_provider_abi_v1_probe(void) {{
 ''')
         result = subprocess.run([cc, "-std=c11", "-Wall", "-Wextra", "-Werror", "-c", str(probe), "-o", str(directory / "provider-abi-probe.o")], capture_output=True, text=True)
         need(result.returncode == 0, f"C reference fixture ABI mismatch for {target}: {result.stderr}")
+        runtime_probe = directory / "provider-abi-runtime-probe.c"
+        runtime_probe.write_text(f'''#include "{C}"
+int main(void) {{
+  axiom_provider_descriptor descriptor = {{0}};
+  axiom_owned_bytes output = {{0}};
+  axiom_borrowed_bytes input = {{NULL, 0}};
+  if (axiom_provider_v1(&descriptor) != 0 || descriptor.major != 1 || descriptor.minor != 0 || descriptor.features != 0) return 1;
+  if (axiom_provider_call(0, input, &output) == 0 || output.data != NULL || output.len != 0) return 4;
+  if (axiom_provider_call(1, input, &output) != 0 || output.data != NULL || output.len != 0) return 2;
+  axiom_provider_release_owned_buffer(output);
+  if (axiom_provider_close_handle(1) != 0 || axiom_provider_close_handle(0) == 0) return 3;
+  return 0;
+}}
+''')
+        result = subprocess.run([cc, "-std=c11", "-Wall", "-Wextra", "-Werror", str(runtime_probe), "-o", str(directory / "provider-abi-runtime-probe")], capture_output=True, text=True)
+        need(result.returncode == 0, f"C reference fixture runtime probe failed to compile for {target}: {result.stderr}")
+        result = subprocess.run([str(directory / "provider-abi-runtime-probe")], capture_output=True, text=True)
+        need(result.returncode == 0, f"C reference fixture runtime probe failed for {target}: {result.stderr}")
 
 def main():
     parser = argparse.ArgumentParser()
