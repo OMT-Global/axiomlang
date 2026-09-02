@@ -1,4 +1,5 @@
 use crate::diagnostics::Diagnostic;
+use crate::framed_protocol;
 use crate::hir;
 use crate::manifest::load_manifest;
 use crate::mir;
@@ -650,7 +651,7 @@ where
     W: Write,
 {
     let mut server = LspServer::default();
-    while let Some(message) = read_message(&mut input)? {
+    while let Some(message) = framed_protocol::read_message(&mut input, "lsp")? {
         let response = server.handle_message(&message)?;
         for payload in response.messages {
             write_message(&mut output, &payload)?;
@@ -1454,44 +1455,6 @@ fn word_occurrences(source: &str, word: &str) -> Vec<(usize, usize)> {
 
 fn is_identifier_byte(byte: u8) -> bool {
     byte.is_ascii_alphanumeric() || byte == b'_'
-}
-
-fn read_message<R>(input: &mut R) -> Result<Option<String>, Diagnostic>
-where
-    R: BufRead,
-{
-    let mut content_length = None;
-    loop {
-        let mut line = String::new();
-        let bytes = input
-            .read_line(&mut line)
-            .map_err(|err| Diagnostic::new("lsp", format!("failed to read LSP header: {err}")))?;
-        if bytes == 0 {
-            return Ok(None);
-        }
-        let trimmed = line.trim_end_matches(['\r', '\n']);
-        if trimmed.is_empty() {
-            break;
-        }
-        if let Some((name, value)) = trimmed.split_once(':') {
-            if !name.trim().eq_ignore_ascii_case("Content-Length") {
-                continue;
-            }
-            content_length = Some(value.trim().parse::<usize>().map_err(|err| {
-                Diagnostic::new("lsp", format!("invalid Content-Length header: {err}"))
-            })?);
-        }
-    }
-
-    let length = content_length
-        .ok_or_else(|| Diagnostic::new("lsp", "missing Content-Length header in LSP message"))?;
-    let mut body = vec![0; length];
-    input
-        .read_exact(&mut body)
-        .map_err(|err| Diagnostic::new("lsp", format!("failed to read LSP body: {err}")))?;
-    String::from_utf8(body)
-        .map(Some)
-        .map_err(|err| Diagnostic::new("lsp", format!("LSP body is not UTF-8: {err}")))
 }
 
 fn write_message<W>(output: &mut W, payload: &Value) -> Result<(), Diagnostic>

@@ -1,4 +1,5 @@
 use crate::diagnostics::Diagnostic;
+use crate::framed_protocol;
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use std::fs;
@@ -13,7 +14,7 @@ where
     W: Write,
 {
     let mut session = DapSession::default();
-    while let Some(message) = read_message(&mut input)? {
+    while let Some(message) = framed_protocol::read_message(&mut input, "dap")? {
         let response = session.handle_message(&message)?;
         for payload in response.messages {
             write_message(&mut output, &payload)?;
@@ -404,43 +405,6 @@ fn collect_static_locals(source: &str) -> Vec<Variable> {
             })
         })
         .collect()
-}
-
-fn read_message<R>(input: &mut R) -> Result<Option<String>, Diagnostic>
-where
-    R: BufRead,
-{
-    let mut content_length = None;
-    loop {
-        let mut line = String::new();
-        let bytes = input
-            .read_line(&mut line)
-            .map_err(|err| Diagnostic::new("dap", format!("failed to read DAP header: {err}")))?;
-        if bytes == 0 {
-            return Ok(None);
-        }
-        let trimmed = line.trim_end_matches(['\r', '\n']);
-        if trimmed.is_empty() {
-            break;
-        }
-        if let Some((name, value)) = trimmed.split_once(':') {
-            if name.trim().eq_ignore_ascii_case("Content-Length") {
-                content_length = Some(value.trim().parse::<usize>().map_err(|err| {
-                    Diagnostic::new("dap", format!("invalid Content-Length header: {err}"))
-                })?);
-            }
-        }
-    }
-
-    let length = content_length
-        .ok_or_else(|| Diagnostic::new("dap", "missing Content-Length header in DAP message"))?;
-    let mut body = vec![0; length];
-    input
-        .read_exact(&mut body)
-        .map_err(|err| Diagnostic::new("dap", format!("failed to read DAP body: {err}")))?;
-    String::from_utf8(body)
-        .map(Some)
-        .map_err(|err| Diagnostic::new("dap", format!("DAP body is not UTF-8: {err}")))
 }
 
 fn write_message<W>(output: &mut W, payload: &Value) -> Result<(), Diagnostic>
