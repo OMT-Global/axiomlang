@@ -263,7 +263,7 @@ jobs:
         # only with a corresponding supported runner/compiler toolchain.
         target: [linux-x86_64]
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4 pinned 2026-05-30
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4 pinned 2026-05-30
         with:
           ref: ${{ github.event.pull_request.head.sha }}
       - name: Ensure C compiler availability
