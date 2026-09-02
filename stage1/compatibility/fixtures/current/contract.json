@@ -89,7 +89,7 @@
           "path": "stage1/compiler-contracts/schemas/axiom.stage1.command.schema.json",
           "role": "cli_json_envelope",
           "selector": "$id,oneOf",
-          "sha256": "7cc009c7e11ec2396416169ebef3bfd50a78163613614465436c1f2b427408ec"
+          "sha256": "865256a4a2cc6e66a964fc9e4f1cab4d09162be87a1bbba23ab99caece35dcb3"
         },
         {
           "path": "stage1/compiler-contracts/snapshots/capability-ledger.json",
@@ -1106,13 +1106,13 @@
       "migration": {
         "action": "Update consumers to understand the new diagnostic and lowering fields before consuming axiom.stage1.command envelopes."
       },
-      "signature": "published schema id=https://omt-global.github.io/axiom/schemas/axiom.stage1.command.schema.json; semantic_digest=aa49a0885cba0e06e4f0bf79ca00a8f0b3c58bf16f6148a8c72af070ea701239",
+      "signature": "published schema id=https://omt-global.github.io/axiom/schemas/axiom.stage1.command.schema.json; semantic_digest=0d54a8940d1a0e7da5b554c61d631b5a978c2fbeeb5a85c1c2dc5fc806389038",
       "sources": [
         {
           "path": "stage1/compiler-contracts/schemas/axiom.stage1.command.schema.json",
           "role": "published_schema",
           "selector": "$id,properties.schema_version.const",
-          "sha256": "7cc009c7e11ec2396416169ebef3bfd50a78163613614465436c1f2b427408ec"
+          "sha256": "865256a4a2cc6e66a964fc9e4f1cab4d09162be87a1bbba23ab99caece35dcb3"
         }
       ],
       "stability": "experimental",
@@ -1124,13 +1124,13 @@
       "migration": {
         "action": "Update consumers to understand the new diagnostic and lowering fields plus the optional structured trace and resolver fields before consuming axiom.stage1.v1 envelopes."
       },
-      "signature": "published schema id=https://axiom.omt.global/schemas/axiom.stage1.v1.schema.json; semantic_digest=417176c8832c77f390d1487dd84afe16b1ee04175ed612a64e62ee32378cdf93; envelope=axiom.stage1.v1",
+      "signature": "published schema id=https://axiom.omt.global/schemas/axiom.stage1.v1.schema.json; semantic_digest=3dd960ee9135b65108266d571385c3b417a68336e15a723247ab82827e472e2c; envelope=axiom.stage1.v1",
       "sources": [
         {
           "path": "stage1/schemas/axiom.stage1.v1.schema.json",
           "role": "published_schema",
           "selector": "$id,properties.schema_version.const",
-          "sha256": "9970368648e147e199942df3c0202be397e5e3284241bb1f670938004fb96c78"
+          "sha256": "43ab634820d0ecdaef06cd739339a8b3399cdaeb1adb366f7572f624d207cd62"
         }
       ],
       "stability": "experimental",

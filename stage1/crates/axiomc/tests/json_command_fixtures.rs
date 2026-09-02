@@ -27,6 +27,19 @@ fn schema_validator() -> Validator {
     jsonschema::validator_for(&schema).expect("compile stage1 JSON schema")
 }
 
+fn command_schema_validator() -> Validator {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join("compiler-contracts")
+        .join("schemas")
+        .join("axiom.stage1.command.schema.json");
+    let schema: Value =
+        serde_json::from_str(&fs::read_to_string(path).expect("read command schema"))
+            .expect("command schema is valid JSON");
+    jsonschema::validator_for(&schema).expect("compile command JSON schema")
+}
+
 fn assert_matches_stage1_schema(validator: &Validator, payload: &Value) {
     if let Err(error) = validator.validate(payload) {
         panic!("fixture failed stage1 schema validation: {error}");
@@ -74,6 +87,7 @@ fn fmt_fixture_covers_replayable_byte_edits() {
 #[test]
 fn build_fixtures_cover_direct_native_target_and_no_fallback_failure() {
     let validator = schema_validator();
+    let command_validator = command_schema_validator();
     let success = fixture("build", "success.json");
     assert_matches_stage1_schema(&validator, &success);
     assert_envelope(&success, "build", true);
@@ -121,6 +135,7 @@ fn build_fixtures_cover_direct_native_target_and_no_fallback_failure() {
 
     let blocked = fixture("build", "runtime-lowering-required.json");
     assert_matches_stage1_schema(&validator, &blocked);
+    assert_matches_stage1_schema(&command_validator, &blocked);
     assert_envelope(&blocked, "build", false);
     assert_eq!(
         blocked["error"]["code"],
@@ -232,6 +247,7 @@ fn build_fixtures_cover_direct_native_target_and_no_fallback_failure() {
 
     let unsupported_target = fixture("build", "unsupported-target.json");
     assert_matches_stage1_schema(&validator, &unsupported_target);
+    assert_matches_stage1_schema(&command_validator, &unsupported_target);
     assert_envelope(&unsupported_target, "build", false);
     assert_eq!(unsupported_target["error"]["kind"], "target");
     assert_eq!(unsupported_target["error"]["code"], "target.unsupported");
@@ -250,6 +266,7 @@ fn build_fixtures_cover_direct_native_target_and_no_fallback_failure() {
 
     let failure = fixture("build", "failure.json");
     assert_matches_stage1_schema(&validator, &failure);
+    assert_matches_stage1_schema(&command_validator, &failure);
     assert_envelope(&failure, "build", false);
     assert_eq!(failure["error"]["kind"], "build");
     assert!(failure["error"]["message"].is_string());
