@@ -1,0 +1,1 @@
+{"level":"info","message":"request completed","timestamp":"2026-08-10T00:00:00Z","fields":{"component":"compiler","outcome":"ok"},"correlation":{"request_id":"runtime-1","runtime_origin":"native","span_id":"span-1","trace_id":"trace-1"},"sink_payload":{"message":"request completed"}}

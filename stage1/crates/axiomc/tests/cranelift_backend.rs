@@ -4452,7 +4452,17 @@ fn cranelift_backend_lowers_fs_write_to_runtime_exit_code() {
     let runtime_file = project.join("scratch/data.txt");
     let append_file = project.join("scratch/append.txt");
     let replace_file = project.join("scratch/replace.txt");
-    let replace_temp_file = project.join("scratch/.replace.txt.axiom-replace.tmp");
+    let replace_temps_exist = || {
+        fs::read_dir(project.join("scratch"))
+            .expect("read replacement temp directory")
+            .filter_map(Result::ok)
+            .any(|entry| {
+                entry
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with(".axiom-replace-")
+            })
+    };
     let removed_file = project.join("scratch/remove.txt");
     let created_file = project.join("scratch/created.txt");
     let runtime_dir = project.join("scratch/native-dir");
@@ -4472,7 +4482,7 @@ fn cranelift_backend_lowers_fs_write_to_runtime_exit_code() {
         "build should not create the fs_replace runtime fixture"
     );
     assert!(
-        !replace_temp_file.exists(),
+        !replace_temps_exist(),
         "build should not create the fs_replace temp fixture"
     );
     assert!(
@@ -4495,6 +4505,19 @@ fn cranelift_backend_lowers_fs_write_to_runtime_exit_code() {
         !audit_log.exists(),
         "build should not create the native fs audit log"
     );
+    #[cfg(unix)]
+    let replace_sentinel = project
+        .parent()
+        .expect("project parent")
+        .join("replace-sentinel.txt");
+    #[cfg(unix)]
+    let planted_temp = project.join("scratch/.replace.txt.axiom-replace.tmp");
+    #[cfg(unix)]
+    {
+        fs::write(&replace_sentinel, "sentinel-safe").expect("write replace sentinel");
+        std::os::unix::fs::symlink(&replace_sentinel, &planted_temp)
+            .expect("plant legacy replace temp symlink");
+    }
     let run = Command::new(binary)
         .env("AXIOM_HOST_AUDIT_LOG", &audit_log)
         .output()
@@ -4509,17 +4532,58 @@ fn cranelift_backend_lowers_fs_write_to_runtime_exit_code() {
         fs::read_to_string(&append_file).expect("read fs_append runtime fixture"),
         "runtime-seed+runtime-append"
     );
+    #[cfg(any(
+        target_os = "linux",
+        target_os = "android",
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "freebsd",
+        target_os = "netbsd",
+        target_os = "openbsd",
+        target_os = "dragonfly"
+    ))]
     assert_eq!(
         fs::read_to_string(&replace_file).expect("read fs_replace runtime fixture"),
         "runtime-replace"
+    );
+    #[cfg(not(any(
+        target_os = "linux",
+        target_os = "android",
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "freebsd",
+        target_os = "netbsd",
+        target_os = "openbsd",
+        target_os = "dragonfly"
+    )))]
+    assert_eq!(
+        fs::read_to_string(&replace_file).expect("read denied fs_replace runtime fixture"),
+        "stale"
+    );
+    #[cfg(unix)]
+    assert_eq!(
+        fs::read_to_string(&replace_sentinel).expect("read replace sentinel"),
+        "sentinel-safe"
+    );
+    #[cfg(unix)]
+    assert!(
+        fs::symlink_metadata(&planted_temp)
+            .expect("stat planted replace temp")
+            .file_type()
+            .is_symlink(),
+        "a preplanted legacy temp symlink must never be followed"
     );
     assert!(
         !removed_file.exists(),
         "runtime remove_file should remove the remove_file fixture"
     );
     assert!(
-        !replace_temp_file.exists(),
-        "runtime replace_file should not leave the temp fixture"
+        !replace_temps_exist(),
+        "runtime replace_file should not leave a temp fixture"
+    );
+    assert!(
+        !temp.path().join("escape.txt").exists(),
+        "denied filesystem operations must remain beneath the authorized root"
     );
     assert_eq!(
         fs::read_to_string(&created_file).expect("read create_file runtime fixture"),
@@ -8307,7 +8371,7 @@ fn cranelift_backend_rejects_fs_write_denial_before_backend_lowering() {
 
 #[cfg(not(windows))]
 #[test]
-fn cranelift_backend_rejects_env_precomputed_output_without_runtime_lowering() {
+fn cranelift_backend_lowers_unrestricted_env_at_runtime() {
     if which::which("cc").is_err() {
         eprintln!("skipping cranelift backend smoke test because cc is unavailable");
         return;
@@ -8329,13 +8393,34 @@ fn cranelift_backend_rejects_env_precomputed_output_without_runtime_lowering() {
         ])
         .output()
         .expect("run axiomc build --backend cranelift");
-    // assert_runtime_lowering_required verifies generated_rust and binary are absent.
-    assert_runtime_lowering_required(&output, "env-precomputed-output");
+    assert!(
+        output.status.success(),
+        "cranelift unrestricted env build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    assert_eq!(payload["lowering"]["execution_mode"], "direct_native_runtime");
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .env("AXIOM_CRANELIFT_ENV_READ", "native-env")
+        .env_remove("__AXIOM_CRANELIFT_ENV_MISSING__")
+        .output()
+        .expect("run cranelift unrestricted env binary");
+    assert!(
+        run.status.success(),
+        "cranelift unrestricted env binary failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&run.stdout),
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "native-env\nmissing\n");
 }
 
 #[cfg(not(windows))]
 #[test]
-fn cranelift_backend_rejects_env_allowlist_precomputed_output_without_runtime_lowering() {
+fn cranelift_backend_lowers_env_allowlist_output_at_runtime() {
     if which::which("cc").is_err() {
         eprintln!("skipping cranelift backend smoke test because cc is unavailable");
         return;
@@ -8357,8 +8442,32 @@ fn cranelift_backend_rejects_env_allowlist_precomputed_output_without_runtime_lo
         ])
         .output()
         .expect("run axiomc build --backend cranelift");
-    // assert_runtime_lowering_required verifies generated_rust and binary are absent.
-    assert_runtime_lowering_required(&output, "env-allowlist-precomputed-output");
+    assert!(
+        output.status.success(),
+        "cranelift env allowlist build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    assert_eq!(payload["lowering"]["execution_mode"], "direct_native_runtime");
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .env("AXIOM_CRANELIFT_ENV_READ", "allowed-env")
+        .env("AXIOM_CRANELIFT_ENV_BLOCKED", "blocked-env")
+        .output()
+        .expect("run cranelift env allowlist binary");
+    assert!(
+        run.status.success(),
+        "cranelift env allowlist binary failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&run.stdout),
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&run.stdout),
+        "allowed-env\nmissing blocked\n"
+    );
 }
 
 #[cfg(not(windows))]
@@ -8747,8 +8856,7 @@ env = true
 clock = false
 crypto = false
 
-[unsafe_rationale]
-env = "Cranelift ABI regression needs a runtime-only projected key index source."
+unsafe_rationale = "Cranelift ABI regression needs a runtime-only projected key index source."
 "#,
     )
     .expect("write regex manifest");
@@ -8789,7 +8897,7 @@ fn write_i64_main_exit_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create i64 main exit project src");
     fs::write(
         project.join("axiom.toml"),
-        "[package]\nname = \"cranelift-i64-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = true\nclock = false\ncrypto = false\n\n[unsafe_rationale]\nenv = \"Cranelift ABI regression needs a runtime-only projected key index source.\"\n",
+        "[package]\nname = \"cranelift-i64-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = true\nclock = false\ncrypto = false\n\nunsafe_rationale = \"Cranelift ABI regression needs a runtime-only projected key index source.\"\n",
     )
     .expect("write i64 main exit manifest");
     fs::write(
@@ -8808,7 +8916,7 @@ fn write_i64_returning_main_exit_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create i64 returning main exit project src");
     fs::write(
         project.join("axiom.toml"),
-        "[package]\nname = \"cranelift-i64-returning-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = true\nclock = false\ncrypto = false\n\n[unsafe_rationale]\nenv = \"Cranelift ABI regression needs a runtime-only projected key index source.\"\n",
+        "[package]\nname = \"cranelift-i64-returning-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = true\nclock = false\ncrypto = false\n\nunsafe_rationale = \"Cranelift ABI regression needs a runtime-only projected key index source.\"\n",
     )
     .expect("write i64 returning main exit manifest");
     fs::write(
@@ -11759,8 +11867,7 @@ env = true
 clock = false
 crypto = false
 
-[unsafe_rationale]
-env = "Cranelift ABI regression needs a runtime-only projected key index source."
+unsafe_rationale = "Cranelift ABI regression needs a runtime-only projected key index source."
 "#,
     )
     .expect("write owned move manifest");
@@ -12261,8 +12368,7 @@ env = false
 clock = false
 crypto = false
 
-[unsafe_rationale]
-net = "Cranelift ABI regression covers std/net.ax localhost DNS resolution for issue 928."
+unsafe_rationale = "Cranelift ABI regression covers std/net.ax localhost DNS resolution for issue 928."
 "#,
     )
     .expect("write net resolve manifest");
@@ -12314,8 +12420,7 @@ env = false
 clock = false
 crypto = false
 
-[unsafe_rationale]
-net = "Direct-native DNS regression covers std/net.ax localhost resolution for issue 928."
+unsafe_rationale = "Direct-native DNS regression covers std/net.ax localhost resolution for issue 928."
 "#,
     )
     .expect("write net resolve main manifest");
@@ -12382,8 +12487,7 @@ env = false
 clock = false
 crypto = false
 
-[unsafe_rationale]
-net = "Direct-native DNS regression covers runtime numeric-address resolution for issue 1001."
+unsafe_rationale = "Direct-native DNS regression covers runtime numeric-address resolution for issue 1001."
 "#,
     )
     .expect("write numeric net resolve main manifest");
@@ -12449,8 +12553,7 @@ env = false
 clock = false
 crypto = false
 
-[unsafe_rationale]
-net = "Regression proves unrestricted networking still denies sensitive targets."
+unsafe_rationale = "Regression proves unrestricted networking still denies sensitive targets."
 "#,
     )
     .expect("write unrestricted net resolve manifest");
@@ -12498,8 +12601,7 @@ env = false
 clock = false
 crypto = false
 
-[unsafe_rationale]
-net = "Cranelift ABI regression covers std/net.ax TCP and UDP loopback helpers for issue 928."
+unsafe_rationale = "Cranelift ABI regression covers std/net.ax TCP and UDP loopback helpers for issue 928."
 "#,
     )
     .expect("write net loopback manifest");
@@ -12560,8 +12662,7 @@ env = false
 clock = false
 crypto = false
 
-[unsafe_rationale]
-net = "Direct-native loopback regression covers std/net.ax TCP and UDP helpers for issue 928."
+unsafe_rationale = "Direct-native loopback regression covers std/net.ax TCP and UDP helpers for issue 928."
 "#,
     )
     .expect("write net loopback main manifest");
@@ -12636,8 +12737,7 @@ env = false
 clock = false
 crypto = false
 
-[unsafe_rationale]
-net = "Direct-native mutable buffer regression covers raw TCP and UDP read writebacks."
+unsafe_rationale = "Direct-native mutable buffer regression covers raw TCP and UDP read writebacks."
 "#,
     )
     .expect("write net mutable buffers manifest");
@@ -12771,8 +12871,7 @@ env = false
 clock = false
 crypto = false
 
-[unsafe_rationale]
-net = "Cranelift ABI regression covers std/http.ax local HTTP GET for issue 928."
+unsafe_rationale = "Cranelift ABI regression covers std/http.ax local HTTP GET for issue 928."
 "#
         ),
     )
@@ -12828,8 +12927,7 @@ env = false
 clock = false
 crypto = false
 
-[unsafe_rationale]
-net = "Direct-native HTTP client regression covers std/http.ax local GET for issue 928."
+unsafe_rationale = "Direct-native HTTP client regression covers std/http.ax local GET for issue 928."
 "#
         ),
     )
@@ -12896,8 +12994,7 @@ env = false
 clock = false
 crypto = false
 
-[unsafe_rationale]
-net = "Cranelift ABI regression covers std/http.ax local HTTP server primitives for issue 928."
+unsafe_rationale = "Cranelift ABI regression covers std/http.ax local HTTP server primitives for issue 928."
 "#
         ),
     )
@@ -12952,8 +13049,7 @@ env = false
 clock = false
 crypto = false
 
-[unsafe_rationale]
-net = "Direct-native HTTP server regression covers std/http.ax serve_once for issue 928."
+unsafe_rationale = "Direct-native HTTP server regression covers std/http.ax serve_once for issue 928."
 "#
         ),
     )
@@ -13009,8 +13105,7 @@ env = false
 clock = false
 crypto = false
 
-[unsafe_rationale]
-net = "Direct-native HTTP server regression covers http_serve_route for issue 928."
+unsafe_rationale = "Direct-native HTTP server regression covers http_serve_route for issue 928."
 "#
         ),
     )
@@ -13064,8 +13159,7 @@ env = false
 clock = false
 crypto = false
 
-[unsafe_rationale]
-net = "Direct-native HTTP server regression covers non-loopback bind rejection diagnostics."
+unsafe_rationale = "Direct-native HTTP server regression covers non-loopback bind rejection diagnostics."
 "#,
     )
     .expect("write http non-loopback bool print manifest");
@@ -13115,9 +13209,7 @@ clock = false
 crypto = false
 async = true
 
-[unsafe_rationale]
-net = "Cranelift ABI regression covers std/http_async.ax local async HTTP route serving for issue 928."
-async = "Cranelift ABI regression covers std/http_async.ax local async HTTP route serving for issue 928."
+unsafe_rationale = "Cranelift ABI regression covers std/http_async.ax local async HTTP route serving for issue 928."
 "#
         ),
     )
@@ -13233,7 +13325,7 @@ fn write_crypto_random_main_exit_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create crypto random project src");
     fs::write(
         project.join("axiom.toml"),
-        "[package]\nname = \"cranelift-crypto-random-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = true\n\n[unsafe_rationale]\ncrypto = \"Direct-native random_bytes length and random_u64 regression covers std/crypto_rand.ax for issue 1001.\"\n",
+        "[package]\nname = \"cranelift-crypto-random-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = true\n\nunsafe_rationale = \"Direct-native random_bytes length and random_u64 regression covers std/crypto_rand.ax for issue 1001.\"\n",
     )
     .expect("write crypto random main manifest");
     fs::write(
@@ -13387,8 +13479,7 @@ clock = false
 crypto = false
 async = true
 
-[unsafe_rationale]
-async = "Cranelift ABI regression covers compiler-side std/async.ax evaluation for issue 928."
+unsafe_rationale = "Cranelift ABI regression covers compiler-side std/async.ax evaluation for issue 928."
 "#,
     )
     .expect("write std async manifest");
@@ -13487,9 +13578,7 @@ crypto = false
 ffi = false
 async = true
 
-[unsafe_rationale]
-net = "Cranelift ABI regression covers compiler-side std/async_net.ax loopback TCP evaluation for issue 928."
-async = "Cranelift ABI regression covers compiler-side std/async_net.ax loopback TCP evaluation for issue 928."
+unsafe_rationale = "Cranelift ABI regression covers compiler-side std/async_net.ax loopback TCP evaluation for issue 928."
 "#
         ),
     )
@@ -13624,8 +13713,7 @@ env = false
 clock = false
 crypto = false
 
-[unsafe_rationale]
-stdio = "Direct-native stderr regression covers std/io.ax eprintln for issue 1001."
+unsafe_rationale = "Direct-native stderr regression covers std/io.ax eprintln for issue 1001."
 "#,
     )
     .expect("write logging stdio main manifest");
@@ -13996,8 +14084,7 @@ env = false
 clock = false
 crypto = false
 
-[unsafe_rationale]
-stdio = "Direct-native stdout regression covers source print statements for issue 1001."
+unsafe_rationale = "Direct-native stdout regression covers source print statements for issue 1001."
 "#,
     )
     .expect("write print stdio main manifest");
@@ -14067,8 +14154,7 @@ env = false
 clock = false
 crypto = false
 
-[unsafe_rationale]
-stdio = "Direct-native stdout regression covers boolean source print statements for issue 1001."
+unsafe_rationale = "Direct-native stdout regression covers boolean source print statements for issue 1001."
 "#,
     )
     .expect("write bool print stdio main manifest");
@@ -14119,8 +14205,7 @@ env = false
 clock = false
 crypto = false
 
-[unsafe_rationale]
-stdio = "Direct-native stdout regression covers integer source print statements for issue 1001."
+unsafe_rationale = "Direct-native stdout regression covers integer source print statements for issue 1001."
 "#,
     )
     .expect("write integer print stdio main manifest");
@@ -14244,8 +14329,7 @@ env = false
 clock = false
 crypto = false
 
-[unsafe_rationale]
-stdio = "Direct-native stderr regression covers helper std/io.ax eprintln for issue 1001."
+unsafe_rationale = "Direct-native stderr regression covers helper std/io.ax eprintln for issue 1001."
 "#,
     )
     .expect("write helper eprintln manifest");
@@ -14320,8 +14404,7 @@ env = false
 clock = false
 crypto = false
 
-[unsafe_rationale]
-stdio = "Direct-native stderr regression covers aggregate helper std/io.ax eprintln for issue 1001."
+unsafe_rationale = "Direct-native stderr regression covers aggregate helper std/io.ax eprintln for issue 1001."
 "#,
     )
     .expect("write aggregate helper eprintln manifest");
@@ -14400,8 +14483,7 @@ env = false
 clock = false
 crypto = false
 
-[unsafe_rationale]
-stdio = "Direct-native stdout regression covers scalar helper source print statements for issue 1001."
+unsafe_rationale = "Direct-native stdout regression covers scalar helper source print statements for issue 1001."
 "#,
     )
     .expect("write helper print manifest");
@@ -14474,8 +14556,7 @@ env = false
 clock = false
 crypto = false
 
-[unsafe_rationale]
-stdio = "Direct-native stdout regression covers aggregate helper source print statements for issue 1001."
+unsafe_rationale = "Direct-native stdout regression covers aggregate helper source print statements for issue 1001."
 "#,
     )
     .expect("write aggregate helper print manifest");
@@ -15592,8 +15673,7 @@ env = false
 clock = false
 crypto = false
 
-[unsafe_rationale]
-stdio = "Direct-native stderr regression covers std/serdes known JSON eprintln output for issue 1001."
+unsafe_rationale = "Direct-native stderr regression covers std/serdes known JSON eprintln output for issue 1001."
 "#,
     )
     .expect("write std/serdes known JSON eprintln manifest");
@@ -16103,6 +16183,17 @@ source = "path"
 "#,
     )
     .expect("write fs-write main lockfile");
+    let replace_supported = cfg!(any(
+        target_os = "linux",
+        target_os = "android",
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "freebsd",
+        target_os = "netbsd",
+        target_os = "openbsd",
+        target_os = "dragonfly"
+    ));
+    let expected_replace_status = if replace_supported { "0" } else { "-1" };
     fs::write(
         project.join("src/main.ax"),
         r#"import "std/fs.ax"
@@ -16123,6 +16214,7 @@ let mkdir_name: string = "native-dir"
 let remove_dir_name: string = "native-dir"
 let nested_leaf: string = "deep"
 let blocked_path: string = "../escape.txt"
+let blocked_replace_path: string = "../escape.txt"
 let write_content: string = "runtime-write"
 let append_suffix: string = "append"
 let replace_suffix: string = "replace"
@@ -16139,13 +16231,15 @@ let made_dir: int = mkdir(DIR_PREFIX + mkdir_name)
 let removed_dir: int = remove_dir(DIR_PREFIX + remove_dir_name)
 let made_all: int = mkdir_all(DIR_PREFIX + "native-all/" + nested_leaf)
 let blocked: int = write_file(blocked_path, blocked_content)
-if wrote == 0 && append_seeded == 0 && appended == 0 && replace_seeded == 0 && replaced == 0 && remove_seeded == 0 && removed == 0 && created == 0 && made_dir == 0 && removed_dir == 0 && made_all == 0 && blocked == -1 {
+let blocked_replace: int = replace_file(blocked_replace_path, "blocked")
+if wrote == 0 && append_seeded == 0 && appended == 0 && replace_seeded == 0 && replaced == EXPECTED_REPLACE_STATUS && remove_seeded == 0 && removed == 0 && created == 0 && made_dir == 0 && removed_dir == 0 && made_all == 0 && blocked == -1 && blocked_replace == -1 {
 return 48
 } else {
 return 1
 }
 }
-"#,
+"#
+        .replace("EXPECTED_REPLACE_STATUS", expected_replace_status),
     )
     .expect("write fs-write main source");
 }
@@ -16372,7 +16466,7 @@ fn write_env_read_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create env project src");
     fs::write(
         project.join("axiom.toml"),
-        "[package]\nname = \"cranelift-env-read\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = true\nclock = false\ncrypto = false\n\n[unsafe_rationale]\nenv = \"Cranelift ABI regression covers direct-native env.read behavior for issue 928.\"\n",
+        "[package]\nname = \"cranelift-env-read\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = true\nenv_unrestricted = true\nclock = false\ncrypto = false\n\nunsafe_rationale = \"Cranelift ABI regression covers direct-native env.read behavior for issue 928.\"\n",
     )
     .expect("write env manifest");
     fs::write(
@@ -16483,8 +16577,7 @@ env = true
 clock = false
 crypto = false
 
-[unsafe_rationale]
-env = "direct-native env-read regression captures deterministic test environment values"
+unsafe_rationale = "direct-native env-read regression captures deterministic test environment values"
 "#,
     )
     .expect("write env main manifest");
@@ -16776,8 +16869,7 @@ clock = false
 crypto = false
 ffi = true
 
-[unsafe_rationale]
-ffi = "Cranelift ABI regression covers the narrow C strlen extern call for issue 928."
+unsafe_rationale = "Cranelift ABI regression covers the narrow C strlen extern call for issue 928."
 "#,
     )
     .expect("write ffi strlen manifest");
@@ -16823,8 +16915,7 @@ clock = false
 crypto = false
 ffi = true
 
-[unsafe_rationale]
-ffi = "Cranelift ABI regression covers the narrow C strlen extern call for issue 928."
+unsafe_rationale = "Cranelift ABI regression covers the narrow C strlen extern call for issue 928."
 "#,
     )
     .expect("write ffi strlen main manifest");
@@ -17001,8 +17092,7 @@ clock = false
 crypto = false
 async = false
 
-[unsafe_rationale]
-net = "Cranelift ABI regression covers async server capability denial ordering for issue 928."
+unsafe_rationale = "Cranelift ABI regression covers async server capability denial ordering for issue 928."
 "#,
     )
     .expect("write http async server denied manifest");

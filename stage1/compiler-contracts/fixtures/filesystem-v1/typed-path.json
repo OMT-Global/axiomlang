@@ -1,0 +1,1 @@
+{"schema_version":"axiom.filesystem_fixture.v1","id":"axiom://filesystem/fixture/typed-path","kind":"positive","evidence":"target","scenario":"join and inspect a normalized root-relative path","authorities":["metadata"],"operation":"join","expected":"accepted","assertions":["absolute policy explicit","path origin retained","stable path exposed"]}

@@ -26,6 +26,7 @@
           "package_id": "registry:default/acme/dep@1.2.3",
           "source_kind": "registry",
           "requested": "^1.2.0",
+          "selected_version": "1.2.3",
           "reason": "highest_compatible"
         }
       ],

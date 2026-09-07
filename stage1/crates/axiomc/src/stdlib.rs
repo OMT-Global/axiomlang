@@ -63,8 +63,8 @@
 //! capability flag, matching the ambient status of the `print` statement:
 //!
 //! * `std/traits.ax` — the static-dispatch seed trait `Eq`.
-//! * `std/io.ax` — `eprintln(text)`, `readline()`, and `read_to_string()`
-//!   on top of the new ungated `io_*` intrinsics.
+//! * `std/io.ax` — `println(text)`, `eprintln(text)`, `readline()`, and
+//!   `read_to_string()` on top of the new ungated `io_*` intrinsics.
 //! * `std/json.ax` — scalar/string JSON parsing plus first-class `JsonValue`
 //!   parsing, composition, nested field lookup, and serialization helpers on
 //!   top of ungated `json_parse_*` / `json_stringify_*` intrinsics.
@@ -275,7 +275,8 @@ pub fn ed25519_verify(public_key: &[u8], message: &[u8], signature: &[u8]): bool
     ),
     (
         "io.ax",
-        "pub fn eprintln(text: string): int {\nreturn io_eprintln(text)\n}\n\
+        "pub fn println(text: string): int {\nreturn io_println(text)\n}\n\
+pub fn eprintln(text: string): int {\nreturn io_eprintln(text)\n}\n\
 pub fn readline(): Option<string> {\nreturn io_readline()\n}\n\
 pub fn read_to_string(): string {\nreturn io_read_to_string()\n}\n",
     ),
