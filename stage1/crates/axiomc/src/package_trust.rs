@@ -2918,6 +2918,12 @@ pub fn verification_expectation_for_authenticated_release(
         return Err(catalog_error(&failures));
     }
 
+    // The public Value wrapper can be constructed without using the parser.
+    // Validate before indexing into or cloning untrusted template shapes.
+    if validate_release_verification_expectation(template).is_err() {
+        add(&mut failures, "OFFLINE_INPUT_MISSING");
+        return Err(catalog_error(&failures));
+    }
     let mut value = template.0.clone();
     value["request"] = serde_json::json!({
         "registry_identity": field(&release.authenticated_value, "registry_identity"),
@@ -2985,17 +2991,7 @@ pub fn verification_expectation_for_authenticated_release(
         },
     });
     let expectation = VerificationExpectation(value);
-    if !validate_document_work_budget(&expectation, DocumentKind::Expectation)
-        || validate_schema_value(
-            &expectation,
-            include_bytes!(
-                "../../../schemas/axiom-package-verification-expectation-v1.schema.json"
-            ),
-            &VERIFICATION_EXPECTATION_SCHEMA,
-            "verification expectation",
-        )
-        .is_err()
-    {
+    if validate_release_verification_expectation(&expectation).is_err() {
         add(&mut failures, "OFFLINE_INPUT_MISSING");
         return Err(catalog_error(&failures));
     }
@@ -3012,6 +3008,7 @@ pub(crate) fn verification_expectation_for_unindexed_release(
     template: &VerificationExpectation,
     release: &Value,
 ) -> Result<VerificationExpectation, PackageTrustError> {
+    validate_release_verification_expectation(template)?;
     let mut value = template.0.clone();
     value["request"] = serde_json::json!({
         "registry_identity": field(release, "registry_identity"),
@@ -3041,18 +3038,24 @@ pub(crate) fn verification_expectation_for_unindexed_release(
         "package_signature_sha256": field(release, "package_signature_sha256"),
     });
     let expectation = VerificationExpectation(value);
-    if !validate_document_work_budget(&expectation, DocumentKind::Expectation) {
+    validate_release_verification_expectation(&expectation)?;
+    Ok(expectation)
+}
+
+fn validate_release_verification_expectation(
+    expectation: &VerificationExpectation,
+) -> Result<(), PackageTrustError> {
+    if !validate_document_work_budget(expectation, DocumentKind::Expectation) {
         return Err(PackageTrustError::new(
             "release verification expectation exceeds the Package Trust work budget",
         ));
     }
     validate_schema_value(
-        &expectation,
+        expectation,
         include_bytes!("../../../schemas/axiom-package-verification-expectation-v1.schema.json"),
         &VERIFICATION_EXPECTATION_SCHEMA,
         "verification expectation",
-    )?;
-    Ok(expectation)
+    )
 }
 
 /// Validate canonical in-toto/SLSA semantics before invoking a package signer.
@@ -4449,6 +4452,78 @@ mod tests {
                 reasons.contains(&expected_reason.to_owned()),
                 "{vector_id}: {reasons:?}"
             );
+        }
+    }
+
+    fn malformed_expectation_templates(
+        valid: &VerificationExpectation,
+    ) -> Vec<VerificationExpectation> {
+        let malformed = [
+            serde_json::json!(false),
+            serde_json::json!(42),
+            serde_json::json!("invalid"),
+            serde_json::json!([]),
+            Value::Null,
+        ];
+        let mut templates = malformed
+            .iter()
+            .cloned()
+            .map(VerificationExpectation)
+            .collect::<Vec<_>>();
+        for member in ["trusted_state", "offline_lock"] {
+            for value in &malformed {
+                let mut template = valid.clone();
+                template.0[member] = value.clone();
+                templates.push(template);
+            }
+            let mut template = valid.clone();
+            template
+                .0
+                .as_object_mut()
+                .expect("valid object")
+                .remove(member);
+            templates.push(template);
+        }
+        templates
+    }
+
+    #[test]
+    fn authenticated_release_expectation_rejects_malformed_templates_without_panicking() {
+        let bundle = bundle();
+        let catalog = authenticate_registry_catalog(
+            &catalog_bytes(&bundle.registry_index),
+            &bundle.trust_roots,
+            &bundle.verification_expectation,
+        )
+        .expect("catalog authenticates");
+        let release = catalog
+            .release("axiom", "core", "1.2.3")
+            .expect("selected release");
+
+        for template in malformed_expectation_templates(&bundle.verification_expectation) {
+            let error =
+                verification_expectation_for_authenticated_release(&template, &catalog, release)
+                    .expect_err("malformed template must return a catalog diagnostic");
+            assert_eq!(error.reason_codes, vec!["OFFLINE_INPUT_MISSING".to_owned()]);
+        }
+    }
+
+    #[test]
+    fn unindexed_release_expectation_rejects_malformed_templates_without_panicking() {
+        let bundle = bundle();
+        let catalog = authenticate_registry_catalog(
+            &catalog_bytes(&bundle.registry_index),
+            &bundle.trust_roots,
+            &bundle.verification_expectation,
+        )
+        .expect("catalog authenticates");
+        let release = catalog
+            .release("axiom", "core", "1.2.3")
+            .expect("selected release");
+
+        for template in malformed_expectation_templates(&bundle.verification_expectation) {
+            verification_expectation_for_unindexed_release(&template, &release.authenticated_value)
+                .expect_err("malformed template must return a trust diagnostic");
         }
     }
 
