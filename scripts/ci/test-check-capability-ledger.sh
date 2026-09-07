@@ -103,4 +103,30 @@ if python3 "$checker" --check-docs --docs "$tmpdir/stale-issue-doc.md" --json >"
 fi
 grep -Fq "historical evidence" "$tmpdir/stale-issue-report.json"
 
+python3 - "$checker" "$snapshot" "$tmpdir" <<'PY'
+import importlib.util
+import json
+from pathlib import Path
+import sys
+
+spec = importlib.util.spec_from_file_location("capability_ledger", sys.argv[1])
+checker = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(checker)
+ledger = json.loads(Path(sys.argv[2]).read_text())
+root = Path(sys.argv[3])
+marker = checker.expected_doc_marker(ledger)
+modules = ledger["summary"]["stdlibModules"]
+functions = ledger["summary"]["stdlibFunctions"]
+for text, valid in [
+    (f"{modules} synthetic standard-library\nmodules with {functions} exported\nfunctions.", True),
+    (f"{modules - 1} stdlib modules with {functions} exported functions.", False),
+    (f"{modules} stdlib modules with {functions - 1} exported\nfunctions.", False),
+]:
+    (root / "inventory.md").write_text(marker + "\n" + text)
+    errors = checker.validate_docs(root, ["inventory.md"], ledger)
+    assert bool(errors) is not valid, (text, errors)
+    if not valid:
+        assert any("prose count" in error for error in errors), errors
+PY
+
 echo "capability ledger regression cases passed"
