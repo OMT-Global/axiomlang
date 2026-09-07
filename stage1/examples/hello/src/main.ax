@@ -1,26 +1,26 @@
 fn banner(name: string): string {
-return "hello " + name
+    return "hello " + name
 }
 
 fn lucky(base: int): int {
-return base + 2
+    return base + 2
 }
 
 fn is_ready(value: int): bool {
-return value == 42
+    return value == 42
 }
 
 let answer: int = lucky(40)
 let ready: bool = is_ready(answer)
 
 while false {
-print "never"
+    print "never"
 }
 
 if ready {
-print banner("from stage1")
+    print banner("from stage1")
 } else {
-print "stage1 failed"
+    print "stage1 failed"
 }
 
 print answer
