@@ -1,12 +1,16 @@
 #!/usr/bin/env python3
 """Negative coverage for every Provider ABI v1 contract rule and fixture."""
 import copy
+import contextlib
+import importlib.util
+import io
 import json
 import shutil
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from unittest import mock
 
 R = Path(__file__).resolve().parents[2]
 CHECKER = "scripts/ci/check-provider-abi-v1.py"
@@ -55,6 +59,34 @@ FIXTURE_CASES = {
     "fixture-signature-close-handle": ("int axiom_provider_close_handle(axiom_handle h)", "int axiom_provider_close_handle(uint32_t h)"),
     "fixture-signature-release-owned-buffer": ("axiom_owned_bytes v", "axiom_borrowed_bytes v"),
 }
+
+# Exercise compiler discovery while still compiling and inspecting the real
+# fixture. The runner may have gcc/clang but no command named cc.
+spec = importlib.util.spec_from_file_location("provider_checker", R / CHECKER)
+checker = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(checker)
+compiler = next((path for name in ("cc", "gcc", "clang") if (path := shutil.which(name))), None)
+nm = shutil.which("nm")
+if not compiler or not nm:
+    raise SystemExit("compiler and nm required for compiler-discovery regression tests")
+for available in ("cc", "gcc", "clang"):
+    with mock.patch.object(checker.shutil, "which", side_effect=lambda name: {available: compiler, "nm": nm}.get(name)) as which:
+        checker.compile_fixture(f"{available}-only")
+        searched = [call.args[0] for call in which.call_args_list if call.args[0] != "nm"]
+        expected = list(("cc", "gcc", "clang")[:("cc", "gcc", "clang").index(available) + 1])
+        if searched != expected:
+            raise SystemExit(f"compiler discovery order drift: {searched}")
+with mock.patch.object(checker.shutil, "which", side_effect=lambda name: nm if name == "nm" else None), \
+        mock.patch.object(checker.subprocess, "run") as command, \
+        contextlib.redirect_stderr(io.StringIO()) as errors:
+    try:
+        checker.compile_fixture("no-compiler")
+    except SystemExit as error:
+        if error.code != 1 or "C compiler unavailable" not in errors.getvalue():
+            raise AssertionError((error.code, errors.getvalue()))
+    else:
+        raise AssertionError("missing compiler must fail closed")
+    command.assert_not_called()
 
 with tempfile.TemporaryDirectory() as directory:
     repo = Path(directory) / "repo"
