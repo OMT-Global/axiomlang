@@ -6,6 +6,31 @@
       "issue": 731,
       "lane": "tooling",
       "check": "Documentation generator, LSP server, and protocol path are AxiOM-owned."
+    },
+    {
+      "issue": 1438,
+      "lane": "runtime",
+      "check": "Owned aggregate movement and provider-backed cryptographic values lower through the native runtime."
+    },
+    {
+      "issue": 1445,
+      "lane": "runtime",
+      "check": "Async tasks and scheduler-backed effects lower through the native runtime."
+    },
+    {
+      "issue": 1447,
+      "lane": "network",
+      "check": "DNS and socket operations lower through the governed native network runtime."
+    },
+    {
+      "issue": 1448,
+      "lane": "network",
+      "check": "HTTP client operations lower through the governed native network runtime."
+    },
+    {
+      "issue": 1449,
+      "lane": "network",
+      "check": "HTTP async server operations lower through scheduler-backed native runtime support."
     }
   ]
 }

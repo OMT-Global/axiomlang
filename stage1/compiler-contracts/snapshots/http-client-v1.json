@@ -1,0 +1,86 @@
+{
+  "schema_version": "axiom.runtime_http_client.v1",
+  "contract": "runtime.http_client",
+  "issue": 1448,
+  "request": {
+    "methods": ["DELETE", "GET", "HEAD", "PATCH", "POST", "PUT"],
+    "url": {
+      "schemes": ["http", "https"],
+      "authority": "capability-approved endpoint",
+      "path": "UTF-8 path with percent-encoding preserved",
+      "query": "UTF-8 query with deterministic encoding"
+    },
+    "headers": {
+      "max_count": 64,
+      "max_bytes": 65536,
+      "duplicate_rule": "preserve order; reject ambiguous security headers"
+    },
+    "body": {
+      "representations": ["bytes", "none", "text"],
+      "encoding": "bytes are authoritative; text is UTF-8 validated"
+    },
+    "limits": {
+      "max_bytes": 1048576,
+      "oversize_error": "request_too_large"
+    }
+  },
+  "response": {
+    "status": {"minimum": 100, "maximum": 599},
+    "headers": {
+      "max_count": 128,
+      "max_bytes": 65536,
+      "duplicate_rule": "preserve duplicates as ordered fields"
+    },
+    "body": {"max_bytes": 8388608, "oversize_error": "response_too_large"},
+    "final_url": "absolute effective URL after approved redirect processing",
+    "framing": {
+      "allowed": ["chunked", "connection_close", "content_length"],
+      "conflicting_length_rule": "reject conflicting Content-Length values before allocation",
+      "truncation_rule": "reject incomplete Content-Length and chunked bodies"
+    }
+  },
+  "errors": {
+    "shape": {
+      "required_fields": ["code", "phase", "message", "details"],
+      "details": "bounded, code-specific object containing non-sensitive failure context"
+    },
+    "kinds": [
+      {"code": "authority_denied", "phase": "authorization", "details": ["authority", "policy"]},
+      {"code": "cancelled", "phase": "cancellation", "details": ["state", "outcome"]},
+      {"code": "conflicting_content_length", "phase": "response", "details": ["header", "values"]},
+      {"code": "malformed_status", "phase": "response", "details": ["status"]},
+      {"code": "redirect_policy_rejected", "phase": "redirect", "details": ["location", "policy"]},
+      {"code": "request_too_large", "phase": "request", "details": ["limit", "size"]},
+      {"code": "response_too_large", "phase": "response", "details": ["limit", "size"]},
+      {"code": "timeout", "phase": "transport", "details": ["timeout_ms", "phase"]},
+      {"code": "tls_policy_rejected", "phase": "tls", "details": ["authority", "policy", "verification"]},
+      {"code": "transport", "phase": "transport", "details": ["kind", "retryable"]}
+    ]
+  },
+  "policies": {
+    "redirects": "deny",
+    "tls": "system_roots",
+    "authority": "connect authority is capability-scoped and recorded in evidence",
+    "timeout_ms": 5000
+  },
+  "cancellation": {
+    "request_states": ["queued", "connecting", "sending", "receiving", "completed", "cancelled"],
+    "outcomes": ["acknowledged", "already_completed", "too_late"],
+    "terminal_rule": "exactly one terminal outcome is emitted and no body is delivered after cancellation"
+  },
+  "evidence": {
+    "authority": "approved capability identifier, never an unchecked caller string",
+    "network_scope": "scheme, host, port, and redirect decision",
+    "tls": "policy name and peer-verification result",
+    "request_id": "stable per-request correlation identifier",
+    "runtime_origin": "runtime transport evidence, not compile-time replay"
+  },
+  "fixtures": [
+    {"id": "http-client-v1/malformed-status", "kind": "negative", "path": "malformed-status.json", "asserts": ["status outside 100..599 is rejected"]},
+    {"id": "http-client-v1/conflicting-lengths", "kind": "negative", "path": "conflicting-lengths.json", "asserts": ["different Content-Length values are rejected"]},
+    {"id": "http-client-v1/oversize-body", "kind": "negative", "path": "oversize-body.json", "asserts": ["body allocation is bounded before delivery"]},
+    {"id": "http-client-v1/unsupported-policy", "kind": "negative", "path": "unsupported-policy.json", "asserts": ["disabled TLS and unrestricted redirects are rejected"]},
+    {"id": "http-client-v1/structured-error-mismatch", "kind": "negative", "path": "structured-error-mismatch.json", "asserts": ["error phase and detail keys must match the error code"]},
+    {"id": "http-client-v1/cancellation-error", "kind": "negative", "path": "cancellation-error.json", "asserts": ["cancelled requests cannot report completed delivery"]}
+  ]
+}
