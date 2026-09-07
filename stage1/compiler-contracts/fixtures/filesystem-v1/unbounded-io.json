@@ -1,0 +1,1 @@
+{"schema_version":"axiom.filesystem_fixture.v1","id":"axiom://filesystem/fixture/unbounded-io","kind":"negative","evidence":"target","scenario":"request binary I/O without a finite byte bound","authorities":["read"],"operation":"read","expected":"denied","assertions":["denial reason reported","handle remains valid","no allocation or I/O performed"]}

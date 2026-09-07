@@ -8,6 +8,8 @@ project:
   defaultBranch: main
 repo:
   class: tooling
+  classMigration:
+    target: cli
   managedPaths:
     - project.bootstrap.yaml
     - AGENTS.md
@@ -28,10 +30,12 @@ repo:
     - scripts/claude-cloud/**
     - scripts/claude/**
     - docs/bootstrap/**
+    - SECURITY.md
+    - .github/workflows/security.yml
   docs:
     readme: true
     contributing: false
-    security: false
+    security: true
   templates:
     pullRequest: standard
     issueTemplates: []
@@ -296,6 +300,9 @@ github:
     hasWiki: false
     hasDiscussions: false
 ci:
+  codeqlLanguages:
+    - python
+    - rust
   runnerPolicy: hybrid-safe
   nodeVersion: "20"
   pythonVersion: "3.12"

@@ -169,6 +169,11 @@ for example in stdlib_time stdlib_testing; do
   run_stdlib_project "$example"
 done
 
+# Environment reads now lower to direct-native runtime code rather than being
+# treated as a compile-time-only capability. Keep this positive runtime smoke
+# separate so fail-closed coverage below remains explicit for unsupported APIs.
+run_stdlib_project "stdlib_env"
+
 for example in \
   stdlib_json \
   stdlib_regex \
@@ -179,7 +184,6 @@ for example in \
 done
 
 for example in \
-  stdlib_env \
   stdlib_fs \
   stdlib_net \
   stdlib_process \

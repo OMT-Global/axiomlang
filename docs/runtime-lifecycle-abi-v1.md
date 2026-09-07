@@ -6,6 +6,15 @@ capability-resource support. It is a semantic contract: an implementation may
 choose its own storage representation, but it may not silently weaken the
 ownership, cleanup, or failure rules below.
 
+The first implementation slice lives in
+`stage1/crates/axiomc/src/runtime_lifecycle.rs`. `LifecycleRuntime` is a
+target-neutral state machine for backend lowering: it owns checked byte
+allocations, explicit resize failure, move/clone/copy decisions, borrow gates,
+recursive aggregate cleanup, scope-exit cleanup, and opaque capability-scoped
+resource handles. It records lifecycle operations for inspection without
+exposing host addresses or handles. Backend-specific layout and code emission
+remain separate adapters over this state machine.
+
 The machine-readable contract is
 `stage1/compiler-contracts/snapshots/runtime-lifecycle-v1.json` and validates
 against `stage1/compiler-contracts/schemas/axiom.runtime_lifecycle.v1.schema.json`.
@@ -49,7 +58,8 @@ aggregate allocation. Recursive destruction uses the same rule at every level.
 Each cleanup obligation is discharged exactly once, even when a child cleanup
 reports an error. A cycle or an ownership escape that prevents a deterministic
 cleanup path is rejected unless a separately declared shared-resource contract
-proves its release rule.
+proves its release rule; attaching an owner under one of its own descendants
+is diagnosed as `lifecycle.ownership_cycle`.
 
 ## Scope exit, defer, and errors
 
@@ -66,6 +76,10 @@ Deferred actions may observe values captured by their declaration, but must not
 extend a borrow or capability authority after the enclosing scope ends.
 Panic/unwind and error-return paths use the same cleanup obligations as normal
 return paths; neither is permitted to skip an owned value or resource handle.
+If a scope exit or drop would encounter an owned value with an active borrow,
+it is diagnosed as `lifecycle.borrow_conflict` before any cleanup state is
+mutated: the scope or aggregate is retained, the obligation stays reachable,
+and the cleanup can be retried once the borrow extent ends.
 
 ## Capability-resource handles
 

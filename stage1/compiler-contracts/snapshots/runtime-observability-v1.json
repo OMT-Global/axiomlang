@@ -1,0 +1,43 @@
+{
+  "schema_version": "axiom.runtime_observability.v1",
+  "contract": "runtime.observability",
+  "issue": 1451,
+  "event": {
+    "levels": ["debug", "error", "info", "trace", "warn"],
+    "max_event_bytes": 65536,
+    "max_fields": 32,
+    "max_label_values": 1000,
+    "labels": ["component", "operation", "outcome"],
+    "required_fields": ["level", "message", "timestamp"]
+  },
+  "redaction": {
+    "strategy": "denylist_and_secret_patterns",
+    "secret_keys": ["authorization", "cookie", "password", "private_key", "secret", "token"],
+    "replacement": "[REDACTED]",
+    "before_sink": true
+  },
+  "correlation": {
+    "fields": ["request_id", "runtime_origin", "span_id", "trace_id"],
+    "source": "trusted runtime context",
+    "trust_rule": "callers may add values but cannot forge or overwrite runtime correlation fields"
+  },
+  "sinks": {
+    "kinds": ["audit_jsonl", "otlp", "stderr", "stdout"],
+    "queue_capacity": 1024,
+    "backpressure": "drop_newest",
+    "failure_rule": "report sink failure once, preserve process operation, and expose dropped count"
+  },
+  "shutdown": {
+    "states": ["running", "draining", "flushed", "failed"],
+    "flush_timeout_ms": 2000,
+    "ordering": "stop intake, drain accepted events, flush sinks, then emit terminal state",
+    "failure_rule": "a timeout or sink error is observable and never reported as flushed"
+  },
+  "fixtures": [
+    {"id": "observability-v1/golden-event", "kind": "positive", "path": "golden-event.json", "asserts": ["bounded event has trusted correlation and redacted sink payload"]},
+    {"id": "observability-v1/redaction-negative", "kind": "negative", "path": "redaction-negative.json", "asserts": ["secret value is not emitted to a sink"]},
+    {"id": "observability-v1/unbounded-cardinality", "kind": "negative", "path": "unbounded-cardinality.json", "asserts": ["label cardinality is bounded"]},
+    {"id": "observability-v1/sink-shutdown", "kind": "negative", "path": "sink-shutdown.json", "asserts": ["sink failure cannot claim flushed shutdown"]},
+    {"id": "observability-v1/correlation", "kind": "negative", "path": "correlation.json", "asserts": ["caller cannot forge trusted correlation fields"]}
+  ]
+}

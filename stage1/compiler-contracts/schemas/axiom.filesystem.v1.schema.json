@@ -1,0 +1,271 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://omt-global.github.io/axiom/schemas/axiom.filesystem.v1.schema.json",
+  "title": "Axiom Filesystem v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "contract", "issue", "implementation", "path_model", "authority", "file_resources", "atomic_and_temporary", "build_purity", "inspection_fields", "outcomes", "fixtures", "migration"],
+  "properties": {
+    "schema_version": {"const": "axiom.filesystem.v1"},
+    "contract": {"const": "runtime.filesystem"},
+    "issue": {"const": 1443},
+    "implementation": {"$ref": "#/$defs/implementation"},
+    "path_model": {"$ref": "#/$defs/path_model"},
+    "authority": {"$ref": "#/$defs/authority"},
+    "file_resources": {"$ref": "#/$defs/file_resources"},
+    "atomic_and_temporary": {"$ref": "#/$defs/atomic_and_temporary"},
+    "build_purity": {"$ref": "#/$defs/build_purity"},
+    "inspection_fields": {"type": "array", "minItems": 11, "items": {"type": "string", "minLength": 1}},
+    "outcomes": {"type": "array", "minItems": 9, "items": {"enum": ["accepted", "committed_durability_uncertain", "denied", "end_of_file", "io_error", "not_found", "partial", "stale_handle", "unsupported"]}},
+    "fixtures": {"type": "array", "minItems": 11, "items": {"$ref": "#/$defs/fixture_ref"}},
+    "migration": {"$ref": "#/$defs/migration"}
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "implementation": {
+            "required": ["tier"],
+            "properties": {"tier": {"const": "runtime_complete"}}
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "fixtures": {
+            "items": {
+              "allOf": [
+                {"$ref": "#/$defs/fixture_ref"},
+                {"properties": {"evidence": {"const": "runtime"}}}
+              ]
+            }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "implementation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tier", "status", "blockers", "scoped_text_io", "root_scoped_metadata", "root_scoped_write", "typed_paths", "binary_handles", "deterministic_traversal", "atomic_replace", "secure_temporary_resources", "runtime_effects_only", "descriptor_anchored_replace", "pathname_operations_toctou_safe"],
+      "properties": {
+        "tier": {"enum": ["syntax_only", "static_spike", "runtime_complete"]},
+        "status": {"enum": ["blocked", "partial", "qualified"]},
+        "blockers": {"type": "array", "items": {"type": "integer"}},
+        "scoped_text_io": {"type": "boolean"},
+        "root_scoped_metadata": {"type": "boolean"},
+        "root_scoped_write": {"type": "boolean"},
+        "typed_paths": {"type": "boolean"},
+        "binary_handles": {"type": "boolean"},
+        "deterministic_traversal": {"type": "boolean"},
+        "atomic_replace": {"type": "boolean"},
+        "secure_temporary_resources": {"type": "boolean"},
+        "runtime_effects_only": {"type": "boolean"},
+        "descriptor_anchored_replace": {"type": "boolean"},
+        "pathname_operations_toctou_safe": {"type": "boolean"}
+      },
+      "allOf": [
+        {
+          "if": {"required": ["tier"], "properties": {"tier": {"const": "syntax_only"}}},
+          "then": {"properties": {"status": {"enum": ["blocked", "partial"]}, "blockers": {"minItems": 1}}}
+        },
+        {
+          "if": {"required": ["tier"], "properties": {"tier": {"const": "static_spike"}}},
+          "then": {"properties": {"status": {"const": "partial"}, "blockers": {"minItems": 1}}}
+        },
+        {
+          "if": {"required": ["tier"], "properties": {"tier": {"const": "runtime_complete"}}},
+          "then": {
+            "properties": {
+              "status": {"const": "qualified"},
+              "blockers": {"maxItems": 0},
+              "scoped_text_io": {"const": true},
+              "root_scoped_metadata": {"const": true},
+              "root_scoped_write": {"const": true},
+              "typed_paths": {"const": true},
+              "binary_handles": {"const": true},
+              "deterministic_traversal": {"const": true},
+              "atomic_replace": {"const": true},
+              "secure_temporary_resources": {"const": true},
+              "runtime_effects_only": {"const": true},
+              "descriptor_anchored_replace": {"const": true},
+              "pathname_operations_toctou_safe": {"const": true}
+            }
+          }
+        }
+      ]
+    },
+    "path_model": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["required_operations", "root_policy", "absolute_policy", "parent_traversal", "symlink_policy", "canonicalization", "enumeration", "metadata_fields"],
+      "properties": {
+        "required_operations": {"type": "array", "minItems": 12, "items": {"enum": ["canonicalize", "exists", "extension", "file_type", "is_absolute", "join", "metadata", "name", "normalize", "parent", "read_dir", "relative_to"]}},
+        "root_policy": {"const": "package_or_declared_fs_root"},
+        "absolute_policy": {"const": "deny_by_default"},
+        "parent_traversal": {"const": "deny_escape"},
+        "symlink_policy": {"const": "descriptor_anchored_nofollow_at_operation"},
+        "canonicalization": {"const": "capability_root_relative"},
+        "enumeration": {"$ref": "#/$defs/enumeration"},
+        "metadata_fields": {"type": "array", "minItems": 5, "items": {"enum": ["file_type", "length_bytes", "modified_time", "permissions", "stable_path"]}}
+      }
+    },
+    "enumeration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["order", "separator_normalization", "dot_components", "unicode_normalization", "case_folding", "comparison_key"],
+      "properties": {
+        "order": {"const": "stable_normalized_path_order"},
+        "separator_normalization": {"const": "typed_origin_windows_backslash_to_slash_posix_preserved"},
+        "dot_components": {"const": "remove_dot_and_resolve_dotdot_within_root"},
+        "unicode_normalization": {"const": "none"},
+        "case_folding": {"const": "none"},
+        "comparison_key": {"const": "normalized_path_then_origin_then_raw_path_unicode_scalar_sequence"}
+      }
+    },
+    "authority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["required_kinds", "current_grants", "operation_requirements", "handle_authority_operations", "handle_authority_rule", "denial_rule", "separate_grants_required", "default_deny", "root_scoped", "runtime_revalidation", "delegation"],
+      "properties": {
+        "required_kinds": {"type": "array", "minItems": 5, "items": {"enum": ["metadata", "read", "temporary", "traversal", "write"]}},
+        "current_grants": {"type": "array", "minItems": 2, "items": {"enum": ["fs", "fs:write"]}},
+        "operation_requirements": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["append_file", "atomic_replace", "canonicalize", "create_file", "create_temporary_directory", "create_temporary_file", "create_temporary_resource", "exists", "extension", "file_exists", "file_size", "file_type", "is_absolute", "join", "metadata", "mkdir", "mkdir_all", "name", "normalize", "open_read", "open_write", "parent", "read", "read_dir", "read_file", "relative_to", "remove_dir", "remove_file", "replace_file", "write", "write_file"],
+          "properties": {
+            "append_file": {"const": "write"},
+            "atomic_replace": {"const": "write"},
+            "canonicalize": {"const": "traversal"},
+            "create_file": {"const": "write"},
+            "create_temporary_directory": {"const": "temporary"},
+            "create_temporary_file": {"const": "temporary"},
+            "create_temporary_resource": {"const": "temporary"},
+            "exists": {"const": "metadata"},
+            "extension": {"const": "metadata"},
+            "file_exists": {"const": "metadata"},
+            "file_size": {"const": "metadata"},
+            "file_type": {"const": "metadata"},
+            "is_absolute": {"const": "metadata"},
+            "join": {"const": "metadata"},
+            "metadata": {"const": "metadata"},
+            "mkdir": {"const": "write"},
+            "mkdir_all": {"const": "write"},
+            "name": {"const": "metadata"},
+            "normalize": {"const": "traversal"},
+            "open_read": {"const": "read"},
+            "open_write": {"const": "write"},
+            "parent": {"const": "metadata"},
+            "read": {"const": "read"},
+            "read_dir": {"const": "traversal"},
+            "read_file": {"const": "read"},
+            "relative_to": {"const": "metadata"},
+            "remove_dir": {"const": "write"},
+            "remove_file": {"const": "write"},
+            "replace_file": {"const": "write"},
+            "write": {"const": "write"},
+            "write_file": {"const": "write"}
+          }
+        },
+        "handle_authority_operations": {"const": ["close", "flush", "fsync", "seek"]},
+        "handle_authority_rule": {"const": "retain and revalidate the authority and access mode granted when the handle was opened"},
+        "denial_rule": {"const": "missing or wrong authority denies before allocation or host I/O"},
+        "separate_grants_required": {"const": true},
+        "default_deny": {"const": true},
+        "root_scoped": {"const": true},
+        "runtime_revalidation": {"const": true},
+        "delegation": {"const": "narrower_root_and_operations_only"}
+      }
+    },
+    "file_resources": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["required_operations", "partial_io", "byte_counts", "bounded_requests", "max_request_bytes", "oversize_outcome", "seek_origins", "flush_modes", "idempotent_close", "drop_closes", "generation_checked", "lifecycle_contract"],
+      "properties": {
+        "required_operations": {"type": "array", "minItems": 8, "items": {"enum": ["close", "flush", "fsync", "open_read", "open_write", "read", "seek", "write"]}},
+        "partial_io": {"const": true},
+        "byte_counts": {"const": true},
+        "bounded_requests": {"const": true},
+        "max_request_bytes": {"const": 1048576},
+        "oversize_outcome": {"const": "denied_before_allocation_or_io"},
+        "seek_origins": {"type": "array", "minItems": 3, "items": {"enum": ["current", "end", "start"]}},
+        "flush_modes": {"type": "array", "minItems": 2, "items": {"enum": ["buffer", "durable"]}},
+        "idempotent_close": {"const": true},
+        "drop_closes": {"const": true},
+        "generation_checked": {"const": true},
+        "lifecycle_contract": {"const": "axiom.runtime_lifecycle.v1"}
+      }
+    },
+    "atomic_and_temporary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["atomic_replace", "temporary_resources", "security_rules"],
+      "properties": {
+        "atomic_replace": {"$ref": "#/$defs/atomic_replace"},
+        "temporary_resources": {"$ref": "#/$defs/temporary_resources"},
+        "security_rules": {"type": "array", "minItems": 9, "items": {"enum": ["cleanup_on_drop", "exclusive_create", "nofollow", "restrictive_permissions", "runtime_revalidate_parent", "same_directory_replace", "sync_directory_after_replace", "sync_file_before_replace", "unpredictable_name"]}}
+      }
+    },
+    "atomic_replace": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["required", "same_directory", "file_sync_before_rename", "rename_is_commit_point", "directory_sync_after_rename", "pre_commit_failure_preserves_old", "post_commit_sync_failure"],
+      "properties": {
+        "required": {"const": true},
+        "same_directory": {"const": true},
+        "file_sync_before_rename": {"const": true},
+        "rename_is_commit_point": {"const": true},
+        "directory_sync_after_rename": {"const": true},
+        "pre_commit_failure_preserves_old": {"const": true},
+        "post_commit_sync_failure": {"const": "committed_durability_uncertain"}
+      }
+    },
+    "temporary_resources": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["required", "kinds", "exclusive_create", "unpredictable_names", "restrictive_permissions", "cleanup_on_drop"],
+      "properties": {
+        "required": {"const": true},
+        "kinds": {"type": "array", "minItems": 2, "items": {"enum": ["directory", "file"]}},
+        "exclusive_create": {"const": true},
+        "unpredictable_names": {"const": true},
+        "restrictive_permissions": {"const": true},
+        "cleanup_on_drop": {"const": true}
+      }
+    },
+    "build_purity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["effect_phase", "check_effects", "build_effects", "runtime_effects"],
+      "properties": {
+        "effect_phase": {"const": "runtime_only"},
+        "check_effects": {"const": "prohibited"},
+        "build_effects": {"const": "prohibited"},
+        "runtime_effects": {"const": "capability_authorized"}
+      }
+    },
+    "fixture_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "evidence", "file"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^axiom://filesystem/fixture/[a-z0-9-]+$"},
+        "kind": {"enum": ["positive", "negative"]},
+        "evidence": {"enum": ["current", "runtime", "target"]},
+        "file": {"type": "string", "pattern": "^[a-z0-9-]+\\.json$"}
+      }
+    },
+    "migration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["blocker_issues", "current_evidence", "out_of_scope"],
+      "properties": {
+        "blocker_issues": {"type": "array", "minItems": 4, "items": {"type": "integer"}},
+        "current_evidence": {"type": "array", "minItems": 6, "items": {"type": "string", "minLength": 1}},
+        "out_of_scope": {"type": "array", "minItems": 3, "items": {"type": "string", "minLength": 1}}
+      }
+    }
+  }
+}
