@@ -150,4 +150,8 @@ if [[ -z "$rust_linker" ]]; then
   exit 1
 fi
 
+# Exercise the declared example modes with the real compiler; fake-runner tests
+# alone cannot detect a compiler change that makes an expectation stale (#1656).
+bash scripts/ci/run-stage1-basic-smoke.sh
+bash scripts/ci/run-stage1-stdlib-smoke.sh
 bash scripts/ci/run-stage1-proof-test.sh

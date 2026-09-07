@@ -255,9 +255,9 @@ stage1-basic-smoke:
 stage1-stdlib-smoke:
 	bash scripts/ci/run-stage1-stdlib-smoke.sh
 
+# Example expectations: scripts/ci/stage1-smoke-expectations.json (docs/stage1-smoke-contract.md).
 stage1-smoke:
 	$(MAKE) stage1-basic-smoke
-	cargo run --manifest-path stage1/Cargo.toml -p axiomc -- test stage1/examples/capabilities --json
 	$(MAKE) stage1-stdlib-smoke
 	$(MAKE) stage1-proof-test
 	cargo run --manifest-path stage1/Cargo.toml -p axiomc -- caps stage1/examples/hello --json
