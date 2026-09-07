@@ -571,11 +571,12 @@ fn lower_function(
     let (body, _, guaranteed_return) = if function.is_extern {
         (Vec::new(), env.clone(), true)
     } else {
-        let (body, diagnostics, guaranteed_return) =
+        let (body, diagnostics, _) =
             lower_block_recovering(&function.body, &mut env, &ctx);
         if !diagnostics.is_empty() {
             return Err(primary_diagnostic(diagnostics));
         }
+        let guaranteed_return = body.last().is_some_and(Stmt::always_returns);
         (body, env.clone(), guaranteed_return)
     };
     if !guaranteed_return {
@@ -619,9 +620,9 @@ fn lower_block(
 ) -> Result<(Vec<Stmt>, HashMap<String, Binding>, bool), Diagnostic> {
     let scope_names = env.keys().cloned().collect::<HashSet<_>>();
     let mut lowered = Vec::new();
-    let mut guaranteed_return = false;
+    let mut terminated = false;
     for stmt in block {
-        if guaranteed_return {
+        if terminated {
             return Err(Diagnostic::new(
                 "control",
                 "unreachable statements after a terminating control-flow statement are not yet supported in stage1",
@@ -629,12 +630,12 @@ fn lower_block(
             .with_span(stmt.line(), stmt.column()));
         }
         let lowered_stmt = lower_stmt(stmt, env, ctx)?;
-        guaranteed_return = lowered_stmt.always_returns() || matches!(lowered_stmt, Stmt::Break { .. } | Stmt::Continue { .. });
+        terminated = lowered_stmt.always_terminates();
         lowered.push(lowered_stmt);
     }
     let mut after = env.clone();
     release_scope_borrows(&mut after, &scope_names);
-    Ok((lowered, after, guaranteed_return))
+    Ok((lowered, after, terminated))
 }
 
 fn lower_block_recovering(
@@ -645,9 +646,9 @@ fn lower_block_recovering(
     let scope_names = env.keys().cloned().collect::<HashSet<_>>();
     let mut lowered = Vec::new();
     let mut diagnostics = Vec::new();
-    let mut guaranteed_return = false;
+    let mut terminated = false;
     for stmt in block {
-        if guaranteed_return {
+        if terminated {
             diagnostics.push(
                 Diagnostic::new(
                     "control",
@@ -660,7 +661,7 @@ fn lower_block_recovering(
         let mut candidate_env = env.clone();
         match lower_stmt(stmt, &mut candidate_env, ctx) {
             Ok(lowered_stmt) => {
-                guaranteed_return = lowered_stmt.always_returns() || matches!(lowered_stmt, Stmt::Break { .. } | Stmt::Continue { .. });
+                terminated = lowered_stmt.always_terminates();
                 *env = candidate_env;
                 lowered.push(lowered_stmt);
             }
@@ -671,7 +672,7 @@ fn lower_block_recovering(
         }
     }
     release_scope_borrows(env, &scope_names);
-    (lowered, diagnostics, guaranteed_return)
+    (lowered, diagnostics, terminated)
 }
 
 fn insert_type_error_binding_for_failed_stmt(
@@ -1963,6 +1964,35 @@ fn lower_expr_with_expected_inner(
                         "type",
                         format!(
                             "io_eprintln expects a string argument, got {}",
+                            lowered.ty()
+                        ),
+                    )
+                    .with_span(args[0].line(), args[0].column()));
+                }
+                move_lowered_value(&lowered, env)?;
+                return Ok(Expr::Call {
+                    span: SourceSpan::point(*line, *column),
+                    name: name.clone(),
+                    args: vec![lowered],
+                    ty: Type::Int,
+                });
+            }
+            if name == "io_println" {
+                // Ungated: stdout output is ambient, matching `print`'s
+                // ungated statement form. No capability check.
+                if args.len() != 1 {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!("io_println expects 1 argument, got {}", args.len()),
+                    )
+                    .with_span(*line, *column));
+                }
+                let lowered = lower_expr_with_expected(&args[0], Some(&Type::String), env, ctx)?;
+                if lowered.ty() != &Type::String {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!(
+                            "io_println expects a string argument, got {}",
                             lowered.ty()
                         ),
                     )

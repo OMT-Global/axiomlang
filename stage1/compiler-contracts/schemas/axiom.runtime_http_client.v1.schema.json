@@ -1,0 +1,211 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://axiom-lang.org/schemas/axiom.runtime_http_client.v1.schema.json",
+  "title": "AxiOM HTTP client runtime contract v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "contract",
+    "issue",
+    "request",
+    "response",
+    "errors",
+    "policies",
+    "cancellation",
+    "evidence",
+    "fixtures"
+  ],
+  "properties": {
+    "schema_version": {"const": "axiom.runtime_http_client.v1"},
+    "contract": {"const": "runtime.http_client"},
+    "issue": {"const": 1448},
+    "request": {
+      "$ref": "#/$defs/request"
+    },
+    "response": {
+      "$ref": "#/$defs/response"
+    },
+    "errors": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["shape", "kinds"],
+      "properties": {
+        "shape": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["required_fields", "details"],
+          "properties": {
+            "required_fields": {
+              "type": "array",
+              "minItems": 4,
+              "items": {"enum": ["code", "phase", "message", "details"]}
+            },
+            "details": {"type": "string", "minLength": 1}
+          }
+        },
+        "kinds": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["code", "phase", "details"],
+            "properties": {
+              "code": {"type": "string", "minLength": 1},
+              "phase": {"enum": ["request", "response", "redirect", "tls", "authorization", "cancellation", "transport"]},
+              "details": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}}
+            }
+          }
+        }
+      }
+    },
+    "policies": {
+      "$ref": "#/$defs/policies"
+    },
+    "cancellation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["request_states", "outcomes", "terminal_rule"],
+      "properties": {
+        "request_states": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "outcomes": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "terminal_rule": {"type": "string", "minLength": 1}
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["authority", "network_scope", "tls", "request_id", "runtime_origin"],
+      "properties": {
+        "authority": {"type": "string", "minLength": 1},
+        "network_scope": {"type": "string", "minLength": 1},
+        "tls": {"type": "string", "minLength": 1},
+        "request_id": {"type": "string", "minLength": 1},
+        "runtime_origin": {"type": "string", "minLength": 1}
+      }
+    },
+    "fixtures": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "kind", "path", "asserts"],
+        "properties": {
+          "id": {"type": "string", "minLength": 1},
+          "kind": {"type": "string", "minLength": 1},
+          "path": {"type": "string", "minLength": 1},
+          "asserts": {
+            "type": "array",
+            "minItems": 1,
+            "items": {"type": "string", "minLength": 1}
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["methods", "url", "headers", "body", "limits"],
+      "properties": {
+        "methods": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"type": "string", "pattern": "^[A-Z]+$"}
+        },
+        "url": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["schemes", "authority", "path", "query"],
+          "properties": {
+            "schemes": {"type": "array", "minItems": 1, "items": {"enum": ["http", "https"]}},
+            "authority": {"type": "string", "minLength": 1},
+            "path": {"type": "string", "minLength": 1},
+            "query": {"type": "string"}
+          }
+        },
+        "headers": {"$ref": "#/$defs/header_limits"},
+        "body": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["representations", "encoding"],
+          "properties": {
+            "representations": {"type": "array", "minItems": 1, "items": {"enum": ["none", "bytes", "text"]}},
+            "encoding": {"type": "string", "minLength": 1}
+          }
+        },
+        "limits": {"$ref": "#/$defs/byte_limits"}
+      }
+    },
+    "response": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "headers", "body", "final_url", "framing"],
+      "properties": {
+        "status": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["minimum", "maximum"],
+          "properties": {
+            "minimum": {"type": "integer", "minimum": 100, "maximum": 599},
+            "maximum": {"type": "integer", "minimum": 100, "maximum": 599}
+          }
+        },
+        "headers": {"$ref": "#/$defs/header_limits"},
+        "body": {"$ref": "#/$defs/byte_limits"},
+        "final_url": {"type": "string", "minLength": 1},
+        "framing": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["allowed", "conflicting_length_rule", "truncation_rule"],
+          "properties": {
+            "allowed": {"type": "array", "minItems": 1, "items": {"enum": ["content_length", "chunked", "connection_close"]}},
+            "conflicting_length_rule": {"type": "string", "minLength": 1},
+            "truncation_rule": {"type": "string", "minLength": 1}
+          }
+        }
+      }
+    },
+    "header_limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["max_count", "max_bytes", "duplicate_rule"],
+      "properties": {
+        "max_count": {"type": "integer", "minimum": 1},
+        "max_bytes": {"type": "integer", "minimum": 1},
+        "duplicate_rule": {"type": "string", "minLength": 1}
+      }
+    },
+    "byte_limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["max_bytes", "oversize_error"],
+      "properties": {
+        "max_bytes": {"type": "integer", "minimum": 1},
+        "oversize_error": {"type": "string", "minLength": 1}
+      }
+    },
+    "policies": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["redirects", "tls", "authority", "timeout_ms"],
+      "properties": {
+        "redirects": {"enum": ["deny", "same_origin", "allowlist"]},
+        "tls": {"enum": ["system_roots", "pinned"]},
+        "authority": {"type": "string", "minLength": 1},
+        "timeout_ms": {"type": "integer", "minimum": 1}
+      }
+    }
+  }
+}

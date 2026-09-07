@@ -1288,6 +1288,18 @@ fn axiom_async_recv<T: Send + 'static>(channel: AxiomChannel<T>) -> AxiomTask<Op
     out.push_str("    }\n");
     out.push_str("}\n\n");
     out.push_str("#[allow(dead_code)]\n");
+    out.push_str("fn axiom_io_println(text: String) -> i64 {\n");
+    out.push_str("    use std::io::Write;\n");
+    out.push_str("    let stdout = std::io::stdout();\n");
+    out.push_str("    let mut handle = stdout.lock();\n");
+    out.push_str(
+        "    match handle.write_all(text.as_bytes()).and_then(|_| handle.write_all(b\"\\n\")) {\n",
+    );
+    out.push_str("        Ok(()) => (text.len() as i64) + 1,\n");
+    out.push_str("        Err(_) => -1,\n");
+    out.push_str("    }\n");
+    out.push_str("}\n\n");
+    out.push_str("#[allow(dead_code)]\n");
     out.push_str("fn axiom_io_readline() -> Option<String> {\n");
     out.push_str("    let stdin = std::io::stdin();\n");
     out.push_str("    let mut handle = stdin.lock();\n");
@@ -5228,6 +5240,7 @@ unsafe extern "C" {
         false,
         debug,
         &[],
+        0,
         &main_mutable_locals,
     );
     out.push_str("    });\n");
@@ -6052,6 +6065,7 @@ fn render_function(
             false,
             debug,
             &[],
+            0,
             &mutable_locals,
         );
         out.push_str("    })\n");
@@ -6065,6 +6079,7 @@ fn render_function(
             false,
             debug,
             &[],
+            0,
             &mutable_locals,
         );
     }
@@ -6359,6 +6374,7 @@ fn render_stmt_block(
     in_async_function: bool,
     debug: bool,
     active_defers: &[(String, SourceSpan)],
+    loop_defer_start: usize,
     mutable_locals: &HashSet<String>,
 ) {
     let mut local_defers: Vec<(String, SourceSpan)> = Vec::new();
@@ -6372,6 +6388,7 @@ fn render_stmt_block(
             in_async_function,
             debug,
             active_defers,
+            loop_defer_start,
             mutable_locals,
             &mut local_defers,
         );
@@ -6405,6 +6422,7 @@ fn render_stmt(
     in_async_function: bool,
     debug: bool,
     active_defers: &[(String, SourceSpan)],
+    loop_defer_start: usize,
     mutable_locals: &HashSet<String>,
     local_defers: &mut Vec<(String, SourceSpan)>,
 ) {
@@ -6501,6 +6519,7 @@ fn render_stmt(
                 in_async_function,
                 debug,
                 &scoped_defers,
+                loop_defer_start,
                 mutable_locals,
             );
             if let Some(else_block) = else_block {
@@ -6517,6 +6536,7 @@ fn render_stmt(
                     in_async_function,
                     debug,
                     &scoped_defers,
+                    loop_defer_start,
                     mutable_locals,
                 );
                 out.push_str(&format!(
@@ -6548,6 +6568,7 @@ fn render_stmt(
                 in_async_function,
                 debug,
                 &scoped_defers,
+                scoped_defers.len(),
                 mutable_locals,
             );
             out.push_str(&format!(
@@ -6558,11 +6579,26 @@ fn render_stmt(
         Stmt::Break { span } => {
             render_source_marker(source_path, *span, out, indent, debug);
             render_deferred_exprs(out, indent, source_path, debug, local_defers);
+            // Unwind nested block scopes, stopping at the nearest loop boundary.
+            render_deferred_exprs(
+                out,
+                indent,
+                source_path,
+                debug,
+                &active_defers[loop_defer_start..],
+            );
             out.push_str(&format!("{pad}break;\n"));
         }
         Stmt::Continue { span } => {
             render_source_marker(source_path, *span, out, indent, debug);
             render_deferred_exprs(out, indent, source_path, debug, local_defers);
+            render_deferred_exprs(
+                out,
+                indent,
+                source_path,
+                debug,
+                &active_defers[loop_defer_start..],
+            );
             out.push_str(&format!("{pad}continue;\n"));
         }
         Stmt::Match { expr, arms, span } => {
@@ -6584,6 +6620,7 @@ fn render_stmt(
                     in_async_function,
                     debug,
                     &scoped_defers,
+                    loop_defer_start,
                     mutable_locals,
                 );
             }
@@ -6640,6 +6677,7 @@ fn render_match_arm(
     in_async_function: bool,
     debug: bool,
     active_defers: &[(String, SourceSpan)],
+    loop_defer_start: usize,
     mutable_locals: &HashSet<String>,
 ) {
     let pad = "    ".repeat(indent);
@@ -6654,6 +6692,7 @@ fn render_match_arm(
             in_async_function,
             debug,
             active_defers,
+            loop_defer_start,
             mutable_locals,
         );
         out.push_str(&format!("{pad}}},\n"));
@@ -6692,6 +6731,7 @@ fn render_match_arm(
         in_async_function,
         debug,
         active_defers,
+        loop_defer_start,
         mutable_locals,
     );
     out.push_str(&format!("{pad}}},\n"));
@@ -6796,6 +6836,9 @@ fn render_expr(expr: &Expr) -> String {
         }
         Expr::Call { name, args, .. } if name == "io_eprintln" => {
             format!("axiom_io_eprintln({})", render_expr(&args[0]))
+        }
+        Expr::Call { name, args, .. } if name == "io_println" => {
+            format!("axiom_io_println({})", render_expr(&args[0]))
         }
         Expr::Call { name, args, .. } if name == "io_readline" => {
             debug_assert!(args.is_empty());

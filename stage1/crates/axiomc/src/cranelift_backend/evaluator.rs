@@ -819,6 +819,9 @@ pub(crate) fn eval_call(
     if name == "io_eprintln" {
         return eval_io_eprintln_call(args, functions, env, lines);
     }
+    if name == "io_println" {
+        return eval_io_println_call(args, functions, env, lines);
+    }
     if name == "io_readline" {
         return eval_io_readline_call(args);
     }
@@ -3727,6 +3730,24 @@ pub(crate) fn eval_io_eprintln_call(
     };
     let written = text.len() as i64 + 1;
     lines.push(OutputLine::stderr(text));
+    Ok(SpikeValue::Int(written))
+}
+
+pub(crate) fn eval_io_println_call(
+    args: &[Expr],
+    functions: &HashMap<&str, &Function>,
+    env: &SpikeEnv,
+    lines: &mut Vec<OutputLine>,
+) -> Result<SpikeValue, Diagnostic> {
+    let [arg] = args else {
+        return Err(unsupported("io_println expects exactly one argument"));
+    };
+    let text = match eval_expr(arg, functions, env, lines)? {
+        SpikeValue::Text(value) => value,
+        _ => return Err(unsupported("io_println expects a string")),
+    };
+    let written = text.len() as i64 + 1;
+    lines.push(OutputLine::stdout(text));
     Ok(SpikeValue::Int(written))
 }
 
