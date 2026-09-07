@@ -1,5 +1,5 @@
 use serde_json::Value;
-use std::fs;
+use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::Path;
 use std::process::{Command, Output, Stdio};
@@ -4339,7 +4339,21 @@ fn cranelift_backend_reports_scoped_file_metadata_at_runtime() {
     let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
     assert_eq!(payload["backend"], "cranelift");
     assert_eq!(payload["generated_rust"], Value::Null);
+    assert_eq!(payload["lowering"]["execution_mode"], "direct_native_runtime");
+    assert_eq!(payload["lowering"]["direct_native_runtime"], true);
     let binary = payload["binary"].as_str().expect("binary path");
+    let large_file = project.join("src/large.txt");
+    let large_len = 64 * 1024 * 1024 + 1;
+    OpenOptions::new()
+        .write(true)
+        .open(&large_file)
+        .expect("open large metadata fixture")
+        .set_len(large_len)
+        .expect("expand large metadata fixture");
+    let outside = temp.path().join("metadata-outside.txt");
+    fs::write(&outside, "outside-metadata").expect("write metadata symlink target");
+    std::os::unix::fs::symlink(&outside, project.join("src/escape.txt"))
+        .expect("create metadata symlink escape");
     let audit_log = project.join("native-fs-metadata-audit.jsonl");
     assert!(
         !audit_log.exists(),
@@ -4352,7 +4366,7 @@ fn cranelift_backend_reports_scoped_file_metadata_at_runtime() {
         .expect("run cranelift file metadata binary");
     assert_eq!(
         run.status.code(),
-        Some(runtime_content.len() as i32),
+        Some(42),
         "runtime metadata should determine the exit code: stdout={} stderr={}",
         String::from_utf8_lossy(&run.stdout),
         String::from_utf8_lossy(&run.stderr)
@@ -16045,6 +16059,7 @@ return 1
 
 fn write_fs_file_metadata_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create fs metadata project src");
+    fs::create_dir(project.join("src/metadata-dir")).expect("create metadata directory fixture");
     fs::write(
         project.join("axiom.toml"),
         r#"[package]
@@ -16057,6 +16072,7 @@ out_dir = "dist"
 
 [capabilities]
 fs = true
+"fs:write" = true
 net = false
 process = false
 env = false
@@ -16078,19 +16094,33 @@ source = "path"
     .expect("write fs metadata lockfile");
     fs::write(project.join("src/metadata.txt"), "compile-time\n")
         .expect("write fs metadata fixture");
+    fs::write(project.join("src/zero.txt"), "").expect("write zero-byte metadata fixture");
+    fs::write(project.join("src/large.txt"), "seed").expect("write large metadata fixture");
     fs::write(
         project.join("src/main.ax"),
         r#"import "std/fs.ax"
 
 static METADATA_PATH: string = "src/metadata.txt"
+static ZERO_PATH: string = "src/zero.txt"
+static DIRECTORY_PATH: string = "src/metadata-dir"
+static LARGE_PATH: string = "src/large.txt"
+static ESCAPE_PATH: string = "src/escape.txt"
 
 fn main(): int {
+let write_status: int = fs_write(METADATA_PATH, "runtime-metadata\\n")
+let replace_status: int = replace_file(METADATA_PATH, "runtime-metadata\\n")
 let exists: bool = file_exists(METADATA_PATH)
 let missing: bool = file_exists("src/missing.txt")
 let size: int = file_size(METADATA_PATH)
 let missing_size: int = file_size("src/missing.txt")
-if exists == true && missing == false && size > 0 && missing_size == -1 {
-return size
+let zero_exists: bool = file_exists(ZERO_PATH)
+let zero_size: int = file_size(ZERO_PATH)
+let directory_exists: bool = file_exists(DIRECTORY_PATH)
+let directory_size: int = file_size(DIRECTORY_PATH)
+let large_size: int = file_size(LARGE_PATH)
+let escape_exists: bool = file_exists(ESCAPE_PATH)
+if write_status == 0 && replace_status == 0 && exists == true && missing == false && size == 18 && missing_size == -1 && zero_exists == true && zero_size == 0 && directory_exists == false && directory_size == -1 && large_size == 67108865 && escape_exists == false {
+return 42
 } else {
 return 1
 }
