@@ -29,4 +29,9 @@ grep -Fq 'default targeted builds must not silently fall back to generated Rust'
   exit 1
 }
 
+grep -Fq 'error.get("code") != "target.unsupported"' "$script" || {
+  echo "extended stage1 checks must assert the structured targeted-build error code" >&2
+  exit 1
+}
+
 echo "run-extended-stage1-checks regression cases passed"

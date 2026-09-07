@@ -41,16 +41,18 @@ use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::thread;
 use std::time::{Duration, Instant};
 
 const PACKAGE_GRAPH_RUNTIME_SCHEMA_VERSION: &str = "axiom.compiler.package_graph.runtime.v1";
 const PACKAGE_GRAPH_RUNTIME_CONTRACT: &str = "compiler.package_graph.runtime";
 
+mod bounded_test_runner;
 mod expected_build_failure;
 mod lsp_analysis;
 mod module_parse_cache;
+use bounded_test_runner::{
+    run_bounded_command, run_bounded_http_fixture_case, run_command_with_stdin, run_test_command,
+};
 use expected_build_failure::{expected_build_error_path, run_build_fail_case};
 pub use lsp_analysis::{LspResolvedModule, analyze_package_for_lsp};
 use module_parse_cache::ModuleParseCache;
@@ -837,181 +839,6 @@ pub fn run_project_report_with_limits(
         stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
         duration_ms: started.elapsed().as_millis() as u64,
     })
-}
-
-struct BoundedCommandOutput {
-    status: std::process::ExitStatus,
-    stdout: Vec<u8>,
-    stderr: Vec<u8>,
-}
-
-fn run_test_command(
-    command: &mut Command,
-    limits: Option<RunLimits>,
-) -> io::Result<std::process::Output> {
-    match limits {
-        Some(limits) => run_bounded_command(command, limits).map(|output| std::process::Output {
-            status: output.status,
-            stdout: output.stdout,
-            stderr: output.stderr,
-        }),
-        None => command.output(),
-    }
-}
-
-fn run_bounded_command(
-    command: &mut Command,
-    limits: RunLimits,
-) -> io::Result<BoundedCommandOutput> {
-    command
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    configure_bounded_command(command, limits);
-    let mut child = command.spawn()?;
-    let stdout = child
-        .stdout
-        .take()
-        .ok_or_else(|| io::Error::other("bounded command stdout pipe unavailable"))?;
-    let stderr = child
-        .stderr
-        .take()
-        .ok_or_else(|| io::Error::other("bounded command stderr pipe unavailable"))?;
-    let output_bytes = Arc::new(AtomicUsize::new(0));
-    let stdout_reader =
-        capture_bounded_stream(stdout, limits.max_output_bytes, Arc::clone(&output_bytes));
-    let stderr_reader =
-        capture_bounded_stream(stderr, limits.max_output_bytes, Arc::clone(&output_bytes));
-    let deadline = Instant::now() + limits.timeout;
-    let status = loop {
-        if output_bytes.load(Ordering::Relaxed) > limits.max_output_bytes {
-            terminate_bounded_child(&mut child);
-            let _ = stdout_reader.join();
-            let _ = stderr_reader.join();
-            return Err(io::Error::other(format!(
-                "output exceeded the {} byte limit",
-                limits.max_output_bytes
-            )));
-        }
-        if let Some(status) = child.try_wait()? {
-            break status;
-        }
-        if Instant::now() >= deadline {
-            terminate_bounded_child(&mut child);
-            let _ = stdout_reader.join();
-            let _ = stderr_reader.join();
-            return Err(io::Error::new(
-                ErrorKind::TimedOut,
-                format!("execution exceeded the {:?} timeout", limits.timeout),
-            ));
-        }
-        thread::sleep(Duration::from_millis(10));
-    };
-    let stdout = join_bounded_stream(stdout_reader)?;
-    let stderr = join_bounded_stream(stderr_reader)?;
-    if output_bytes.load(Ordering::Relaxed) > limits.max_output_bytes {
-        return Err(io::Error::other(format!(
-            "output exceeded the {} byte limit",
-            limits.max_output_bytes
-        )));
-    }
-    Ok(BoundedCommandOutput {
-        status,
-        stdout,
-        stderr,
-    })
-}
-
-fn capture_bounded_stream<R>(
-    mut stream: R,
-    limit: usize,
-    output_bytes: Arc<AtomicUsize>,
-) -> thread::JoinHandle<io::Result<Vec<u8>>>
-where
-    R: Read + Send + 'static,
-{
-    thread::spawn(move || {
-        let mut captured = Vec::new();
-        let mut buffer = [0u8; 8192];
-        loop {
-            let read = stream.read(&mut buffer)?;
-            if read == 0 {
-                return Ok(captured);
-            }
-            let previous = output_bytes.fetch_add(read, Ordering::Relaxed);
-            if previous < limit {
-                let remaining = limit - previous;
-                captured.extend_from_slice(&buffer[..read.min(remaining)]);
-            }
-        }
-    })
-}
-
-fn join_bounded_stream(reader: thread::JoinHandle<io::Result<Vec<u8>>>) -> io::Result<Vec<u8>> {
-    reader
-        .join()
-        .map_err(|_| io::Error::other("bounded command output reader panicked"))?
-}
-
-#[cfg(unix)]
-fn configure_bounded_command(command: &mut Command, limits: RunLimits) {
-    use std::os::unix::process::CommandExt;
-
-    unsafe {
-        command.pre_exec(move || {
-            if libc::setsid() < 0 {
-                return Err(io::Error::last_os_error());
-            }
-            set_bounded_rlimit(limits.max_cpu_seconds, |rlimit| {
-                libc::setrlimit(libc::RLIMIT_CPU, rlimit)
-            })?;
-            set_bounded_rlimit(limits.max_file_bytes, |rlimit| {
-                libc::setrlimit(libc::RLIMIT_FSIZE, rlimit)
-            })?;
-            Ok(())
-        });
-    }
-}
-
-#[cfg(not(unix))]
-fn configure_bounded_command(_command: &mut Command, _limits: RunLimits) {}
-
-#[cfg(unix)]
-fn set_bounded_rlimit(
-    limit: u64,
-    set_limit: impl FnOnce(*const libc::rlimit) -> libc::c_int,
-) -> io::Result<()> {
-    let limits = libc::rlimit {
-        rlim_cur: limit as libc::rlim_t,
-        rlim_max: limit as libc::rlim_t,
-    };
-    if set_limit(&limits) != 0 {
-        return Err(io::Error::last_os_error());
-    }
-    Ok(())
-}
-
-fn terminate_bounded_child(child: &mut std::process::Child) {
-    #[cfg(unix)]
-    {
-        let process_group = -(child.id() as i32);
-        unsafe {
-            libc::kill(process_group, libc::SIGTERM);
-        }
-        let grace_deadline = Instant::now() + Duration::from_millis(100);
-        while Instant::now() < grace_deadline {
-            if child.try_wait().ok().flatten().is_some() {
-                return;
-            }
-            thread::sleep(Duration::from_millis(10));
-        }
-        unsafe {
-            libc::kill(process_group, libc::SIGKILL);
-        }
-    }
-    #[cfg(not(unix))]
-    let _ = child.kill();
-    let _ = child.wait();
 }
 
 fn prepare_run_project(
@@ -4946,10 +4773,10 @@ fn run_test_case(
 
     let build_output_dir = out_dir_path(project_root, manifest);
     let command_result = if test.http.is_some() {
-        run_http_fixture_case(&binary, &build_output_dir, test)
+        run_http_fixture_case(&binary, &build_output_dir, test, run_limits)
     } else if let Some(stdin) = &test.stdin {
         command_for_build_output(&binary, &build_output_dir)
-            .and_then(|command| run_command_with_stdin(command, stdin))
+            .and_then(|command| run_command_with_stdin(command, stdin, run_limits))
     } else {
         command_for_build_output(&binary, &build_output_dir)
             .and_then(|mut command| run_test_command(&mut command, run_limits))
@@ -5070,19 +4897,19 @@ fn run_test_case(
     }
 }
 
-fn run_command_with_stdin(mut command: Command, stdin: &str) -> io::Result<std::process::Output> {
-    command
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    let mut child = command.spawn()?;
-    if let Some(mut input) = child.stdin.take() {
-        input.write_all(stdin.as_bytes())?;
+fn run_http_fixture_case(
+    binary: &Path,
+    build_output_dir: &Path,
+    test: &crate::manifest::TestTarget,
+    limits: Option<RunLimits>,
+) -> io::Result<std::process::Output> {
+    match limits {
+        Some(limits) => run_bounded_http_fixture_case(binary, build_output_dir, test, limits),
+        None => run_http_fixture_case_unbounded(binary, build_output_dir, test),
     }
-    child.wait_with_output()
 }
 
-fn run_http_fixture_case(
+fn run_http_fixture_case_unbounded(
     binary: &Path,
     build_output_dir: &Path,
     test: &crate::manifest::TestTarget,
@@ -10838,19 +10665,6 @@ mod tests {
     #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
     use tempfile::tempdir;
-
-    #[cfg(unix)]
-    #[test]
-    fn bounded_test_command_enforces_benchmark_timeout() {
-        let mut command = Command::new("sh");
-        command.args(["-c", "sleep 2"]);
-        let error = run_test_command(
-            &mut command,
-            Some(RunLimits::benchmark(Duration::from_millis(50))),
-        )
-        .expect_err("sleeping command should exceed benchmark timeout");
-        assert_eq!(error.kind(), ErrorKind::TimedOut);
-    }
 
     #[test]
     fn http_fixture_bind_accepts_only_loopback_socket_addresses() {

@@ -80,6 +80,8 @@ full_lib_suite_section="$(
 )"
 full_lib_suite_linker=$(printf '%s\n' "$full_lib_suite_section" | grep -F 'Ensure Rust linker availability' || true)
 axiomc_bin_suite=$(printf '%s\n' "$full_lib_suite_section" | grep -F -- 'cargo test --manifest-path stage1/Cargo.toml -p axiomc --bin axiomc --features run-native-tests' || true)
+axiomc_cranelift_suite=$(printf '%s\n' "$full_lib_suite_section" | grep -F -- 'cargo test --manifest-path stage1/Cargo.toml -p axiomc --test cranelift_backend --features run-native-tests' || true)
+legacy_cranelift_manifest=$(grep -nF '[unsafe_rationale]' "$repo_root/stage1/crates/axiomc/tests/cranelift_backend.rs" || true)
 proof_workload_test=$(grep -nF 'bash scripts/ci/run-stage1-proof-test.sh' "$fast_checks_script" || true)
 stdlib_catalog_check=$(grep -nF 'scripts/ci/check-stdlib-catalog.py' "$fast_checks_script" || true)
 stdlib_catalog_regression=$(grep -nF 'scripts/ci/test-check-stdlib-catalog.py' "$fast_checks_script" || true)
@@ -196,6 +198,17 @@ fi
 
 if [[ -z "$axiomc_bin_suite" ]]; then
   echo "fast-checks must execute the axiomc bin target so CLI/help tests cannot disappear from PR CI (#1542)" >&2
+  exit 1
+fi
+
+if [[ -z "$axiomc_cranelift_suite" ]]; then
+  echo "pr-fast-ci must execute the axiomc Cranelift integration target so manifest/ABI regressions cannot disappear from PR CI (#1562)" >&2
+  exit 1
+fi
+
+if [[ -n "$legacy_cranelift_manifest" ]]; then
+  echo "cranelift_backend fixtures must use capabilities.unsafe_rationale after the #1519 manifest migration" >&2
+  printf '%s\n' "$legacy_cranelift_manifest" >&2
   exit 1
 fi
 
