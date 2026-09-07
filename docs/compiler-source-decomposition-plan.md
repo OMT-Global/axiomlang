@@ -120,6 +120,12 @@ the ratchet was still advisory; the ratchet now runs in the fast PR lane via
 `run-fast-checks.sh`, so future growth fails CI unless the ceiling change is
 explicit in the same PR.
 
+The loop-control repair (#1584) raises `codegen.rs` to 8,061 lines for
+nearest-loop defer boundaries, `hir.rs` to 5,934 lines for separate scope
+termination checks, and `hir/control_flow.rs` to 114 lines for recursive
+termination analysis and its regression tests. Ownership joins retain their
+existing behavior; the broader loop-exit ownership work remains on #1584.
+
 The JUnit test-report output slice adds a bounded 25-line dispatch surface to
 `main.rs`; its measured ceiling is raised with that feature PR, while future
 command-surface growth remains subject to this ratchet and should be extracted
@@ -269,19 +275,19 @@ matching ceiling in this table in the same PR.
 | `stage1/crates/axiomc/src/cranelift_backend/host_fs.rs` | 984 |
 | `stage1/crates/axiomc/src/cranelift_backend/host_crypto.rs` | 783 |
 | `stage1/crates/axiomc/src/cranelift_backend/host_net_http.rs` | 1121 |
-| `stage1/crates/axiomc/src/hir.rs` | 5933 |
+| `stage1/crates/axiomc/src/hir.rs` | 5934 |
 | `stage1/crates/axiomc/src/project.rs` | 13385 |
 | `stage1/crates/axiomc/src/project/build_contract.rs` | 118 |
 | `stage1/crates/axiomc/src/main.rs` | 11917 |
 | `stage1/crates/axiomc/src/formatter.rs` | 191 |
 | `stage1/crates/axiomc/src/formatter_tests.rs` | 122 |
-| `stage1/crates/axiomc/src/codegen.rs` | 8035 |
+| `stage1/crates/axiomc/src/codegen.rs` | 8061 |
 | `stage1/crates/axiomc/src/syntax.rs` | 6396 |
 | `stage1/crates/axiomc/src/hir/async_runtime.rs` | 188 |
 | `stage1/crates/axiomc/src/hir/capabilities.rs` | 773 |
 | `stage1/crates/axiomc/src/hir/const_arrays.rs` | 330 |
 | `stage1/crates/axiomc/src/hir/const_functions.rs` | 117 |
-| `stage1/crates/axiomc/src/hir/control_flow.rs` | 37 |
+| `stage1/crates/axiomc/src/hir/control_flow.rs` | 114 |
 | `stage1/crates/axiomc/src/hir/definitions.rs` | 686 |
 | `stage1/crates/axiomc/src/hir/diagnostics.rs` | 28 |
 | `stage1/crates/axiomc/src/hir/expressions.rs` | 205 |
