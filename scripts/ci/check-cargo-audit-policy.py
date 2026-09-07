@@ -38,15 +38,13 @@ def advisory_id(finding: dict[str, Any]) -> str | None:
     return None
 
 
-def findings(report: dict[str, Any]) -> list[tuple[str, str]]:
-    result: list[tuple[str, str]] = []
+def findings(report: dict[str, Any]) -> list[tuple[str | None, str, Any]]:
+    result: list[tuple[str | None, str, Any]] = []
     vulnerabilities = report.get("vulnerabilities", {})
     if isinstance(vulnerabilities, dict):
         for finding in vulnerabilities.get("list", []):
             if isinstance(finding, dict):
-                identifier = advisory_id(finding)
-                if identifier:
-                    result.append((identifier, "vulnerability"))
+                result.append((advisory_id(finding), "vulnerability", finding.get("package")))
 
     warnings = report.get("warnings", {})
     if isinstance(warnings, dict):
@@ -55,9 +53,7 @@ def findings(report: dict[str, Any]) -> list[tuple[str, str]]:
                 continue
             for finding in entries:
                 if isinstance(finding, dict):
-                    identifier = advisory_id(finding)
-                    if identifier:
-                        result.append((identifier, f"warning:{kind}"))
+                    result.append((advisory_id(finding), f"warning:{kind}", finding.get("package")))
     return result
 
 
@@ -121,9 +117,13 @@ def main() -> int:
             errors.append(f"exception {identifier} expired on {expiry.isoformat()}")
 
     active_findings = findings(report)
-    active_ids = {identifier for identifier, _ in active_findings}
-    for identifier, kind in active_findings:
-        if identifier not in exception_by_id:
+    active_ids = {identifier for identifier, _, _ in active_findings if identifier}
+    for identifier, kind, _ in active_findings:
+        # Cargo emits package-only warnings, including yanked releases. Advisory
+        # exceptions cannot identify those findings, so they always fail closed.
+        if not identifier:
+            errors.append(f"active {kind} finding without an advisory id cannot be excepted")
+        elif identifier not in exception_by_id:
             errors.append(f"active {kind} advisory {identifier} has no approved exception")
 
     for identifier in exception_by_id:
@@ -133,7 +133,12 @@ def main() -> int:
     result = {
         "status": "fail" if errors else "pass",
         "active_advisories": [
-            {"advisory": identifier, "kind": kind} for identifier, kind in active_findings
+            {"advisory": identifier, "kind": kind}
+            for identifier, kind, _ in active_findings if identifier
+        ],
+        "active_non_advisory_findings": [
+            {"kind": kind, "package": package}
+            for identifier, kind, package in active_findings if not identifier
         ],
         "exceptions": sorted(exception_by_id),
         "errors": errors,

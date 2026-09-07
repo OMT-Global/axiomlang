@@ -45,7 +45,10 @@ The target runs `scripts/ci/run-toolchain-supply-chain.sh`.
   unsoundness, unmaintained-crate warning, or yanked-package warning unless
   `stage1/supply-chain/cargo-audit-policy.json` contains a matching exception.
   Exceptions must link an Axiomlang issue, explain the temporary decision, and
-  expire in the future; orphaned and expired exceptions fail the gate.
+  expire in the future; orphaned and expired exceptions fail the gate. Exceptions
+  identify only RustSec advisory IDs. Package-only findings without an advisory
+  ID (including yanked releases) always fail and cannot be excepted; the checker
+  retains their warning kind and package metadata in `active_non_advisory_findings`.
 - `cargo vet --manifest-path stage1/Cargo.toml --locked --frozen` enforces the
   pinned cargo-vet policy and imports under `stage1/supply-chain/`.
 - When the repository root has `package-lock.json`, the gate runs
