@@ -9,11 +9,16 @@ if ! command -v cargo-vet >/dev/null 2>&1; then
   echo "cargo-vet is required for supply-chain checks" >&2
   exit 1
 fi
+if ! command -v cargo-audit >/dev/null 2>&1; then
+  echo "cargo-audit 0.22.2 is required for supply-chain checks" >&2
+  exit 1
+fi
 
 mkdir -p "$sbom_output_dir"
 
 python3 "$repo_root/scripts/ci/check-package-trust-contract.py" --json
 bash "$repo_root/scripts/ci/test-check-package-trust-contract.sh"
+bash "$repo_root/scripts/ci/test-check-cargo-audit-policy.sh"
 
 cargo test --manifest-path "$manifest_path" -p axiomc --locked --lib package_trust::tests
 cargo test --manifest-path "$manifest_path" -p axiomc --locked --lib registry::tests
@@ -40,6 +45,14 @@ fi
 
 cargo fetch --manifest-path "$manifest_path" --locked
 cargo metadata --manifest-path "$manifest_path" --format-version 1 --locked --offline >/dev/null
+cargo_audit_status=0
+cargo audit --file "$repo_root/stage1/Cargo.lock" --json >"$sbom_output_dir/stage1.cargo-audit.json" || cargo_audit_status=$?
+python3 "$repo_root/scripts/ci/check-cargo-audit-policy.py" \
+  --report "$sbom_output_dir/stage1.cargo-audit.json" \
+  --policy "$repo_root/stage1/supply-chain/cargo-audit-policy.json"
+if (( cargo_audit_status != 0 )); then
+  echo "cargo-audit reported findings accepted by the explicit policy" >&2
+fi
 cargo vet --manifest-path "$manifest_path" --locked --frozen
 
 export SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH:-1704067200}"
