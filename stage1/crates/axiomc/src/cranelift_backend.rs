@@ -13362,22 +13362,36 @@ fn lower_i64_expr(
                 ArithmeticOp::Mul => CraneliftI64BinaryOp::Mul,
                 ArithmeticOp::Div => CraneliftI64BinaryOp::Div,
             };
-            let expr = CraneliftI64Expr::Binary {
-                op,
-                lhs: Box::new(lower_i64_expr(
-                    lhs,
-                    local_indexes,
-                    local_conditions,
-                    helper_signatures,
-                    static_bindings,
-                )?),
-                rhs: Box::new(lower_i64_expr(
-                    rhs,
-                    local_indexes,
-                    local_conditions,
-                    helper_signatures,
-                    static_bindings,
-                )?),
+            let lhs = Box::new(lower_i64_expr(
+                lhs,
+                local_indexes,
+                local_conditions,
+                helper_signatures,
+                static_bindings,
+            )?);
+            let rhs = Box::new(lower_i64_expr(
+                rhs,
+                local_indexes,
+                local_conditions,
+                helper_signatures,
+                static_bindings,
+            )?);
+            let signed_add_type = match ty {
+                Type::Int | Type::Numeric(NumericType::I64) => Some("i64"),
+                Type::Numeric(NumericType::Isize) => Some("isize"),
+                _ => None,
+            };
+            let expr = match signed_add_type {
+                Some(ty_name) if i64_debug_build() && arith_op == ArithmeticOp::Add => {
+                    CraneliftI64Expr::CheckedSignedAdd {
+                        lhs,
+                        rhs,
+                        message: format!(
+                            "{{\"kind\":\"runtime\",\"message\":\"numeric overflow: {ty_name} addition\"}}"
+                        ),
+                    }
+                }
+                _ => CraneliftI64Expr::Binary { op, lhs, rhs },
             };
             // Debug builds trap on sized-integer overflow before the wrapping
             // cast; release builds keep the wrapping behavior.
