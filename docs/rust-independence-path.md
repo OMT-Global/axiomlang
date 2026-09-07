@@ -1,248 +1,234 @@
 # Path to Rust Independence
 
-Status: routing document. Version 0.1, 2026-08-09.
+Status: routing document. Version 0.2, 2026-09-07. Refs #1566.
 
-This document answers one question: **in what order must work land for AxiOM to
-stop needing Rust, and what is not on that path?**
-
-It does not replace existing authority. [`production-language-roadmap.md`](production-language-roadmap.md)
-and [`roadmap-status.md`](roadmap-status.md) remain the roadmap of record;
+This document sequences the work needed for AxiOM to stop requiring Rust.
+[`production-language-roadmap.md`](production-language-roadmap.md) and
+[`roadmap-status.md`](roadmap-status.md) remain the roadmap of record;
 [`rust-exit-readiness.md`](rust-exit-readiness.md) defines the backend-exit gate;
-[`self-hosting-language-gaps.md`](self-hosting-language-gaps.md) records the
-measured language gaps; [`axiom-compiler-source-layout.md`](axiom-compiler-source-layout.md)
-defines the package migration order. This document sequences them and states
-what is on the critical path versus what is adjacent work.
+[`self-hosting-language-gaps.md`](self-hosting-language-gaps.md) records measured
+language gaps; [`axiom-compiler-source-layout.md`](axiom-compiler-source-layout.md)
+defines package migration order. Live issue prerequisites control dispatch.
 
-## 1. The one number
+## 1. Source inventory and actual ownership
 
-Progress toward Rust independence is one ratio: **compiler source that AxiOM
-owns, over total compiler source.**
+The original #1566 audit measured the source tree on 2026-08-09. Its counts are
+reproducible at this document's introducing commit, `fa43076c518b93a4c533dac89cd645b87ccf59cb`.
+The refreshed baseline is main commit `27f551804a2ca3fcff6d0ca81e701c83fd5a536b`.
 
-| Measure | Value (2026-08-09) |
-| --- | --- |
-| Rust under `stage1/**/*.rs` | 624,150 lines |
-| AxiOM-owned compiler source under `stage1/selfhost/` | 381 lines |
-| **AxiOM-owned share** | **0.06%** |
+| Inventory | Original audit | Refreshed baseline |
+| --- | ---: | ---: |
+| All tracked Rust files under `stage1/` | 178,341 lines | 181,636 lines |
+| Rust in the two compiler crate source trees | 135,963 lines | 139,084 lines |
+| Tracked `.ax` files under `stage1/selfhost/` | 381 lines | 381 lines |
+| Spike share of all tracked Rust plus spike source | 0.21% | 0.21% |
+| Spike share of compiler source-tree Rust plus spike source | 0.28% | 0.27% |
 
-The 381 lines are two spikes: `compiler-diagnostics-spike` (316) and
-`compiler-diagnostics-distance-spike` (65). Both run through the direct-native
-backend with `generated_rust: null`, which is real evidence — and both are
-incomplete, for the reason in section 3.
+The compiler source-tree inventory includes `stage1/crates/axiomc/src/` and
+`stage1/crates/axiomc-backend-cranelift/src/`. It excludes separate integration
+test trees, but includes inline tests, comments, and blank lines. The all-Rust
+inventory includes separate tests as well. Both count newline bytes, like
+`wc -l`, in Git blobs; ignored build output, dependencies, and local untracked
+files cannot inflate the denominator. A share is `100 * ax / (rust + ax)`.
+The earlier 624,150-line / 0.06% claim was incorrect.
 
-Everything else in this document explains how that ratio moves.
+Reproduce either column from any checkout containing its commit:
 
-## 2. Three distinct exits, often conflated
+```sh
+python3 - fa43076c518b93a4c533dac89cd645b87ccf59cb <<'PY'
+import subprocess
+import sys
 
-| Exit | Meaning | Gate | State |
-| --- | --- | --- | --- |
-| **Backend exit** | Supported user programs build without generated Rust or `rustc` | `make rust-exit-readiness`, #721 | Structurally shipped; readiness manifest currently broken (#1565) |
-| **Host exit** | The compiler itself is written in AxiOM | #1468 and children | 0.06% |
-| **Bootstrap exit** | The chain from source to compiler needs no Cargo | #1428, snapshot bootstrap | All rows blocked |
+ref = sys.argv[1]  # use 27f551804a2ca3fcff6d0ca81e701c83fd5a536b for the refresh
+paths = subprocess.check_output(
+    ["git", "ls-tree", "-r", "--name-only", ref, "stage1/"], text=True
+).splitlines()
 
-Backend exit is largely done. **Host exit has barely started, and it is the one
-people mean by "getting off Rust."** Bootstrap exit is downstream of host exit
-and cannot be attempted first.
+def lines(selected):
+    return sum(subprocess.check_output(["git", "show", f"{ref}:{p}"]).count(b"\n")
+               for p in selected)
 
-## 3. The actual bottleneck
-
-Host exit is not blocked by effort, planning, or decomposition. It is blocked by
-a single missing ABI.
-
-From [`self-hosting-language-gaps.md`](self-hosting-language-gaps.md), gap 9
-residual:
-
-> `&mut`/`&[T]`/`string` function parameters still do not lower (write-through
-> ABI missing), so loops over caller-provided data must use by-value array
-> params.
-
-**You cannot pass a string or a slice to a function and have it run natively.**
-That is why `closest_name` and `message_with_suggestion` are unfinished in
-`compiler-diagnostics-spike` — the leaf-most, purest, most trivially portable
-package in the entire migration order. Nothing compiler-shaped can be written
-until this lands.
-
-Second, gap 7: no runtime-sized allocation. Scratch buffers must be
-caller-provided fixed-capacity literals. No lexer, symbol table, or IR builder
-survives that constraint.
-
-These are #1426 and #1425. **They are the highest-leverage issues in the
-repository.**
-
-The dependency chain is short and unforgiving:
-
-```
-#1426 (string/slice parameter ABI)
-#1425 (runtime-sized collections)
-        └─> compiler-diagnostics-spike completes
-                └─> #1427 (compiler-scale proof: one built binary, many source inputs)
-                        └─> #1468 entry gate opens
-                                └─> #1473, #1471, #1469, ... (migration order)
-                                        └─> #1428 (snapshot bootstrap)
-                                                └─> #721 (Rust bootstrap retired)
+rust = lines(p for p in paths if p.endswith(".rs"))
+compiler = lines(p for p in paths if p.endswith(".rs") and p.startswith((
+    "stage1/crates/axiomc/src/", "stage1/crates/axiomc-backend-cranelift/src/")))
+ax = lines(p for p in paths if p.startswith("stage1/selfhost/") and p.endswith(".ax"))
+print(f"tracked Rust: {rust}; compiler source-tree Rust: {compiler}; spike AxiOM: {ax}")
+print(f"all-source spike share: {100 * ax / (rust + ax):.2f}%")
+print(f"compiler-tree spike share: {100 * ax / (compiler + ax):.2f}%")
+PY
 ```
 
-## 4. Why nothing has moved
+These are **source inventory ratios, not a host-exit completion percentage**.
+The 381 lines belong to `compiler-diagnostics-spike` (316) and
+`compiler-diagnostics-distance-spike` (65). Running a spike through the
+direct-native backend with `generated_rust: null` proves that bounded path;
+it does not prove that official compiler commands dispatch through AxiOM.
+Actual ownership requires dispatch/provenance evidence that the official
+`check/build/run/test/doc/lsp` paths no longer require the Rust implementation.
+The source inventory is supporting evidence for that gate.
 
-`#1468`'s entry gate is correct and explicit: no migration child may claim
-completion until build purity is green, executable MIR / lifecycle / ownership
-rows are runtime-complete, #1425, #1426, #1476 and #1477 are complete, and
-#1427 proves a compiler-scale package. None of that holds.
+## 2. Three distinct exits
 
-So **zero PRs against #1468–#1479 in a month is the expected outcome, not
-neglect.** The migration issues are correctly gated and genuinely unstartable.
-
-Two things follow, and both are fixable today:
-
-1. **Routing defect.** Eight gated migration children (#1469–#1475, #1478) carry
-   `status:ready-for-agent` and `state:ready-for-implementation` — labels
-   identical to the nine genuinely-startable prerequisites. Nothing in the label
-   vocabulary distinguishes "critical path" from "gated behind work nobody has
-   started." Worker dispatch cannot tell them apart.
-
-2. **Attention defect.** Every issue on the critical path — #1425, #1426, #1436,
-   #1438, #1439, #1441, #1476, #1477, #1427 — has exactly one comment, the
-   planning comment from creation. Meanwhile 63 PRs merged in 30 days into
-   stdlib helpers, package trust, the resolver, and CI evidence. That work is
-   real, and some of it is on the path (#1525 text helpers, #1534 loop control,
-   #1539/#1540 argv and cwd). But the four hard backend items went untouched,
-   which is exactly why `runtime_complete` rows moved from 2 to 2.
-
-This is selection bias toward tractable work. The periphery lands as
-`syntax_only` and `static_spike` rows; only the backend items convert rows to
-`runtime_complete`.
-
-## 5. The ordered path
-
-### Track A — critical path, strictly serial at the head
-
-| Order | Issue | Unblocks |
+| Exit | Meaning | Gate |
 | --- | --- | --- |
-| A1 | **#1426** direct-native string and slice parameter ABI | everything |
-| A2 | **#1425** runtime-sized collections | everything algorithmic |
-| A3 | **#1436** executable MIR — first runtime-complete control-flow slice | the runtime tier |
-| A4 | **#1438** runtime lifecycle ABI (allocation, ownership, drop, handles) | #1439, #1440 |
-| A5 | **#1439** dynamic non-Copy aggregates across calls, returns, storage | compiler data shapes |
-| A6 | **#1476** associative collections, hashing, deterministic iteration | symbol tables |
-| A7 | **#1441** text v1 — UTF-8 validation, slicing, split, lines, scalars | lexer |
-| A8 | **#1427** compiler-scale proof: one binary, many runtime source inputs | #1468 entry gate |
+| **Backend exit** | Supported user programs build without generated Rust or `rustc` | `make rust-exit-readiness`, #721 |
+| **Host exit** | Official compiler paths execute an AxiOM compiler instead of the Rust implementation | #1468 and children |
+| **Bootstrap exit** | The source-to-compiler chain needs no Cargo | #1428, snapshot bootstrap |
 
-A1 and A2 are the head and are near-serial. A3–A5 are one backend workstream and
-should be staffed as one. A6 and A7 can proceed in parallel with A3–A5 once A1
-and A2 land.
+Backend execution support does not establish host or bootstrap exit. The
+2026-08-09 audit found three implemented, two partial, and ten blocked
+self-hosting readiness rows; its snapshot-bootstrap rows were blocked. Rerun
+the gates for current state rather than treating those audit counts as live.
 
-### Track B — parallel, no dependency on Track A
+## 3. The executable foundation before the string/slice ABI
 
-| Issue | Why it is parallel |
-| --- | --- |
-| #1477 program host ABI v1 (argv, env, streams, cwd, exit) | Host surface, independent of value ABI; already partly landed by #1539/#1540 |
-| #1455 target support v1 (Linux x86-64, macOS arm64) | Toolchain proof, no language dependency |
-| #1440 ownership v1 (MIR borrow, move, drop analysis) | Can be conservative-first; a compiler can be written with always-copy semantics and tightened later |
-| #1442 language control v1 (iteration protocol, `for`) | Gap 10 is severity **Low** — `while` + index is a sound workaround. Style, not blocker. |
+The missing write-through string/slice ABI blocks `closest_name` and
+`message_with_suggestion` in `compiler-diagnostics-spike`. Runtime-sized
+allocation also blocks practical lexer, symbol-table, and IR-builder work.
+These are high-priority language gaps, but the string/slice leaf is not the
+first dispatchable task.
 
-### Track C — migration, gated on A8
+As corrected in #1566, #1426 depends on #1425, #1436, and #1438; #1425 also
+depends on #1438. Dispatching `#1426 -> #1425` would invert the prerequisites.
+The dependency-safe opening is:
 
-Follow the order in [`axiom-compiler-source-layout.md`](axiom-compiler-source-layout.md).
-Do not reorder; each step is the previous step's test corpus.
+```text
+#1436 executable MIR/native foundation   #1438 lifecycle/ownership foundation
+                 \                         /
+                  +------> #1425 runtime-sized collections
+                                  |
+                                  v
+                           #1426 string/slice ABI
+                                  |
+                                  v
+                remaining runtime prerequisites -> #1427 compiler-scale proof
+                                  |
+                                  v
+                       #1468 migration entry gate
+                                  |
+                                  v
+                    compiler package migration -> #1428 bootstrap
+```
 
-`compiler.diagnostics` (#1473) → `compiler.syntax` (#1471) →
-`compiler.package_graph` (#1469) → `compiler.hir` (#1470) →
-`compiler.mir` (#1472) → `compiler.stdlib` (#1478) →
-backend contracts and generated-Rust retirement (#1479) →
-`compiler.backend.native` (#1474) → evidence, commands, and LSP services (#1475)
+Check each live issue before dispatch. Where broad runtime contracts depend on
+one another, factor the smallest independently closeable foundation slice;
+do not dispatch an implementation against a dependency cycle.
 
-Then #1428 snapshot bootstrap, then #721.
+## 4. Routing work toward executable evidence
 
-### Not on the path
+#1468's entry gate requires build purity, executable MIR/lifecycle/ownership
+at the required runtime tier, #1425, #1426, #1476, #1477, and #1427's
+compiler-scale proof. A contract, schema, or static spike is insufficient to
+close a runtime prerequisite.
 
-Named explicitly so they are not mistaken for progress toward host exit:
-SQLite (#1452), HTTP client and server (#1448, #1449), observability (#1451),
-serialization (#1450), structured concurrency (#1445), network capabilities v2
-(#1447), the I/O reactor (#1446), and provider ABI (#1453). These are
-**production-language** work under #1432. They matter for shipping a usable
-language. They do not move the 0.06%.
+The original #1566 audit recorded 63 merged PRs over roughly 30 days while
+`runtime_complete` remained at two rows. It also found gated migration leaves
+sharing ready labels with executable prerequisites. Those are historical audit
+findings, not current PR or label counts. The operational response is to check
+live dependencies, distinguish a gated child from a ready foundation slice,
+and give every executable blocker an owner and observable acceptance evidence.
 
-## 6. Performance is a gate, not a follow-up
+## 5. Ordered implementation and migration
 
-An agent-native language puts the compiler inside the agent's inner loop. When a
-model emits a change and waits on `axiomc check` before emitting the next one,
-**compile latency multiplies against agent throughput.** At current model
-speeds, a multi-second check turns an agent that could iterate continuously into
-one that idles. This is not a polish concern; it is the difference between the
-language being usable by its intended audience and not.
+### Track A — executable foundation
 
-Two distinct budgets, both currently unmeasured as gates:
+The waves below follow #1566's corrected routing. Issue contracts take
+precedence if their dependencies change.
 
-**Agent-loop latency** — `axiomc check` and warm incremental `build` on a
-compiler-scale package. This is the number that governs agent throughput. There
-is no gate on it today.
+| Wave | Work | Acceptance needed before proceeding |
+| --- | --- | --- |
+| A1 | #1436 executable MIR/native foundation and #1438 lifecycle foundation | Runtime behavior for the independently scoped foundation slices |
+| A2 | #1425 runtime-sized collections | A1 prerequisites and bounded allocation behavior |
+| A3 | #1426 string/slice parameter ABI | #1425, #1436, and #1438 prerequisites |
+| A4 | #1439 dynamic aggregates, #1441 text, #1477 program host ABI | Each issue's own prerequisites; parallel only where independent |
+| A5 | #1440 ownership, then #1476 associative collections | Ownership and collection prerequisites with runtime evidence |
+| A6 | #1427 compiler-scale proof | One built binary handling multiple runtime source inputs |
+| A7 | #1468 entry gate, then #1473 diagnostics migration | All migration-entry predicates, not just A6 |
 
-**Generated-code performance** — #1465 states plainly that native optimization
-is "effectively opt-level 0." A self-hosted compiler compiled at opt-level 0 by
-a compiler that is itself opt-level 0 compounds: stage2 build times will be the
-first place this becomes intolerable, and that arrives exactly when Track C
-starts.
+### Parallel work
 
-The machinery already exists and is not wired to anything binding. `axiomc bench`
-emits median, p95, variance, and allocation counts against
-`stage1/schemas/axiom-benchmark-baseline-v1.schema.json`, but
-`check-stage1-benchmarks.py` records
-`"committed_baseline_comparison": "advisory-nonblocking"`.
+#1455 target support and #1465 profiles/optimization/cache work can advance
+alongside the foundation where their own contracts permit. #1442 iteration
+control has a bounded `while` plus index workaround for early compiler slices.
+Neither parallel status nor a workaround waives the final issue acceptance
+criteria. #1477 belongs in the dependency-checked runtime wave above, rather
+than being assumed independent of all value-ABI work.
 
-Required actions:
+### Track C — compiler package migration
 
-1. Add an agent-loop latency budget to the acceptance criteria of #1436, #1425,
-   and #1426 — every runtime-tier issue should state its latency cost, measured.
-2. Promote #1465 (profiles, optimization, module-level incremental cache, safe
-   parallelism) from adjacent work to **Track B**, scheduled to land before
-   Track C begins.
-3. Convert the benchmark comparison from advisory to blocking on a defined
-   regression threshold, per runner class.
-4. Record a stage2 build-time budget in #1427's acceptance criteria. If the
-   compiler-scale proof cannot build itself in a tolerable time, the migration
-   order is unaffordable regardless of correctness.
+Follow [`axiom-compiler-source-layout.md`](axiom-compiler-source-layout.md),
+subject to #1468's entry gate:
 
-## 7. One decision to make explicitly: port or rewrite
+`compiler.diagnostics` (#1473) -> `compiler.syntax` (#1471) ->
+`compiler.package_graph` (#1469) -> `compiler.hir` (#1470) ->
+`compiler.mir` (#1472) -> `compiler.stdlib` (#1478) ->
+backend contracts and generated-Rust retirement (#1479) ->
+`compiler.backend.native` (#1474) -> evidence, commands, and LSP services (#1475).
 
-[`axiom-compiler-source-layout.md`](axiom-compiler-source-layout.md) maps each
-package to specific Rust files (`syntax.rs`, `hir.rs`, `mir.rs`,
-`cranelift_backend.rs`). Read literally, that is a **translation** of 624,150
-lines. At any plausible velocity, translation does not finish.
+Then prove #1428 snapshot bootstrap and the final #721 exit contract.
 
-The alternative is the classic bootstrap move: write a stage2 in AxiOM that
-compiles only the subset of AxiOM needed to compile itself, prove the fixpoint,
-and let the Rust compiler's remaining surface be retired feature by feature
-rather than line by line. That artifact is perhaps a tenth the size, and it makes
-#1428's fixpoint requirement reachable.
+### Production-language work and the final gate
 
-The migration order in Track C is correct either way — it is the dependency
-order of the packages. What differs is the acceptance bar for each step:
-behavioural parity with the Rust implementation (port), or sufficiency to
-compile the language subset (rewrite).
+SQLite, HTTP, observability, serialization, structured concurrency, networking,
+the I/O reactor, and provider ABI support the production-language roadmap.
+They do not by themselves transfer compiler ownership to AxiOM. However, #1566
+records a remaining scope decision: #721's Rust-exit gate includes capability
+rows such as networking, async, signatures, and AEAD. The maintainer must either
+retain them as final host-exit blockers or explicitly decouple them. This
+routing document does not silently waive capabilities required by that gate.
 
-**This should be a recorded decision, not an implication of a layout table.**
-Track C's cost estimate depends entirely on the answer.
+## 6. Performance acceptance
+
+Compile latency belongs in an agent's edit/check loop. Runtime-tier issues
+should report cold and warm `axiomc check`/`build` latency on representative
+compiler-scale inputs, alongside runtime correctness. #1465's optimization
+and incremental-cache work should progress before migration becomes the
+compiler's main execution path.
+
+The existing `axiomc bench` evidence and
+`stage1/schemas/axiom-benchmark-baseline-v1.schema.json` provide measurement
+structure. Turning an advisory comparison into a blocking threshold requires
+an explicit budget per runner class and a stage2 build-time budget in #1427.
+This document proposes that policy; it does not claim those budgets are enforced.
+
+## 7. Record the port-versus-bootstrap decision
+
+The source layout maps packages to Rust implementation files. The original
+inventory contains 135,963 lines in the two compiler source trees, or 178,341
+tracked Rust lines when separate tests and other stage1 Rust are included.
+Neither count is an estimate of how much code must be translated.
+
+One approach ports behavior toward parity with the Rust implementation. Another
+first writes a stage2 that compiles the subset of AxiOM needed to compile itself,
+proves the fixpoint, and expands or retires remaining surfaces explicitly.
+The dependency order applies to either approach, but the acceptance bar and
+cost differ. Record that decision before assigning package-sized migrations;
+a source-layout table does not resolve it.
 
 ## 8. Definition of done
 
-Host exit is complete when all of the following hold:
+Host and bootstrap exit require executable evidence:
 
-- `make self-hosting-language-readiness` reports every row implemented.
-- `make rust-exit-readiness` runs, passes, and has a manifest whose blockers are
-  all open issues that actually exist (#1565).
+- The required self-hosting and Rust-exit readiness rows pass.
 - #1427 proves one built AxiOM binary handles different runtime source inputs.
-- Every package in the migration order is AxiOM-owned, meaning the official
-  command path executes AxiOM at runtime and the Rust implementation is not
-  required for that surface.
-- `make snapshot-bootstrap-readiness` reports `snapshot_output_verified`,
-  `fixpoint_holds`, and `no_cargo_in_chain`.
-- The AxiOM-owned share in section 1 is the compiler.
+- Official compiler command paths execute AxiOM at runtime and no longer need
+  the corresponding Rust implementation, verified through dispatch/provenance.
+- #1428 proves verified snapshot output, a fixpoint, and no Cargo in the chain.
+- The final #721 capability scope is explicit and all retained blockers pass.
 
-## 9. How this is measured
+Publish source inventories beside these results, with pinned revisions and
+stable path definitions. Source growth or a passing spike alone cannot close
+an ownership gate.
 
-Today, badly. The readiness gates are the right instruments and **no CI lane
-executes any of them** — only their self-tests run, and `make rust-exit-readiness`
-currently fails outright on a stale blocker manifest. That is #1565, and it
-should be fixed before this document's numbers are trusted for steering.
+## 9. Measurement in CI
 
-Once fixed, publish the section 1 ratio with every extended-validation run. One
-number, moving or not moving, is harder to argue with than a 52-row ledger.
+The 2026-08-09 audit found readiness gates unexecuted by CI and a stale Rust-exit
+blocker manifest (#1565). Main has since received readiness repairs through
+#1569. Validate current workflow execution and gate output; do not reuse the
+old failure as a current status assertion.
+
+Run `make self-hosting-language-readiness`, `make rust-exit-readiness`, and
+`make snapshot-bootstrap-readiness` for their respective evidence. Report
+failed readiness separately from a checker regression. Extended validation
+should publish both the pinned source inventory and official-path ownership
+evidence so dispatch decisions follow executable progress.
