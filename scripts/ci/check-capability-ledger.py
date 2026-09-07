@@ -536,6 +536,20 @@ def validate_docs(root: Path, docs: list[str], ledger: dict[str, Any]) -> list[s
         for pattern, message in stale_patterns.items():
             if re.search(pattern, text, re.IGNORECASE):
                 errors.append(f"{relative}: {message}")
+        # Validate visible numeric inventory claims as well as the hidden marker.
+        # Markdown wrapping must not hide a stale count from the docs gate.
+        inventory_claims = {
+            "stdlibModules": r"\b(\d+)\s+(?:synthetic\s+)?(?:standard-library|stdlib)\s+modules\b",
+            "stdlibFunctions": r"\b(\d+)\s+exported\s+functions\b",
+        }
+        for field, pattern in inventory_claims.items():
+            expected = ledger["summary"][field]
+            for match in re.finditer(pattern, text, re.IGNORECASE):
+                if int(match.group(1)) != expected:
+                    errors.append(
+                        f"{relative}: stale {field} prose count "
+                        f"{match.group(1)}; expected {expected}"
+                    )
         for line_number, line in enumerate(text.splitlines(), start=1):
             references = {
                 int(issue)
