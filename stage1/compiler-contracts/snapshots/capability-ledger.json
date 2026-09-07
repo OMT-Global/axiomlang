@@ -1213,6 +1213,12 @@
     },
     {
       "evidenceTier": "static_spike",
+      "name": "https://axiom-lang.org/schemas/axiom.runtime_http_client.v1.schema.json",
+      "source": "stage1/compiler-contracts/schemas/axiom.runtime_http_client.v1.schema.json",
+      "status": "checked"
+    },
+    {
+      "evidenceTier": "static_spike",
       "name": "https://omt-global.github.io/axiom/schemas/axiom.runtime_lifecycle.v1.schema.json",
       "source": "stage1/compiler-contracts/schemas/axiom.runtime_lifecycle.v1.schema.json",
       "status": "checked"
@@ -1895,11 +1901,11 @@
       "direct_runtime": 2,
       "production_qualified": 0,
       "scaffold": 5,
-      "static_spike": 223,
+      "static_spike": 224,
       "unsupported": 5
     },
     "runtimeAbiRows": 34,
-    "schemas": 62,
+    "schemas": 63,
     "stdlibFunctions": 305,
     "stdlibModules": 34,
     "supportedNativeBackend": "cranelift"

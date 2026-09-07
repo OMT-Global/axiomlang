@@ -1,8 +1,8 @@
 use axiomc::{
     json_contract,
     manifest::{
-        parse_manifest_exact, DEPENDENCY_VERSION_PATTERN, KNOWN_CAPABILITIES,
-        PER_TEST_CAPABILITIES_SUPPORTED, TEST_KIND_NAMES,
+        DEPENDENCY_VERSION_PATTERN, KNOWN_CAPABILITIES, PER_TEST_CAPABILITIES_SUPPORTED,
+        TEST_KIND_NAMES, parse_manifest_exact,
     },
 };
 use jsonschema::Validator;
