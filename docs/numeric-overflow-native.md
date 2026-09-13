@@ -36,9 +36,14 @@ The matrix passed on macOS arm64 on 2026-09-07: 20 native builds and 40 binary e
 Run the native matrix and the existing narrow-width regression with:
 
 ```sh
-cargo test --manifest-path stage1/Cargo.toml -p axiomc --test cranelift_numeric_overflow --locked --offline
+cargo test --manifest-path stage1/Cargo.toml -p axiomc --test cranelift_numeric_overflow --features run-native-tests --locked --offline
 cargo test --manifest-path stage1/Cargo.toml -p axiomc --lib --locked --offline tests::stage1_numeric_overflow_policy_checks_signed_debug_and_wraps_release -- --exact
 ```
+
+The required Full Lib Suite CI job explicitly runs this separate integration
+target with `run-native-tests`. In that mode, missing `cc` fails the test rather
+than reporting a successful zero-case matrix. Default local runs without this
+feature retain the capability-based skip when `cc` is absent.
 
 ## Remaining issue scope
 

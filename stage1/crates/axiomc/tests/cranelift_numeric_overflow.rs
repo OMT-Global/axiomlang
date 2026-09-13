@@ -9,6 +9,10 @@ use std::process::{Command, Output, Stdio};
 #[test]
 fn signed_addition_checks_runtime_overflow_in_debug_and_wraps_in_release() {
     if which::which("cc").is_err() {
+        assert!(
+            !cfg!(feature = "run-native-tests"),
+            "run-native-tests requires cc; the numeric overflow matrix must not pass without executing"
+        );
         eprintln!("skipping direct-native numeric overflow test because cc is unavailable");
         return;
     }
