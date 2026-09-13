@@ -86,6 +86,14 @@ for job_name, body in jobs:
     if expected_runner not in body:
         errors.append(f"job {job_name} must remain on the shell-safe public runner pool")
 
+fast_job = next((body for name, body in jobs if name == "fast-checks"), "")
+rust_setup = "uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8"
+fast_entrypoint = "run: bash scripts/ci/run-fast-checks.sh"
+if rust_setup not in fast_job or fast_entrypoint not in fast_job:
+    errors.append("fast-checks must provision Rust before running Cargo-dependent checks")
+elif fast_job.index(rust_setup) > fast_job.index(fast_entrypoint):
+    errors.append("fast-checks Rust setup must precede the fast-check entrypoint")
+
 extended_job = next((body for name, body in jobs if name == "extended-checks"), "")
 if "needs.changes.outputs.extended == 'true'" not in extended_job:
     errors.append("extended-checks must consume the extended selection output")
