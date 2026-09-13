@@ -1,13 +1,28 @@
 {
   "version": 1,
-  "routes": {"openai": "qwen", "qwen": "claude", "claude": "openai"},
+  "routes": {
+    "openai": "qwen",
+    "qwen": "claude",
+    "claude": "openai"
+  },
   "models": {
     "openai/gpt-6-astra": "openai",
-    "qwencloud/qwen3.8-max": "qwen"
+    "bailian-token-plan/qwen3.8-max": "qwen",
+    "claude-cli/claude-sonnet-4-6": "claude"
   },
-  "reviewer_ready": {"openai": false, "qwen": false, "claude": false},
+  "reviewer_ready": {
+    "openai": false,
+    "qwen": false,
+    "claude": false
+  },
   "keys": {
-    "author-broker-v1": {"role": "author", "public_key": "author-broker.pub.pem"},
-    "review-broker-v1": {"role": "review", "public_key": "review-broker.pub.pem"}
+    "author-broker-v1": {
+      "role": "author",
+      "public_key": "author-broker.pub.pem"
+    },
+    "review-broker-v1": {
+      "role": "review",
+      "public_key": "review-broker.pub.pem"
+    }
   }
 }

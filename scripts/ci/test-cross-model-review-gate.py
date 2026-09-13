@@ -81,6 +81,22 @@ class CrossModelGateTests(unittest.TestCase):
                 self.review["identity"] = identities[(i + 1) % 3]
                 self.assertEqual(self.evaluate()["decision"], "PASS")
 
+    def test_example_policy_verified_runtime_routes_still_disabled(self):
+        example = gate.load(Path(__file__).resolve().parents[2] /
+                            "docs/bootstrap/cross-model-review-policy.example.json")
+        identities = [
+            {"provider": "openai", "model": "gpt-6-astra"},
+            {"provider": "bailian-token-plan", "model": "qwen3.8-max"},
+            {"provider": "claude-cli", "model": "claude-sonnet-4-6"},
+        ]
+        families = [gate.model_family(identity, example) for identity in identities]
+        self.assertEqual(families, ["openai", "qwen", "claude"])
+        for index, family in enumerate(families):
+            self.assertEqual(example["routes"][family], families[(index + 1) % 3])
+            self.assertIs(example["reviewer_ready"][family], False)
+        with self.assertRaisesRegex(gate.Rejected, "unknown model"):
+            gate.model_family({"provider": "anthropic", "model": "claude-sonnet-4-6"}, example)
+
     def test_signed_payload_tampering(self):
         envelope = self.sign(self.review, "review")
         envelope["payload"]["verdict"] = "REQUEST_CHANGES"
