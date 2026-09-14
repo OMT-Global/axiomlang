@@ -82,7 +82,13 @@ full_lib_suite_linker=$(printf '%s\n' "$full_lib_suite_section" | grep -F 'Ensur
 axiomc_bin_suite=$(printf '%s\n' "$full_lib_suite_section" | grep -F -- 'cargo test --manifest-path stage1/Cargo.toml -p axiomc --bin axiomc --features run-native-tests' || true)
 axiomc_cranelift_suite=$(printf '%s\n' "$full_lib_suite_section" | grep -F -- 'cargo test --manifest-path stage1/Cargo.toml -p axiomc --test cranelift_backend --features run-native-tests' || true)
 axiomc_numeric_overflow_suite=$(printf '%s\n' "$full_lib_suite_section" | grep -F -- 'cargo test --manifest-path stage1/Cargo.toml -p axiomc --test cranelift_numeric_overflow --features run-native-tests' || true)
-legacy_cranelift_manifest=$(grep -nF '[unsafe_rationale]' "$repo_root/stage1/crates/axiomc/tests/cranelift_backend.rs" || true)
+# The schema-rejection test intentionally constructs malformed input (#1682).
+# Do not mistake that negative control for an executable compiler fixture.
+legacy_cranelift_manifest=$(awk '
+  /^fn manifest_fixture_validation_precedes_disk_write\(\)/ { negative=1 }
+  !negative && /\[unsafe_rationale\]/ { print NR ":" $0 }
+  negative && /^}/ { negative=0 }
+' "$repo_root/stage1/crates/axiomc/tests/cranelift_backend.rs")
 proof_workload_test=$(grep -nF 'bash scripts/ci/run-stage1-proof-test.sh' "$fast_checks_script" || true)
 stdlib_catalog_check=$(grep -nF 'scripts/ci/check-stdlib-catalog.py' "$fast_checks_script" || true)
 stdlib_catalog_regression=$(grep -nF 'scripts/ci/test-check-stdlib-catalog.py' "$fast_checks_script" || true)
@@ -284,3 +290,12 @@ if [[ -z "$provider_abi_check" || -z "$provider_abi_self_test" || -z "$provider_
 fi
 
 echo "pr-fast-ci workflow validation passed"
+
+# The shared environment contract must include non-check-* readers and the shell
+# compatibility wrapper, not just Python checker naming patterns (#1560).
+for reader in check-provider-abi-v1.py check-stdlib-catalog.py check-semantic-mir-v1.py check-runtime-lifecycle-v1.py run-agent-autonomy-benchmark.py test-check-compatibility-v1.sh; do
+  grep -qF "scripts/ci/$reader" "$fast_checks_script" || { echo "missing isolated reader: $reader" >&2; exit 1; }
+done
+grep -qF 'export AXIOM_CHECKOUT_PATH="$repo_root"' "$fast_checks_script"
+grep -qF 'test-fast-checkout-isolation.py' "$fast_checks_script"
+grep -qF 'CARGO_TARGET_DIR: ${{ runner.temp }}/axiom-fast-${{ github.run_id }}-${{ github.run_attempt }}' "$workflow"
