@@ -1,6 +1,6 @@
 # Performance Benchmarks
 
-<!-- capability-ledger:v1 commands=31 stdlib_modules=34 stdlib_functions=304 capabilities=9 backend=cranelift -->
+<!-- capability-ledger:v1 commands=31 stdlib_modules=34 stdlib_functions=305 capabilities=9 backend=cranelift -->
 
 The `axiomc bench` harness discovers `*_bench.ax` files and executes each
 entrypoint for every warmup and measured iteration. It emits per-sample timing,
