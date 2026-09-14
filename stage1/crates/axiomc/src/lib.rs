@@ -5,7 +5,7 @@ pub mod bounded_executor;
 pub mod build_contract;
 pub mod codegen;
 pub(crate) mod cranelift_backend;
-pub mod dap;
+pub mod dap; pub(crate) mod framed_protocol;
 pub mod diagnostic_catalog;
 pub mod diagnostics;
 pub mod doctor;
