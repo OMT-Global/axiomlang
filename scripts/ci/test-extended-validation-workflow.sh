@@ -86,6 +86,14 @@ for job_name, body in jobs:
     if expected_runner not in body:
         errors.append(f"job {job_name} must remain on the shell-safe public runner pool")
 
+fast_job = next((body for name, body in jobs if name == "fast-checks"), "")
+rust_setup = "uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8"
+fast_entrypoint = "run: bash scripts/ci/run-fast-checks.sh"
+if rust_setup not in fast_job or fast_entrypoint not in fast_job:
+    errors.append("fast-checks must provision Rust before running Cargo-dependent checks")
+elif fast_job.index(rust_setup) > fast_job.index(fast_entrypoint):
+    errors.append("fast-checks Rust setup must precede the fast-check entrypoint")
+
 extended_job = next((body for name, body in jobs if name == "extended-checks"), "")
 if "needs.changes.outputs.extended == 'true'" not in extended_job:
     errors.append("extended-checks must consume the extended selection output")
@@ -103,6 +111,29 @@ summary_index = extended_job.find(summary_marker)
 upload_index = extended_job.find(qualification_upload_marker)
 if summary_index < 0 or upload_index < 0 or summary_index > upload_index:
     errors.append("extended-checks must summarize qualification evidence before uploading artifacts")
+if "- name: Collect readiness reports" not in extended_job:
+    errors.append("extended-checks must collect readiness reports")
+if "run_report rust-exit-readiness" not in extended_job:
+    errors.append("extended-checks must execute the Rust-exit readiness checker")
+if "run_report self-hosting-language-readiness" not in extended_job:
+    errors.append("extended-checks must execute the self-hosting readiness checker")
+if "run_report snapshot-bootstrap-readiness" not in extended_job:
+    errors.append("extended-checks must execute the snapshot-bootstrap readiness checker")
+if "- name: Summarize qualification evidence" not in extended_job:
+    errors.append("extended-checks must summarize qualification evidence")
+if "scripts/ci/report-toolchain-qualification.py" not in extended_job:
+    errors.append("extended-checks must invoke the metadata-only qualification reporter")
+if "--expected-head-sha '${{ github.sha }}'" not in extended_job:
+    errors.append("extended-checks must bind the qualification summary to the workflow head")
+summary_marker = "- name: Summarize qualification evidence"
+qualification_upload_marker = "- name: Upload qualification evidence"
+summary_index = extended_job.find(summary_marker)
+upload_index = extended_job.find(qualification_upload_marker)
+if summary_index < 0 or upload_index < 0 or summary_index > upload_index:
+    errors.append("extended-checks must summarize qualification evidence before uploading artifacts")
+if "- name: Upload readiness reports" not in extended_job or "path: artifacts/readiness" not in extended_job:
+    errors.append("extended-checks must upload readiness reports even after failures")
+
 job_preamble = extended_job.split("\n    steps:\n", 1)[0]
 if re.search(r"\$\{\{\s*runner\s*(?:\.|\[)", job_preamble):
     errors.append("extended-checks must not use the runner context before step execution")

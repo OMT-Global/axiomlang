@@ -79,7 +79,8 @@ def validate(v, s):
     exact(actual, FIXTURES, "required failure fixture coverage drift")
 
 def compile_fixture(target):
-    cc = shutil.which("cc")
+    # Some supported runners provide gcc or clang without a cc alias.
+    cc = next((path for name in ("cc", "gcc", "clang") if (path := shutil.which(name))), None)
     nm = shutil.which("nm")
     need(cc, "C compiler unavailable for reference fixture")
     need(nm, "nm unavailable for reference fixture export verification")

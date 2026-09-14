@@ -29,7 +29,7 @@ jobs:
       app: ${{ steps.filter.outputs.app }}
       ci: ${{ steps.filter.outputs.ci }}
     steps:
-      - uses: dorny/paths-filter@d1c1ffe0248fe513906c8e24db8ea791d46f8590 # v3 pinned 2026-05-30
+      - uses: dorny/paths-filter@0e4a8c6effa4802afeda77dc8d303f8176d7dfad # v3 pinned 2026-05-30
         id: filter
         with:
           filters: |
@@ -241,6 +241,16 @@ jobs:
         # the --lib lane; do not collapse the two into a bare `cargo test`,
         # which would also pull in the 16.8k-line tests/cranelift_backend.rs.
         run: RUST_MIN_STACK=8388608 cargo test --manifest-path stage1/Cargo.toml -p axiomc --bin axiomc --features run-native-tests -- --test-threads=1
+
+      - name: Run axiomc Cranelift integration suite
+        # SECURITY/COVERAGE (#1562): the large integration target is intentionally
+        # explicit so manifest/ABI regressions cannot hide behind --lib coverage.
+        run: RUST_MIN_STACK=8388608 cargo test --manifest-path stage1/Cargo.toml -p axiomc --test cranelift_backend --features run-native-tests -- --test-threads=1
+
+      - name: Run native signed-add overflow matrix
+        # #1659: this separate integration target is not covered by --lib or
+        # cranelift_backend. Explicit native mode requires cc rather than skipping.
+        run: RUST_MIN_STACK=8388608 cargo test --manifest-path stage1/Cargo.toml -p axiomc --test cranelift_numeric_overflow --features run-native-tests -- --test-threads=1
 
   provider-abi-target-matrix:
     name: Provider ABI C Fixture (${{ matrix.target }})
