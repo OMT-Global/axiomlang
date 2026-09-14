@@ -76,7 +76,7 @@ if [[ "${GITHUB_ACTIONS:-}" == "true" ]]; then
 else
   report_parent="${TMPDIR:-/tmp}"
 fi
-if ! mkdir -p "$report_parent" || ! test_report_dir="$(mktemp -d "${report_parent%/}/axiom-compiler-property-cranelift.XXXXXX")"; then
+if ! mkdir -p "$report_parent" || ! report_parent="$(cd "$report_parent" && pwd -P)" || ! test_report_dir="$(mktemp -d "${report_parent%/}/axiom-compiler-property-cranelift.XXXXXX")"; then
   echo "compiler property report directory could not be allocated under $report_parent" >&2
   exit 1
 fi

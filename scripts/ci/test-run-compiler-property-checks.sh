@@ -231,6 +231,8 @@ for name, actions, runner_temp, mode, succeeds in [
     ("actions-missing-report", True, True, "missing", False),
     ("actions-invalid-report", True, True, "invalid", False),
     ("local-tmpdir", False, True, "valid", True),
+    ("local-relative-tmpdir", False, True, "valid", True),
+    ("local-unavailable-parent", False, True, "valid", False),
 ]:
     case = root / name
     trusted = case / "trusted"
@@ -253,11 +255,23 @@ for name, actions, runner_temp, mode, succeeds in [
         env["GITHUB_ACTIONS"] = "true"
     if runner_temp:
         env["RUNNER_TEMP"] = str(runner)
+    expected_parent = trusted if actions else runner
+    if name == "local-relative-tmpdir":
+        env["TMPDIR"] = "relative-reports"
+        expected_parent = data / "relative-reports"
+    if name == "local-unavailable-parent":
+        runner.rmdir()
+        runner.write_text("not a directory")
     result = subprocess.run(["bash", str(script)], env=env, cwd=trusted,
                             text=True, capture_output=True)
     assert (result.returncode == 0) == succeeds, (name, result.stdout, result.stderr)
+    if name == "local-unavailable-parent":
+        assert "compiler property report directory could not be allocated" in result.stderr, result.stderr
+        assert not (case / "observed-report.txt").exists(), "cargo test ran without a report directory"
+        print(f"PASS {name}")
+        continue
     observed = Path((case / "observed-report.txt").read_text())
-    assert observed.parent.parent == (trusted if actions else runner), (name, observed)
+    assert observed.parent.parent == expected_parent, (name, observed)
     assert not list(case.rglob("axiom-compiler-property-cranelift.*")), (name, "report leaked")
     if mode == "missing":
         assert "compiler property report missing" in result.stderr, result.stderr
