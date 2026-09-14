@@ -67,6 +67,14 @@ class ReaderIsolationTests(unittest.TestCase):
         self.check_reader('check-runtime-lifecycle-v1.py',
                           'stage1/compiler-contracts/snapshots/runtime-lifecycle-v1.json')
 
+    def test_http_client(self):
+        self.check_reader('check-http-client-v1.py',
+                          'stage1/compiler-contracts/snapshots/http-client-v1.json')
+
+    def test_observability(self):
+        self.check_reader('check-runtime-observability-v1.py',
+                          'stage1/compiler-contracts/snapshots/runtime-observability-v1.json')
+
     def test_autonomy(self):
         self.check_reader('run-agent-autonomy-benchmark.py',
                           'stage1/agent-autonomy/benchmark-v0.json', ('--validate-only',))
