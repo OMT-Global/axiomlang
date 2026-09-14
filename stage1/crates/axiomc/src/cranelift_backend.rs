@@ -39,6 +39,7 @@ pub(crate) use host_env_proc_clock::*;
 mod host_json_serdes;
 pub(crate) use host_json_serdes::*;
 mod host_cli;
+mod cranelift_unicode_scalars;
 use host_cli::lower_i64_top_level_runtime_stmts;
 mod compilation_mode;
 mod static_output_purity;
@@ -137,6 +138,7 @@ pub(crate) struct I64StaticBindings {
     io_println_wrappers: HashSet<String>,
     io_readline_wrappers: HashSet<String>,
     io_read_to_string_wrappers: HashSet<String>,
+    stdin_text_bindings: HashSet<String>,
     log_wrappers: HashSet<String>,
     log_field_string_wrappers: HashSet<String>,
     log_field_int_wrappers: HashSet<String>,
@@ -2153,6 +2155,8 @@ fn lower_i64_aggregate_return_body(
                     expr,
                     &mut locals,
                     &mut local_indexes,
+                    &local_conditions,
+                    helper_signatures,
                     static_bindings,
                 ) {
                     lowered_stmts.extend(assigns);
@@ -3076,6 +3080,24 @@ fn lower_i64_body(
     let mut seen_runtime_stmt = false;
     let mut static_bindings = static_bindings.clone();
     let static_bindings = &mut static_bindings;
+    for (stmt_index, stmt) in body_stmts.iter().enumerate() {
+        if let Stmt::Let {
+            name,
+            ty: Type::String | Type::Str,
+            expr,
+            ..
+        } = stmt
+            && cranelift_unicode_scalars::i64_expr_is_io_read_to_string_call(expr, static_bindings)
+        {
+            let mut usage = cranelift_unicode_scalars::i64_scan_stdin_text_usage(name, &body_stmts[stmt_index + 1..]);
+            cranelift_unicode_scalars::i64_scan_stdin_text_usage_stmt(name, return_stmt, &mut usage, 0);
+            if usage.scalar_uses == 1 && usage.len_uses == 0 {
+                static_bindings.stdin_text_bindings.insert(name.clone());
+            } else if usage.scalar_uses > 0 {
+                return None;
+            }
+        }
+    }
     for param in params {
         if !is_i64_param_type(&param.ty, struct_defs, static_bindings) {
             return None;
@@ -3314,6 +3336,9 @@ fn lower_i64_body(
                 expr,
                 ..
             } if !seen_runtime_stmt => {
+                if static_bindings.stdin_text_bindings.contains(name) {
+                    continue;
+                }
                 lower_i64_string_len_projection_local(
                     name,
                     expr,
@@ -3533,6 +3558,8 @@ fn lower_i64_body(
                     expr,
                     &mut locals,
                     &mut local_indexes,
+                    &local_conditions,
+                    helper_signatures,
                     static_bindings,
                 ) {
                     lowered_stmts.extend(assigns);
@@ -4897,7 +4924,22 @@ fn lower_i64_runtime_stmts(
     let mut lowered = Vec::new();
     let mut scoped_static_bindings = static_bindings.clone();
     let static_bindings = &mut scoped_static_bindings;
-    for stmt in stmts {
+    for (stmt_index, stmt) in stmts.iter().enumerate() {
+        if let Stmt::Let {
+            name,
+            ty: Type::String | Type::Str,
+            expr,
+            ..
+        } = stmt
+            && cranelift_unicode_scalars::i64_expr_is_io_read_to_string_call(expr, static_bindings)
+        {
+            let usage = cranelift_unicode_scalars::i64_scan_stdin_text_usage(name, &stmts[stmt_index + 1..]);
+            if usage.scalar_uses == 1 && usage.len_uses == 0 {
+                static_bindings.stdin_text_bindings.insert(name.clone());
+            } else if usage.scalar_uses > 0 {
+                return None;
+            }
+        }
         if matches!(stmt, Stmt::Let { .. }) {
             if record_i64_known_string_let(stmt, static_bindings).unwrap_or(false) {
                 continue;
@@ -5136,6 +5178,8 @@ fn lower_i64_runtime_let_stmts(
             expr,
             locals,
             local_indexes,
+            local_conditions,
+            helper_signatures,
             static_bindings,
         )
     {
@@ -6177,6 +6221,9 @@ fn lower_i64_runtime_string_len_let_stmts(
     else {
         return None;
     };
+    if static_bindings.stdin_text_bindings.contains(name) {
+        return Some(Vec::new());
+    }
     let value = lower_i64_string_len_expr(
         expr,
         local_indexes,
@@ -7610,12 +7657,12 @@ fn lower_i64_string_option_len_call_let_stmts(
     locals: &mut Vec<CraneliftI64Expr>,
     local_indexes: &mut HashMap<String, usize>,
 ) -> Option<Vec<CraneliftI64Stmt>> {
-    let payload_local = local_indexes.len();
+    let payload_local = locals.len();
     local_indexes.insert(i64_option_payload_slot_key(name, 0), payload_local);
     local_indexes.insert(i64_option_payload_key(name), payload_local);
     locals.push(CraneliftI64Expr::Literal(0));
 
-    let tag_local = local_indexes.len();
+    let tag_local = locals.len();
     local_indexes.insert(i64_option_tag_key(name), tag_local);
     locals.push(CraneliftI64Expr::Literal(0));
 
@@ -7646,17 +7693,28 @@ fn lower_i64_runtime_string_option_call_let_stmts(
     expr: &Expr,
     locals: &mut Vec<CraneliftI64Expr>,
     local_indexes: &mut HashMap<String, usize>,
+    local_conditions: &HashMap<String, CraneliftI64Condition>,
+    helper_signatures: &HashMap<&str, I64HelperSignature>,
     static_bindings: &I64StaticBindings,
 ) -> Option<Vec<CraneliftI64Stmt>> {
     if !matches!(inner, Type::String | Type::Str) {
         return None;
     }
-    let payload_len = lower_i64_runtime_string_option_len_expr(expr, static_bindings)?;
+    let payload_len = lower_i64_runtime_string_option_len_expr(
+        expr,
+        local_indexes,
+        local_conditions,
+        helper_signatures,
+        static_bindings,
+    )?;
     lower_i64_string_option_len_call_let_stmts(name, payload_len, locals, local_indexes)
 }
 
 fn lower_i64_runtime_string_option_len_expr(
     expr: &Expr,
+    local_indexes: &HashMap<String, usize>,
+    local_conditions: &HashMap<String, CraneliftI64Condition>,
+    helper_signatures: &HashMap<&str, I64HelperSignature>,
     static_bindings: &I64StaticBindings,
 ) -> Option<CraneliftI64Expr> {
     if let Some(key) = i64_env_get_key(expr, static_bindings) {
@@ -7675,6 +7733,25 @@ fn lower_i64_runtime_string_option_len_expr(
     };
     if is_i64_io_readline_name(call_name, static_bindings) && args.is_empty() {
         return Some(CraneliftI64Expr::StdinLineLen {
+            max_bytes: I64_STDIN_BUFFER_BYTES,
+        });
+    }
+    if call_name == "string_scalar_at" {
+        let [text, index] = args.as_slice() else {
+            return None;
+        };
+        if !cranelift_unicode_scalars::i64_expr_is_stdin_text_source(text, static_bindings) {
+            return None;
+        }
+        let index = lower_i64_expr(
+            index,
+            local_indexes,
+            local_conditions,
+            helper_signatures,
+            static_bindings,
+        )?;
+        return Some(CraneliftI64Expr::StdinScalarLenAt {
+            index: Box::new(index),
             max_bytes: I64_STDIN_BUFFER_BYTES,
         });
     }
@@ -12715,6 +12792,8 @@ fn i64_known_pure_intrinsic_call(name: &str, static_bindings: &I64StaticBindings
             | "string_trim_start"
             | "string_line_at"
             | "string_byte_at"
+            | "string_scalar_count"
+            | "string_scalar_at"
             | "encoding_url_component_encode"
             | "encoding_url_component_decode"
             | "encoding_path_segment_encode"
@@ -12839,6 +12918,21 @@ fn i64_string_option_text(
                 text.lines()
                     .nth(index as usize)
                     .map(std::string::ToString::to_string),
+            )
+        }
+        "string_scalar_at" => {
+            let [text, index] = args.as_slice() else {
+                return None;
+            };
+            let text = i64_string_text(text, static_bindings)?;
+            let index = i64_static_scalar_value(index, static_bindings)?;
+            if index < 0 {
+                return Some(None);
+            }
+            Some(
+                text.chars()
+                    .nth(index as usize)
+                    .map(|scalar| scalar.to_string()),
             )
         }
         name if is_i64_encoding_url_component_decode_name(name, static_bindings) => {
@@ -13341,6 +13435,7 @@ fn lower_i64_expr(
                     static_bindings,
                 )
             })
+            .or_else(|| cranelift_unicode_scalars::lower_i64_unicode_scalar_count_intrinsic_expr(name, args, static_bindings))
             .or_else(|| i64_known_helper_call_i64_expr(name, args, static_bindings))
             .or_else(|| {
                 lower_i64_call_expr(
