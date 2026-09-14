@@ -11,9 +11,12 @@ use std::fs::{self, File, OpenOptions};
 use std::io::Write;
 use std::path::{Component, Path, PathBuf};
 use std::process::Command;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 const STATE_FILE: &str = ".axiom-transaction.json";
 const AUDIT_SCHEMA: &str = "axiom.transactional_workspace.v0";
+const ATOMIC_TEMP_ATTEMPTS: u64 = 128;
+static ATOMIC_TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct WorkspacePolicy {
@@ -949,6 +952,16 @@ fn validate_relative(path: &str) -> Result<(), String> {
 
 fn canonical_target(root: &Path, relative: &str) -> Result<PathBuf, String> {
     let target = root.join(relative);
+    match fs::symlink_metadata(&target) {
+        Ok(metadata) if metadata.file_type().is_symlink() => {
+            return Err("transaction target must not be a symlink".into());
+        }
+        Ok(_) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => {
+            return Err(format!("cannot inspect write target: {error}"));
+        }
+    }
     let mut ancestor = target.as_path();
     while !ancestor.exists() {
         ancestor = ancestor
@@ -1078,28 +1091,110 @@ fn state_checksum(state: &TransactionState) -> Result<String, String> {
 }
 
 fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    let first_nonce = ATOMIC_TEMP_SEQUENCE.fetch_add(ATOMIC_TEMP_ATTEMPTS, Ordering::Relaxed);
+    atomic_write_from_nonce(path, bytes, first_nonce)
+}
+
+fn atomic_write_from_nonce(path: &Path, bytes: &[u8], first_nonce: u64) -> Result<(), String> {
     let parent = path
         .parent()
         .ok_or_else(|| "state path has no parent".to_string())?;
     fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-    let tmp = parent.join(format!(
-        ".{}.tmp",
-        path.file_name()
-            .and_then(|v| v.to_str())
-            .unwrap_or("transaction")
-    ));
-    let mut file = OpenOptions::new()
-        .create(true)
-        .truncate(true)
-        .write(true)
-        .open(&tmp)
-        .map_err(|e| e.to_string())?;
-    file.write_all(bytes).map_err(|e| e.to_string())?;
-    file.sync_all().map_err(|e| e.to_string())?;
-    fs::rename(&tmp, path).map_err(|e| e.to_string())?;
+    let (tmp, mut file) = create_atomic_temp(parent, first_nonce)?;
+    let mut cleanup = AtomicTempCleanup::new(tmp.clone());
+
+    if let Err(error) = file.write_all(bytes) {
+        drop(file);
+        return Err(cleanup.after_failure(format!("cannot write atomic temp file: {error}")));
+    }
+    if let Err(error) = file.sync_all() {
+        drop(file);
+        return Err(cleanup.after_failure(format!("cannot sync atomic temp file: {error}")));
+    }
+    drop(file);
+
+    if let Err(error) = fs::rename(&tmp, path) {
+        return Err(
+            cleanup.after_failure(format!("cannot replace destination atomically: {error}"))
+        );
+    }
+    cleanup.disarm();
+    sync_parent(parent)
+}
+
+fn atomic_temp_path(parent: &Path, nonce: u64) -> PathBuf {
+    parent.join(format!(
+        ".axiom-atomic-{}-{nonce:016x}.tmp",
+        std::process::id()
+    ))
+}
+
+fn create_atomic_temp(parent: &Path, first_nonce: u64) -> Result<(PathBuf, File), String> {
+    for offset in 0..ATOMIC_TEMP_ATTEMPTS {
+        let path = atomic_temp_path(parent, first_nonce.wrapping_add(offset));
+        let mut options = OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600).custom_flags(libc::O_NOFOLLOW);
+        }
+        match options.open(&path) {
+            Ok(file) => return Ok((path, file)),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(format!("cannot create atomic temp file: {error}")),
+        }
+    }
+    Err("cannot create atomic temp file after collision retries".into())
+}
+
+struct AtomicTempCleanup {
+    path: PathBuf,
+    armed: bool,
+}
+
+impl AtomicTempCleanup {
+    fn new(path: PathBuf) -> Self {
+        Self { path, armed: true }
+    }
+
+    fn disarm(&mut self) {
+        self.armed = false;
+    }
+
+    fn after_failure(&mut self, primary: String) -> String {
+        match fs::remove_file(&self.path) {
+            Ok(()) => {
+                self.armed = false;
+                primary
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                self.armed = false;
+                primary
+            }
+            Err(error) => format!("{primary}; cannot remove atomic temp file: {error}"),
+        }
+    }
+}
+
+impl Drop for AtomicTempCleanup {
+    fn drop(&mut self) {
+        if self.armed {
+            let _ = fs::remove_file(&self.path);
+        }
+    }
+}
+
+#[cfg(unix)]
+fn sync_parent(parent: &Path) -> Result<(), String> {
     File::open(parent)
-        .and_then(|f| f.sync_all())
-        .map_err(|e| e.to_string())
+        .and_then(|directory| directory.sync_all())
+        .map_err(|error| format!("cannot sync atomic destination directory: {error}"))
+}
+
+#[cfg(not(unix))]
+fn sync_parent(_parent: &Path) -> Result<(), String> {
+    Ok(())
 }
 
 fn normalized(path: &Path) -> String {
@@ -1157,6 +1252,78 @@ mod tests {
     }
 
     #[test]
+    fn atomic_write_replaces_file_and_removes_its_temp_entry() {
+        let dir = TempDir::new().unwrap();
+        let target = dir.path().join("allowed.txt");
+        fs::write(&target, b"old").unwrap();
+        let first_nonce = 0x1000;
+
+        atomic_write_from_nonce(&target, b"new", first_nonce).unwrap();
+
+        assert_eq!(fs::read(&target).unwrap(), b"new");
+        assert!(!atomic_temp_path(dir.path(), first_nonce).exists());
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                fs::metadata(&target).unwrap().permissions().mode() & 0o777,
+                0o600
+            );
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn atomic_write_does_not_follow_the_old_predictable_temp_symlink() {
+        use std::os::unix::fs::symlink;
+
+        let dir = TempDir::new().unwrap();
+        let worktree = dir.path().join("worktree");
+        fs::create_dir(&worktree).unwrap();
+        let target = worktree.join("allowed.txt");
+        let sentinel = dir.path().join("external-sentinel.txt");
+        let old_temp = worktree.join(".allowed.txt.tmp");
+        fs::write(&sentinel, b"outside").unwrap();
+        symlink(&sentinel, &old_temp).unwrap();
+
+        atomic_write(&target, b"authorized").unwrap();
+
+        assert_eq!(fs::read(&target).unwrap(), b"authorized");
+        assert_eq!(fs::read(&sentinel).unwrap(), b"outside");
+        assert_eq!(fs::read_link(&old_temp).unwrap(), sentinel);
+    }
+
+    #[test]
+    fn atomic_write_retries_without_opening_a_colliding_entry() {
+        let dir = TempDir::new().unwrap();
+        let target = dir.path().join("allowed.txt");
+        let first_nonce = 0x2000;
+        let collision = atomic_temp_path(dir.path(), first_nonce);
+        fs::write(&collision, b"do not truncate").unwrap();
+
+        atomic_write_from_nonce(&target, b"authorized", first_nonce).unwrap();
+
+        assert_eq!(fs::read(&target).unwrap(), b"authorized");
+        assert_eq!(fs::read(&collision).unwrap(), b"do not truncate");
+        assert!(!atomic_temp_path(dir.path(), first_nonce + 1).exists());
+    }
+
+    #[test]
+    fn atomic_write_cleans_temp_entry_when_rename_fails() {
+        let dir = TempDir::new().unwrap();
+        let target = dir.path().join("destination-directory");
+        fs::create_dir(&target).unwrap();
+        let first_nonce = 0x3000;
+
+        assert!(
+            atomic_write_from_nonce(&target, b"cannot replace a directory", first_nonce).is_err()
+        );
+
+        assert!(target.is_dir());
+        assert!(!atomic_temp_path(dir.path(), first_nonce).exists());
+    }
+
+    #[test]
     fn isolated_abort_preserves_dirty_source() {
         let (repo, source, sha) = fixture();
         fs::write(source.join("outside.txt"), b"user dirty").unwrap();
@@ -1192,6 +1359,26 @@ mod tests {
         let mut txn = TransactionalWorkspace::create(&source, &worktree, &sha, scoped).unwrap();
         symlink(&source, worktree.join("link")).unwrap();
         assert!(txn.write("link/stolen.txt", b"bad").is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn dangling_symlink_write_target_fails_closed() {
+        use std::os::unix::fs::symlink;
+
+        let (repo, source, sha) = fixture();
+        let worktree = repo.path().join("txn");
+        let mut txn = TransactionalWorkspace::create(&source, &worktree, &sha, policy()).unwrap();
+        let missing = repo.path().join("missing-external-target");
+        let target = worktree.join("allowed.txt");
+        fs::remove_file(&target).unwrap();
+        symlink(&missing, &target).unwrap();
+
+        let error = txn.write("allowed.txt", b"bad").unwrap_err();
+
+        assert_eq!(error, "transaction target must not be a symlink");
+        assert_eq!(fs::read_link(&target).unwrap(), missing);
+        assert!(!missing.exists());
     }
 
     #[test]
@@ -1256,10 +1443,9 @@ mod tests {
         let (repo, source, sha) = fixture();
         let worktree = repo.path().join("txn");
         let mut txn = TransactionalWorkspace::create(&source, &worktree, &sha, policy()).unwrap();
-        assert!(
-            txn.authorize_external("secret://broker/key", false)
-                .is_err()
-        );
+        assert!(txn
+            .authorize_external("secret://broker/key", false)
+            .is_err());
         let first = txn.deterministic_audit_json().unwrap();
         let second = txn.deterministic_audit_json().unwrap();
         assert_eq!(first, second);
