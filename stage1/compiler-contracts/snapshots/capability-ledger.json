@@ -1069,6 +1069,12 @@
     },
     {
       "evidenceTier": "static_spike",
+      "name": "https://axiom.omt.global/schemas/axiom-selfhost-snapshot-provenance-v0.schema.json",
+      "source": "stage1/schemas/axiom-selfhost-snapshot-provenance-v0.schema.json",
+      "status": "checked"
+    },
+    {
+      "evidenceTier": "static_spike",
       "name": "https://axiom.omt.global/schemas/axiom-semantic-diff-v0.schema.json",
       "source": "stage1/schemas/axiom-semantic-diff-v0.schema.json",
       "status": "checked"

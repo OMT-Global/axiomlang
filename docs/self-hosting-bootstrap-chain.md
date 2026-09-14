@@ -34,16 +34,31 @@ described by `stage1/schemas/axiom-selfhost-snapshot-manifest-v0.schema.json`):
   "schema_version": "axiom.selfhost.snapshot_manifest.v0",
   "snapshots": [
     {
+      "snapshot_id": "OMT-Global/axiomlang@aarch64-apple-darwin@0",
+      "chain_id": "OMT-Global/axiomlang@aarch64-apple-darwin",
+      "sequence": 0,
       "version": "<released axiomc version>",
       "target": "<host triple, e.g. aarch64-apple-darwin>",
       "sha256": "<hex digest of the executable>",
-      "source": "<release URL or registry locator>",
+      "artifact_path": "<offline cached executable path>",
+      "source": "OMT-Global/axiomlang",
+      "source_head_sha": "<40-character source commit>",
       "built_by": "cargo | axiomc-snapshot",
-      "provenance": "<release provenance record locator>"
+      "predecessor": null,
+      "provenance": "<offline provenance record path>",
+      "provenance_sha256": "<hex digest of the provenance record>"
     }
   ]
 }
 ```
+
+The source head, artifact, predecessor, and provenance fields are exact
+bindings, not descriptive labels. The provenance record uses
+`axiom.selfhost.snapshot_provenance.v0` and records the command/process list,
+`--locked --offline` execution, `generated_rust: null`, output digest, and
+normalized fixpoint result. The checker hashes both local files before trusting
+the evidence; it rejects missing files, zero digests, mismatched bindings,
+post-genesis Cargo/rustc, divergent output, and failed fixpoints.
 
 Rules:
 
