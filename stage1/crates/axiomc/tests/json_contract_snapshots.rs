@@ -81,6 +81,83 @@ fn cranelift_build_json_validates_against_command_schema() {
     assert_payload_matches_schema(&validator, "cranelift build", &output);
 }
 
+#[test]
+fn build_json_failure_validates_against_both_published_schemas() {
+    let command_schema = read_json(
+        &contract_root().join("schemas/axiom.stage1.command.schema.json"),
+    );
+    let command_validator =
+        jsonschema::validator_for(&command_schema).expect("compile command schema");
+    let public_schema = read_json(&public_v1_schema_path());
+    let public_validator =
+        jsonschema::validator_for(&public_schema).expect("compile public stage1 schema");
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("build-failure-contract-app");
+
+    run_axiomc(&[
+        "new",
+        project.to_str().expect("project path"),
+        "--name",
+        "build-failure-contract-app",
+    ]);
+
+    let (success, output) = run_axiomc_json_with_status(&[
+        "build",
+        project.to_str().expect("project path"),
+        "--target",
+        "wasm32-wasip1",
+        "--json",
+    ]);
+    assert!(!success, "unsupported target must fail closed");
+    assert_eq!(output["command"], "build");
+    assert_eq!(output["ok"], false);
+    assert_eq!(output["error"]["code"], "target.unsupported");
+    assert_payload_matches_schema(&command_validator, "build failure", &output);
+    assert_payload_matches_schema(&public_validator, "build failure", &output);
+
+    let mut unrelated = output.clone();
+    unrelated["unrelated"] = json!(true);
+    assert!(
+        command_validator.validate(&unrelated).is_err(),
+        "command failure schema must reject unrelated properties"
+    );
+}
+
+#[test]
+fn generic_command_failures_validate_against_both_published_schemas() {
+    let command_schema = read_json(
+        &contract_root().join("schemas/axiom.stage1.command.schema.json"),
+    );
+    let command_validator =
+        jsonschema::validator_for(&command_schema).expect("compile command schema");
+    let public_schema = read_json(&public_v1_schema_path());
+    let public_validator =
+        jsonschema::validator_for(&public_schema).expect("compile public stage1 schema");
+    let temp = tempfile::tempdir().expect("tempdir");
+    let missing = temp.path().join("missing-input");
+    let missing_str = missing.to_str().expect("missing input path");
+    let invocations: [(&str, Vec<&str>); 5] = [
+        ("check", vec!["check", missing_str, "--json"]),
+        ("run", vec!["run", missing_str, "--json"]),
+        ("test", vec!["test", missing_str, "--json"]),
+        ("caps", vec!["caps", missing_str, "--json"]),
+        (
+            "mutation-report",
+            vec!["mutation-report", missing_str, "--json"],
+        ),
+    ];
+
+    for (command, args) in invocations {
+        let (success, output) = run_axiomc_json_with_status(&args);
+        assert!(!success, "{command} must fail for missing input");
+        assert_eq!(output["command"], command);
+        assert_eq!(output["ok"], false);
+        assert!(output["error"].is_object());
+        assert_payload_matches_schema(&command_validator, &format!("{command} command"), &output);
+        assert_payload_matches_schema(&public_validator, &format!("{command} public"), &output);
+    }
+}
+
 #[cfg(not(windows))]
 #[test]
 fn real_test_case_results_validate_against_both_stage1_schemas() {
