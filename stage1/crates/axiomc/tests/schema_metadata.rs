@@ -9,6 +9,7 @@ use jsonschema::Validator;
 use serde_json::Value;
 use std::fs;
 use std::path::Path;
+use std::process::Command;
 
 fn schema_dir() -> std::path::PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -1074,6 +1075,51 @@ fn editor_metadata_schemas_are_parseable_and_current() {
             "compiler schema capability descriptors include {capability}"
         );
     }
+}
+
+#[test]
+fn inspect_evidence_cli_is_wired_for_text_and_json_output() {
+    let temp = tempfile::tempdir().expect("create inspect evidence tempdir");
+    let project = temp.path().join("inspect-evidence-app");
+    let project_arg = project.to_str().expect("project path");
+    let created = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args(["new", project_arg, "--name", "inspect-evidence-app"])
+        .output()
+        .expect("run axiomc new");
+    assert!(created.status.success(), "new failed: {:?}", created);
+
+    let json_output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args(["inspect", "evidence", project_arg, "--json"])
+        .output()
+        .expect("run inspect evidence json");
+    assert!(
+        json_output.status.success(),
+        "inspect evidence json failed: {:?}",
+        json_output
+    );
+    let payload: Value = serde_json::from_slice(&json_output.stdout).expect("evidence JSON");
+    assert_eq!(payload["command"], "inspect evidence");
+    assert!(payload["evidence"].is_array());
+    let schema: Value = serde_json::from_str(
+        &fs::read_to_string(schema_dir().join("axiom-inspect-v0.schema.json"))
+            .expect("read inspect schema"),
+    )
+    .expect("inspect schema JSON");
+    compile_validator(&schema)
+        .validate(&payload)
+        .expect("inspect evidence JSON validates against inspect schema");
+
+    let text_output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args(["inspect", "evidence", project_arg])
+        .output()
+        .expect("run inspect evidence text");
+    assert!(
+        text_output.status.success(),
+        "inspect evidence text failed: {:?}",
+        text_output
+    );
+    let text = String::from_utf8(text_output.stdout).expect("evidence text UTF-8");
+    assert!(text.contains("lockfile axiom.lock"), "text output: {text}");
 }
 
 #[test]
