@@ -3,16 +3,23 @@ set -euo pipefail
 
 script_repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 repo_root="${AXIOM_CHECKOUT_PATH:-$script_repo_root}"
+if [[ ! -f "$repo_root/stage1/Cargo.toml" ]]; then
+  echo "error: AXIOM_CHECKOUT_PATH must identify an Axiom checkout" >&2
+  exit 1
+fi
+repo_root="$(cd "$repo_root" && pwd)"
+export AXIOM_CHECKOUT_PATH="$repo_root"
 cd "$repo_root"
 
 target_dir="${CARGO_TARGET_DIR:-${RUNNER_TEMP:-/tmp}/axiom-fast-ci-target}"
 mkdir -p "$target_dir"
-export CARGO_TARGET_DIR="$target_dir"
+export CARGO_TARGET_DIR="$(cd "$target_dir" && pwd)"
 
 bash "$script_repo_root/scripts/ci/check-python-exit-docs.sh"
 bash "$script_repo_root/scripts/ci/validate-capability-manifests.sh"
 bash "$script_repo_root/scripts/ci/test-validate-capability-manifests.sh"
 bash "$script_repo_root/scripts/ci/test-pr-fast-ci-workflow.sh"
+python3 "$script_repo_root/scripts/ci/test-fast-checkout-isolation.py"
 bash "$script_repo_root/scripts/ci/test-extended-validation-workflow.sh"
 bash "$script_repo_root/scripts/ci/test-run-stage1-basic-smoke.sh"
 bash "$script_repo_root/scripts/ci/test-run-stage1-stdlib-smoke.sh"

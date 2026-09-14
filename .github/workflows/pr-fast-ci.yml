@@ -163,6 +163,7 @@ jobs:
 
       - name: Run fast checks
         env:
+          CARGO_TARGET_DIR: ${{ runner.temp }}/axiom-fast-${{ github.run_id }}-${{ github.run_attempt }}
           GITHUB_TOKEN: ${{ github.token }}
         run: AXIOM_CHECKOUT_PATH="$GITHUB_WORKSPACE" bash .trusted-ci/scripts/ci/run-fast-checks.sh
 
