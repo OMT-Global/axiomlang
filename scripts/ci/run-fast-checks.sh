@@ -58,6 +58,7 @@ python3 "$script_repo_root/scripts/ci/test-pr-queue-remediation.py"
 python3 "$script_repo_root/scripts/ci/test-remote-branch-prune-plan.py"
 python3 "$script_repo_root/scripts/ci/test-report-delivery-signals.py"
 python3 "$script_repo_root/scripts/ci/test-issue-pr-traceability.py"
+python3 "$script_repo_root/scripts/ci/test-cross-model-review-gate.py"
 # Checker self-tests must run in a CI lane so their harnesses cannot rot
 # silently (#1364, #1369). test-pr-fast-ci-workflow.sh enforces that every
 # scripts/ci/test-check-*.sh stays wired here.
@@ -67,6 +68,7 @@ python3 "$script_repo_root/scripts/ci/test-check-provider-abi-v1.py"
 bash "$script_repo_root/scripts/ci/test-check-python-exit-readiness.sh"
 bash "$script_repo_root/scripts/ci/test-check-rust-exit-readiness.sh"
 bash "$script_repo_root/scripts/ci/test-check-self-hosting-language-readiness.sh"
+python3 "$script_repo_root/scripts/ci/test-compatibility-checkout-routing.py"
 bash "$script_repo_root/scripts/ci/test-check-compatibility-v1.sh"
 bash "$script_repo_root/scripts/ci/test-check-package-trust-contract.sh"
 python3 "$script_repo_root/scripts/ci/test-run-stage1-quality-gate.py"
