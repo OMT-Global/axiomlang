@@ -17,7 +17,7 @@ compiler-owned tables and validated by
 `python3 scripts/ci/check-capability-ledger.py --check-docs --json`.
 
 The current inventory contains 31 CLI commands, 34 synthetic standard-library
-modules with 300 exported functions, and 9 manifest capability kinds. Cranelift
+modules with 305 exported functions, and 9 manifest capability kinds. Cranelift
 is the only supported CLI backend. Those counts describe discovered surfaces,
 not production qualification: the ledger currently records zero
 `production_qualified` rows and preserves narrower `direct_runtime`,
@@ -28,6 +28,16 @@ landed. Their individual runtime breadth remains classified conservatively in
 the ledger and direct-native runtime ABI contract rather than inferred from the
 presence of a parser node or wrapper. Closed bootstrap issues are historical
 evidence only; they do not establish present production closure.
+
+## Execution modes
+
+Cranelift supports a bounded runtime subset. Other accepted pure programs can
+produce a static-output replay artifact, while unsupported runtime shapes fail
+with `backend.runtime_lowering_required`. Use the canonical
+[execution-mode matrix](build-lowering-evidence.md#execution-mode-matrix) and
+inspect `axiomc build <package> --json` before treating an example as runtime
+proof. A successful `check`, a native binary, or `generated_rust: null` alone
+does not establish that the program executes its semantics at runtime.
 
 ## Commands
 
@@ -101,7 +111,8 @@ dependencies are satisfied.
 and `--template service`. Each starter writes `axiom.toml`, `axiom.lock`,
 `src/main.ax`, `src/main_test.ax`, and `src/main_test.stdout`; the generated
 project is expected to pass `axiomc check`, `axiomc build`, and `axiomc test`
-without manual edits.
+without manual edits. Even a dependency-free package must retain its
+`axiom.lock`; creating only `axiom.toml` and source files is insufficient.
 
 `axiomc test` discovers `src/**/*_test.ax` entrypoints by default, builds each test
 as a native artifact, executes it, and compares stdout against a sibling
@@ -333,7 +344,7 @@ no row is currently production-qualified.
 - Packages: local packages, path dependencies, workspaces, lockfile validation,
   and local registry publication shapes are implemented as bootstrap/static
   evidence. Remote registry resolution remains unsupported.
-- Runtime and stdlib: 34 modules and 300 exported functions are compiler-owned
+- Runtime and stdlib: 34 stdlib modules and 305 exported functions are compiler-owned
   surfaces. Direct-runtime rows identify where native execution evidence exists;
   module rows stay partial because evidence covers bounded shapes rather than
   every legal input and composition.
@@ -354,7 +365,11 @@ lives in [docs/stage1-agent-grade-compiler.md](stage1-agent-grade-compiler.md).
 The broad Phase A language issue disposition for #216 through #225 is tracked in
 [Stage1 Language Issue Disposition](stage1-language-issue-disposition.md).
 
-Current proof points:
+Current example inventory:
+
+The entries below describe source/API coverage. Their presence does not imply
+that every example builds or runs through direct-native lowering. Inspect the
+execution-mode evidence for the particular program and target.
 
 - `stage1/examples/hello` remains the single-file callable baseline.
 - `stage1/examples/modules` proves the multi-file package baseline and the new
@@ -362,7 +377,7 @@ Current proof points:
 - `stage1/examples/packages` proves the local path dependency baseline and root-package lockfile validation.
 - `stage1/examples/workspace` proves the package-root workspace-member baseline and workspace-aware root lockfile validation.
 - `stage1/examples/workspace_only` proves workspace-only manifests plus `-p/--package` selection for member-targeted build/run while preserving workspace-wide test discovery.
-- `stage1/examples/capabilities` proves the capability-gated fs/net/env/clock/crypto path, while the Rust suite covers the remaining process intrinsic contract.
+- `stage1/examples/capabilities` covers capability checking for fs/net/env/clock/crypto but its native build currently fails closed with `backend.runtime_lowering_required`. It is blocked-lowering evidence, not a running capability workload.
 - `stage1/examples/stdlib_time` proves the AG4.1 synthetic stdlib surface: `import "std/time.ax"` brings `Duration`, `Instant`, `duration_ms()`, `now_ms()`, `now()`, `elapsed_ms()`, and `sleep()` into scope and remains subject to the importing package's `[capabilities] clock` flag. Sleep returns `0` after a successful non-negative millisecond duration and `-1` for negative durations.
 - `stage1/examples/stdlib_env` extends AG4.1 with `import "std/env.ax"`, bringing `get_env(key)` into scope and staying subject to the importing package's `[capabilities] env = ["NAME"]` allowlist.
 - `stage1/examples/stdlib_fs` extends AG4.1 with `import "std/fs.ax"`, bringing `read_file(path)`, `file_exists(path)`, and `file_size(path)` into scope and staying subject to the importing package's `[capabilities] fs` flag. File metadata is scoped to the effective filesystem root and checked again at runtime by the native backend.
@@ -382,14 +397,13 @@ Current proof points:
 - `stage1/examples/stdlib_log` extends AG4.1 with `import "std/log.ax"`, bringing deterministic JSON-line event formatting and stderr logging into scope without host logging sinks or replay buffers.
 - `stage1/examples/stdlib_http` extends AG4.1 with `import "std/http.ax"`, bringing `get(url)`, loopback-only `listen`/`accept`/`respond`, `serve_once(bind, body)`, and route-shaped `fixed_route(path, body)` / `serve(bind, route, max_requests)` primitives into scope on top of blocking HTTP client/server helpers. It shares the importing package's `[capabilities] net` flag with `std/net.ax`; the checked-in example keeps its smoke deterministic by exercising the closed-port client path, while the Rust integration suite covers listener handles, the single-request server path, routed path, async-gated route serving, and bind-policy rejection.
 
-- `stage1/examples/proof_cli` closes the first AG5.3 proof workload with a multi-package CLI fixture that pulls command and render helpers from separate local packages while staying fully inside the `axiomc` workflow and exercising capability-gated `std/env.ax` and `std/time.ax`.
-- `stage1/examples/proof_worker` closes the queue-style AG5.3 proof workload with a deterministic worker fixture built on `std/async.ax`, `std/env.ax`, and `std/time.ax`.
-- `stage1/examples/proof_http_service` is a checked-in HTTP-shaped response fixture that routes request metadata from `std/env.ax`, stamps liveness with `std/time.ax`, and renders the response body through `std/json.ax`; it remains the small-service AG5.3 workload on top of the landed AG4.3/#97 server surface.
-
-- `stage1/examples/stdlib_http` extends AG4.1 with `import "std/http.ax"`, bringing `get(url)` into scope on top of a new blocking HTTP/1.0 client for `http://` and `https://` URLs; it shares the importing package's `[capabilities] net` flag with `std/net.ax` and keeps its smoke deterministic by pointing at a closed local port so the `None` branch always fires.
-- `stage1/examples/proof_cli` closes the first AG5.3 proof workload with a multi-package CLI fixture that pulls command and render helpers from separate local packages while staying fully inside the `axiomc` workflow and exercising capability-gated `std/env.ax` and `std/time.ax`.
-- `stage1/examples/proof_worker` closes the queue-style AG5.3 proof workload with a deterministic worker fixture built on `std/async.ax`, `std/env.ax`, and `std/time.ax`.
-- `stage1/examples/proof_http_service` closes the small-service AG5.3 proof workload with a checked-in HTTP response fixture that routes request metadata from `std/env.ax`, stamps liveness with `std/time.ax`, and renders the response body through `std/json.ax`.
+- `stage1/examples/proof_cli`, `stage1/examples/proof_worker`, and
+  `stage1/examples/proof_http_service` are the multi-package CLI, queue-style
+  worker, and HTTP-shaped proof fixtures. The current proof harness expects
+  blocked native builds. A green harness verifies those failure boundaries;
+  it does not prove executable AG5 completion. The milestone decision and
+  missing runtime evidence remain tracked in
+  [#1657](https://github.com/OMT-Global/axiomlang/issues/1657).
 
 - `stage1/examples/arrays`, `stage1/examples/maps`, `stage1/examples/tuples`,
   and `stage1/examples/structs` cover the current structured-data floor.
@@ -399,17 +413,10 @@ Current proof points:
 - `stage1/examples/benchmarks` provides the first checked-in benchmark suite
   fixture for `axiomc bench`; the Go/Rust comparison gate remains a later CI
   policy layer on top of the harness.
-- `stage1/examples/proof_cli` and `stage1/examples/proof_worker` provide the
-  first two AG5 proof-workload fixtures. The CLI fixture proves a multi-package
-  Axiom program, while the worker fixture proves deterministic queue-style async
-  processing. The small HTTP service fixture remains blocked on server-side HTTP
-  support.
-- `make stage1-test`, `make stage1-conformance`, and `make stage1-smoke` now
-  cover the checked-in stage1 language gate. `make stage1-test` also carries
-  the stdlib `axiomc test --properties` gate and the AG5 proof-workload tests
-  for `stage1/examples/proof_cli`, `stage1/examples/proof_worker`, and
-  `stage1/examples/proof_http_service`, while `make stage1-smoke` carries their
-  blocking build/run acceptance path.
+- `make stage1-test`, `make stage1-conformance`, and `make stage1-smoke`
+  cover the checked-in language and smoke contracts. The AG5 proof harness
+  checks structured blocked outcomes for the three fixtures above; it does
+  not supply a native build/run acceptance result.
 - Local `cargo test --manifest-path stage1/Cargo.toml -p axiomc` keeps native
   runtime tests listed but ignored by default so sandboxed contributor hosts
   without linker tooling still get a clean compiler test signal. Use
