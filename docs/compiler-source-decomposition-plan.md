@@ -306,7 +306,17 @@ matching ceiling in this table in the same PR.
 | `stage1/crates/axiomc/src/hir/variants.rs` | 188 |
 | `stage1/crates/axiomc/src/package_trust.rs` | 5485 |
 | `stage1/crates/axiomc/src/registry.rs` | 4319 |
-| `stage1/crates/axiomc/src/lib.rs` | 37 |
+| `stage1/crates/axiomc/src/lib.rs` | 38 |
+| `stage1/crates/axiomc/src/lsp.rs` | 2540 |
+| `stage1/crates/axiomc/src/dap.rs` | 566 |
+| `stage1/crates/axiomc/src/framed_protocol.rs` | 371 |
+
+The shared LSP/DAP frame-reader extraction (#1573/#1615) adds one module
+registration to the `lib.rs` facade (37 to 38 lines), not implementation logic.
+It removes the duplicated readers from LSP (2577 to 2540 lines) and DAP
+(602 to 566 lines). Their new exact ceilings, and the 371-line shared reader
+including endpoint/memory regression tests, keep this split ratcheted. The
+aggregate top-file line and share ceilings above are unchanged.
 
 ## Extraction Order
 
