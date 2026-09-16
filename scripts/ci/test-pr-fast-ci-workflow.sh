@@ -82,7 +82,8 @@ full_lib_suite_linker=$(printf '%s\n' "$full_lib_suite_section" | grep -F 'Ensur
 axiomc_bin_suite=$(printf '%s\n' "$full_lib_suite_section" | grep -F -- 'cargo test --manifest-path stage1/Cargo.toml -p axiomc --bin axiomc --features run-native-tests' || true)
 axiomc_cranelift_suite=$(printf '%s\n' "$full_lib_suite_section" | grep -F -- 'cargo test --manifest-path stage1/Cargo.toml -p axiomc --test cranelift_backend --features run-native-tests' || true)
 axiomc_numeric_overflow_suite=$(printf '%s\n' "$full_lib_suite_section" | grep -F -- 'cargo test --manifest-path stage1/Cargo.toml -p axiomc --test cranelift_numeric_overflow --features run-native-tests' || true)
-legacy_cranelift_manifest=$(grep -nF '[unsafe_rationale]' "$repo_root/stage1/crates/axiomc/tests/cranelift_backend.rs" || true)
+# Keep the intentional schema-rejection test byte-pinned; reject legacy tables elsewhere.
+python3 "$repo_root/scripts/ci/check-cranelift-manifest-fixtures.py"
 proof_workload_test=$(grep -nF 'bash scripts/ci/run-stage1-proof-test.sh' "$fast_checks_script" || true)
 stdlib_catalog_check=$(grep -nF 'scripts/ci/check-stdlib-catalog.py' "$fast_checks_script" || true)
 stdlib_catalog_regression=$(grep -nF 'scripts/ci/test-check-stdlib-catalog.py' "$fast_checks_script" || true)
@@ -212,11 +213,7 @@ if [[ -z "$axiomc_numeric_overflow_suite" ]]; then
   exit 1
 fi
 
-if [[ -n "$legacy_cranelift_manifest" ]]; then
-  echo "cranelift_backend fixtures must use capabilities.unsafe_rationale after the #1519 manifest migration" >&2
-  printf '%s\n' "$legacy_cranelift_manifest" >&2
-  exit 1
-fi
+
 
 if [[ -z "$full_lib_suite_job" || -z "$full_lib_suite_run" || -z "$full_lib_suite_gate" ]]; then
   echo "pr-fast-ci must run the full axiomc lib suite as a CI Gate dependency (#1255 blocking lane)" >&2
