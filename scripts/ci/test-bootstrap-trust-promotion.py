@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Fail-closed authorization and non-vacuous wiring controls, no network."""
 import copy
+import hashlib
 import importlib.util
 from pathlib import Path
-import subprocess
 import textwrap
 import unittest
 
@@ -44,10 +44,11 @@ class PromotionTests(unittest.TestCase):
             self.assertIn(before,w)
             with self.subTest(before=before),self.assertRaises(ValueError):contract(w.replace(before,after),s)
     def test_original_other_jobs_byte_identical(self):
-        old=subprocess.check_output(["git","show",m.REPAIR+":.github/workflows/pr-fast-ci.yml"],cwd=ROOT,text=True)
+        # Source digests of unchanged jobs at reviewed repair d551df9. Do not
+        # require that historical commit to exist in Actions' shallow checkout.
         new=(ROOT/".github/workflows/pr-fast-ci.yml").read_text()
-        self.assertEqual(old.split("  fast-checks:\n")[0],new.split("  fast-checks:\n")[0])
-        self.assertEqual(old.split("  full-lib-suite:\n",1)[1],new.split("  full-lib-suite:\n",1)[1])
+        self.assertEqual(hashlib.sha256(new.split("  fast-checks:\n")[0].encode()).hexdigest(), "814f6a5adcf12b77ef9d191899af9b085f435822a724a332a404726628e51330")
+        self.assertEqual(hashlib.sha256(new.split("  full-lib-suite:\n",1)[1].encode()).hexdigest(), "df6a40eb777fc0ca971d49bce5cc28d1414878ec1c1612c9726e106204232278")
     def test_authorization_not_optimized_away(self):
         self.assertNotIn("assert ",SCRIPT.read_text())
 
