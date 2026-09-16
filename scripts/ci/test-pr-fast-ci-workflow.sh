@@ -82,6 +82,7 @@ full_lib_suite_linker=$(printf '%s\n' "$full_lib_suite_section" | grep -F 'Ensur
 axiomc_bin_suite=$(printf '%s\n' "$full_lib_suite_section" | grep -F -- 'cargo test --manifest-path stage1/Cargo.toml -p axiomc --bin axiomc --features run-native-tests' || true)
 axiomc_cranelift_suite=$(printf '%s\n' "$full_lib_suite_section" | grep -F -- 'cargo test --manifest-path stage1/Cargo.toml -p axiomc --test cranelift_backend --features run-native-tests' || true)
 axiomc_manifest_schema_parity_suite=$(printf '%s\n' "$full_lib_suite_section" | grep -E -- '^[[:space:]]*run: RUST_MIN_STACK=8388608 cargo test --manifest-path stage1/Cargo\.toml -p axiomc --test manifest_schema_parity --locked -- --test-threads=1[[:space:]]*$' || true)
+axiomc_json_contract_suite=$(printf '%s\n' "$full_lib_suite_section" | grep -E -- '^[[:space:]]*run: RUST_MIN_STACK=8388608 cargo test --manifest-path stage1/Cargo\.toml -p axiomc --test json_contract_snapshots --locked -- --test-threads=1[[:space:]]*$' || true)
 axiomc_numeric_overflow_suite=$(printf '%s\n' "$full_lib_suite_section" | grep -F -- 'cargo test --manifest-path stage1/Cargo.toml -p axiomc --test cranelift_numeric_overflow --features run-native-tests' || true)
 # Keep the intentional schema-rejection test byte-pinned; reject legacy tables elsewhere.
 python3 "$repo_root/scripts/ci/check-cranelift-manifest-fixtures.py"
@@ -206,6 +207,11 @@ fi
 
 if [[ -z "$axiomc_cranelift_suite" ]]; then
   echo "pr-fast-ci must execute the axiomc Cranelift integration target so manifest/ABI regressions cannot disappear from PR CI (#1562)" >&2
+  exit 1
+fi
+
+if [[ -z "$axiomc_json_contract_suite" ]]; then
+  echo "full-lib-suite must run json_contract_snapshots; actual CLI envelopes must satisfy their schemas" >&2
   exit 1
 fi
 
