@@ -4,12 +4,34 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 script="$repo_root/scripts/ci/run-compiler-property-checks.sh"
 
+if ! awk '
+  /^keep_outputs_writable\(\) \{$/ {
+    if (getline != 1 || $0 != "  trap - EXIT HUP INT TERM") {
+      exit 1
+    }
+    found=1
+    exit
+  }
+  END { exit found ? 0 : 1 }
+' "$script"; then
+  echo "keep_outputs_writable must clear inherited traps before starting its loop" >&2
+  exit 1
+fi
+
 if grep -Eq 'mktemp .*[.]XXXXXX[.]' "$script"; then
   echo "compiler property checks must use BSD-compatible mktemp templates" >&2
   exit 1
 fi
 
-harness_tmp="$(mktemp -d)"
+if [[ "${GITHUB_ACTIONS:-}" == "true" && -n "${RUNNER_TEMP:-}" ]]; then
+  # The self-hosted runner may reclaim nested /tmp paths while a long-running
+  # Actions job is still using them. Keep the simulated checkout and its
+  # report path under the checked-out workspace for the same reason as the
+  # production property-check script.
+  harness_tmp="$(mktemp -d "${repo_root%/}/.ci-property-checks.XXXXXX")"
+else
+  harness_tmp="$(mktemp -d)"
+fi
 cleanup() {
   rm -rf "$harness_tmp"
 }

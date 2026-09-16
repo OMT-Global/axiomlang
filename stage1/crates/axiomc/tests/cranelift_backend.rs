@@ -8371,7 +8371,7 @@ fn cranelift_backend_rejects_fs_write_denial_before_backend_lowering() {
 
 #[cfg(not(windows))]
 #[test]
-fn cranelift_backend_rejects_env_precomputed_output_without_runtime_lowering() {
+fn cranelift_backend_lowers_unrestricted_env_at_runtime() {
     if which::which("cc").is_err() {
         eprintln!("skipping cranelift backend smoke test because cc is unavailable");
         return;
@@ -8393,13 +8393,34 @@ fn cranelift_backend_rejects_env_precomputed_output_without_runtime_lowering() {
         ])
         .output()
         .expect("run axiomc build --backend cranelift");
-    // assert_runtime_lowering_required verifies generated_rust and binary are absent.
-    assert_runtime_lowering_required(&output, "env-precomputed-output");
+    assert!(
+        output.status.success(),
+        "cranelift unrestricted env build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    assert_eq!(payload["lowering"]["execution_mode"], "direct_native_runtime");
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .env("AXIOM_CRANELIFT_ENV_READ", "native-env")
+        .env_remove("__AXIOM_CRANELIFT_ENV_MISSING__")
+        .output()
+        .expect("run cranelift unrestricted env binary");
+    assert!(
+        run.status.success(),
+        "cranelift unrestricted env binary failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&run.stdout),
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "native-env\nmissing\n");
 }
 
 #[cfg(not(windows))]
 #[test]
-fn cranelift_backend_rejects_env_allowlist_precomputed_output_without_runtime_lowering() {
+fn cranelift_backend_lowers_env_allowlist_output_at_runtime() {
     if which::which("cc").is_err() {
         eprintln!("skipping cranelift backend smoke test because cc is unavailable");
         return;
@@ -8421,8 +8442,32 @@ fn cranelift_backend_rejects_env_allowlist_precomputed_output_without_runtime_lo
         ])
         .output()
         .expect("run axiomc build --backend cranelift");
-    // assert_runtime_lowering_required verifies generated_rust and binary are absent.
-    assert_runtime_lowering_required(&output, "env-allowlist-precomputed-output");
+    assert!(
+        output.status.success(),
+        "cranelift env allowlist build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    assert_eq!(payload["lowering"]["execution_mode"], "direct_native_runtime");
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .env("AXIOM_CRANELIFT_ENV_READ", "allowed-env")
+        .env("AXIOM_CRANELIFT_ENV_BLOCKED", "blocked-env")
+        .output()
+        .expect("run cranelift env allowlist binary");
+    assert!(
+        run.status.success(),
+        "cranelift env allowlist binary failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&run.stdout),
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&run.stdout),
+        "allowed-env\nmissing blocked\n"
+    );
 }
 
 #[cfg(not(windows))]
@@ -8760,6 +8805,36 @@ fn cranelift_backend_rejects_http_async_server_denial_before_backend_lowering() 
     );
 }
 
+// Validate the same bytes that reach disk, so fixture mistakes fail at setup,
+// before an unrelated compiler/backend assertion obscures the schema error.
+fn write_manifest_fixture(path: impl AsRef<Path>, content: impl AsRef<[u8]>) -> std::io::Result<()> {
+    let path = path.as_ref();
+    let content = content.as_ref();
+    axiomc::manifest::parse_manifest_exact(content, path)
+        .unwrap_or_else(|error| panic!("invalid manifest fixture {}: {error:?}", path.display()));
+    fs::write(path, content)
+}
+
+#[test]
+fn manifest_fixture_validation_precedes_disk_write() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let path = temp.path().join("axiom.toml");
+    let valid = "[package]\nname = \"fixture-schema-check\"\nversion = \"0.1.0\"\n";
+    write_manifest_fixture(&path, valid).expect("write valid manifest fixture");
+    assert_eq!(fs::read_to_string(&path).unwrap(), valid);
+
+    // Reject both a historical misplaced table and ordinary schema/syntax drift.
+    for invalid in [
+        format!("{valid}\n[unsafe_rationale]\nreason = \"misplaced\"\n"),
+        format!("{valid}\n[unknown_fixture_field]\nvalue = true\n"),
+        "[package".to_string(),
+    ] {
+        let rejected = std::panic::catch_unwind(|| write_manifest_fixture(&path, &invalid));
+        assert!(rejected.is_err(), "invalid fixture reached disk: {invalid}");
+        assert_eq!(fs::read_to_string(&path).unwrap(), valid);
+    }
+}
+
 fn copy_fixture(relative: &str, destination: &Path) {
     let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../examples/hello")
@@ -8793,7 +8868,7 @@ fn copy_conformance_fixture(fixture_name: &str, destination: &Path) {
 
 fn write_regex_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create regex project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         r#"[package]
 name = "cranelift-regex-surface"
@@ -8811,8 +8886,7 @@ env = true
 clock = false
 crypto = false
 
-[unsafe_rationale]
-env = "Cranelift ABI regression needs a runtime-only projected key index source."
+unsafe_rationale = "Cranelift ABI regression needs a runtime-only projected key index source."
 "#,
     )
     .expect("write regex manifest");
@@ -8851,9 +8925,9 @@ print replace_all("^a", "ba", "x")
 
 fn write_i64_main_exit_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create i64 main exit project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
-        "[package]\nname = \"cranelift-i64-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = true\nclock = false\ncrypto = false\n\n[unsafe_rationale]\nenv = \"Cranelift ABI regression needs a runtime-only projected key index source.\"\n",
+        "[package]\nname = \"cranelift-i64-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = true\nclock = false\ncrypto = false\n\nunsafe_rationale = \"Cranelift ABI regression needs a runtime-only projected key index source.\"\n",
     )
     .expect("write i64 main exit manifest");
     fs::write(
@@ -8870,9 +8944,9 @@ fn write_i64_main_exit_project(project: &Path) {
 
 fn write_i64_returning_main_exit_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create i64 returning main exit project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
-        "[package]\nname = \"cranelift-i64-returning-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = true\nclock = false\ncrypto = false\n\n[unsafe_rationale]\nenv = \"Cranelift ABI regression needs a runtime-only projected key index source.\"\n",
+        "[package]\nname = \"cranelift-i64-returning-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = true\nclock = false\ncrypto = false\n\nunsafe_rationale = \"Cranelift ABI regression needs a runtime-only projected key index source.\"\n",
     )
     .expect("write i64 returning main exit manifest");
     fs::write(
@@ -8889,7 +8963,7 @@ fn write_i64_returning_main_exit_project(project: &Path) {
 
 fn write_terminal_panic_project(project: &Path, source: &str) {
     fs::create_dir_all(project.join("src")).expect("create terminal panic project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         "[package]\nname = \"cranelift-terminal-panic\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
     )
@@ -8940,7 +9014,7 @@ fn write_typed_numeric_returning_main_exit_project(
     literal: &str,
 ) {
     fs::create_dir_all(project.join("src")).expect("create typed numeric main exit project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         format!(
             "[package]\nname = \"{package_name}\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
@@ -8963,7 +9037,7 @@ fn write_typed_numeric_returning_main_exit_project(
 
 fn write_option_int_match_main_exit_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create option int match main exit project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         "[package]\nname = \"cranelift-option-int-match-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
     )
@@ -8983,7 +9057,7 @@ fn write_option_int_match_main_exit_project(project: &Path) {
 fn write_option_bool_match_main_exit_project(project: &Path) {
     fs::create_dir_all(project.join("src"))
         .expect("create option bool match main exit project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         "[package]\nname = \"cranelift-option-bool-match-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
     )
@@ -9009,7 +9083,7 @@ fn write_option_numeric_width_match_main_exit_project(
 ) {
     fs::create_dir_all(project.join("src"))
         .expect("create option numeric width match main exit project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         format!("[package]\nname = \"cranelift-{package_name}\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n"),
     )
@@ -9034,7 +9108,7 @@ fn write_option_numeric_width_match_main_exit_project(
 fn write_option_tuple_payload_match_main_exit_project(project: &Path, variant: &str) {
     fs::create_dir_all(project.join("src"))
         .expect("create option tuple payload match main exit project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         "[package]\nname = \"cranelift-option-tuple-payload-match-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
     )
@@ -9059,7 +9133,7 @@ fn write_option_tuple_payload_match_main_exit_project(project: &Path, variant: &
 fn write_option_array_payload_match_main_exit_project(project: &Path, variant: &str) {
     fs::create_dir_all(project.join("src"))
         .expect("create option array payload match main exit project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         "[package]\nname = \"cranelift-option-array-payload-match-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
     )
@@ -9084,7 +9158,7 @@ fn write_option_array_payload_match_main_exit_project(project: &Path, variant: &
 fn write_option_struct_payload_match_main_exit_project(project: &Path, variant: &str) {
     fs::create_dir_all(project.join("src"))
         .expect("create option struct payload match main exit project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         "[package]\nname = \"cranelift-option-struct-payload-match-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
     )
@@ -9108,7 +9182,7 @@ fn write_option_struct_payload_match_main_exit_project(project: &Path, variant: 
 
 fn write_nested_option_match_main_exit_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create nested option match main exit src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         "[package]\nname = \"cranelift-nested-option-match-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
     )
@@ -9127,7 +9201,7 @@ fn write_nested_option_match_main_exit_project(project: &Path) {
 
 fn write_result_helper_output_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create result helper output src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         "[package]\nname = \"cranelift-result-helper-output\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
     )
@@ -9146,7 +9220,7 @@ fn write_result_helper_output_project(project: &Path) {
 
 fn write_nested_result_match_main_exit_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create nested result match main exit src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         "[package]\nname = \"cranelift-nested-result-match-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
     )
@@ -9233,7 +9307,7 @@ return 2
 fn write_enum_nested_payload_match_main_exit_project(project: &Path) {
     fs::create_dir_all(project.join("src"))
         .expect("create enum nested payload match main exit src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         "[package]\nname = \"cranelift-enum-nested-payload-match-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
     )
@@ -9286,7 +9360,7 @@ fn write_result_match_main_exit_project(
     payload: i32,
 ) {
     fs::create_dir_all(project.join("src")).expect("create result match main exit project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         format!("[package]\nname = \"cranelift-{package_name}\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n"),
     )
@@ -9306,7 +9380,7 @@ fn write_result_match_main_exit_project(
 fn write_result_bool_match_main_exit_project(project: &Path, package_name: &str, variant: &str) {
     fs::create_dir_all(project.join("src"))
         .expect("create result bool match main exit project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         format!("[package]\nname = \"cranelift-{package_name}\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n"),
     )
@@ -9326,7 +9400,7 @@ fn write_result_bool_match_main_exit_project(project: &Path, package_name: &str,
 fn write_result_mixed_match_main_exit_project(project: &Path, package_name: &str, variant: &str) {
     fs::create_dir_all(project.join("src"))
         .expect("create result mixed match main exit project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         format!("[package]\nname = \"cranelift-{package_name}\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n"),
     )
@@ -9355,7 +9429,7 @@ fn write_result_mixed_reverse_match_main_exit_project(
 ) {
     fs::create_dir_all(project.join("src"))
         .expect("create result mixed reverse match main exit project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         format!("[package]\nname = \"cranelift-{package_name}\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n"),
     )
@@ -9384,7 +9458,7 @@ fn write_result_typed_numeric_match_main_exit_project(
 ) {
     fs::create_dir_all(project.join("src"))
         .expect("create result typed numeric match main exit project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         format!("[package]\nname = \"cranelift-{package_name}\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n"),
     )
@@ -9417,7 +9491,7 @@ fn write_result_numeric_width_match_main_exit_project(
 ) {
     fs::create_dir_all(project.join("src"))
         .expect("create result numeric width match main exit project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         format!("[package]\nname = \"cranelift-{package_name}\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n"),
     )
@@ -9446,7 +9520,7 @@ fn write_result_tuple_payload_match_main_exit_project(
 ) {
     fs::create_dir_all(project.join("src"))
         .expect("create result tuple payload match main exit project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         format!("[package]\nname = \"cranelift-{package_name}\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n"),
     )
@@ -9475,7 +9549,7 @@ fn write_result_dual_tuple_payload_match_main_exit_project(
 ) {
     fs::create_dir_all(project.join("src"))
         .expect("create result dual tuple payload match main exit project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         format!("[package]\nname = \"cranelift-{package_name}\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n"),
     )
@@ -9504,7 +9578,7 @@ fn write_result_array_payload_match_main_exit_project(
 ) {
     fs::create_dir_all(project.join("src"))
         .expect("create result array payload match main exit project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         format!("[package]\nname = \"cranelift-{package_name}\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n"),
     )
@@ -9533,7 +9607,7 @@ fn write_result_struct_payload_match_main_exit_project(
 ) {
     fs::create_dir_all(project.join("src"))
         .expect("create result struct payload match main exit project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         format!("[package]\nname = \"cranelift-{package_name}\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n"),
     )
@@ -9558,7 +9632,7 @@ fn write_result_struct_payload_match_main_exit_project(
 fn write_aggregate_helper_reassignment_main_exit_project(project: &Path) {
     fs::create_dir_all(project.join("src"))
         .expect("create aggregate helper reassignment main exit project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         "[package]\nname = \"cranelift-aggregate-helper-reassignment-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
     )
@@ -9578,7 +9652,7 @@ fn write_aggregate_helper_reassignment_main_exit_project(project: &Path) {
 fn write_nested_enum_payload_reassignment_project(project: &Path) {
     fs::create_dir_all(project.join("src"))
         .expect("create nested enum payload reassignment project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         "[package]\nname = \"nested-enum-payload-reassignment\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
     )
@@ -9597,7 +9671,7 @@ fn write_nested_enum_payload_reassignment_project(project: &Path) {
 
 fn write_bool_returning_main_exit_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create bool returning main exit project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         "[package]\nname = \"cranelift-bool-returning-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
     )
@@ -9616,7 +9690,7 @@ fn write_bool_returning_main_exit_project(project: &Path) {
 
 fn write_bool_tuple_index_main_exit_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create bool tuple index main exit project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         "[package]\nname = \"cranelift-bool-tuple-index-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
     )
@@ -9636,7 +9710,7 @@ fn write_bool_tuple_index_main_exit_project(project: &Path) {
 fn write_tuple_returning_helper_main_exit_project(project: &Path) {
     fs::create_dir_all(project.join("src"))
         .expect("create tuple returning helper main exit project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         "[package]\nname = \"cranelift-tuple-returning-helper-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
     )
@@ -9662,7 +9736,7 @@ fn write_tuple_numeric_width_element_main_exit_project(
 ) {
     fs::create_dir_all(project.join("src"))
         .expect("create tuple numeric width element main exit project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         format!("[package]\nname = \"cranelift-{package_name}\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n"),
     )
@@ -9755,7 +9829,7 @@ return 2
 fn write_aggregate_helper_return_forwarding_main_exit_project(project: &Path) {
     fs::create_dir_all(project.join("src"))
         .expect("create aggregate helper return forwarding main exit project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         "[package]\nname = \"cranelift-aggregate-helper-return-forwarding-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
     )
@@ -9900,7 +9974,7 @@ return 1
 fn write_array_literal_index_main_exit_project(project: &Path) {
     fs::create_dir_all(project.join("src"))
         .expect("create array literal index main exit project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         "[package]\nname = \"cranelift-array-literal-index-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
     )
@@ -9926,7 +10000,7 @@ fn write_array_numeric_width_element_main_exit_project(
 ) {
     fs::create_dir_all(project.join("src"))
         .expect("create array numeric width element main exit project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         format!("[package]\nname = \"cranelift-{package_name}\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n"),
     )
@@ -10019,7 +10093,7 @@ return 2
 fn write_fixed_array_intrinsics_main_exit_project(project: &Path) {
     fs::create_dir_all(project.join("src"))
         .expect("create fixed array intrinsics main exit project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         "[package]\nname = \"cranelift-fixed-array-intrinsics-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
     )
@@ -10039,7 +10113,7 @@ fn write_fixed_array_intrinsics_main_exit_project(project: &Path) {
 fn write_static_slice_bounds_main_exit_project(project: &Path) {
     fs::create_dir_all(project.join("src"))
         .expect("create static slice bounds main exit project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         "[package]\nname = \"cranelift-static-slice-bounds-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
     )
@@ -10066,7 +10140,7 @@ fn write_slice_numeric_width_element_main_exit_project(
 ) {
     fs::create_dir_all(project.join("src"))
         .expect("create slice numeric width element main exit project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         format!("[package]\nname = \"cranelift-{package_name}\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n"),
     )
@@ -10127,7 +10201,7 @@ return 1
 fn write_non_scalar_helper_call_slice_base_project(project: &Path) {
     fs::create_dir_all(project.join("src"))
         .expect("create non-scalar helper-call slice base project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         r#"[package]
 name = "non-scalar-helper-call-slice-base"
@@ -10182,7 +10256,7 @@ return first.value + len(tail)
 fn write_string_literal_len_main_exit_project(project: &Path) {
     fs::create_dir_all(project.join("src"))
         .expect("create string literal len main exit project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         r#"[package]
 name = "cranelift-string-literal-len-main-exit"
@@ -10283,7 +10357,7 @@ return 1
 
 fn write_unsupported_string_helper_main_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create unsupported string helper main src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         r#"[package]
 name = "cranelift-unsupported-string-helper-main"
@@ -10331,7 +10405,7 @@ return len(make_banner())
 
 fn write_known_string_helper_main_exit_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create known string helper main project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         r#"[package]
 name = "cranelift-known-string-helper-main-exit"
@@ -10565,7 +10639,7 @@ return 1
 
 fn write_std_encoding_wrapper_main_exit_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create std encoding wrapper project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         "[package]\nname = \"cranelift-std-encoding-wrapper-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
     )
@@ -10584,7 +10658,7 @@ fn write_std_encoding_wrapper_main_exit_project(project: &Path) {
 
 fn write_known_crypto_text_main_exit_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create known crypto text project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         "[package]\nname = \"cranelift-known-crypto-text-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = true\n",
     )
@@ -10603,7 +10677,7 @@ fn write_known_crypto_text_main_exit_project(project: &Path) {
 
 fn write_std_crypto_wrapper_main_exit_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create std crypto wrapper project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         "[package]\nname = \"cranelift-std-crypto-wrapper-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = true\n",
     )
@@ -10622,7 +10696,7 @@ fn write_std_crypto_wrapper_main_exit_project(project: &Path) {
 
 fn write_known_regex_text_main_exit_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create known regex text project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         "[package]\nname = \"cranelift-known-regex-text-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
     )
@@ -10641,7 +10715,7 @@ fn write_known_regex_text_main_exit_project(project: &Path) {
 
 fn write_std_regex_wrapper_main_exit_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create std regex wrapper project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         "[package]\nname = \"cranelift-std-regex-wrapper-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
     )
@@ -10660,7 +10734,7 @@ fn write_std_regex_wrapper_main_exit_project(project: &Path) {
 
 fn write_known_json_text_main_exit_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create known json text project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         "[package]\nname = \"cranelift-known-json-text-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
     )
@@ -10766,7 +10840,7 @@ return 1
 
 fn write_std_json_wrapper_main_exit_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create std json wrapper project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         "[package]\nname = \"cranelift-std-json-wrapper-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
     )
@@ -10785,7 +10859,7 @@ fn write_std_json_wrapper_main_exit_project(project: &Path) {
 
 fn write_std_log_format_wrapper_main_exit_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create std log format wrapper project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         "[package]\nname = \"cranelift-std-log-format-wrapper-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
     )
@@ -10805,7 +10879,7 @@ fn write_std_log_format_wrapper_main_exit_project(project: &Path) {
 fn write_std_log_selected_projection_main_exit_project(project: &Path) {
     fs::create_dir_all(project.join("src"))
         .expect("create std log selected projection project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         r#"[package]
 name = "cranelift-std-log-selected-projection-main-exit"
@@ -10864,7 +10938,7 @@ return 1
 
 fn write_std_log_dynamic_scalar_main_exit_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create std log dynamic scalar project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         r#"[package]
 name = "cranelift-std-log-dynamic-scalar-main-exit"
@@ -10922,7 +10996,7 @@ return 1
 fn write_std_log_dynamic_scalar_info_attrs_project(project: &Path) {
     fs::create_dir_all(project.join("src"))
         .expect("create std log dynamic scalar info attrs project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         r#"[package]
 name = "cranelift-std-log-dynamic-scalar-info-attrs"
@@ -10976,7 +11050,7 @@ return 1
 
 fn write_std_log_level_wrapper_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create std log level wrapper project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         r#"[package]
 name = "cranelift-std-log-level-wrapper"
@@ -11029,7 +11103,7 @@ return 1
 fn write_std_log_dynamic_event_print_project(project: &Path) {
     fs::create_dir_all(project.join("src"))
         .expect("create std log dynamic event print project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         r#"[package]
 name = "cranelift-std-log-dynamic-event-print"
@@ -11087,7 +11161,7 @@ return 48
 fn write_struct_literal_field_main_exit_project(project: &Path) {
     fs::create_dir_all(project.join("src"))
         .expect("create struct literal field main exit project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         "[package]\nname = \"cranelift-struct-literal-field-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
     )
@@ -11113,7 +11187,7 @@ fn write_struct_numeric_width_field_main_exit_project(
 ) {
     fs::create_dir_all(project.join("src"))
         .expect("create struct numeric width field main exit project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         format!("[package]\nname = \"cranelift-{package_name}\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n"),
     )
@@ -11132,7 +11206,7 @@ fn write_struct_numeric_width_field_main_exit_project(
 
 fn write_i64_while_loop_exit_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create i64 while loop exit project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         "[package]\nname = \"cranelift-i64-while-loop-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
     )
@@ -11151,7 +11225,7 @@ fn write_i64_while_loop_exit_project(project: &Path) {
 
 fn write_scalar_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create scalar project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         "[package]\nname = \"cranelift-scalar-aggregate\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
     )
@@ -11170,7 +11244,7 @@ fn write_scalar_project(project: &Path) {
 
 fn write_std_string_builder_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create string builder project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         "[package]\nname = \"cranelift-string-builder\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
     )
@@ -11201,7 +11275,7 @@ print finish(third)
 
 fn write_std_string_builder_main_exit_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create string builder main project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         "[package]\nname = \"cranelift-string-builder-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
     )
@@ -11239,7 +11313,7 @@ return 1
 
 fn write_string_intrinsics_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create string intrinsics project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         "[package]\nname = \"cranelift-string-intrinsics\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
     )
@@ -11302,7 +11376,7 @@ print "none"
 
 fn write_numeric_cross_width_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create numeric project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         "[package]\nname = \"cranelift-numeric-cross-width\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
     )
@@ -11321,7 +11395,7 @@ fn write_numeric_cross_width_project(project: &Path) {
 
 fn write_static_scalar_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create static scalar project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         "[package]\nname = \"cranelift-static-scalar\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
     )
@@ -11340,7 +11414,7 @@ fn write_static_scalar_project(project: &Path) {
 
 fn write_enum_match_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create enum match project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         "[package]\nname = \"cranelift-enum-match\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
     )
@@ -11443,7 +11517,7 @@ print active(selected_message(0))
 
 fn write_enum_payload_match_main_exit_project(project: &Path, variant: &str) {
     fs::create_dir_all(project.join("src")).expect("create enum payload match project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         "[package]\nname = \"cranelift-enum-payload-match-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
     )
@@ -11476,7 +11550,7 @@ fn write_enum_numeric_width_payload_match_main_exit_project(
 ) {
     fs::create_dir_all(project.join("src"))
         .expect("create enum numeric width payload match project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         format!("[package]\nname = \"cranelift-{package_name}\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n"),
     )
@@ -11500,7 +11574,7 @@ fn write_enum_numeric_width_payload_match_main_exit_project(
 
 fn write_struct_field_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create struct project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         "[package]\nname = \"cranelift-struct-field\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
     )
@@ -11519,7 +11593,7 @@ fn write_struct_field_project(project: &Path) {
 
 fn write_array_helpers_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create array-helpers project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         "[package]\nname = \"cranelift-array-helpers\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
     )
@@ -11538,7 +11612,7 @@ fn write_array_helpers_project(project: &Path) {
 
 fn write_borrowed_slice_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create borrowed-slice project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         "[package]\nname = \"cranelift-borrowed-slice\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
     )
@@ -11557,7 +11631,7 @@ fn write_borrowed_slice_project(project: &Path) {
 
 fn write_process_status_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create process-status project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         r#"[package]
 name = "cranelift-process-status"
@@ -11602,7 +11676,7 @@ print run_status("__axiom_stage1_missing_binary__")
 
 fn write_process_status_main_exit_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create process-status main project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         r#"[package]
 name = "cranelift-process-status-main-exit"
@@ -11669,7 +11743,7 @@ return 1
 
 fn write_process_status_unapproved_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create process-status project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         r#"[package]
 name = "cranelift-process-status-unapproved"
@@ -11712,7 +11786,7 @@ print run_status("/bin/sh")
 
 fn write_process_status_shadowed_const_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create process-status shadowed project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         r#"[package]
 name = "cranelift-process-status-shadowed-const"
@@ -11758,7 +11832,7 @@ print run_status(COMMAND)
 
 fn write_process_status_match_bound_const_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create process-status match-bound project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         r#"[package]
 name = "cranelift-process-status-match-bound-const"
@@ -11805,7 +11879,7 @@ print status
 
 fn write_owned_move_state_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create owned move project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         r#"[package]
 name = "cranelift-owned-move-state"
@@ -11823,8 +11897,7 @@ env = true
 clock = false
 crypto = false
 
-[unsafe_rationale]
-env = "Cranelift ABI regression needs a runtime-only projected key index source."
+unsafe_rationale = "Cranelift ABI regression needs a runtime-only projected key index source."
 "#,
     )
     .expect("write owned move manifest");
@@ -11857,7 +11930,7 @@ print pair.name
 
 fn write_map_index_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create map project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         "[package]\nname = \"cranelift-map-index\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
     )
@@ -11925,7 +11998,7 @@ print score_or_default(helper_missing, "test", 21)
 
 fn write_map_get_or_default_main_exit_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create map get_or_default project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         "[package]\nname = \"cranelift-map-get-or-default-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
     )
@@ -11950,7 +12023,7 @@ fn write_map_numeric_width_value_main_exit_project(
     fallback_literal: &str,
 ) {
     fs::create_dir_all(project.join("src")).expect("create map numeric width value project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         format!("[package]\nname = \"cranelift-{package_name}\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n"),
     )
@@ -12007,7 +12080,7 @@ return 2
 
 fn write_static_bool_map_keys_main_exit_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create static bool map keys project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         "[package]\nname = \"cranelift-static-bool-map-keys-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
     )
@@ -12026,7 +12099,7 @@ fn write_static_bool_map_keys_main_exit_project(project: &Path) {
 
 fn write_map_branch_local_lookups_main_exit_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create map branch local lookup project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         "[package]\nname = \"cranelift-map-branch-local-lookups-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
     )
@@ -12086,7 +12159,7 @@ return 1
 fn write_map_helper_branch_local_lookups_main_exit_project(project: &Path) {
     fs::create_dir_all(project.join("src"))
         .expect("create map helper branch local lookup project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         "[package]\nname = \"cranelift-map-helper-branch-local-lookups-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
     )
@@ -12129,7 +12202,7 @@ return 1
 
 fn write_std_collection_lookup_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create collection lookup project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         "[package]\nname = \"cranelift-collection-lookup\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
     )
@@ -12190,7 +12263,7 @@ print second_key_names[1]
 fn write_std_collection_wrapper_main_exit_project(project: &Path) {
     fs::create_dir_all(project.join("src"))
         .expect("create std collection wrapper main project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         "[package]\nname = \"cranelift-std-collection-wrapper-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
     )
@@ -12307,7 +12380,7 @@ return 1
 
 fn write_net_resolve_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create net resolve project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         r#"[package]
 name = "cranelift-net-resolve"
@@ -12325,8 +12398,7 @@ env = false
 clock = false
 crypto = false
 
-[unsafe_rationale]
-net = "Cranelift ABI regression covers std/net.ax localhost DNS resolution for issue 928."
+unsafe_rationale = "Cranelift ABI regression covers std/net.ax localhost DNS resolution for issue 928."
 "#,
     )
     .expect("write net resolve manifest");
@@ -12360,7 +12432,7 @@ print false
 
 fn write_net_resolve_main_exit_project(project: &Path, requested_host: &str) {
     fs::create_dir_all(project.join("src")).expect("create net resolve main project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         r#"[package]
 name = "cranelift-net-resolve-main-exit"
@@ -12378,8 +12450,7 @@ env = false
 clock = false
 crypto = false
 
-[unsafe_rationale]
-net = "Direct-native DNS regression covers std/net.ax localhost resolution for issue 928."
+unsafe_rationale = "Direct-native DNS regression covers std/net.ax localhost resolution for issue 928."
 "#,
     )
     .expect("write net resolve main manifest");
@@ -12428,7 +12499,7 @@ return 1
 
 fn write_net_resolve_numeric_main_exit_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create numeric net resolve main project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         r#"[package]
 name = "cranelift-net-resolve-numeric-main-exit"
@@ -12446,8 +12517,7 @@ env = false
 clock = false
 crypto = false
 
-[unsafe_rationale]
-net = "Direct-native DNS regression covers runtime numeric-address resolution for issue 1001."
+unsafe_rationale = "Direct-native DNS regression covers runtime numeric-address resolution for issue 1001."
 "#,
     )
     .expect("write numeric net resolve main manifest");
@@ -12495,7 +12565,7 @@ return 1
 
 fn write_unrestricted_net_resolve_project(project: &Path, host: &str) {
     fs::create_dir_all(project.join("src")).expect("create unrestricted net resolve project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         r#"[package]
 name = "cranelift-unrestricted-net-resolve"
@@ -12513,8 +12583,7 @@ env = false
 clock = false
 crypto = false
 
-[unsafe_rationale]
-net = "Regression proves unrestricted networking still denies sensitive targets."
+unsafe_rationale = "Regression proves unrestricted networking still denies sensitive targets."
 "#,
     )
     .expect("write unrestricted net resolve manifest");
@@ -12544,7 +12613,7 @@ return match resolved {{ Some(address) => len(address), None => 0 }}
 
 fn write_net_loopback_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create net loopback project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         r#"[package]
 name = "cranelift-net-loopback"
@@ -12562,8 +12631,7 @@ env = false
 clock = false
 crypto = false
 
-[unsafe_rationale]
-net = "Cranelift ABI regression covers std/net.ax TCP and UDP loopback helpers for issue 928."
+unsafe_rationale = "Cranelift ABI regression covers std/net.ax TCP and UDP loopback helpers for issue 928."
 "#,
     )
     .expect("write net loopback manifest");
@@ -12606,7 +12674,7 @@ print false
 
 fn write_net_loopback_main_exit_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create net loopback main project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         r#"[package]
 name = "cranelift-net-loopback-main-exit"
@@ -12624,8 +12692,7 @@ env = false
 clock = false
 crypto = false
 
-[unsafe_rationale]
-net = "Direct-native loopback regression covers std/net.ax TCP and UDP helpers for issue 928."
+unsafe_rationale = "Direct-native loopback regression covers std/net.ax TCP and UDP helpers for issue 928."
 "#,
     )
     .expect("write net loopback main manifest");
@@ -12682,7 +12749,7 @@ return 1
 
 fn write_net_mutable_buffers_project(project: &Path, udp_port: u16) {
     fs::create_dir_all(project.join("src")).expect("create net mutable buffers project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         r#"[package]
 name = "cranelift-net-mutable-buffers"
@@ -12700,8 +12767,7 @@ env = false
 clock = false
 crypto = false
 
-[unsafe_rationale]
-net = "Direct-native mutable buffer regression covers raw TCP and UDP read writebacks."
+unsafe_rationale = "Direct-native mutable buffer regression covers raw TCP and UDP read writebacks."
 "#,
     )
     .expect("write net mutable buffers manifest");
@@ -12816,7 +12882,7 @@ fn start_http_route_probe_client(port: u16, path: &'static str) -> std::thread::
 
 fn write_http_client_project(project: &Path, port: u16) {
     fs::create_dir_all(project.join("src")).expect("create http client project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         format!(
             r#"[package]
@@ -12835,8 +12901,7 @@ env = false
 clock = false
 crypto = false
 
-[unsafe_rationale]
-net = "Cranelift ABI regression covers std/http.ax local HTTP GET for issue 928."
+unsafe_rationale = "Cranelift ABI regression covers std/http.ax local HTTP GET for issue 928."
 "#
         ),
     )
@@ -12873,7 +12938,7 @@ print "missing"
 
 fn write_http_client_main_exit_project(project: &Path, port: u16) {
     fs::create_dir_all(project.join("src")).expect("create http client main project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         format!(
             r#"[package]
@@ -12892,8 +12957,7 @@ env = false
 clock = false
 crypto = false
 
-[unsafe_rationale]
-net = "Direct-native HTTP client regression covers std/http.ax local GET for issue 928."
+unsafe_rationale = "Direct-native HTTP client regression covers std/http.ax local GET for issue 928."
 "#
         ),
     )
@@ -12941,7 +13005,7 @@ return 1
 
 fn write_http_server_project(project: &Path, port: u16) {
     fs::create_dir_all(project.join("src")).expect("create http server project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         format!(
             r#"[package]
@@ -12960,8 +13024,7 @@ env = false
 clock = false
 crypto = false
 
-[unsafe_rationale]
-net = "Cranelift ABI regression covers std/http.ax local HTTP server primitives for issue 928."
+unsafe_rationale = "Cranelift ABI regression covers std/http.ax local HTTP server primitives for issue 928."
 "#
         ),
     )
@@ -12997,7 +13060,7 @@ print http_server_close(server)
 
 fn write_http_server_once_main_exit_project(project: &Path, port: u16) {
     fs::create_dir_all(project.join("src")).expect("create http server once main project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         format!(
             r#"[package]
@@ -13016,8 +13079,7 @@ env = false
 clock = false
 crypto = false
 
-[unsafe_rationale]
-net = "Direct-native HTTP server regression covers std/http.ax serve_once for issue 928."
+unsafe_rationale = "Direct-native HTTP server regression covers std/http.ax serve_once for issue 928."
 "#
         ),
     )
@@ -13054,7 +13116,7 @@ return 1
 
 fn write_http_server_route_main_exit_project(project: &Path, port: u16) {
     fs::create_dir_all(project.join("src")).expect("create http server route main project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         format!(
             r#"[package]
@@ -13073,8 +13135,7 @@ env = false
 clock = false
 crypto = false
 
-[unsafe_rationale]
-net = "Direct-native HTTP server regression covers http_serve_route for issue 928."
+unsafe_rationale = "Direct-native HTTP server regression covers http_serve_route for issue 928."
 "#
         ),
     )
@@ -13110,7 +13171,7 @@ return 1
 fn write_http_non_loopback_bool_print_project(project: &Path) {
     fs::create_dir_all(project.join("src"))
         .expect("create http non-loopback bool print project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         r#"[package]
 name = "cranelift-http-non-loopback-bool-fold"
@@ -13128,8 +13189,7 @@ env = false
 clock = false
 crypto = false
 
-[unsafe_rationale]
-net = "Direct-native HTTP server regression covers non-loopback bind rejection diagnostics."
+unsafe_rationale = "Direct-native HTTP server regression covers non-loopback bind rejection diagnostics."
 "#,
     )
     .expect("write http non-loopback bool print manifest");
@@ -13159,7 +13219,7 @@ print routed
 
 fn write_http_async_server_project(project: &Path, port: u16) {
     fs::create_dir_all(project.join("src")).expect("create http async server project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         format!(
             r#"[package]
@@ -13179,9 +13239,7 @@ clock = false
 crypto = false
 async = true
 
-[unsafe_rationale]
-net = "Cranelift ABI regression covers std/http_async.ax local async HTTP route serving for issue 928."
-async = "Cranelift ABI regression covers std/http_async.ax local async HTTP route serving for issue 928."
+unsafe_rationale = "Cranelift ABI regression covers std/http_async.ax local async HTTP route serving for issue 928."
 "#
         ),
     )
@@ -13213,7 +13271,7 @@ print http_server_close(server)
 
 fn write_float_map_key_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create float map project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         "[package]\nname = \"cranelift-float-map-key\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
     )
@@ -13232,7 +13290,7 @@ fn write_float_map_key_project(project: &Path) {
 
 fn write_crypto_hash_project(project: &Path, crypto: bool) {
     fs::create_dir_all(project.join("src")).expect("create crypto hash project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         format!(
             "[package]\nname = \"cranelift-crypto-hash\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = {crypto}\n"
@@ -13253,7 +13311,7 @@ fn write_crypto_hash_project(project: &Path, crypto: bool) {
 
 fn write_crypto_mac_project(project: &Path, crypto: bool) {
     fs::create_dir_all(project.join("src")).expect("create crypto mac project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         format!(
             "[package]\nname = \"cranelift-crypto-mac\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = {crypto}\n"
@@ -13274,7 +13332,7 @@ fn write_crypto_mac_project(project: &Path, crypto: bool) {
 
 fn write_crypto_random_project(project: &Path, crypto: bool) {
     fs::create_dir_all(project.join("src")).expect("create crypto random project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         format!(
             "[package]\nname = \"cranelift-crypto-random\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = {crypto}\n"
@@ -13295,9 +13353,9 @@ fn write_crypto_random_project(project: &Path, crypto: bool) {
 
 fn write_crypto_random_main_exit_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create crypto random project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
-        "[package]\nname = \"cranelift-crypto-random-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = true\n\n[unsafe_rationale]\ncrypto = \"Direct-native random_bytes length and random_u64 regression covers std/crypto_rand.ax for issue 1001.\"\n",
+        "[package]\nname = \"cranelift-crypto-random-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = true\n\nunsafe_rationale = \"Direct-native random_bytes length and random_u64 regression covers std/crypto_rand.ax for issue 1001.\"\n",
     )
     .expect("write crypto random main manifest");
     fs::write(
@@ -13314,7 +13372,7 @@ fn write_crypto_random_main_exit_project(project: &Path) {
 
 fn write_crypto_signature_project(project: &Path, crypto: bool) {
     fs::create_dir_all(project.join("src")).expect("create crypto signature project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         format!(
             "[package]\nname = \"cranelift-crypto-signature\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = {crypto}\n"
@@ -13335,7 +13393,7 @@ fn write_crypto_signature_project(project: &Path, crypto: bool) {
 
 fn write_crypto_aead_project(project: &Path, crypto: bool) {
     fs::create_dir_all(project.join("src")).expect("create crypto AEAD project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         format!(
             "[package]\nname = \"cranelift-crypto-aead\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = {crypto}\n"
@@ -13356,7 +13414,7 @@ fn write_crypto_aead_project(project: &Path, crypto: bool) {
 
 fn write_sync_primitives_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create sync primitives project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         "[package]\nname = \"cranelift-sync-primitives\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
     )
@@ -13375,7 +13433,7 @@ fn write_sync_primitives_project(project: &Path) {
 
 fn write_sync_mutex_main_exit_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create sync mutex main project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         "[package]\nname = \"cranelift-sync-mutex-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
     )
@@ -13394,7 +13452,7 @@ fn write_sync_mutex_main_exit_project(project: &Path) {
 
 fn write_sync_once_main_exit_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create sync once main project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         "[package]\nname = \"cranelift-sync-once-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
     )
@@ -13413,7 +13471,7 @@ fn write_sync_once_main_exit_project(project: &Path) {
 
 fn write_sync_channel_main_exit_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create sync channel main project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         "[package]\nname = \"cranelift-sync-channel-main-exit\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
     )
@@ -13432,7 +13490,7 @@ fn write_sync_channel_main_exit_project(project: &Path) {
 
 fn write_std_async_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create std async project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         r#"[package]
 name = "cranelift-std-async"
@@ -13451,8 +13509,7 @@ clock = false
 crypto = false
 async = true
 
-[unsafe_rationale]
-async = "Cranelift ABI regression covers compiler-side std/async.ax evaluation for issue 928."
+unsafe_rationale = "Cranelift ABI regression covers compiler-side std/async.ax evaluation for issue 928."
 "#,
     )
     .expect("write std async manifest");
@@ -13529,7 +13586,7 @@ print "none"
 
 fn write_std_async_net_tcp_project(project: &Path, port: u16) {
     fs::create_dir_all(project.join("src")).expect("create std async net TCP project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         format!(
             r#"[package]
@@ -13551,9 +13608,7 @@ crypto = false
 ffi = false
 async = true
 
-[unsafe_rationale]
-net = "Cranelift ABI regression covers compiler-side std/async_net.ax loopback TCP evaluation for issue 928."
-async = "Cranelift ABI regression covers compiler-side std/async_net.ax loopback TCP evaluation for issue 928."
+unsafe_rationale = "Cranelift ABI regression covers compiler-side std/async_net.ax loopback TCP evaluation for issue 928."
 "#
         ),
     )
@@ -13626,7 +13681,7 @@ print "closed"
 
 fn write_logging_stdio_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create logging stdio project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         r#"[package]
 name = "cranelift-logging-stdio"
@@ -13670,7 +13725,7 @@ print direct > 0
 
 fn write_logging_stdio_main_exit_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create logging stdio main project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         r#"[package]
 name = "cranelift-logging-stdio-main-exit"
@@ -13688,8 +13743,7 @@ env = false
 clock = false
 crypto = false
 
-[unsafe_rationale]
-stdio = "Direct-native stderr regression covers std/io.ax eprintln for issue 1001."
+unsafe_rationale = "Direct-native stderr regression covers std/io.ax eprintln for issue 1001."
 "#,
     )
     .expect("write logging stdio main manifest");
@@ -13742,7 +13796,7 @@ return first + status + tail + bool_written + number_written + quoted_bool_writt
 
 fn write_std_io_read_to_string_len_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create stdio read len project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         r#"[package]
 name = "cranelift-stdio-read-to-string-len"
@@ -13787,7 +13841,7 @@ return len(read_to_string())
 
 fn write_std_io_read_to_string_local_len_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create stdio read local len project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         r#"[package]
 name = "cranelift-stdio-read-to-string-local-len"
@@ -13833,7 +13887,7 @@ return len(content)
 
 fn write_std_io_read_to_string_clone_len_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create stdio read clone len project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         r#"[package]
 name = "cranelift-stdio-read-to-string-clone-len"
@@ -13880,7 +13934,7 @@ return len(cloned)
 
 fn write_std_io_read_to_string_concat_len_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create stdio read concat len project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         r#"[package]
 name = "cranelift-stdio-read-to-string-concat-len"
@@ -13928,7 +13982,7 @@ return len(combined)
 fn write_std_io_read_to_string_branch_print_len_project(project: &Path) {
     fs::create_dir_all(project.join("src"))
         .expect("create stdio read branch print len project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         r#"[package]
 name = "cranelift-stdio-read-to-string-branch-print-len"
@@ -13980,7 +14034,7 @@ return 1
 
 fn write_std_io_readline_branch_print_len_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create stdio readline project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         r#"[package]
 name = "cranelift-stdio-readline-branch-print-len"
@@ -14042,7 +14096,7 @@ return status
 
 fn write_print_stdio_main_exit_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create print stdio main project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         r#"[package]
 name = "cranelift-print-stdio-main-exit"
@@ -14060,8 +14114,7 @@ env = false
 clock = false
 crypto = false
 
-[unsafe_rationale]
-stdio = "Direct-native stdout regression covers source print statements for issue 1001."
+unsafe_rationale = "Direct-native stdout regression covers source print statements for issue 1001."
 "#,
     )
     .expect("write print stdio main manifest");
@@ -14113,7 +14166,7 @@ return status
 
 fn write_bool_print_stdio_main_exit_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create bool print stdio main project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         r#"[package]
 name = "cranelift-bool-print-stdio-main-exit"
@@ -14131,8 +14184,7 @@ env = false
 clock = false
 crypto = false
 
-[unsafe_rationale]
-stdio = "Direct-native stdout regression covers boolean source print statements for issue 1001."
+unsafe_rationale = "Direct-native stdout regression covers boolean source print statements for issue 1001."
 "#,
     )
     .expect("write bool print stdio main manifest");
@@ -14165,7 +14217,7 @@ return direct
 
 fn write_integer_print_stdio_main_exit_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create integer print stdio main project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         r#"[package]
 name = "cranelift-integer-print-stdio-main-exit"
@@ -14183,8 +14235,7 @@ env = false
 clock = false
 crypto = false
 
-[unsafe_rationale]
-stdio = "Direct-native stdout regression covers integer source print statements for issue 1001."
+unsafe_rationale = "Direct-native stdout regression covers integer source print statements for issue 1001."
 "#,
     )
     .expect("write integer print stdio main manifest");
@@ -14231,7 +14282,7 @@ return value
 
 fn write_json_stringify_print_main_exit_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create json stringify print project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         r#"[package]
 name = "cranelift-json-stringify-print-main-exit"
@@ -14290,7 +14341,7 @@ return value
 
 fn write_helper_eprintln_main_exit_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create helper eprintln project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         r#"[package]
 name = "cranelift-helper-eprintln-main-exit"
@@ -14308,8 +14359,7 @@ env = false
 clock = false
 crypto = false
 
-[unsafe_rationale]
-stdio = "Direct-native stderr regression covers helper std/io.ax eprintln for issue 1001."
+unsafe_rationale = "Direct-native stderr regression covers helper std/io.ax eprintln for issue 1001."
 "#,
     )
     .expect("write helper eprintln manifest");
@@ -14366,7 +14416,7 @@ return emit()
 
 fn write_aggregate_helper_eprintln_main_exit_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create aggregate helper eprintln project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         r#"[package]
 name = "cranelift-aggregate-helper-eprintln-main-exit"
@@ -14384,8 +14434,7 @@ env = false
 clock = false
 crypto = false
 
-[unsafe_rationale]
-stdio = "Direct-native stderr regression covers aggregate helper std/io.ax eprintln for issue 1001."
+unsafe_rationale = "Direct-native stderr regression covers aggregate helper std/io.ax eprintln for issue 1001."
 "#,
     )
     .expect("write aggregate helper eprintln manifest");
@@ -14446,7 +14495,7 @@ return result.0 + result.1
 
 fn write_helper_print_main_exit_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create helper print project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         r#"[package]
 name = "cranelift-helper-print-main-exit"
@@ -14464,8 +14513,7 @@ env = false
 clock = false
 crypto = false
 
-[unsafe_rationale]
-stdio = "Direct-native stdout regression covers scalar helper source print statements for issue 1001."
+unsafe_rationale = "Direct-native stdout regression covers scalar helper source print statements for issue 1001."
 "#,
     )
     .expect("write helper print manifest");
@@ -14520,7 +14568,7 @@ return emit()
 
 fn write_aggregate_helper_print_main_exit_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create aggregate helper print project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         r#"[package]
 name = "cranelift-aggregate-helper-print-main-exit"
@@ -14538,8 +14586,7 @@ env = false
 clock = false
 crypto = false
 
-[unsafe_rationale]
-stdio = "Direct-native stdout regression covers aggregate helper source print statements for issue 1001."
+unsafe_rationale = "Direct-native stdout regression covers aggregate helper source print statements for issue 1001."
 "#,
     )
     .expect("write aggregate helper print manifest");
@@ -14596,7 +14643,7 @@ return result.0 + result.1
 
 fn write_std_log_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create std log project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         r#"[package]
 name = "cranelift-std-log"
@@ -14644,7 +14691,7 @@ print written > 0
 
 fn write_std_encoding_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create std encoding project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         r#"[package]
 name = "cranelift-std-encoding"
@@ -14712,7 +14759,7 @@ print path_join_segment("/docs", "stage 1/encoding")
 
 fn write_clock_project(project: &Path, clock: bool, nonzero_sleep: bool) {
     fs::create_dir_all(project.join("src")).expect("create clock project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         format!(
             r#"[package]
@@ -14766,7 +14813,7 @@ print elapsed == elapsed
 
 fn write_clock_sleep_zero_main_exit_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create clock sleep zero project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         r#"[package]
 name = "cranelift-clock-sleep-zero-main-exit"
@@ -14806,7 +14853,7 @@ source = "path"
 
 fn write_std_time_sleep_main_exit_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create std time sleep project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         r#"[package]
 name = "cranelift-std-time-sleep-main-exit"
@@ -14881,7 +14928,7 @@ return 1
 
 fn write_json_serdes_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create json project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         r#"[package]
 name = "cranelift-json-serdes"
@@ -15037,7 +15084,7 @@ print "no int"
 
 fn write_std_serdes_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create std/serdes project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         r#"[package]
 name = "cranelift-std-serdes"
@@ -15296,7 +15343,7 @@ print "parse error"
 
 fn write_std_outcome_known_values_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create std/outcome known values project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         r#"[package]
 name = "cranelift-std-outcome-known-values"
@@ -15375,7 +15422,7 @@ print result_fallback.enabled
 fn write_std_testing_known_assertions_project(project: &Path) {
     fs::create_dir_all(project.join("src"))
         .expect("create std/testing known assertions project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         r#"[package]
 name = "cranelift-std-testing-known-assertions"
@@ -15431,7 +15478,7 @@ print snapshot("label snapshot", string_clone("direct-native"), "direct-native")
 
 fn write_std_serdes_known_json_main_exit_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create std/serdes known JSON project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         r#"[package]
 name = "cranelift-std-serdes-known-json-main-exit"
@@ -15539,7 +15586,7 @@ return 1
 fn write_std_serdes_known_json_print_main_exit_project(project: &Path) {
     fs::create_dir_all(project.join("src"))
         .expect("create std/serdes known JSON print project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         r#"[package]
 name = "cranelift-std-serdes-known-json-print-main-exit"
@@ -15638,7 +15685,7 @@ return 48
 fn write_std_serdes_known_json_eprintln_main_exit_project(project: &Path) {
     fs::create_dir_all(project.join("src"))
         .expect("create std/serdes known JSON eprintln project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         r#"[package]
 name = "cranelift-std-serdes-known-json-eprintln-main-exit"
@@ -15656,8 +15703,7 @@ env = false
 clock = false
 crypto = false
 
-[unsafe_rationale]
-stdio = "Direct-native stderr regression covers std/serdes known JSON eprintln output for issue 1001."
+unsafe_rationale = "Direct-native stderr regression covers std/serdes known JSON eprintln output for issue 1001."
 "#,
     )
     .expect("write std/serdes known JSON eprintln manifest");
@@ -15740,7 +15786,7 @@ return object_written + text_written + parsed_written + value_written + error_wr
 
 fn write_std_lsp_known_messages_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create std/lsp known message project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         r#"[package]
 name = "cranelift-std-lsp-known-messages"
@@ -15814,7 +15860,7 @@ print no_response(response_for_request("{\"jsonrpc\":\"2.0\",\"method\":\"initia
 
 fn write_std_doc_known_render_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create std/doc known render project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         r#"[package]
 name = "cranelift-std-doc-known-render"
@@ -15875,7 +15921,7 @@ print string_starts_with(hidden_markdown, "# Axiom API\n\nNo public")
 
 fn write_std_cli_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create std/cli project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         r#"[package]
 name = "cranelift-std-cli"
@@ -15930,7 +15976,7 @@ print "missing"
 
 fn write_fs_denial_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create fs denied project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         "[package]\nname = \"cranelift-fs-denied\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
     )
@@ -15949,7 +15995,7 @@ fn write_fs_denial_project(project: &Path) {
 
 fn write_fs_read_main_exit_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create fs-read main project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         r#"[package]
 name = "cranelift-fs-read-main-exit"
@@ -16029,7 +16075,7 @@ return 1
 
 fn write_fs_file_metadata_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create fs metadata project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         r#"[package]
 name = "cranelift-fs-file-metadata"
@@ -16086,7 +16132,7 @@ return 1
 
 fn write_fs_read_symlink_escape_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create fs-read symlink project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         r#"[package]
 name = "cranelift-fs-read-symlink-escape"
@@ -16135,7 +16181,7 @@ return status
 fn write_fs_write_main_exit_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create fs-write main project src");
     fs::create_dir_all(project.join("scratch")).expect("create fs-write main scratch dir");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         r#"[package]
 name = "cranelift-fs-write-main-exit"
@@ -16231,7 +16277,7 @@ return 1
 fn write_fs_write_symlink_escape_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create fs-write symlink project src");
     fs::create_dir_all(project.join("scratch")).expect("create fs-write symlink scratch dir");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         r#"[package]
 name = "cranelift-fs-write-symlink-escape"
@@ -16282,7 +16328,7 @@ return 1
 
 fn write_tcp_denial_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create tcp denied project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         "[package]\nname = \"cranelift-tcp-denied\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
     )
@@ -16301,7 +16347,7 @@ fn write_tcp_denial_project(project: &Path) {
 
 fn write_dynamic_net_targets_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create dynamic net targets project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         r#"[package]
 name = "cranelift-dynamic-net-targets"
@@ -16348,7 +16394,7 @@ print tcp_dial(host, port, "ping", 1000)
 
 fn write_udp_denial_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create udp denied project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         "[package]\nname = \"cranelift-udp-denied\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
     )
@@ -16367,7 +16413,7 @@ fn write_udp_denial_project(project: &Path) {
 
 fn write_process_denial_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create process denied project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         "[package]\nname = \"cranelift-process-denied\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
     )
@@ -16386,7 +16432,7 @@ fn write_process_denial_project(project: &Path) {
 
 fn write_fs_write_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create fs write project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         "[package]\nname = \"cranelift-fs-write\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = true\n\"fs:write\" = true\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
     )
@@ -16406,7 +16452,7 @@ fn write_fs_write_project(project: &Path) {
 fn write_fs_root_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create fs-root project src");
     fs::create_dir_all(project.join("sandbox")).expect("create fs-root sandbox");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         "[package]\nname = \"cranelift-fs-root\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = true\n\"fs:write\" = true\nfs_root = \"sandbox\"\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
     )
@@ -16429,7 +16475,7 @@ fn fs_root_source(project: &Path) -> String {
 
 fn write_fs_write_denial_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create fs write denied project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         "[package]\nname = \"cranelift-fs-write-denied\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = true\n\"fs:write\" = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
     )
@@ -16448,9 +16494,9 @@ fn write_fs_write_denial_project(project: &Path) {
 
 fn write_env_read_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create env project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
-        "[package]\nname = \"cranelift-env-read\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = true\nclock = false\ncrypto = false\n\n[unsafe_rationale]\nenv = \"Cranelift ABI regression covers direct-native env.read behavior for issue 928.\"\n",
+        "[package]\nname = \"cranelift-env-read\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = true\nenv_unrestricted = true\nclock = false\ncrypto = false\n\nunsafe_rationale = \"Cranelift ABI regression covers direct-native env.read behavior for issue 928.\"\n",
     )
     .expect("write env manifest");
     fs::write(
@@ -16467,7 +16513,7 @@ fn write_env_read_project(project: &Path) {
 
 fn write_env_cwd_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create cwd project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         "[package]\nname = \"cranelift-env-cwd\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = true\nclock = false\ncrypto = false\n",
     )
@@ -16486,7 +16532,7 @@ fn write_env_cwd_project(project: &Path) {
 
 fn write_env_allowlist_output_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create env allowlist output project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         r#"[package]
 name = "cranelift-env-allowlist-output"
@@ -16543,7 +16589,7 @@ print "missing blocked"
 
 fn write_env_read_main_exit_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create env main project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         r#"[package]
 name = "cranelift-env-read-main-exit"
@@ -16561,8 +16607,7 @@ env = true
 clock = false
 crypto = false
 
-[unsafe_rationale]
-env = "direct-native env-read regression captures deterministic test environment values"
+unsafe_rationale = "direct-native env-read regression captures deterministic test environment values"
 "#,
     )
     .expect("write env main manifest");
@@ -16637,7 +16682,7 @@ return 1
 
 fn write_env_allowlist_main_exit_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create env allowlist project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         r#"[package]
 name = "cranelift-env-allowlist-main-exit"
@@ -16695,7 +16740,7 @@ return 1
 
 fn write_env_runtime_payload_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create env runtime payload project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         r#"[package]
 name = "cranelift-env-runtime-payload"
@@ -16750,7 +16795,7 @@ return 0
 
 fn write_http_client_denial_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create http client denied project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         r#"[package]
 name = "cranelift-http-client-denied"
@@ -16792,7 +16837,7 @@ print get("https://example.com")
 
 fn write_ffi_denial_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create ffi denied project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         r#"[package]
 name = "cranelift-ffi-denied"
@@ -16835,7 +16880,7 @@ print strlen("hello")
 
 fn write_ffi_strlen_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create ffi strlen project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         r#"[package]
 name = "cranelift-ffi-strlen"
@@ -16854,8 +16899,7 @@ clock = false
 crypto = false
 ffi = true
 
-[unsafe_rationale]
-ffi = "Cranelift ABI regression covers the narrow C strlen extern call for issue 928."
+unsafe_rationale = "Cranelift ABI regression covers the narrow C strlen extern call for issue 928."
 "#,
     )
     .expect("write ffi strlen manifest");
@@ -16882,7 +16926,7 @@ print strlen("")
 
 fn write_ffi_strlen_main_exit_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create ffi strlen main project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         r#"[package]
 name = "cranelift-ffi-strlen-main-exit"
@@ -16901,8 +16945,7 @@ clock = false
 crypto = false
 ffi = true
 
-[unsafe_rationale]
-ffi = "Cranelift ABI regression covers the narrow C strlen extern call for issue 928."
+unsafe_rationale = "Cranelift ABI regression covers the narrow C strlen extern call for issue 928."
 "#,
     )
     .expect("write ffi strlen main manifest");
@@ -16974,7 +17017,7 @@ return 1
 
 fn write_async_runtime_denial_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create async runtime denied project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         r#"[package]
 name = "cranelift-async-runtime-denied"
@@ -17018,7 +17061,7 @@ print await task
 
 fn write_http_server_denial_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create http server denied project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         r#"[package]
 name = "cranelift-http-server-denied"
@@ -17060,7 +17103,7 @@ print serve_once("127.0.0.1:0", "ok")
 
 fn write_http_async_server_denial_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create http async server denied project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         r#"[package]
 name = "cranelift-http-async-server-denied"
@@ -17079,8 +17122,7 @@ clock = false
 crypto = false
 async = false
 
-[unsafe_rationale]
-net = "Cranelift ABI regression covers async server capability denial ordering for issue 928."
+unsafe_rationale = "Cranelift ABI regression covers async server capability denial ordering for issue 928."
 "#,
     )
     .expect("write http async server denied manifest");
@@ -17107,7 +17149,7 @@ print true
 
 fn write_env_denial_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create env denied project src");
-    fs::write(
+    write_manifest_fixture(
         project.join("axiom.toml"),
         "[package]\nname = \"cranelift-env-denied\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n\n[capabilities]\nfs = false\nnet = false\nprocess = false\nenv = false\nclock = false\ncrypto = false\n",
     )

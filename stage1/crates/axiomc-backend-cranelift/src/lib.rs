@@ -327,6 +327,13 @@ pub enum I64Expr {
         lhs: Box<I64Expr>,
         rhs: Box<I64Expr>,
     },
+    /// Add full-width signed operands and report `message` before trapping on
+    /// overflow. Unlike a range check on the result, this detects i64 overflow.
+    CheckedSignedAdd {
+        lhs: Box<I64Expr>,
+        rhs: Box<I64Expr>,
+        message: String,
+    },
     /// Evaluate `value` and trap (write `message` to stderr and exit non-zero)
     /// when it falls outside `[min, max]`; otherwise yield the value unchanged.
     /// Used to enforce sized-integer overflow policy in debug builds before the
@@ -3570,6 +3577,13 @@ fn emit_i64_expr(
                 I64BinaryOp::Div => builder.ins().sdiv(lhs, rhs),
             })
         }
+        I64Expr::CheckedSignedAdd { lhs, rhs, message } => {
+            let lhs = emit_i64_expr(builder, locals, function_refs, runtime_refs, lhs)?;
+            let rhs = emit_i64_expr(builder, locals, function_refs, runtime_refs, rhs)?;
+            let (value, overflow) = builder.ins().sadd_overflow(lhs, rhs);
+            let valid = builder.ins().icmp_imm(IntCC::Equal, overflow, 0);
+            emit_i64_checked_value(builder, runtime_refs, value, valid, message)
+        }
         I64Expr::CheckedSignedRange {
             value,
             min,
@@ -4364,11 +4378,6 @@ fn emit_i64_checked_signed_range(
     max: i64,
     message: &str,
 ) -> Result<Value, CraneliftBackendError> {
-    let ok_block = builder.create_block();
-    let trap_block = builder.create_block();
-    let merge_block = builder.create_block();
-    builder.append_block_param(merge_block, types::I64);
-
     let min_value = builder.ins().iconst(types::I64, min);
     let max_value = builder.ins().iconst(types::I64, max);
     let above_min = builder
@@ -4378,7 +4387,21 @@ fn emit_i64_checked_signed_range(
         .ins()
         .icmp(IntCC::SignedLessThanOrEqual, value, max_value);
     let in_range = builder.ins().band(above_min, below_max);
-    builder.ins().brif(in_range, ok_block, &[], trap_block, &[]);
+    emit_i64_checked_value(builder, runtime_refs, value, in_range, message)
+}
+
+fn emit_i64_checked_value(
+    builder: &mut FunctionBuilder<'_>,
+    runtime_refs: I64RuntimeRefs,
+    value: Value,
+    valid: Value,
+    message: &str,
+) -> Result<Value, CraneliftBackendError> {
+    let ok_block = builder.create_block();
+    let trap_block = builder.create_block();
+    let merge_block = builder.create_block();
+    builder.append_block_param(merge_block, types::I64);
+    builder.ins().brif(valid, ok_block, &[], trap_block, &[]);
 
     builder.switch_to_block(ok_block);
     builder.seal_block(ok_block);

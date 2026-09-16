@@ -1,6 +1,6 @@
 # Axiom
 
-<!-- capability-ledger:v1 commands=31 stdlib_modules=34 stdlib_functions=304 capabilities=9 backend=cranelift -->
+<!-- capability-ledger:v1 commands=31 stdlib_modules=34 stdlib_functions=305 capabilities=9 backend=cranelift -->
 
 Axiom is an agent-native typed intent and semantic construction system. It
 defines what must be true, which effects are allowed, what evidence proves a
@@ -11,6 +11,10 @@ backend. Rust is a bootstrap host and target implementation rather than the
 ontology of the language.
 
 The supported toolchain today is the Rust bootstrap compiler in `stage1/`.
+Native artifacts can execute runtime lowering or replay bounded static output;
+unsupported runtime shapes fail closed. See the canonical
+[execution-mode matrix](docs/build-lowering-evidence.md#execution-mode-matrix)
+for examples and the JSON fields that distinguish those outcomes.
 
 Python `stage0` and its bytecode VM are not supported execution paths; see
 [docs/python-exit-vm-disposition.md](docs/python-exit-vm-disposition.md) and
@@ -63,6 +67,10 @@ if ready {
 ```
 
 ## Quickstart
+
+Every package requires `axiom.lock`, including packages with no dependencies.
+`axiomc new` writes both the manifest and lockfile; keep both when copying a
+starter. The checked-in examples already include their lockfiles.
 
 ```bash
 # Clone
@@ -133,7 +141,7 @@ make smoke
 The checked
 [capability ledger](stage1/compiler-contracts/snapshots/capability-ledger.json)
 is the canonical machine-readable inventory. Its compiler-derived counts cover
-31 commands, 34 stdlib modules with 299 exported functions, and 9 manifest
+31 commands, 34 stdlib modules with 305 exported functions, and 9 manifest
 capabilities. These are discovered surfaces, not a production-readiness claim;
 the ledger currently records zero production-qualified rows.
 

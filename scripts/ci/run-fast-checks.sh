@@ -18,6 +18,7 @@ bash "$script_repo_root/scripts/ci/check-python-exit-docs.sh"
 bash "$script_repo_root/scripts/ci/validate-capability-manifests.sh"
 bash "$script_repo_root/scripts/ci/test-validate-capability-manifests.sh"
 bash "$script_repo_root/scripts/ci/test-pr-fast-ci-workflow.sh"
+python3 "$script_repo_root/scripts/ci/test-check-cranelift-manifest-fixtures.py"
 bash "$script_repo_root/scripts/ci/test-extended-validation-workflow.sh"
 bash "$script_repo_root/scripts/ci/test-run-stage1-basic-smoke.sh"
 bash "$script_repo_root/scripts/ci/test-run-stage1-stdlib-smoke.sh"
@@ -63,6 +64,7 @@ python3 "$script_repo_root/scripts/ci/test-pr-queue-remediation.py"
 python3 "$script_repo_root/scripts/ci/test-remote-branch-prune-plan.py"
 python3 "$script_repo_root/scripts/ci/test-report-delivery-signals.py"
 python3 "$script_repo_root/scripts/ci/test-issue-pr-traceability.py"
+python3 "$script_repo_root/scripts/ci/test-cross-model-review-gate.py"
 # Checker self-tests must run in a CI lane so their harnesses cannot rot
 # silently (#1364, #1369). test-pr-fast-ci-workflow.sh enforces that every
 # scripts/ci/test-check-*.sh stays wired here.
@@ -72,6 +74,7 @@ python3 "$script_repo_root/scripts/ci/test-check-provider-abi-v1.py"
 bash "$script_repo_root/scripts/ci/test-check-python-exit-readiness.sh"
 bash "$script_repo_root/scripts/ci/test-check-rust-exit-readiness.sh"
 bash "$script_repo_root/scripts/ci/test-check-self-hosting-language-readiness.sh"
+python3 "$script_repo_root/scripts/ci/test-compatibility-checkout-routing.py"
 bash "$script_repo_root/scripts/ci/test-check-compatibility-v1.sh"
 bash "$script_repo_root/scripts/ci/test-check-package-trust-contract.sh"
 python3 "$script_repo_root/scripts/ci/test-run-stage1-quality-gate.py"
@@ -110,6 +113,8 @@ python3 "$script_repo_root/scripts/ci/check-filesystem-v1.py" --root "$repo_root
 bash "$script_repo_root/scripts/ci/run-filesystem-v1-behavioral-tests.sh" "$repo_root"
 python3 "$script_repo_root/scripts/ci/test-check-runtime-observability-v1.py"
 python3 "$script_repo_root/scripts/ci/check-runtime-observability-v1.py"
+python3 "$script_repo_root/scripts/ci/test-check-http-client-v1.py"
+python3 "$script_repo_root/scripts/ci/check-http-client-v1.py"
 bash "$script_repo_root/scripts/ci/test-check-snapshot-bootstrap-readiness.sh"
 python3 "$script_repo_root/scripts/ci/test-run-agent-autonomy-benchmark.py"
 python3 "$script_repo_root/scripts/ci/run-agent-autonomy-benchmark.py" --subset ci --check >/dev/null
@@ -153,4 +158,8 @@ if [[ -z "$rust_linker" ]]; then
   exit 1
 fi
 
+# Exercise the declared example modes with the real compiler; fake-runner tests
+# alone cannot detect a compiler change that makes an expectation stale (#1656).
+bash scripts/ci/run-stage1-basic-smoke.sh
+bash scripts/ci/run-stage1-stdlib-smoke.sh
 bash scripts/ci/run-stage1-proof-test.sh
