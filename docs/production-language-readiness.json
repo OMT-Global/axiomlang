@@ -204,10 +204,10 @@
       "governingIssue": 1443,
       "blockerIssues": [1443],
       "dependencies": [1434, 1438, 1425, 1426],
-      "evidence": ["stage1/examples/stdlib_fs_write/axiom.toml", "stage1/crates/axiomc/src/stdlib.rs"],
-      "validatingCommand": "make stage1-stdlib-test && make stage1-conformance",
+      "evidence": ["docs/filesystem-v1.md", "stage1/compiler-contracts/snapshots/filesystem-v1.json", "stage1/examples/stdlib_fs_write/axiom.toml", "stage1/crates/axiomc/src/stdlib.rs"],
+      "validatingCommand": "make stage1-filesystem-v1 && make stage1-filesystem-v1-test && make stage1-stdlib-test && make stage1-conformance",
       "rustCaptureRisk": "medium",
-      "agentInspectionImpact": "Expose scoped roots, path origin, operation, handle lifetime, and denial."
+      "agentInspectionImpact": "Expose authority, scoped root, runtime path origin, normalized path, operation, handle generation and lifetime, byte progress, and denial reason."
     },
     {
       "id": "program_host_abi",

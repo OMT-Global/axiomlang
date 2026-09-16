@@ -1,12 +1,16 @@
 #!/usr/bin/env python3
 """Negative coverage for every Provider ABI v1 contract rule and fixture."""
 import copy
+import contextlib
+import importlib.util
+import io
 import json
 import shutil
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from unittest import mock
 
 R = Path(__file__).resolve().parents[2]
 CHECKER = "scripts/ci/check-provider-abi-v1.py"
@@ -56,6 +60,43 @@ FIXTURE_CASES = {
     "fixture-signature-release-owned-buffer": ("axiom_owned_bytes v", "axiom_borrowed_bytes v"),
 }
 
+
+RUNTIME_CASES = {
+    "runtime-version": ("out->major=1", "out->major=2"),
+    "runtime-invalid-handle": ("if (!h || !out)", "(void)h; if (!out)"),
+    "runtime-valid-call": ("out->len=0; return 0;", "out->len=0; return -1;"),
+    "runtime-owned-length": ("out->len=0", "out->len=1"),
+    "runtime-close": ("return h ? 0 : -1;", "return h ? -1 : 0;"),
+}
+
+# Exercise compiler discovery while still compiling and inspecting the real
+# fixture. The runner may have gcc/clang but no command named cc.
+spec = importlib.util.spec_from_file_location("provider_checker", R / CHECKER)
+checker = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(checker)
+compiler = next((path for name in ("cc", "gcc", "clang") if (path := shutil.which(name))), None)
+nm = shutil.which("nm")
+if not compiler or not nm:
+    raise SystemExit("compiler and nm required for compiler-discovery regression tests")
+for available in ("cc", "gcc", "clang"):
+    with mock.patch.object(checker.shutil, "which", side_effect=lambda name: {available: compiler, "nm": nm}.get(name)) as which:
+        checker.compile_fixture(f"{available}-only")
+        searched = [call.args[0] for call in which.call_args_list if call.args[0] != "nm"]
+        expected = list(("cc", "gcc", "clang")[:("cc", "gcc", "clang").index(available) + 1])
+        if searched != expected:
+            raise SystemExit(f"compiler discovery order drift: {searched}")
+with mock.patch.object(checker.shutil, "which", side_effect=lambda name: nm if name == "nm" else None), \
+        mock.patch.object(checker.subprocess, "run") as command, \
+        contextlib.redirect_stderr(io.StringIO()) as errors:
+    try:
+        checker.compile_fixture("no-compiler")
+    except SystemExit as error:
+        if error.code != 1 or "C compiler unavailable" not in errors.getvalue():
+            raise AssertionError((error.code, errors.getvalue()))
+    else:
+        raise AssertionError("missing compiler must fail closed")
+    command.assert_not_called()
+
 with tempfile.TemporaryDirectory() as directory:
     repo = Path(directory) / "repo"
     shutil.copytree(R / "stage1", repo / "stage1")
@@ -77,4 +118,16 @@ with tempfile.TemporaryDirectory() as directory:
         (repo / "stage1/compiler-contracts/schemas/axiom.provider-abi.v1.schema.json").write_text(json.dumps(original_schema))
         fixture.write_text(original_fixture.replace(before, after, 1))
         if not run(repo): raise SystemExit(f"{name} accepted")
-print(f"Provider ABI v1 checker tests passed ({len(CASES) + len(FIXTURE_CASES)} negative cases)")
+    for name, (before, after) in RUNTIME_CASES.items():
+        if original_fixture.count(before) != 1:
+            raise SystemExit(f"{name} mutation anchor changed")
+        fixture.write_text(original_fixture.replace(before, after, 1))
+        result = subprocess.run(
+            [sys.executable, str(repo / CHECKER), "--target", "test-target"],
+            cwd=repo, capture_output=True, text=True,
+        )
+        if result.returncode != 1 or "C reference fixture runtime probe failed for test-target" not in result.stderr:
+            raise SystemExit(f"{name} did not reach runtime rejection: {result.stderr}")
+    fixture.write_text(original_fixture)
+    if run(repo): raise SystemExit("restored valid fixture rejected")
+print(f"Provider ABI v1 checker tests passed ({len(CASES) + len(FIXTURE_CASES) + len(RUNTIME_CASES)} negative cases)")

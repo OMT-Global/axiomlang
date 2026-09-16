@@ -246,7 +246,14 @@ Snapshot updated 2026-07-29 after the Package Resolver v1 security review:
 | 4 | `stage1/crates/axiomc/src/codegen.rs` | 7,919 | `compiler.backend.generated_rust`, `compiler.backend.contracts` | Isolate generated-Rust compatibility emission from backend target selection and unsupported-feature contracts. |
 | 5 | `stage1/crates/axiomc/src/syntax.rs` | 6,370 | `compiler.syntax`, `compiler.diagnostics` | Split lexer/parser, parse recovery, source spans, macros, and syntax diagnostics behind the syntax boundary. |
 | 6 | `stage1/crates/axiomc/src/hir.rs` | 5,849 | `compiler.hir` | Generic inference and monomorphization now live in `stage1/crates/axiomc/src/hir/generics.rs`; public HIR model types now live in `stage1/crates/axiomc/src/hir/model.rs`; syntax-to-HIR type/literal lowering now lives in `stage1/crates/axiomc/src/hir/types.rs`; type-name, aggregate, and trait-use definition checks now live in `stage1/crates/axiomc/src/hir/definitions.rs`; function/method signatures and trait impl signature validation now live in `stage1/crates/axiomc/src/hir/signatures.rs`; capability analysis now lives in `stage1/crates/axiomc/src/hir/capabilities.rs`; expression typing helpers now live in `stage1/crates/axiomc/src/hir/expressions.rs`; ownership and borrow-state helpers now live in `stage1/crates/axiomc/src/hir/ownership.rs`; property clause checks now live in `stage1/crates/axiomc/src/hir/properties.rs`; reachability/call-graph discovery now lives in `stage1/crates/axiomc/src/hir/reachability.rs`; diagnostic recovery helpers now live in `stage1/crates/axiomc/src/hir/diagnostics.rs`; monomorphized symbol and intrinsic helpers now live in `stage1/crates/axiomc/src/hir/symbols.rs`; source-location helpers now live in `stage1/crates/axiomc/src/hir/source_locations.rs`; return-flow analysis now lives in `stage1/crates/axiomc/src/hir/control_flow.rs`; const-array length validation now lives in `stage1/crates/axiomc/src/hir/const_arrays.rs`; const-function validation now lives in `stage1/crates/axiomc/src/hir/const_functions.rs`; match lowering now lives in `stage1/crates/axiomc/src/hir/matches.rs`; enum variant constructor helpers now live in `stage1/crates/axiomc/src/hir/variants.rs`; async runtime intrinsic lowering now lives in `stage1/crates/axiomc/src/hir/async_runtime.rs`; map intrinsic lowering now lives in `stage1/crates/axiomc/src/hir/maps.rs`; HIR boundary regression tests now live in `stage1/crates/axiomc/tests/hir_unit.rs`; continue splitting remaining HIR helper clusters behind the package APIs in `docs/compiler-hir-ownership-capability.md`. |
-| 7 | `stage1/crates/axiomc/src/package_trust.rs` | 5,410 | `compiler.package_trust` | Extract authenticated catalog parsing/projection and release-scoped expectation construction first into `package_trust/catalog.rs`; then move strict document/schema parsing, trust-root transition evaluation, and package verification into focused siblings while preserving the Package Trust v1 wire contract. |
+| 7 | `stage1/crates/axiomc/src/package_trust.rs` | 5,485 | `compiler.package_trust` | Extract authenticated catalog parsing/projection and release-scoped expectation construction first into `package_trust/catalog.rs`; then move strict document/schema parsing, trust-root transition evaluation, and package verification into focused siblings while preserving the Package Trust v1 wire contract. |
+
+The malformed release-expectation template repair (#1660, PR #1673) adds a
+bounded 75 lines to `package_trust.rs` for validation before mutation and the
+34 malformed-shape regression cases across both release builders. Its measured
+ceiling increases from 5,410 to 5,485 with this security fix. The planned
+`package_trust/catalog.rs` extraction above remains the next decomposition
+boundary; this update does not grant headroom beyond the measured repair.
 
 ## Ratchet Ceilings
 
@@ -265,17 +272,17 @@ matching ceiling in this table in the same PR.
 | `stage1/crates/axiomc/src/cranelift_backend/host_env_proc_clock.rs` | 620 |
 | `stage1/crates/axiomc/src/cranelift_backend/host_json_serdes.rs` | 257 |
 | `stage1/crates/axiomc/src/cranelift_backend/intrinsics.rs` | 921 |
-| `stage1/crates/axiomc/src/cranelift_backend/evaluator.rs` | 4260 |
+| `stage1/crates/axiomc/src/cranelift_backend/evaluator.rs` | 4281 |
 | `stage1/crates/axiomc/src/cranelift_backend/host_fs.rs` | 984 |
 | `stage1/crates/axiomc/src/cranelift_backend/host_crypto.rs` | 783 |
 | `stage1/crates/axiomc/src/cranelift_backend/host_net_http.rs` | 1121 |
-| `stage1/crates/axiomc/src/hir.rs` | 5904 |
-| `stage1/crates/axiomc/src/project.rs` | 13564 |
+| `stage1/crates/axiomc/src/hir.rs` | 5933 |
+| `stage1/crates/axiomc/src/project.rs` | 13385 |
 | `stage1/crates/axiomc/src/project/build_contract.rs` | 118 |
 | `stage1/crates/axiomc/src/main.rs` | 11917 |
 | `stage1/crates/axiomc/src/formatter.rs` | 191 |
 | `stage1/crates/axiomc/src/formatter_tests.rs` | 122 |
-| `stage1/crates/axiomc/src/codegen.rs` | 8020 |
+| `stage1/crates/axiomc/src/codegen.rs` | 8035 |
 | `stage1/crates/axiomc/src/syntax.rs` | 6396 |
 | `stage1/crates/axiomc/src/hir/async_runtime.rs` | 188 |
 | `stage1/crates/axiomc/src/hir/capabilities.rs` | 773 |
@@ -297,9 +304,9 @@ matching ceiling in this table in the same PR.
 | `stage1/crates/axiomc/src/hir/symbols.rs` | 134 |
 | `stage1/crates/axiomc/src/hir/types.rs` | 241 |
 | `stage1/crates/axiomc/src/hir/variants.rs` | 188 |
-| `stage1/crates/axiomc/src/package_trust.rs` | 5410 |
+| `stage1/crates/axiomc/src/package_trust.rs` | 5485 |
 | `stage1/crates/axiomc/src/registry.rs` | 4319 |
-| `stage1/crates/axiomc/src/lib.rs` | 36 |
+| `stage1/crates/axiomc/src/lib.rs` | 37 |
 
 ## Extraction Order
 

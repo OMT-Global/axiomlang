@@ -1,0 +1,1 @@
+{"schema_version":"axiom.filesystem_fixture.v1","id":"axiom://filesystem/fixture/traversal-escape","kind":"negative","evidence":"current","scenario":"normalize a parent traversal outside the capability root","authorities":["traversal"],"operation":"normalize","expected":"denied","assertions":["denial reason reported","no host operation performed","root escape denied"]}
