@@ -1,6 +1,6 @@
 # Performance Benchmarks
 
-<!-- capability-ledger:v1 commands=31 stdlib_modules=34 stdlib_functions=304 capabilities=9 backend=cranelift -->
+<!-- capability-ledger:v1 commands=31 stdlib_modules=34 stdlib_functions=305 capabilities=9 backend=cranelift -->
 
 The `axiomc bench` harness discovers `*_bench.ax` files and executes each
 entrypoint for every warmup and measured iteration. It emits per-sample timing,
@@ -72,6 +72,8 @@ calibration data without blocking unrelated PRs.
 - JSON diagnostic quality from a failing conformance fixture
 - capability manifest coverage from `axiomc caps --json`
 - advisory regression warnings against the committed calibration baseline
+- normalized clean-vs-warm artifact equivalence, including relative paths,
+  normalized metadata, byte sizes, and SHA-256 content hashes
 
 ```bash
 python3 scripts/ci/check-stage1-benchmarks.py --json-out stage1/target/stage1-comparison-report.json
@@ -80,6 +82,15 @@ python3 scripts/ci/check-stage1-benchmarks.py --json-out stage1/target/stage1-co
 The default policy is `advisory-nonblocking`; advisory limit findings are
 reported but do not fail PRs. Maintainers can opt into blocking behavior later
 with `--enforce` once representative workloads and thresholds are stable.
+
+The comparison gate also builds each workload once after removing its `dist`
+directory and once with the resulting cache warm. It records the relative path,
+normalized metadata size, and SHA-256 hash of every output file. Absolute paths
+inside textual provenance/cache metadata are replaced with an artifact-root
+marker. Timing and cache-hit counters are intentionally excluded from the
+equivalence key; lowering evidence and the normalized output manifest must
+still match exactly. A missing, added, or changed output is a blocking
+artifact-equivalence failure.
 
 The extended validation gate also compares the current stage1 build medians
 against the committed calibration baseline at

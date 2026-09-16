@@ -94,6 +94,22 @@ pub fn is_host_target(target: &str) -> bool {
     host_target().as_deref() == Some(target)
 }
 
+fn validate_requested_target(target: &str, host: &str) -> Result<(), Diagnostic> {
+    if !is_known_supported_target(target) || target != host {
+        return Err(Diagnostic::new(
+            "target",
+            format!(
+                "target {target:?} is unsupported by the direct-native backend; host target is {host:?}"
+            ),
+        )
+        .with_code("target.unsupported")
+        .with_help(
+            "direct-native builds currently accept only the exact host target; cross-target support requires target-specific linker evidence",
+        ));
+    }
+    Ok(())
+}
+
 pub fn resolve_requested_target(target: Option<&str>) -> Result<Option<String>, Diagnostic> {
     let host = host_target().ok_or_else(|| {
         Diagnostic::new(
@@ -108,18 +124,7 @@ pub fn resolve_requested_target(target: Option<&str>) -> Result<Option<String>, 
         "wasm32" | "wasm32-wasi" => "wasm32-wasip1",
         target => target,
     };
-    if !is_known_supported_target(target) || target != host {
-        return Err(Diagnostic::new(
-            "target",
-            format!(
-                "target {target:?} is unsupported by the direct-native backend; host target is {host:?}"
-            ),
-        )
-        .with_code("target.unsupported")
-        .with_help(
-            "direct-native builds currently accept only the exact host target; cross-target support requires target-specific linker evidence",
-        ));
-    }
+    validate_requested_target(target, &host)?;
     Ok(Some(host))
 }
 
@@ -155,7 +160,7 @@ pub fn report(host_target: Option<String>) -> TargetSupportReport {
 mod tests {
     use super::{
         host_target, is_known_supported_target, parse_rustc_host_target, report,
-        resolve_requested_target, supported_targets,
+        resolve_requested_target, supported_targets, validate_requested_target,
     };
 
     #[test]
@@ -197,6 +202,32 @@ mod tests {
     fn unknown_hosts_are_not_reported_as_supported() {
         assert!(!is_known_supported_target("x86_64-unknown-linux-musl"));
         assert!(!report(Some(String::from("x86_64-unknown-linux-musl"))).host_supported);
+    }
+
+    #[test]
+    fn target_catalog_is_the_single_explicit_support_allowlist() {
+        for target in supported_targets() {
+            assert!(is_known_supported_target(target.target));
+        }
+    }
+
+    #[test]
+    fn exact_unsupported_host_fails_with_stable_target_diagnostic() {
+        let error = validate_requested_target(
+            "x86_64-unknown-linux-musl",
+            "x86_64-unknown-linux-musl",
+        )
+        .expect_err("an unsupported exact host must fail closed");
+        assert_eq!(error.code.as_deref(), Some("target.unsupported"));
+    }
+
+    #[test]
+    fn supported_target_validation_requires_exact_host_match() {
+        validate_requested_target("x86_64-unknown-linux-gnu", "x86_64-unknown-linux-gnu")
+            .expect("supported exact host should be accepted");
+        let error = validate_requested_target("x86_64-unknown-linux-gnu", "aarch64-apple-darwin")
+            .expect_err("supported cross-target spelling must still fail closed");
+        assert_eq!(error.code.as_deref(), Some("target.unsupported"));
     }
 
     #[test]
