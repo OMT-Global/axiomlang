@@ -59,12 +59,28 @@
           "minLength": 1
         },
         "error": {
-          "$ref": "#/$defs/diagnostic"
+          "$ref": "#/$defs/failureDiagnostic"
         },
         "lowering": {
           "$ref": "#/$defs/buildLoweringEvidence"
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "required": [
+              "lowering"
+            ]
+          },
+          "then": {
+            "properties": {
+              "command": {
+                "const": "build"
+              }
+            }
+          }
+        }
+      ]
     },
     "commandFailure": {
       "oneOf": [
@@ -148,7 +164,10 @@
       "additionalProperties": false,
       "required": [
         "kind",
-        "message"
+        "message",
+        "path",
+        "line",
+        "column"
       ],
       "properties": {
         "kind": {
@@ -1525,6 +1544,75 @@
         "column": {
           "type": "integer",
           "minimum": 1
+        }
+      }
+    },
+    "failureDiagnostic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "message"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "minLength": 1
+        },
+        "code": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "message": {
+          "type": "string"
+        },
+        "help": {
+          "type": "string"
+        },
+        "path": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "line": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "column": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "end_line": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "end_column": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "related": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/failureDiagnostic"
+          }
+        },
+        "repair": {
+          "$ref": "#/$defs/diagnosticRepair"
         }
       }
     }

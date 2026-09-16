@@ -112,6 +112,118 @@ fn command_failure_envelopes_reject_unrelated_commands_and_fields() {
     );
 }
 
+#[test]
+fn actual_cli_failures_validate_without_relaxing_success_contracts() {
+    let command_schema =
+        read_json(&contract_root().join("schemas/axiom.stage1.command.schema.json"));
+    let public_schema = read_json(&public_v1_schema_path());
+    let validators = [
+        jsonschema::validator_for(&command_schema).expect("command schema"),
+        jsonschema::validator_for(&public_schema).expect("public schema"),
+    ];
+    let temp = tempfile::tempdir().expect("tempdir");
+    let missing = temp.path().join("missing-project");
+    let path = missing.to_str().expect("missing path");
+    // LSP has no --json CLI flag; its serializer envelope is covered separately.
+    for command in [
+        "check",
+        "build",
+        "run",
+        "test",
+        "caps",
+        "mutation-report",
+        "parse",
+        "doc",
+    ] {
+        let (success, payload) = run_axiomc_json_with_status(&[command, path, "--json"]);
+        assert!(!success, "{command} must fail for a missing input");
+        assert_eq!(payload["ok"], false);
+        assert_eq!(payload["command"], command);
+        assert!(payload["error"].is_object());
+        for validator in &validators {
+            assert_payload_matches_schema(validator, command, &payload);
+        }
+        for field in ["schema_version", "ok", "command", "error"] {
+            let mut invalid = payload.clone();
+            invalid.as_object_mut().unwrap().remove(field);
+            assert!(
+                !validators[0].is_valid(&invalid),
+                "command failure requires {field}"
+            );
+            if command == "caps" {
+                assert!(
+                    !validators[1].is_valid(&invalid),
+                    "caps failure requires {field}"
+                );
+            }
+        }
+        for field in ["unexpected", "packages"] {
+            let mut invalid = payload.clone();
+            invalid[field] = json!([]);
+            assert!(
+                !validators[0].is_valid(&invalid),
+                "closed failure rejects {field}"
+            );
+            if command == "caps" {
+                assert!(
+                    !validators[1].is_valid(&invalid),
+                    "closed caps failure rejects {field}"
+                );
+            }
+        }
+        let mut success_impostor = payload;
+        success_impostor["ok"] = json!(true);
+        assert!(!validators[0].is_valid(&success_impostor));
+        if command == "caps" {
+            assert!(!validators[1].is_valid(&success_impostor));
+        }
+    }
+    // The old success diagnostic contract still requires explicit location fields.
+    let mut diagnostic_schema = command_schema.clone();
+    diagnostic_schema.as_object_mut().unwrap().remove("oneOf");
+    diagnostic_schema["$ref"] = json!("#/$defs/diagnostic");
+    let validator =
+        jsonschema::validator_for(&diagnostic_schema).expect("success diagnostic schema");
+    let mut diagnostic =
+        json!({"kind":"parse", "message":"failure", "path":null,"line":null,"column":null});
+    assert!(validator.is_valid(&diagnostic));
+    diagnostic.as_object_mut().unwrap().remove("path");
+    assert!(
+        !validator.is_valid(&diagnostic),
+        "success diagnostic location contract must not weaken"
+    );
+}
+
+#[test]
+fn failure_envelopes_reject_invalid_values_and_cross_command_evidence() {
+    let schema = read_json(&contract_root().join("schemas/axiom.stage1.command.schema.json"));
+    let validator = jsonschema::validator_for(&schema).expect("command schema");
+    let valid = json_contract::error("check", &Diagnostic::new("manifest", "fixture failure"));
+    for (field, value) in [
+        ("schema_version", json!("future")),
+        ("command", json!("unknown-command")),
+        ("ok", json!("false")),
+        ("error", json!({"kind":"manifest"})),
+        (
+            "error",
+            json!({"kind":"manifest","message":"bad","unexpected":true}),
+        ),
+    ] {
+        let mut invalid = valid.clone();
+        invalid[field] = value;
+        assert!(!validator.is_valid(&invalid), "invalid {field} must fail");
+    }
+    let mut lowering = read_json(
+        &repository_root().join("stage1/json-fixtures/build/runtime-lowering-required.json"),
+    );
+    assert!(validator.is_valid(&lowering));
+    lowering["command"] = json!("caps");
+    assert!(
+        !validator.is_valid(&lowering),
+        "build lowering evidence is build-only"
+    );
+}
+
 #[cfg(not(windows))]
 #[test]
 fn cranelift_build_json_validates_against_command_schema() {
@@ -152,9 +264,8 @@ fn real_test_case_results_validate_against_both_stage1_schemas() {
         return;
     }
 
-    let command_schema = read_json(
-        &contract_root().join("schemas/axiom.stage1.command.schema.json"),
-    );
+    let command_schema =
+        read_json(&contract_root().join("schemas/axiom.stage1.command.schema.json"));
     let command_validator =
         jsonschema::validator_for(&command_schema).expect("compile command schema");
     let public_schema = read_json(&public_v1_schema_path());
@@ -862,8 +973,14 @@ fn typed_docs_multi_package_surface_matches_snapshot() {
     .expect("write lock");
     for (relative, source) in [
         ("src/main.ax", "pub fn root_api(): int {\nreturn 1\n}\n"),
-        ("members/alpha/src/main.ax", "pub fn alpha_api(): int {\nreturn 2\n}\n"),
-        ("members/beta/src/main.ax", "pub fn beta_api(): int {\nreturn 3\n}\n"),
+        (
+            "members/alpha/src/main.ax",
+            "pub fn alpha_api(): int {\nreturn 2\n}\n",
+        ),
+        (
+            "members/beta/src/main.ax",
+            "pub fn beta_api(): int {\nreturn 3\n}\n",
+        ),
     ] {
         fs::write(project.join(relative), source).expect("write source");
     }
@@ -882,7 +999,10 @@ fn typed_docs_multi_package_surface_matches_snapshot() {
         "search": output["search"],
     });
     let snapshot = read_json(&contract_root().join("snapshots/docs-v1-multi-package.json"));
-    assert_eq!(snapshot_surface, snapshot, "typed documentation surface drifted");
+    assert_eq!(
+        snapshot_surface, snapshot,
+        "typed documentation surface drifted"
+    );
 }
 
 fn contract_root() -> PathBuf {
@@ -902,7 +1022,10 @@ fn run_axiomc(args: &[&str]) {
 
 fn run_axiomc_json(args: &[&str]) -> Value {
     let (success, payload) = run_axiomc_json_with_status(args);
-    assert!(success, "axiomc {args:?} failed with JSON payload {payload}");
+    assert!(
+        success,
+        "axiomc {args:?} failed with JSON payload {payload}"
+    );
     payload
 }
 
@@ -954,6 +1077,24 @@ fn normalize_payload(mut payload: Value, project: &Path) -> Value {
 
 fn normalize_value(value: &mut Value, project_aliases: &[String], key: Option<&str>) {
     match value {
+        Value::String(text) if key == Some("target") => {
+            let expected = if cfg!(all(
+                target_arch = "x86_64",
+                target_os = "linux",
+                target_env = "gnu"
+            )) {
+                "x86_64-unknown-linux-gnu"
+            } else if cfg!(all(target_arch = "aarch64", target_os = "macos")) {
+                "aarch64-apple-darwin"
+            } else {
+                panic!("native snapshot fixture requires a supported compiler host")
+            };
+            assert_eq!(
+                text, expected,
+                "native snapshot target must match the compiler host"
+            );
+            *text = "<native-target>".to_string();
+        }
         Value::String(text) if key.is_some_and(|key| key.ends_with("_hash")) => {
             *text = "<hash>".to_string();
         }
