@@ -60,6 +60,15 @@ FIXTURE_CASES = {
     "fixture-signature-release-owned-buffer": ("axiom_owned_bytes v", "axiom_borrowed_bytes v"),
 }
 
+
+RUNTIME_CASES = {
+    "runtime-version": ("out->major=1", "out->major=2"),
+    "runtime-invalid-handle": ("if (!h || !out)", "(void)h; if (!out)"),
+    "runtime-valid-call": ("out->len=0; return 0;", "out->len=0; return -1;"),
+    "runtime-owned-length": ("out->len=0", "out->len=1"),
+    "runtime-close": ("return h ? 0 : -1;", "return h ? -1 : 0;"),
+}
+
 # Exercise compiler discovery while still compiling and inspecting the real
 # fixture. The runner may have gcc/clang but no command named cc.
 spec = importlib.util.spec_from_file_location("provider_checker", R / CHECKER)
@@ -109,4 +118,16 @@ with tempfile.TemporaryDirectory() as directory:
         (repo / "stage1/compiler-contracts/schemas/axiom.provider-abi.v1.schema.json").write_text(json.dumps(original_schema))
         fixture.write_text(original_fixture.replace(before, after, 1))
         if not run(repo): raise SystemExit(f"{name} accepted")
-print(f"Provider ABI v1 checker tests passed ({len(CASES) + len(FIXTURE_CASES)} negative cases)")
+    for name, (before, after) in RUNTIME_CASES.items():
+        if original_fixture.count(before) != 1:
+            raise SystemExit(f"{name} mutation anchor changed")
+        fixture.write_text(original_fixture.replace(before, after, 1))
+        result = subprocess.run(
+            [sys.executable, str(repo / CHECKER), "--target", "test-target"],
+            cwd=repo, capture_output=True, text=True,
+        )
+        if result.returncode != 1 or "C reference fixture runtime probe failed for test-target" not in result.stderr:
+            raise SystemExit(f"{name} did not reach runtime rejection: {result.stderr}")
+    fixture.write_text(original_fixture)
+    if run(repo): raise SystemExit("restored valid fixture rejected")
+print(f"Provider ABI v1 checker tests passed ({len(CASES) + len(FIXTURE_CASES) + len(RUNTIME_CASES)} negative cases)")
