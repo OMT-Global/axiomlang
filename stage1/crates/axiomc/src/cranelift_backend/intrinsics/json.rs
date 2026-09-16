@@ -193,4 +193,3 @@ pub(crate) fn json_escape_string_content(value: &str) -> String {
         .unwrap_or(escaped.as_str())
         .to_string()
 }
-

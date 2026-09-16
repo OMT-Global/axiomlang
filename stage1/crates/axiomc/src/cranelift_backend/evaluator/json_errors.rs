@@ -82,4 +82,3 @@ pub(crate) fn json_serdes_parse_document(text: &str) -> Result<SpikeValue, JsonS
         ))
     }
 }
-
