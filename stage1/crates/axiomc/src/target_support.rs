@@ -232,7 +232,7 @@ mod tests {
 
     #[test]
     fn explicit_host_target_is_accepted_and_non_host_target_fails_closed() {
-        let host = host_target().expect("test environment must expose a rustc host target");
+        let host = host_target().expect("test must run on a supported compiled host");
         assert_eq!(resolve_requested_target(None), Ok(Some(host.clone())));
         assert_eq!(resolve_requested_target(Some(&host)), Ok(Some(host)));
         let error = resolve_requested_target(Some("wasm32"))

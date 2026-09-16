@@ -256,16 +256,20 @@ mod tests {
             let project = dir.path().join("doctor");
             create_project_with_template(&project, Some("doctor-app"), WorkloadTemplate::Cli)
                 .expect("create project");
-            let host = crate::target_support::host_target().expect("compiled supported host");
-            assert_eq!(crate::target_support::resolve_requested_target(None), Ok(Some(host.clone())));
-            assert_eq!(crate::target_support::resolve_requested_target(Some(&host)), Ok(Some(host.clone())));
-            let report = doctor_report(&project, 0);
+            let host = super::target_support::host_target().expect("compiled supported host");
+            assert_eq!(super::target_support::resolve_requested_target(None), Ok(Some(host.clone())));
+            assert_eq!(super::target_support::resolve_requested_target(Some(&host)), Ok(Some(host.clone())));
+            let checked_ledger: CheckedCapabilityLedger = serde_json::from_str(include_str!(
+                "../../../compiler-contracts/snapshots/capability-ledger.json"
+            ))
+            .expect("checked capability ledger must be valid JSON");
+            let report = doctor_report(&project, checked_ledger.summary.commands);
             assert!(!report.rustc.available);
             assert!(!report.cargo.available);
             assert_eq!(report.target_triple.as_deref(), Some(host.as_str()));
             assert_eq!(report.target_support.host_target.as_deref(), Some(host.as_str()));
             assert!(report.target_support.host_supported);
-            let unsupported = crate::target_support::resolve_requested_target(Some("wasm32"))
+            let unsupported = super::target_support::resolve_requested_target(Some("wasm32"))
                 .expect_err("missing tools must not enable cross-target compilation");
             assert_eq!(unsupported.code.as_deref(), Some("target.unsupported"));
             println!("{COMPLETED}");
@@ -282,7 +286,7 @@ mod tests {
         assert!(result.status.success(), "no-toolchain child failed: {}{}",
             String::from_utf8_lossy(&result.stdout), String::from_utf8_lossy(&result.stderr));
         assert!(
-            String::from_utf8_lossy(&result.stdout).lines().any(|line| line == COMPLETED),
+            String::from_utf8_lossy(&result.stdout).contains(COMPLETED),
             "child succeeded without executing the no-toolchain assertions: {}",
             String::from_utf8_lossy(&result.stdout),
         );
