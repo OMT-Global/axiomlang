@@ -1785,6 +1785,8 @@
         "is_null",
         "object_field",
         "parse_error_message",
+        "parse_error_offset",
+        "parse_error_path",
         "stringify",
         "text_field",
         "to_json",
@@ -1906,7 +1908,7 @@
     },
     "runtimeAbiRows": 34,
     "schemas": 63,
-    "stdlibFunctions": 305,
+    "stdlibFunctions": 307,
     "stdlibModules": 34,
     "supportedNativeBackend": "cranelift"
   },

@@ -1,7 +1,7 @@
 {
   "schema_version": "axiom.compiler.stdlib_catalog.v1",
   "contract": "compiler.stdlib",
-  "catalog_version": "1.1.0",
+  "catalog_version": "1.2.0",
   "source": "stage1/compiler-contracts/snapshots/capability-ledger.json",
   "modules": [
     {
@@ -3023,7 +3023,7 @@
       "module_loading": {
         "kind": "embedded_source",
         "source_path": "stage1/crates/axiomc/src/stdlib.rs",
-        "source_digest": "e8441e2f4c63b0a97e1526e155d09a26dc3c834b2de2f5f7634789158132265f"
+        "source_digest": "6dd3815e1cec4d96ac1b7f37d8b4b9a99765f0179639b4e56166ca77f3f741f8"
       },
       "capabilities": [],
       "symbols": [
@@ -3200,6 +3200,28 @@
           "binding_kind": "provider_contract",
           "provider": {
             "id": "axiom://provider/stage1-v1/serdes/parse_error_message",
+            "kind": "declared_provider"
+          }
+        },
+        {
+          "name": "parse_error_offset",
+          "signature": "fn parse_error_offset(error: ParseError): int",
+          "effect": "pure",
+          "binding": "axiom://provider/stage1-v1/serdes/parse_error_offset",
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/serdes/parse_error_offset",
+            "kind": "declared_provider"
+          }
+        },
+        {
+          "name": "parse_error_path",
+          "signature": "fn parse_error_path(error: ParseError): string",
+          "effect": "pure",
+          "binding": "axiom://provider/stage1-v1/serdes/parse_error_path",
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/serdes/parse_error_path",
             "kind": "declared_provider"
           }
         },
@@ -3807,7 +3829,7 @@
       "symbols": []
     }
   ],
-  "release_digest": "3b3993c735a00011bb3fec83528f4a824f50662d2107408393016825b546476a",
+  "release_digest": "c292976fce9f9ca6117f3ab454f52cedc45cb8897a086b9f8d18e221aa13a760",
   "rollback_boundary": "stage1/crates/axiomc/src/stdlib.rs remains the bootstrap loader until #1436 qualifies a catalog consumer.",
   "acceptance_boundary": {
     "status": "pending",

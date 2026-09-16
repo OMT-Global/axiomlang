@@ -47,7 +47,7 @@ jobs:
           extended=true
           EOF
 
-      - uses: dorny/paths-filter@d1c1ffe0248fe513906c8e24db8ea791d46f8590 # v3 pinned 2026-05-30
+      - uses: dorny/paths-filter@0e4a8c6effa4802afeda77dc8d303f8176d7dfad # v3 pinned 2026-05-30
         id: filter
         if: github.event_name == 'push'
         with:
@@ -94,6 +94,52 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4 pinned 2026-05-30
 
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable pinned 2026-04-19
+
+      - name: Ensure C compiler availability
+        run: |
+          set -euo pipefail
+
+          for candidate in cc gcc clang; do
+            if command -v "$candidate" >/dev/null 2>&1; then
+              exit 0
+            fi
+          done
+
+          if command -v apt-get >/dev/null 2>&1; then
+            apt_cache="${RUNNER_TEMP:-/tmp}/axiom-extended-apt-cache"
+            apt_lists="${RUNNER_TEMP:-/tmp}/axiom-extended-apt-lists"
+            mkdir -p "$apt_cache/partial" "$apt_lists/partial"
+            apt_get=(
+              apt-get
+              -o Acquire::Retries=3
+              -o Dpkg::Use-Pty=0
+              -o APT::Sandbox::User=root
+              -o Dir::Cache::archives="$apt_cache"
+              -o Dir::State::lists="$apt_lists"
+            )
+            if [[ "$(id -u)" != "0" ]]; then
+              if command -v sudo >/dev/null 2>&1; then
+                apt_get=(sudo "${apt_get[@]}")
+              else
+                apt_get=()
+              fi
+            fi
+            if (( ${#apt_get[@]} )); then
+              "${apt_get[@]}" update || true
+              DEBIAN_FRONTEND=noninteractive "${apt_get[@]}" install -y --no-install-recommends gcc libc6-dev || true
+            fi
+          fi
+
+          for candidate in cc gcc clang; do
+            if command -v "$candidate" >/dev/null 2>&1; then
+              exit 0
+            fi
+          done
+
+          echo "::error::Extended validation requires a usable C compiler (cc, gcc, or clang)" >&2
+          exit 1
+
       - name: Run fast checks
         run: bash scripts/ci/run-fast-checks.sh
 
@@ -120,6 +166,50 @@ jobs:
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6 pinned 2026-07-27
         with:
           go-version: ${{ env.GO_VERSION }}
+
+      - name: Ensure C compiler availability
+        run: |
+          set -euo pipefail
+
+          for candidate in cc gcc clang; do
+            if command -v "$candidate" >/dev/null 2>&1; then
+              exit 0
+            fi
+          done
+
+          if command -v apt-get >/dev/null 2>&1; then
+            apt_cache="${RUNNER_TEMP:-/tmp}/axiom-extended-apt-cache"
+            apt_lists="${RUNNER_TEMP:-/tmp}/axiom-extended-apt-lists"
+            mkdir -p "$apt_cache/partial" "$apt_lists/partial"
+            apt_get=(
+              apt-get
+              -o Acquire::Retries=3
+              -o Dpkg::Use-Pty=0
+              -o APT::Sandbox::User=root
+              -o Dir::Cache::archives="$apt_cache"
+              -o Dir::State::lists="$apt_lists"
+            )
+            if [[ "$(id -u)" != "0" ]]; then
+              if command -v sudo >/dev/null 2>&1; then
+                apt_get=(sudo "${apt_get[@]}")
+              else
+                apt_get=()
+              fi
+            fi
+            if (( ${#apt_get[@]} )); then
+              "${apt_get[@]}" update || true
+              DEBIAN_FRONTEND=noninteractive "${apt_get[@]}" install -y --no-install-recommends gcc libc6-dev || true
+            fi
+          fi
+
+          for candidate in cc gcc clang; do
+            if command -v "$candidate" >/dev/null 2>&1; then
+              exit 0
+            fi
+          done
+
+          echo "::error::Extended validation requires a usable C compiler (cc, gcc, or clang)" >&2
+          exit 1
 
       - name: Ensure pinned coverage tooling
         run: |

@@ -235,7 +235,9 @@ def main() -> int:
     assert len(current_ids) == 70, "current contract must include package trust, quality, Filesystem v1, Provider ABI, HTTP client, runtime observability, Semantic MIR, runtime lifecycle, target support, persistent LSP, and package resolver schemas"
     assert set(baseline_ids) < set(current_ids)
     assert set(current_ids) - set(baseline_ids) == new_public_schema_ids | new_package_resolver_ids
-    assert current_payload["contract_version"] == "0.5.0"
+    assert current_payload["contract_version"] == "0.6.0"
+    assert surface(current_payload, "axiom://stdlib/catalog")["version"] == "1.2.0"
+    assert surface(current_payload, "axiom://schema/axiom.compiler.stdlib_catalog.v1")["version"] == "0.3.0"
     current_cli = surface(current_payload, "axiom://cli/axiomc")
     assert current_cli["version"] == "0.3.0"
     current_stage1_schema = surface(current_payload, "axiom://schema/axiom.stage1.v1")
