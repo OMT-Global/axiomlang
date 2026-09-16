@@ -2,7 +2,7 @@ use axiomc::{
     json_contract,
     manifest::{
         DEPENDENCY_VERSION_PATTERN, KNOWN_CAPABILITIES, PER_TEST_CAPABILITIES_SUPPORTED,
-        TEST_KIND_NAMES,
+        TEST_KIND_NAMES, load_manifest,
     },
 };
 use jsonschema::Validator;
@@ -963,6 +963,75 @@ fn editor_metadata_schemas_are_parseable_and_current() {
     }
 
     let manifest_validator = compile_validator(&manifest_schema);
+
+    for fixture in [
+        r#"
+[package]
+name = "defaults"
+version = "0.1.0"
+"#,
+        r#"
+[package]
+name = "explicit-build"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+"#,
+        r#"
+[workspace]
+"#,
+        r#"
+[package]
+name = "path-dependency"
+version = "0.1.0"
+
+[dependencies]
+dep = "../dep"
+"#,
+    ] {
+        let decoded: toml::Value = toml::from_str(fixture).expect("fixture is valid TOML");
+        let json = serde_json::to_value(decoded).expect("fixture converts to JSON");
+        manifest_validator
+            .validate(&json)
+            .expect("parser-valid manifest fixture matches the published schema");
+        let dir = tempfile::tempdir().expect("create manifest fixture directory");
+        fs::write(dir.path().join("axiom.toml"), fixture).expect("write manifest fixture");
+        load_manifest(dir.path()).expect("schema-valid manifest fixture parses");
+    }
+
+    for fixture in [
+        r#"
+[package]
+name = "partial-build"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+"#,
+        r#"
+[package]
+name = "empty-dependency"
+version = "0.1.0"
+
+[dependencies]
+dep = ""
+"#,
+        r#"
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+"#,
+    ] {
+        let decoded: toml::Value = toml::from_str(fixture).expect("fixture is valid TOML");
+        let json = serde_json::to_value(decoded).expect("fixture converts to JSON");
+        assert!(
+            !manifest_validator.is_valid(&json),
+            "schema must reject parser-invalid manifest fixture"
+        );
+    }
+
     let parser_parity_manifest = serde_json::json!({
         "package": {"name": "parity", "version": "0.1.0"},
         "dependencies": {
