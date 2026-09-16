@@ -265,4 +265,107 @@ mod tests {
         let truncated = read(body, "lsp").expect_err("truncated body");
         assert_eq!(truncated.code.as_deref(), Some("lsp.frame.truncated_body"));
     }
+
+
+    fn endpoint(protocol: &str, input: &[u8]) -> (Result<(), Diagnostic>, Vec<u8>) {
+        let mut output = Vec::new();
+        let result = match protocol {
+            "lsp" => crate::lsp::serve_stdio(Cursor::new(input), &mut output),
+            "dap" => crate::dap::run_stdio(Cursor::new(input), &mut output),
+            _ => unreachable!("test protocol"),
+        };
+        (result, output)
+    }
+
+    #[test]
+    fn both_endpoints_reject_invalid_frames_before_dispatch() {
+        let cases = [
+            (b"Content-Length: 1\r\nContent-Length: 1\r\n\r\na".to_vec(), "duplicate_content_length"),
+            (b"X: a\r\n\r\n".to_vec(), "missing_content_length"),
+            (b"Content-Length: nope\r\n\r\n".to_vec(), "invalid_content_length"),
+            (b"Content-Length: 18446744073709551616\r\n\r\n".to_vec(), "invalid_content_length"),
+            (b"not-a-header\r\n\r\n".to_vec(), "malformed_header"),
+            (b"Content-Length: 4\r\n\r\nabc".to_vec(), "truncated_body"),
+            (b"Content-Length: 4\r\n".to_vec(), "truncated_headers"),
+            (b"Content-Length: 4".to_vec(), "truncated_header"),
+            (b"Content-Length: 1\r\n\r\n\xff".to_vec(), "invalid_utf8"),
+            (format!("Content-Length: {}\r\n\r\n", MAX_BODY_BYTES + 1).into_bytes(), "body_oversized"),
+        ];
+        for protocol in ["lsp", "dap"] {
+            for (input, code) in &cases {
+                let (result, output) = endpoint(protocol, input);
+                let error = result.expect_err("invalid endpoint frame must fail");
+                assert_eq!(error.code.as_deref(), Some(format!("{protocol}.frame.{code}").as_str()));
+                assert!(output.is_empty(), "invalid framing must not dispatch a message");
+            }
+        }
+    }
+
+    #[test]
+    fn aggregate_header_bound_is_enforced_at_both_endpoints() {
+        let mut frame = b"Content-Length: 0\r\n".to_vec();
+        while frame.len() + 2 < MAX_HEADER_BYTES {
+            let bytes = (MAX_HEADER_BYTES - frame.len() - 2).min(MAX_HEADER_LINE_BYTES);
+            assert!(bytes >= 5);
+            frame.extend_from_slice(b"X: ");
+            frame.extend(std::iter::repeat_n(b'x', bytes - 5));
+            frame.extend_from_slice(b"\r\n");
+        }
+        frame.extend_from_slice(b"\r\n");
+        assert_eq!(frame.len(), MAX_HEADER_BYTES);
+        for protocol in ["lsp", "dap"] {
+            assert_eq!(read_message(&mut Cursor::new(&frame), protocol).unwrap(), Some(String::new()));
+            let mut excessive = frame.clone();
+            excessive.splice(excessive.len()-2..excessive.len()-2, b"X: x\r\n".iter().copied());
+            let (result, output) = endpoint(protocol, &excessive);
+            assert_eq!(result.unwrap_err().code.as_deref(), Some(format!("{protocol}.frame.headers_oversized").as_str()));
+            assert!(output.is_empty());
+        }
+    }
+
+    #[test]
+    fn line_and_count_limits_reach_both_endpoints() {
+        let oversized_line = format!("X: {}\r\n", "x".repeat(MAX_HEADER_LINE_BYTES));
+        let too_many = format!("{}Content-Length: 0\r\n\r\n", "X: x\r\n".repeat(MAX_HEADER_COUNT));
+        for protocol in ["lsp", "dap"] {
+            for (input, code) in [(&oversized_line, "header_line_oversized"), (&too_many, "too_many_headers")] {
+                let (result, output) = endpoint(protocol, input.as_bytes());
+                assert_eq!(result.unwrap_err().code.as_deref(), Some(format!("{protocol}.frame.{code}").as_str()));
+                assert!(output.is_empty());
+            }
+        }
+    }
+
+    #[test]
+    fn valid_shutdown_stops_before_trailing_malformed_frame() {
+        for (protocol, body) in [
+            ("lsp", r#"{"jsonrpc":"2.0","method":"exit"}"#),
+            ("dap", r#"{"seq":1,"type":"request","command":"disconnect"}"#),
+        ] {
+            let input = format!("Content-Length: {}\r\n\r\n{body}not-a-header\r\n\r\n", body.len());
+            endpoint(protocol, input.as_bytes()).0.expect("shutdown must stop before trailing data");
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn oversized_endpoints_under_memory_limit() {
+        const MARKER: &str = "AXIOM_BOUNDED_FRAME_MEMORY_ASSERTIONS_PASSED";
+        if std::env::var_os("AXIOM_FRAME_MEMORY_CHILD").is_some() {
+            for protocol in ["lsp", "dap"] {
+                let (result, output) = endpoint(protocol, b"Content-Length: 1073741824\r\n\r\n");
+                assert_eq!(result.unwrap_err().code.as_deref(), Some(format!("{protocol}.frame.body_oversized").as_str()));
+                assert!(output.is_empty());
+            }
+            println!("{MARKER}");
+            return;
+        }
+        let output = std::process::Command::new("/bin/sh")
+            .args(["-c", "ulimit -v 524288 || exit 1; exec \"$1\" --exact framed_protocol::tests::oversized_endpoints_under_memory_limit --nocapture", "axiom-frame-memory"])
+            .arg(std::env::current_exe().expect("test executable"))
+            .env("AXIOM_FRAME_MEMORY_CHILD", "1")
+            .output().expect("run memory-limited child");
+        assert!(output.status.success(), "memory-limited child failed: {:?}\n{}\n{}", output.status, String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+        assert!(String::from_utf8_lossy(&output.stdout).contains(MARKER), "child ran no memory assertions");
+    }
 }
