@@ -1088,38 +1088,99 @@ fn inspect_evidence_cli_is_wired_for_text_and_json_output() {
         .expect("run axiomc new");
     assert!(created.status.success(), "new failed: {:?}", created);
 
-    let json_output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
-        .args(["inspect", "evidence", project_arg, "--json"])
-        .output()
-        .expect("run inspect evidence json");
-    assert!(
-        json_output.status.success(),
-        "inspect evidence json failed: {:?}",
-        json_output
-    );
-    let payload: Value = serde_json::from_slice(&json_output.stdout).expect("evidence JSON");
-    assert_eq!(payload["command"], "inspect evidence");
-    assert!(payload["evidence"].is_array());
-    let schema: Value = serde_json::from_str(
+    let inspect_schema: Value = serde_json::from_str(
         &fs::read_to_string(schema_dir().join("axiom-inspect-v0.schema.json"))
             .expect("read inspect schema"),
     )
     .expect("inspect schema JSON");
-    compile_validator(&schema)
-        .validate(&payload)
-        .expect("inspect evidence JSON validates against inspect schema");
+    let public_schema: Value = serde_json::from_str(
+        &fs::read_to_string(schema_dir().join("axiom.stage1.v1.schema.json"))
+            .expect("read public schema"),
+    )
+    .expect("public schema JSON");
+    let effects_schema: Value = serde_json::from_str(
+        &fs::read_to_string(schema_dir().join("axiom-effects-v0.schema.json"))
+            .expect("read effects schema"),
+    )
+    .expect("effects schema JSON");
+    let effects_validator = compile_validator(&effects_schema);
+    let inspect_validator = compile_validator(&inspect_schema);
+    let public_validator = compile_validator(&public_schema);
+    let commands = inspect_schema["properties"]["command"]["enum"]
+        .as_array()
+        .expect("advertised inspect commands");
+    assert!(
+        commands.iter().any(|v| v == "inspect evidence"),
+        "evidence must remain advertised"
+    );
+    for command in commands {
+        let command = command.as_str().expect("inspect command name");
+        assert!(command.starts_with("inspect "));
+        let mut args: Vec<&str> = command.split_whitespace().collect();
+        args.extend([project_arg, "--json"]);
+        let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+            .args(args)
+            .output()
+            .expect("invoke advertised inspect command");
+        assert!(
+            output.status.success(),
+            "advertised {command} failed: {output:?}"
+        );
+        assert!(
+            output.stderr.is_empty(),
+            "{command} emitted stderr: {output:?}"
+        );
+        let payload: Value = serde_json::from_slice(&output.stdout).expect("inspect JSON");
+        assert_eq!(payload["command"], command);
+        if command == "inspect effects" {
+            assert_eq!(payload["schema_version"], "axiom.effects.v0");
+            effects_validator
+                .validate(&payload)
+                .expect("effects validates its dedicated schema");
+        } else {
+            assert_eq!(payload["schema_version"], "axiom.stage1.v1");
+            inspect_validator
+                .validate(&payload)
+                .expect("advertised output validates inspect schema");
+        }
+        if command == "inspect evidence" {
+            assert!(payload["evidence"].is_array());
+            public_validator
+                .validate(&payload)
+                .expect("evidence validates public envelope");
+        }
+    }
 
     let text_output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
         .args(["inspect", "evidence", project_arg])
         .output()
-        .expect("run inspect evidence text");
-    assert!(
-        text_output.status.success(),
-        "inspect evidence text failed: {:?}",
-        text_output
-    );
+        .expect("inspect evidence text");
+    assert!(text_output.status.success(), "text failed: {text_output:?}");
+    assert!(text_output.stderr.is_empty());
     let text = String::from_utf8(text_output.stdout).expect("evidence text UTF-8");
     assert!(text.contains("lockfile axiom.lock"), "text output: {text}");
+
+    let missing = temp.path().join("missing-project");
+    let error_output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "inspect",
+            "evidence",
+            missing.to_str().expect("missing path"),
+            "--json",
+        ])
+        .output()
+        .expect("inspect evidence missing input");
+    assert!(!error_output.status.success(), "missing project must fail");
+    assert!(
+        error_output.stderr.is_empty(),
+        "JSON errors must not leak to stderr"
+    );
+    let error: Value = serde_json::from_slice(&error_output.stdout).expect("JSON error");
+    assert_eq!(error["ok"], false);
+    assert_eq!(error["command"], "inspect evidence");
+    public_validator
+        .validate(&error)
+        .expect("missing-input error validates public envelope");
 }
 
 #[test]

@@ -485,7 +485,13 @@ enum InspectCommand {
         #[arg(long)]
         json: bool,
     },
-    Evidence { path: PathBuf, #[arg(long)] json: bool },
+    /// Emit lockfile and configured test evidence for a package.
+    Evidence {
+        path: PathBuf,
+        /// Emit an axiom.stage1.v1 JSON envelope for agent/tool consumption.
+        #[arg(long)]
+        json: bool,
+    },
     /// Emit planned and generated artifact records for a package.
     Artifacts {
         path: PathBuf,
@@ -1159,8 +1165,18 @@ fn main() {
                 Err(error) => print_error("inspect effects", error, json),
             },
             InspectCommand::Evidence { path, json } => match inspect_evidence(&path) {
-                Ok(report) => if json { print_json("inspect evidence", &report) } else { for item in &report.evidence { println!("{} {} {} {}", item.kind, item.name, item.path, item.status); } 0 },
-                Err(error) => print_error("inspect evidence", error, json), },
+                Ok(report) => {
+                    if json {
+                        print_json("inspect evidence", &report)
+                    } else {
+                        for item in &report.evidence {
+                            println!("{} {} {} {}", item.kind, item.name, item.path, item.status);
+                        }
+                        0
+                    }
+                }
+                Err(error) => print_error("inspect evidence", error, json),
+            },
             InspectCommand::Artifacts { path, json } => match inspect_artifacts(&path) {
                 Ok(report) => {
                     if json {
@@ -8288,6 +8304,7 @@ fn collect_program_type_refs(program: &axiomc::syntax::Program) -> Vec<String> {
     }
     refs.into_iter().collect()
 }
+
 #[derive(Debug, Clone, Serialize)]
 struct InspectEvidenceReport {
     schema_version: &'static str,

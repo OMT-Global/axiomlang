@@ -15,6 +15,7 @@ mkdir -p "$target_dir"
 export CARGO_TARGET_DIR="$target_dir"
 
 bash "$script_repo_root/scripts/ci/check-python-exit-docs.sh"
+python3 "$script_repo_root/scripts/ci/test-fast-check-target-isolation.py"
 bash "$script_repo_root/scripts/ci/validate-capability-manifests.sh"
 bash "$script_repo_root/scripts/ci/test-validate-capability-manifests.sh"
 bash "$script_repo_root/scripts/ci/test-pr-fast-ci-workflow.sh"
