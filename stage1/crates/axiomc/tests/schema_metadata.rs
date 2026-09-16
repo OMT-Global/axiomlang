@@ -9,6 +9,7 @@ use jsonschema::Validator;
 use serde_json::Value;
 use std::fs;
 use std::path::Path;
+use std::process::Command;
 
 fn schema_dir() -> std::path::PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -19,6 +20,64 @@ fn schema_dir() -> std::path::PathBuf {
 
 fn compile_validator(schema: &Value) -> Validator {
     jsonschema::validator_for(schema).expect("compile JSON schema")
+}
+
+#[test]
+fn filesystem_v1_schema_enforces_promotion_boundaries() {
+    let stage1 = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let schema: Value = serde_json::from_str(
+        &fs::read_to_string(
+            stage1.join("compiler-contracts/schemas/axiom.filesystem.v1.schema.json"),
+        )
+        .expect("read Filesystem v1 schema"),
+    )
+    .expect("Filesystem v1 schema is valid JSON");
+    let snapshot: Value = serde_json::from_str(
+        &fs::read_to_string(stage1.join("compiler-contracts/snapshots/filesystem-v1.json"))
+            .expect("read Filesystem v1 snapshot"),
+    )
+    .expect("Filesystem v1 snapshot is valid JSON");
+    let validator = compile_validator(&schema);
+
+    validator
+        .validate(&snapshot)
+        .expect("checked Filesystem v1 snapshot matches its schema");
+
+    let mut incomplete_promotion = snapshot.clone();
+    incomplete_promotion["implementation"]["tier"] = serde_json::json!("runtime_complete");
+    assert!(
+        !validator.is_valid(&incomplete_promotion),
+        "runtime_complete requires complete executable evidence"
+    );
+
+    let mut complete_promotion = snapshot;
+    complete_promotion["implementation"]["tier"] = serde_json::json!("runtime_complete");
+    complete_promotion["implementation"]["status"] = serde_json::json!("qualified");
+    complete_promotion["implementation"]["blockers"] = serde_json::json!([]);
+    for field in [
+        "scoped_text_io",
+        "root_scoped_metadata",
+        "root_scoped_write",
+        "typed_paths",
+        "binary_handles",
+        "deterministic_traversal",
+        "atomic_replace",
+        "secure_temporary_resources",
+        "runtime_effects_only",
+        "descriptor_anchored_replace",
+        "pathname_operations_toctou_safe",
+    ] {
+        complete_promotion["implementation"][field] = serde_json::json!(true);
+    }
+    for fixture in complete_promotion["fixtures"]
+        .as_array_mut()
+        .expect("Filesystem v1 fixtures are an array")
+    {
+        fixture["evidence"] = serde_json::json!("runtime");
+    }
+    validator
+        .validate(&complete_promotion)
+        .expect("fully evidenced runtime_complete contract is promotion-capable");
 }
 
 #[test]
@@ -1016,6 +1075,112 @@ fn editor_metadata_schemas_are_parseable_and_current() {
             "compiler schema capability descriptors include {capability}"
         );
     }
+}
+
+#[test]
+fn inspect_evidence_cli_is_wired_for_text_and_json_output() {
+    let temp = tempfile::tempdir().expect("create inspect evidence tempdir");
+    let project = temp.path().join("inspect-evidence-app");
+    let project_arg = project.to_str().expect("project path");
+    let created = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args(["new", project_arg, "--name", "inspect-evidence-app"])
+        .output()
+        .expect("run axiomc new");
+    assert!(created.status.success(), "new failed: {:?}", created);
+
+    let inspect_schema: Value = serde_json::from_str(
+        &fs::read_to_string(schema_dir().join("axiom-inspect-v0.schema.json"))
+            .expect("read inspect schema"),
+    )
+    .expect("inspect schema JSON");
+    let public_schema: Value = serde_json::from_str(
+        &fs::read_to_string(schema_dir().join("axiom.stage1.v1.schema.json"))
+            .expect("read public schema"),
+    )
+    .expect("public schema JSON");
+    let effects_schema: Value = serde_json::from_str(
+        &fs::read_to_string(schema_dir().join("axiom-effects-v0.schema.json"))
+            .expect("read effects schema"),
+    )
+    .expect("effects schema JSON");
+    let effects_validator = compile_validator(&effects_schema);
+    let inspect_validator = compile_validator(&inspect_schema);
+    let public_validator = compile_validator(&public_schema);
+    let commands = inspect_schema["properties"]["command"]["enum"]
+        .as_array()
+        .expect("advertised inspect commands");
+    assert!(
+        commands.iter().any(|v| v == "inspect evidence"),
+        "evidence must remain advertised"
+    );
+    for command in commands {
+        let command = command.as_str().expect("inspect command name");
+        assert!(command.starts_with("inspect "));
+        let mut args: Vec<&str> = command.split_whitespace().collect();
+        args.extend([project_arg, "--json"]);
+        let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+            .args(args)
+            .output()
+            .expect("invoke advertised inspect command");
+        assert!(
+            output.status.success(),
+            "advertised {command} failed: {output:?}"
+        );
+        assert!(
+            output.stderr.is_empty(),
+            "{command} emitted stderr: {output:?}"
+        );
+        let payload: Value = serde_json::from_slice(&output.stdout).expect("inspect JSON");
+        assert_eq!(payload["command"], command);
+        if command == "inspect effects" {
+            assert_eq!(payload["schema_version"], "axiom.effects.v0");
+            effects_validator
+                .validate(&payload)
+                .expect("effects validates its dedicated schema");
+        } else {
+            assert_eq!(payload["schema_version"], "axiom.stage1.v1");
+            inspect_validator
+                .validate(&payload)
+                .expect("advertised output validates inspect schema");
+        }
+        if command == "inspect evidence" {
+            assert!(payload["evidence"].is_array());
+            public_validator
+                .validate(&payload)
+                .expect("evidence validates public envelope");
+        }
+    }
+
+    let text_output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args(["inspect", "evidence", project_arg])
+        .output()
+        .expect("inspect evidence text");
+    assert!(text_output.status.success(), "text failed: {text_output:?}");
+    assert!(text_output.stderr.is_empty());
+    let text = String::from_utf8(text_output.stdout).expect("evidence text UTF-8");
+    assert!(text.contains("lockfile axiom.lock"), "text output: {text}");
+
+    let missing = temp.path().join("missing-project");
+    let error_output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "inspect",
+            "evidence",
+            missing.to_str().expect("missing path"),
+            "--json",
+        ])
+        .output()
+        .expect("inspect evidence missing input");
+    assert!(!error_output.status.success(), "missing project must fail");
+    assert!(
+        error_output.stderr.is_empty(),
+        "JSON errors must not leak to stderr"
+    );
+    let error: Value = serde_json::from_slice(&error_output.stdout).expect("JSON error");
+    assert_eq!(error["ok"], false);
+    assert_eq!(error["command"], "inspect evidence");
+    public_validator
+        .validate(&error)
+        .expect("missing-input error validates public envelope");
 }
 
 #[test]

@@ -1,7 +1,7 @@
 {
   "schema_version": "axiom.compiler.stdlib_catalog.v1",
   "contract": "compiler.stdlib",
-  "catalog_version": "1.1.0",
+  "catalog_version": "1.2.0",
   "source": "stage1/compiler-contracts/snapshots/capability-ledger.json",
   "modules": [
     {
@@ -1509,7 +1509,7 @@
       "module_loading": {
         "kind": "embedded_source",
         "source_path": "stage1/crates/axiomc/src/stdlib.rs",
-        "source_digest": "60a831734ea3df3069733921b377777215187dab48e58afe03fb0e9884a3f8e9"
+        "source_digest": "3e1ea308400d76932743bdc0cc14460149a489e8ebfddf62f0cb4dd4643718b5"
       },
       "capabilities": [],
       "symbols": [
@@ -1521,6 +1521,17 @@
           "binding_kind": "provider_contract",
           "provider": {
             "id": "axiom://provider/stage1-v1/io/eprintln",
+            "kind": "declared_provider"
+          }
+        },
+        {
+          "name": "println",
+          "signature": "fn println(text: string): int",
+          "effect": "pure",
+          "binding": "axiom://provider/stage1-v1/io/println",
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/io/println",
             "kind": "declared_provider"
           }
         },
@@ -3818,7 +3829,7 @@
       "symbols": []
     }
   ],
-  "release_digest": "d2630d3390704132289b99a86d47f03ea77a11893aaff913e4149d01149a60c8",
+  "release_digest": "c292976fce9f9ca6117f3ab454f52cedc45cb8897a086b9f8d18e221aa13a760",
   "rollback_boundary": "stage1/crates/axiomc/src/stdlib.rs remains the bootstrap loader until #1436 qualifies a catalog consumer.",
   "acceptance_boundary": {
     "status": "pending",
