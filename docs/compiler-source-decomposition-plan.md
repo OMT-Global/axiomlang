@@ -120,6 +120,13 @@ the ratchet was still advisory; the ratchet now runs in the fast PR lane via
 `run-fast-checks.sh`, so future growth fails CI unless the ceiling change is
 explicit in the same PR.
 
+The recovered loop-control slice (#1584) retains the JSON parser extractions and
+adds nearest-loop defer boundaries and recursive scope-termination checks.
+Its exact file ceilings below cover these additions without restoring the old
+monolithic codegen ceiling. The top-seven bound increases by exactly 29 lines:
+26 for defer-boundary plumbing, two native loop-edge mappings, and one HIR line.
+Broader loop-exit ownership propagation remains open.
+
 The JUnit test-report output slice adds a bounded 25-line dispatch surface to
 `main.rs`; its measured ceiling is raised with that feature PR, while future
 command-surface growth remains subject to this ratchet and should be extracted
@@ -273,7 +280,7 @@ matching ceiling in this table in the same PR.
 | Tracked item | Ceiling |
 | --- | ---: |
 | `summary.top_file_line_share` | 0.5767 |
-| `summary.top_file_lines` | 70857 |
+| `summary.top_file_lines` | 70886 |
 | `stage1/crates/axiomc/src/cranelift_backend.rs` | 20120 |
 | `stage1/crates/axiomc/src/cranelift_backend/static_output_purity.rs` | 282 |
 | `stage1/crates/axiomc/src/cranelift_backend/host_env_proc_clock.rs` | 620 |
@@ -283,13 +290,13 @@ matching ceiling in this table in the same PR.
 | `stage1/crates/axiomc/src/cranelift_backend/host_fs.rs` | 984 |
 | `stage1/crates/axiomc/src/cranelift_backend/host_crypto.rs` | 783 |
 | `stage1/crates/axiomc/src/cranelift_backend/host_net_http.rs` | 1121 |
-| `stage1/crates/axiomc/src/hir.rs` | 5933 |
+| `stage1/crates/axiomc/src/hir.rs` | 5934 |
 | `stage1/crates/axiomc/src/project.rs` | 13385 |
 | `stage1/crates/axiomc/src/project/build_contract.rs` | 118 |
 | `stage1/crates/axiomc/src/main.rs` | 11934 |
 | `stage1/crates/axiomc/src/formatter.rs` | 191 |
 | `stage1/crates/axiomc/src/formatter_tests.rs` | 122 |
-| `stage1/crates/axiomc/src/codegen.rs` | 7655 |
+| `stage1/crates/axiomc/src/codegen.rs` | 7681 |
 | `stage1/crates/axiomc/src/cranelift_backend/intrinsics/json.rs` | 196 |
 | `stage1/crates/axiomc/src/cranelift_backend/evaluator/json_errors.rs` | 85 |
 | `stage1/crates/axiomc/src/codegen/json_serdes.rs` | 517 |
@@ -299,7 +306,7 @@ matching ceiling in this table in the same PR.
 | `stage1/crates/axiomc/src/hir/capabilities.rs` | 773 |
 | `stage1/crates/axiomc/src/hir/const_arrays.rs` | 330 |
 | `stage1/crates/axiomc/src/hir/const_functions.rs` | 117 |
-| `stage1/crates/axiomc/src/hir/control_flow.rs` | 37 |
+| `stage1/crates/axiomc/src/hir/control_flow.rs` | 114 |
 | `stage1/crates/axiomc/src/hir/definitions.rs` | 686 |
 | `stage1/crates/axiomc/src/hir/diagnostics.rs` | 28 |
 | `stage1/crates/axiomc/src/hir/expressions.rs` | 205 |
