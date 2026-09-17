@@ -6,9 +6,10 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import os
 from pathlib import Path
 
-R = Path(__file__).resolve().parents[2]
+R = Path(os.environ.get("AXIOM_CHECKOUT_PATH") or Path(__file__).resolve().parents[2]).resolve()
 S = R / "stage1/compiler-contracts/schemas/axiom.provider-abi.v1.schema.json"
 V = R / "stage1/compiler-contracts/snapshots/provider-abi-v1.json"
 C = R / "stage1/compiler-contracts/fixtures/provider-abi-v1/reference-provider.c"

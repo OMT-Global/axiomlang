@@ -304,3 +304,12 @@ if [[ -z "$provider_abi_check" || -z "$provider_abi_self_test" || -z "$provider_
 fi
 
 echo "pr-fast-ci workflow validation passed"
+
+# The shared environment contract must include non-check-* readers and the shell
+# compatibility wrapper, not just Python checker naming patterns (#1560).
+for reader in check-provider-abi-v1.py check-stdlib-catalog.py check-semantic-mir-v1.py check-runtime-lifecycle-v1.py check-http-client-v1.py check-runtime-observability-v1.py run-agent-autonomy-benchmark.py test-check-compatibility-v1.sh; do
+  grep -qF "scripts/ci/$reader" "$fast_checks_script" || { echo "missing isolated reader: $reader" >&2; exit 1; }
+done
+grep -qF 'export AXIOM_CHECKOUT_PATH="$repo_root"' "$fast_checks_script"
+grep -qF 'test-fast-checkout-isolation.py' "$fast_checks_script"
+grep -qF 'CARGO_TARGET_DIR: ${{ runner.temp }}/axiom-fast-${{ github.run_id }}-${{ github.run_attempt }}' "$workflow"

@@ -4,9 +4,10 @@ import argparse
 import hashlib
 import json
 import re
+import os
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(os.environ.get("AXIOM_CHECKOUT_PATH") or Path(__file__).resolve().parents[2]).resolve()
 LEDGER = ROOT / "stage1/compiler-contracts/snapshots/capability-ledger.json"
 SNAPSHOT = ROOT / "stage1/compiler-contracts/snapshots/stdlib-catalog.json"
 SCHEMA = ROOT / "stage1/compiler-contracts/schemas/axiom.compiler.stdlib_catalog.v1.schema.json"
