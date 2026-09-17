@@ -17222,3 +17222,37 @@ print parse_error_path(error)
     let payload: Value = serde_json::from_slice(&output.stdout).expect("build JSON");
     assert_eq!(payload["lowering"]["execution_mode"], "not_produced");
 }
+
+#[cfg(not(windows))]
+#[test]
+fn cranelift_backend_default_cli_lowers_loop_control() {
+    assert!(which::which("cc").is_ok(), "native loop acceptance requires cc");
+    let cases = [
+        ("nested", "let outer: int = 0\nlet total: int = 0\nwhile outer < 3 {\nouter = outer + 1\nlet inner: int = 0\nwhile inner < 4 {\ninner = inner + 1\nif inner == 2 {\ncontinue\n}\nif inner == 4 {\nbreak\n}\ntotal = total + outer * 10 + inner\n}\n}\nprint total\nprint outer\n", "132\n3\n"),
+        ("terminated-branches", "let iteration: int = 0\nwhile iteration < 3 {\niteration = iteration + 1\nif iteration == 2 {\nbreak\n} else {\ncontinue\n}\n}\nprint iteration\n", "2\n"),
+    ];
+    for (label, source, expected) in cases {
+        let temp = tempfile::tempdir().expect("loop fixture");
+        let project = temp.path().join(label);
+        fs::create_dir_all(project.join("src")).expect("project src");
+        copy_fixture("axiom.toml", &project.join("axiom.toml"));
+        copy_fixture("axiom.lock", &project.join("axiom.lock"));
+        fs::write(project.join("src/main.ax"), source).expect("loop source");
+        let path = project.to_str().expect("project path");
+        let checked = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+            .args(["check", path, "--json"]).output().expect("public check");
+        assert!(checked.status.success(), "{label}: check failed: {} {}", String::from_utf8_lossy(&checked.stdout), String::from_utf8_lossy(&checked.stderr));
+        // Omit --backend: this must prove the public default, not internal Rust fallback.
+        let built = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+            .args(["build", path, "--json"]).output().expect("public default build");
+        assert!(built.status.success(), "{label}: default build failed: {} {}", String::from_utf8_lossy(&built.stdout), String::from_utf8_lossy(&built.stderr));
+        let payload: Value = serde_json::from_slice(&built.stdout).expect("build envelope");
+        assert_eq!(payload["backend"], "cranelift");
+        assert_eq!(payload["generated_rust"], Value::Null);
+        let binary = payload["binary"].as_str().expect("native binary");
+        assert!(Path::new(binary).with_extension("cranelift.o").is_file());
+        let execution = Command::new(binary).output().expect("execute actual loop binary");
+        assert!(execution.status.success(), "{label}: native execution failed");
+        assert_eq!(String::from_utf8_lossy(&execution.stdout), expected, "{label}");
+    }
+}
