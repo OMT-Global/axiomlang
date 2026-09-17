@@ -24,7 +24,7 @@ defaults:
 jobs:
   changes:
     name: Detect Relevant Changes
-    runs-on: ['self-hosted', 'linux', 'shell-only', 'public']
+    runs-on: ubuntu-24.04
     outputs:
       app: ${{ steps.filter.outputs.app }}
       ci: ${{ steps.filter.outputs.ci }}
@@ -62,7 +62,7 @@ jobs:
 
   fast-checks:
     name: Fast Checks
-    runs-on: ['self-hosted', 'linux', 'shell-only', 'public']
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     needs: changes
     if: >-
@@ -78,8 +78,8 @@ jobs:
 
       - name: Checkout trusted CI scripts
         # SECURITY (#1543): this checkout must stay pinned to the PR *base*.
-        # `run-fast-checks.sh` is executed from it below on a persistent
-        # self-hosted runner, with the PR head mounted only as data via
+        # `run-fast-checks.sh` is executed from it below, with the PR head
+        # mounted only as data via
         # AXIOM_CHECKOUT_PATH. Pinning to head.sha would run PR-authored
         # scripts under a "trusted" label and defeat the split entirely --
         # exactly the regression #1405 introduced against #1211. Compare the
@@ -169,7 +169,7 @@ jobs:
 
   full-lib-suite:
     name: Full Lib Suite
-    runs-on: ['self-hosted', 'linux', 'shell-only', 'public']
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     needs: changes
     if: >-
@@ -230,7 +230,7 @@ jobs:
 
       - name: Run full axiomc lib suite
         # The #1255 blocking lane: the full lib suite must be green. Tests
-        # that require unavailable local capabilities self-skip so shell-only
+        # that require unavailable local capabilities self-skip so standard hosted
         # runners do not produce false reds.
         run: RUST_MIN_STACK=8388608 cargo test --manifest-path stage1/Cargo.toml -p axiomc --lib --features run-native-tests -- --test-threads=1
 
@@ -264,7 +264,7 @@ jobs:
 
   provider-abi-target-matrix:
     name: Provider ABI C Fixture (${{ matrix.target }})
-    runs-on: ['self-hosted', 'linux', 'shell-only', 'public']
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     needs: changes
     if: >-
@@ -329,7 +329,7 @@ jobs:
 
   validate-pr-description:
     name: Validate PR Description
-    runs-on: ['self-hosted', 'linux', 'shell-only', 'public']
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     if: >-
       github.event.pull_request.draft == false &&
@@ -340,7 +340,7 @@ jobs:
     steps:
       - name: Require generated PR template content
         # Keep this validation inline in the trusted workflow. The job runs for
-        # pull_request events on a self-hosted public runner, so it must not
+        # pull_request events on a public hosted runner, so it must not
         # check out or execute scripts from the untrusted pull request head.
         run: |
           set -euo pipefail
@@ -425,7 +425,7 @@ jobs:
 
   validate-secrets:
     name: Validate Secrets
-    runs-on: ['self-hosted', 'linux', 'shell-only', 'public']
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     if: >-
       github.event.pull_request.draft == false &&
@@ -444,7 +444,7 @@ jobs:
 
   ci-gate:
     name: CI Gate
-    runs-on: ['self-hosted', 'linux', 'shell-only', 'public']
+    runs-on: ubuntu-24.04
     if: always()
     needs:
       - changes
@@ -454,8 +454,8 @@ jobs:
       - validate-pr-description
       - validate-secrets
     steps:
-      # SECURITY: ci-gate runs on a persistent self-hosted runner with no fork
-      # guard (if: always), so it must never execute code from the PR head tree.
+      # SECURITY: ci-gate has no fork guard (if: always), so it must never
+      # execute code from the PR head tree even though each hosted runner is ephemeral.
       # The gate only needs the result envs below plus the trusted gate helper,
       # so check out the base ref (target-repo, trusted) instead of the fork head
       # and drop persisted credentials. See scripts/ci/check-pr-fast-ci-gate.sh.
