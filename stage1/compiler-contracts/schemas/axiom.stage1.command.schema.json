@@ -21,6 +21,9 @@
     },
     {
       "$ref": "#/$defs/mutationReport"
+    },
+    {
+      "$ref": "#/$defs/commandFailure"
     }
   ],
   "$defs": {
@@ -34,6 +37,108 @@
     "durationMs": {
       "type": "integer",
       "minimum": 0
+    },
+    "failureEnvelope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "ok",
+        "command",
+        "error"
+      ],
+      "properties": {
+        "schema_version": {
+          "$ref": "#/$defs/schemaVersion"
+        },
+        "ok": {
+          "const": false
+        },
+        "command": {
+          "type": "string",
+          "minLength": 1
+        },
+        "error": {
+          "$ref": "#/$defs/failureDiagnostic"
+        },
+        "lowering": {
+          "$ref": "#/$defs/buildLoweringEvidence"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "required": [
+              "lowering"
+            ]
+          },
+          "then": {
+            "properties": {
+              "command": {
+                "const": "build"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "commandFailure": {
+      "oneOf": [
+        {
+          "allOf": [
+            { "$ref": "#/$defs/failureEnvelope" },
+            { "properties": { "command": { "const": "check" } } }
+          ]
+        },
+        {
+          "allOf": [
+            { "$ref": "#/$defs/failureEnvelope" },
+            { "properties": { "command": { "const": "build" } } }
+          ]
+        },
+        {
+          "allOf": [
+            { "$ref": "#/$defs/failureEnvelope" },
+            { "properties": { "command": { "const": "run" } } }
+          ]
+        },
+        {
+          "allOf": [
+            { "$ref": "#/$defs/failureEnvelope" },
+            { "properties": { "command": { "const": "test" } } }
+          ]
+        },
+        {
+          "allOf": [
+            { "$ref": "#/$defs/failureEnvelope" },
+            { "properties": { "command": { "const": "caps" } } }
+          ]
+        },
+        {
+          "allOf": [
+            { "$ref": "#/$defs/failureEnvelope" },
+            { "properties": { "command": { "const": "mutation-report" } } }
+          ]
+        },
+        {
+          "allOf": [
+            { "$ref": "#/$defs/failureEnvelope" },
+            { "properties": { "command": { "const": "parse" } } }
+          ]
+        },
+        {
+          "allOf": [
+            { "$ref": "#/$defs/failureEnvelope" },
+            { "properties": { "command": { "const": "doc" } } }
+          ]
+        },
+        {
+          "allOf": [
+            { "$ref": "#/$defs/failureEnvelope" },
+            { "properties": { "command": { "const": "lsp" } } }
+          ]
+        }
+      ]
     },
     "diagnosticRepair": {
       "type": "object",
@@ -1439,6 +1544,75 @@
         "column": {
           "type": "integer",
           "minimum": 1
+        }
+      }
+    },
+    "failureDiagnostic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "message"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "minLength": 1
+        },
+        "code": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "message": {
+          "type": "string"
+        },
+        "help": {
+          "type": "string"
+        },
+        "path": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "line": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "column": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "end_line": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "end_column": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "related": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/failureDiagnostic"
+          }
+        },
+        "repair": {
+          "$ref": "#/$defs/diagnosticRepair"
         }
       }
     }

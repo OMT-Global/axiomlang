@@ -37,6 +37,24 @@ directory operations, and replacement while evaluating known programs. Current
 that effectful fallback and build-purity tests must prove that check and build
 cannot execute package filesystem effects before this claim can be promoted.
 
+## Direct-native metadata recovery slice
+
+The scoped metadata primitive is separate from content reads: a successful
+regular-file stat reports its signed 64-bit length without the 64 MiB read cap.
+Directories, FIFOs, sockets, missing paths, failed metadata queries, and negative
+or unrepresentable sizes report `file_exists = false` and `file_size = -1`.
+Metadata can follow writes and atomic replacements in the same native program.
+Linux uses an `O_PATH` descriptor and `fstat`; Darwin uses `stat`, since even
+`O_EVTONLY` opens require content-read permission there. Both read the native
+libc stat layout and retain the surrounding root/symlink checks. An in-scope
+regular-file symlink follows the existing policy; an out-of-scope link is denied.
+This is not descriptor-relative path authority or a race-proof capability walk.
+
+The Linux/Darwin regression changes file types, permissions and sparse-file size after
+compilation, checks the actual default-native artifact, and bounds child execution
+so a FIFO regression cannot hang the suite. Windows parity remains a separate qualification requirement; this slice must not promote the
+whole Filesystem v1 runtime or close those broader acceptance obligations.
+
 ## Contract boundary
 
 Paths retain their runtime origin and effective scoped root. Join, normalize,
