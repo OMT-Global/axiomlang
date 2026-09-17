@@ -651,7 +651,7 @@
       "id": "axiom://schema/axiom-quality-report-v1",
       "kind": "schema",
       "migration": {
-        "action": "Quality reports retain the same single-test exclusion and profile semantics, but skippedTests now names tests::check_properties_runs_only_property_tests_and_fails_closed_without_runtime_lowering, matching the existing quality-gate producer and renamed binary test. Consumers validating current reports must use schema surface version 0.2.0; historical reports using the former test name retain their historical schema."
+        "action": "Quality reports retain the same single-test exclusion and profile semantics. The skippedTests field now uses the current renamed property-test identifier, matching the existing producer. Validate current reports with schema surface version 0.2.0; historical reports retain their historical schema."
       },
       "signature": "published schema id=https://omt-global.github.io/axiom/schemas/axiom-quality-report-v1.schema.json; semantic_digest=8fc7532bfcfec8c8a52c56308efacc4bf4f078aa6ae42cfe2a68145a317e4c08",
       "sources": [

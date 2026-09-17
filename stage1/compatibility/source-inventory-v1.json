@@ -40,7 +40,7 @@
       "action": "Existing path-only manifests remain valid. To adopt registry dependencies, add the root registry configuration and use the closed registry dependency object documented by the 0.2 schema, then run axiomc pkg fetch to create axiom.lock version 2."
     },
     "axiom://schema/axiom-quality-report-v1": {
-      "action": "Quality reports retain the same single-test exclusion and profile semantics, but skippedTests now names tests::check_properties_runs_only_property_tests_and_fails_closed_without_runtime_lowering, matching the existing quality-gate producer and renamed binary test. Consumers validating current reports must use schema surface version 0.2.0; historical reports using the former test name retain their historical schema."
+      "action": "Quality reports retain the same single-test exclusion and profile semantics. The skippedTests field now uses the current renamed property-test identifier, matching the existing producer. Validate current reports with schema surface version 0.2.0; historical reports retain their historical schema."
     }
   },
   "snapshot_id": "axiom://compatibility/current-source-contract",
