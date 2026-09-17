@@ -23,8 +23,7 @@ const VENDOR_MANIFEST_SCHEMA: &str = "axiom.vendor_manifest.v1";
 const TRANSACTION_MARKER_SCHEMA: &str = "axiom.store_transaction.v1";
 const TRANSACTION_MARKER_NAME: &str = ".axiom-transaction";
 const VENDOR_LEASE_MARKER_SCHEMA: &str = "axiom.vendor_snapshot_lease.v1";
-const VENDOR_LIFECYCLE_LOCK_MARKER_SCHEMA: &str = "axiom.vendor_lifecycle_lock.v1";
-const VENDOR_LIFECYCLE_LOCK_DIR: &str = ".lifecycle-lock";
+const VENDOR_LIFECYCLE_LOCK_FILE: &str = ".lifecycle-lock";
 const VENDOR_LEASES_DIR: &str = ".leases";
 const MAX_EVIDENCE_BYTES: usize = 16 * 1024 * 1024;
 const MAX_VENDOR_PACKAGES: usize = 4_096;
@@ -45,56 +44,62 @@ enum VendorSnapshotFault {
     AfterSnapshotPublication,
 }
 
+/// Persistent inode + kernel lock: no owner-marker initialization window, no
+/// age-based stealing, and abrupt process exit releases the descriptor lock.
+/// Never unlink this file: waiters may already hold the same inode open.
 struct VendorLifecycleLock {
-    path: PathBuf,
+    _file: File,
 }
 
 impl VendorLifecycleLock {
     fn acquire(vendor_root: &Path) -> Result<Self, StoreError> {
-        let path = vendor_root.join(VENDOR_LIFECYCLE_LOCK_DIR);
-        for _ in 0..256 {
-            match fs::create_dir(&path) {
-                Ok(()) => {
-                    let now = unix_epoch_nanos()?;
-                    let marker = format!(
-                        "{VENDOR_LIFECYCLE_LOCK_MARKER_SCHEMA}\npid={}\ncreated_unix_nanos={now}\n",
-                        std::process::id()
-                    );
-                    if let Err(error) = write_new_file(&path.join("owner"), marker.as_bytes()) {
-                        let _ = fs::remove_dir_all(&path);
-                        return Err(error);
-                    }
-                    if let Err(error) = sync_directory(&path) {
-                        let _ = fs::remove_dir_all(&path);
-                        return Err(error);
-                    }
-                    return Ok(Self { path });
+        let path = vendor_root.join(VENDOR_LIFECYCLE_LOCK_FILE);
+        let mut options = OpenOptions::new();
+        options.read(true).write(true).create(true).truncate(false);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC);
+        }
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::OpenOptionsExt;
+            // Open the reparse point itself so descriptor validation rejects it.
+            options.custom_flags(0x0020_0000);
+        }
+        let file = options.open(&path).map_err(|error| {
+            StoreError::new("vendor_lifecycle_lock_failed", format!("cannot open {}: {error}", path.display()))
+        })?;
+        let metadata = file.metadata().map_err(|error| {
+            StoreError::new("vendor_lifecycle_lock_failed", error.to_string())
+        })?;
+        let mut safe = metadata.is_file() && !metadata.file_type().is_symlink();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt;
+            safe &= metadata.nlink() == 1;
+        }
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::MetadataExt;
+            safe &= metadata.file_attributes() & 0x0000_0400 == 0;
+        }
+        if !safe {
+            return Err(StoreError::new("vendor_lifecycle_lock_invalid", "lifecycle lock must be a private regular file"));
+        }
+        for attempt in 0..128 {
+            match file.try_lock() {
+                Ok(()) => return Ok(Self { _file: file }),
+                Err(std::fs::TryLockError::WouldBlock) if attempt < 127 => {
+                    std::thread::sleep(std::time::Duration::from_millis(10));
                 }
-                Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
-                    if stale_vendor_lifecycle_lock(&path)? {
-                        let _ = fs::remove_dir_all(&path);
-                    } else {
-                        std::thread::yield_now();
-                    }
-                }
-                Err(error) => {
-                    return Err(StoreError::new(
-                        "vendor_lifecycle_lock_failed",
-                        format!("failed to acquire {}: {error}", path.display()),
-                    ));
+                Err(std::fs::TryLockError::WouldBlock) => break,
+                Err(std::fs::TryLockError::Error(error)) => {
+                    return Err(StoreError::new("vendor_lifecycle_lock_failed", error.to_string()));
                 }
             }
         }
-        Err(StoreError::new(
-            "vendor_lifecycle_busy",
-            "vendor snapshot lifecycle lock remained held after bounded retries",
-        ))
-    }
-}
-
-impl Drop for VendorLifecycleLock {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.path);
+        Err(StoreError::new("vendor_lifecycle_busy", "vendor lifecycle lock remained held after bounded retries"))
     }
 }
 
@@ -1803,32 +1808,6 @@ fn parse_vendor_lease_name(name: &str) -> Option<(u32, u128, u64)> {
     Some((pid.parse().ok()?, epoch_nanos.parse().ok()?, sequence.parse().ok()?))
 }
 
-fn stale_vendor_lifecycle_lock(path: &Path) -> Result<bool, StoreError> {
-    let owner = match read_regular_file(&path.join("owner"), 256) {
-        Ok(owner) => owner,
-        Err(_) => return Ok(true),
-    };
-    let text = String::from_utf8(owner)
-        .map_err(|_| StoreError::new("vendor_lifecycle_lock_invalid", "lock owner is not UTF-8"))?;
-    let mut pid = None;
-    let mut created = None;
-    for line in text.lines().skip(1) {
-        let Some((key, value)) = line.split_once('=') else {
-            return Ok(true);
-        };
-        match key {
-            "pid" => pid = value.parse().ok(),
-            "created_unix_nanos" => created = value.parse().ok(),
-            _ => {}
-        }
-    }
-    let (Some(pid), Some(created)) = (pid, created) else {
-        return Ok(true);
-    };
-    Ok(unix_epoch_nanos()?.saturating_sub(created) >= STALE_TRANSACTION_AGE_NANOS
-        && !process_is_alive(pid))
-}
-
 fn reclaim_vendor_snapshots(
     vendor_root: &Path,
     current_digest: &str,
@@ -2957,3 +2936,7 @@ mod tests {
         assert!(PackageStore::verify_vendor_snapshot(&vendor, &expected).is_err());
     }
 }
+
+#[cfg(test)]
+#[path = "package_store/vendor_lifecycle_tests.rs"]
+mod vendor_lifecycle_tests;

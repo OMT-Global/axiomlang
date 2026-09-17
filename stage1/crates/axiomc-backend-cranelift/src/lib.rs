@@ -1,5 +1,5 @@
 use cranelift_codegen::ir::{
-    AbiParam, ArgumentPurpose, BlockArg, FuncRef, InstBuilder, MemFlags, StackSlotData,
+    AbiParam, ArgumentPurpose, Block, BlockArg, FuncRef, InstBuilder, MemFlags, StackSlotData,
     StackSlotKind, TrapCode, Value, condcodes::IntCC, types,
 };
 use cranelift_codegen::isa;
@@ -327,6 +327,13 @@ pub enum I64Expr {
         lhs: Box<I64Expr>,
         rhs: Box<I64Expr>,
     },
+    /// Add full-width signed operands and report `message` before trapping on
+    /// overflow. Unlike a range check on the result, this detects i64 overflow.
+    CheckedSignedAdd {
+        lhs: Box<I64Expr>,
+        rhs: Box<I64Expr>,
+        message: String,
+    },
     /// Evaluate `value` and trap (write `message` to stderr and exit non-zero)
     /// when it falls outside `[min, max]`; otherwise yield the value unchanged.
     /// Used to enforce sized-integer overflow policy in debug builds before the
@@ -521,6 +528,8 @@ pub enum I64Stmt {
         cond: I64Condition,
         body: Vec<I64Stmt>,
     },
+    Break,
+    Continue,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1516,7 +1525,7 @@ fn collect_i64_output_lines(stmts: &[I64Stmt], lines: &mut Vec<(OutputStream, St
                 collect_i64_output_lines(else_body, lines);
             }
             I64Stmt::While { body, .. } => collect_i64_output_lines(body, lines),
-            I64Stmt::Assign(_) | I64Stmt::CallAssign { .. } => {}
+            I64Stmt::Assign(_) | I64Stmt::CallAssign { .. } | I64Stmt::Break | I64Stmt::Continue => {}
         }
     }
 }
@@ -1903,8 +1912,41 @@ fn emit_i64_stmts(
     output_data_ids: &[I64OutputData],
     stmts: &[I64Stmt],
 ) -> Result<(), CraneliftBackendError> {
+    emit_i64_stmts_with_loop_targets(
+        module,
+        builder,
+        locals,
+        function_refs,
+        runtime_refs,
+        runtime_args,
+        write_ref,
+        output_data_ids,
+        stmts,
+        None,
+    )?;
+    Ok(())
+}
+
+#[derive(Clone, Copy)]
+struct I64LoopTargets {
+    break_block: Block,
+    continue_block: Block,
+}
+
+fn emit_i64_stmts_with_loop_targets(
+    module: &mut ObjectModule,
+    builder: &mut FunctionBuilder<'_>,
+    locals: &[Variable],
+    function_refs: &[FuncRef],
+    runtime_refs: I64RuntimeRefs,
+    runtime_args: Option<I64RuntimeArgs>,
+    write_ref: FuncRef,
+    output_data_ids: &[I64OutputData],
+    stmts: &[I64Stmt],
+    loop_targets: Option<I64LoopTargets>,
+) -> Result<bool, CraneliftBackendError> {
     for stmt in stmts {
-        emit_i64_stmt(
+        if emit_i64_stmt_with_loop_targets(
             module,
             builder,
             locals,
@@ -1914,12 +1956,15 @@ fn emit_i64_stmts(
             write_ref,
             output_data_ids,
             stmt,
-        )?;
+            loop_targets,
+        )? {
+            return Ok(true);
+        }
     }
-    Ok(())
+    Ok(false)
 }
 
-fn emit_i64_stmt(
+fn emit_i64_stmt_with_loop_targets(
     module: &mut ObjectModule,
     builder: &mut FunctionBuilder<'_>,
     locals: &[Variable],
@@ -1929,12 +1974,15 @@ fn emit_i64_stmt(
     write_ref: FuncRef,
     output_data_ids: &[I64OutputData],
     stmt: &I64Stmt,
-) -> Result<(), CraneliftBackendError> {
+    loop_targets: Option<I64LoopTargets>,
+) -> Result<bool, CraneliftBackendError> {
     match stmt {
         I64Stmt::Assign(assign) => {
-            emit_i64_assign(builder, locals, function_refs, runtime_refs, assign)
+            emit_i64_assign(builder, locals, function_refs, runtime_refs, assign)?;
+            Ok(false)
         }
-        I64Stmt::WriteText { stream, text } => emit_i64_write_text(
+        I64Stmt::WriteText { stream, text } => {
+            emit_i64_write_text(
             module,
             builder,
             runtime_refs,
@@ -1942,8 +1990,11 @@ fn emit_i64_stmt(
             output_data_ids,
             *stream,
             text,
-        ),
-        I64Stmt::WriteLine { stream, text } => emit_i64_write_line(
+            )?;
+            Ok(false)
+        }
+        I64Stmt::WriteLine { stream, text } => {
+            emit_i64_write_line(
             module,
             builder,
             runtime_refs,
@@ -1951,8 +2002,11 @@ fn emit_i64_stmt(
             output_data_ids,
             *stream,
             text,
-        ),
-        I64Stmt::WriteI64Text { stream, value } => emit_i64_write_i64_text(
+            )?;
+            Ok(false)
+        }
+        I64Stmt::WriteI64Text { stream, value } => {
+            emit_i64_write_i64_text(
             builder,
             locals,
             function_refs,
@@ -1961,8 +2015,11 @@ fn emit_i64_stmt(
             module.target_config().pointer_type(),
             *stream,
             value,
-        ),
-        I64Stmt::WriteI64Line { stream, value } => emit_i64_write_i64_line(
+            )?;
+            Ok(false)
+        }
+        I64Stmt::WriteI64Line { stream, value } => {
+            emit_i64_write_i64_line(
             builder,
             locals,
             function_refs,
@@ -1971,94 +2028,117 @@ fn emit_i64_stmt(
             module.target_config().pointer_type(),
             *stream,
             value,
-        ),
+            )?;
+            Ok(false)
+        }
         I64Stmt::WriteEnvValue {
             stream,
             key,
             append_newline,
-        } => emit_i64_write_env_value(
-            builder,
-            runtime_refs,
-            write_ref,
-            module.target_config().pointer_type(),
-            *stream,
-            key,
-            *append_newline,
-        ),
+        } => {
+            emit_i64_write_env_value(
+                builder,
+                runtime_refs,
+                write_ref,
+                module.target_config().pointer_type(),
+                *stream,
+                key,
+                *append_newline,
+            )?;
+            Ok(false)
+        }
         I64Stmt::WriteCwdValue {
             stream,
             append_newline,
-        } => emit_i64_write_cwd_value(
-            builder,
-            runtime_refs,
-            write_ref,
-            module.target_config().pointer_type(),
-            *stream,
-            *append_newline,
-        ),
-        I64Stmt::WriteArgCountLine { stream } => emit_i64_write_arg_count_line(
-            builder,
-            runtime_args.ok_or_else(|| CraneliftBackendError::new("main argc is unavailable"))?,
-            runtime_refs,
-            write_ref,
-            module.target_config().pointer_type(),
-            *stream,
-        ),
+        } => {
+            emit_i64_write_cwd_value(
+                builder,
+                runtime_refs,
+                write_ref,
+                module.target_config().pointer_type(),
+                *stream,
+                *append_newline,
+            )?;
+            Ok(false)
+        }
+        I64Stmt::WriteArgCountLine { stream } => {
+            emit_i64_write_arg_count_line(
+                builder,
+                runtime_args.ok_or_else(|| CraneliftBackendError::new("main argc is unavailable"))?,
+                runtime_refs,
+                write_ref,
+                module.target_config().pointer_type(),
+                *stream,
+            )?;
+            Ok(false)
+        }
         I64Stmt::WriteArgLine {
             stream,
             index,
             fallback,
-        } => emit_i64_write_arg_line(
-            module,
-            builder,
-            runtime_args.ok_or_else(|| CraneliftBackendError::new("main argv is unavailable"))?,
-            runtime_refs,
-            write_ref,
-            output_data_ids,
-            *stream,
-            *index,
-            fallback,
-        ),
+        } => {
+            emit_i64_write_arg_line(
+                module,
+                builder,
+                runtime_args.ok_or_else(|| CraneliftBackendError::new("main argv is unavailable"))?,
+                runtime_refs,
+                write_ref,
+                output_data_ids,
+                *stream,
+                *index,
+                fallback,
+            )?;
+            Ok(false)
+        }
         I64Stmt::WriteStdinLine {
             stream,
             fallback,
             max_bytes,
-        } => emit_i64_write_stdin_line(
-            module,
-            builder,
-            runtime_refs,
-            write_ref,
-            output_data_ids,
-            *stream,
-            fallback,
-            *max_bytes,
-        ),
+        } => {
+            emit_i64_write_stdin_line(
+                module,
+                builder,
+                runtime_refs,
+                write_ref,
+                output_data_ids,
+                *stream,
+                fallback,
+                *max_bytes,
+            )?;
+            Ok(false)
+        }
         I64Stmt::WriteStdinRemaining {
             stream,
             max_bytes,
             append_newline,
-        } => emit_i64_write_stdin_remaining(
-            builder,
-            runtime_refs,
-            write_ref,
-            *stream,
-            *max_bytes,
-            *append_newline,
-        ),
+        } => {
+            emit_i64_write_stdin_remaining(
+                builder,
+                runtime_refs,
+                write_ref,
+                *stream,
+                *max_bytes,
+                *append_newline,
+            )?;
+            Ok(false)
+        }
         I64Stmt::CallAssign {
             locals: assign_locals,
             function,
             args,
-        } => emit_i64_call_assign(
-            builder,
-            module.target_config().pointer_type(),
-            locals,
-            function_refs,
-            runtime_refs,
-            assign_locals,
-            *function,
-            args,
-        ),
+        } => {
+            emit_i64_call_assign(
+                builder,
+                module.target_config().pointer_type(),
+                locals,
+                function_refs,
+                runtime_refs,
+                assign_locals,
+                *function,
+                args,
+            )?;
+            Ok(false)
+        }
         I64Stmt::If {
             cond,
             then_body,
@@ -2074,7 +2154,7 @@ fn emit_i64_stmt(
 
             builder.switch_to_block(then_block);
             builder.seal_block(then_block);
-            emit_i64_stmts(
+            let then_terminated = emit_i64_stmts_with_loop_targets(
                 module,
                 builder,
                 locals,
@@ -2084,12 +2164,15 @@ fn emit_i64_stmt(
                 write_ref,
                 output_data_ids,
                 then_body,
+                loop_targets,
             )?;
-            builder.ins().jump(after_if, &[]);
+            if !then_terminated {
+                builder.ins().jump(after_if, &[]);
+            }
 
             builder.switch_to_block(else_block);
             builder.seal_block(else_block);
-            emit_i64_stmts(
+            let else_terminated = emit_i64_stmts_with_loop_targets(
                 module,
                 builder,
                 locals,
@@ -2099,12 +2182,19 @@ fn emit_i64_stmt(
                 write_ref,
                 output_data_ids,
                 else_body,
+                loop_targets,
             )?;
-            builder.ins().jump(after_if, &[]);
+            if !else_terminated {
+                builder.ins().jump(after_if, &[]);
+            }
 
-            builder.switch_to_block(after_if);
-            builder.seal_block(after_if);
-            Ok(())
+            if then_terminated && else_terminated {
+                Ok(true)
+            } else {
+                builder.switch_to_block(after_if);
+                builder.seal_block(after_if);
+                Ok(false)
+            }
         }
         I64Stmt::While { cond, body } => {
             let loop_header = builder.create_block();
@@ -2120,7 +2210,7 @@ fn emit_i64_stmt(
 
             builder.switch_to_block(loop_body);
             builder.seal_block(loop_body);
-            emit_i64_stmts(
+            let body_terminated = emit_i64_stmts_with_loop_targets(
                 module,
                 builder,
                 locals,
@@ -2130,13 +2220,33 @@ fn emit_i64_stmt(
                 write_ref,
                 output_data_ids,
                 body,
+                Some(I64LoopTargets {
+                    break_block: after_loop,
+                    continue_block: loop_header,
+                }),
             )?;
-            builder.ins().jump(loop_header, &[]);
+            if !body_terminated {
+                builder.ins().jump(loop_header, &[]);
+            }
             builder.seal_block(loop_header);
 
             builder.switch_to_block(after_loop);
             builder.seal_block(after_loop);
-            Ok(())
+            Ok(false)
+        }
+        I64Stmt::Break => {
+            let targets = loop_targets.ok_or_else(|| {
+                CraneliftBackendError::new("loop break escaped its lowering context")
+            })?;
+            builder.ins().jump(targets.break_block, &[]);
+            Ok(true)
+        }
+        I64Stmt::Continue => {
+            let targets = loop_targets.ok_or_else(|| {
+                CraneliftBackendError::new("loop continue escaped its lowering context")
+            })?;
+            builder.ins().jump(targets.continue_block, &[]);
+            Ok(true)
         }
     }
 }
@@ -3570,6 +3680,13 @@ fn emit_i64_expr(
                 I64BinaryOp::Div => builder.ins().sdiv(lhs, rhs),
             })
         }
+        I64Expr::CheckedSignedAdd { lhs, rhs, message } => {
+            let lhs = emit_i64_expr(builder, locals, function_refs, runtime_refs, lhs)?;
+            let rhs = emit_i64_expr(builder, locals, function_refs, runtime_refs, rhs)?;
+            let (value, overflow) = builder.ins().sadd_overflow(lhs, rhs);
+            let valid = builder.ins().icmp_imm(IntCC::Equal, overflow, 0);
+            emit_i64_checked_value(builder, runtime_refs, value, valid, message)
+        }
         I64Expr::CheckedSignedRange {
             value,
             min,
@@ -4364,11 +4481,6 @@ fn emit_i64_checked_signed_range(
     max: i64,
     message: &str,
 ) -> Result<Value, CraneliftBackendError> {
-    let ok_block = builder.create_block();
-    let trap_block = builder.create_block();
-    let merge_block = builder.create_block();
-    builder.append_block_param(merge_block, types::I64);
-
     let min_value = builder.ins().iconst(types::I64, min);
     let max_value = builder.ins().iconst(types::I64, max);
     let above_min = builder
@@ -4378,7 +4490,21 @@ fn emit_i64_checked_signed_range(
         .ins()
         .icmp(IntCC::SignedLessThanOrEqual, value, max_value);
     let in_range = builder.ins().band(above_min, below_max);
-    builder.ins().brif(in_range, ok_block, &[], trap_block, &[]);
+    emit_i64_checked_value(builder, runtime_refs, value, in_range, message)
+}
+
+fn emit_i64_checked_value(
+    builder: &mut FunctionBuilder<'_>,
+    runtime_refs: I64RuntimeRefs,
+    value: Value,
+    valid: Value,
+    message: &str,
+) -> Result<Value, CraneliftBackendError> {
+    let ok_block = builder.create_block();
+    let trap_block = builder.create_block();
+    let merge_block = builder.create_block();
+    builder.append_block_param(merge_block, types::I64);
+    builder.ins().brif(valid, ok_block, &[], trap_block, &[]);
 
     builder.switch_to_block(ok_block);
     builder.seal_block(ok_block);
