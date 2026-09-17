@@ -10,7 +10,7 @@
       "sha256": "30e92d85d0e0cc6cf14a32477e5b45afbc44d3d36803a8e456d55ef93860767a"
     }
   },
-  "contract_version": "0.5.0",
+  "contract_version": "0.6.0",
   "edition": {
     "id": "2026",
     "source": {
@@ -57,19 +57,19 @@
       "id": "axiom://stdlib/catalog",
       "kind": "stdlib",
       "migration": {
-        "action": "Existing stdlib modules and functions remain valid. Consumers adopting the Unicode scalar helpers should use scalar_count for code-point cardinality and scalar_at for bounds-checked scalar access."
+        "action": "Accept catalog_version 1.2.0 and the additive parse_error_offset and parse_error_path accessors. std/serdes ParseError now carries offset and path as well as message: direct constructors must initialize all three fields; consumers may continue using parse_error_message for text. Offsets count UTF-8 bytes and paths identify nested object fields and array indices."
       },
-      "signature": "axiom.compiler.stdlib_catalog.v1; catalog_semantic_digest=7ad784190195fdbabb99ecefc3c4912e61bfcab8d2e39355d2eab02ed3960fca; modules=34; symbols=305",
+      "signature": "axiom.compiler.stdlib_catalog.v1; catalog_semantic_digest=5e964d8a58fd552a12cd1c3679d1976cbf17af828d4487aea974b651646582d6; modules=34; symbols=307",
       "sources": [
         {
           "path": "stage1/compiler-contracts/snapshots/stdlib-catalog.json",
           "role": "stdlib_catalog",
           "selector": "modules[*].name,symbols[*].signature",
-          "sha256": "d36bbae0b9e25c2c00395fe6f3e9fe70647281f37591e3bf5d3cbbcf38fa837e"
+          "sha256": "744fff40230d6cf138974baeb3ffa3f54400164c55c9e7c47c98fc3778d0ee98"
         }
       ],
       "stability": "experimental",
-      "version": "1.1.0"
+      "version": "1.2.0"
     },
     {
       "id": "axiom://cli/axiomc",
@@ -95,7 +95,7 @@
           "path": "stage1/compiler-contracts/snapshots/capability-ledger.json",
           "role": "cli_top_level_parity",
           "selector": "commands[*].name",
-          "sha256": "bc831072b247ab09850df0c8578621ceb6a579a01014c32f6eb31c684d3b3542"
+          "sha256": "f8f4b1c42ea19f42c8e0ce6f2782e8068939057ceaf5cb11f8244a2e0817e869"
         },
         {
           "path": "stage1/crates/axiomc/src/main.rs",
@@ -966,19 +966,19 @@
       "id": "axiom://schema/axiom.compiler.stdlib_catalog.v1",
       "kind": "schema",
       "migration": {
-        "action": "Update catalog consumers to accept catalog_version 1.1.0 and the additive file_exists and file_size stdlib symbols before consuming the refreshed catalog."
+        "action": "Accept catalog_version 1.2.0 when reading the refreshed catalog; its closed schema and provider identities are otherwise unchanged."
       },
-      "signature": "published schema id=https://omt-global.github.io/axiom/schemas/axiom.compiler.stdlib_catalog.v1.schema.json; semantic_digest=c04c6ae6929b0a68d376b0b3ea771d7cacca72b39dd668b6266c74b455a76708; envelope=axiom.compiler.stdlib_catalog.v1",
+      "signature": "published schema id=https://omt-global.github.io/axiom/schemas/axiom.compiler.stdlib_catalog.v1.schema.json; semantic_digest=0252c28fae7525559634a1124340a2bf27618b99065a01aafc5b8221106604fa; envelope=axiom.compiler.stdlib_catalog.v1",
       "sources": [
         {
           "path": "stage1/compiler-contracts/schemas/axiom.compiler.stdlib_catalog.v1.schema.json",
           "role": "published_schema",
           "selector": "$id,properties.schema_version.const",
-          "sha256": "04d715c4e77a8f74e967b5953a0f63dd1bee1bb255cec18971f7f748830416f5"
+          "sha256": "14b622875d1d2feb7e801f16d9c2c44c87ae2e691cb36c43178cd4f1a3598505"
         }
       ],
       "stability": "experimental",
-      "version": "0.2.0"
+      "version": "0.3.0"
     },
     {
       "id": "axiom://schema/axiom.docs.v1",

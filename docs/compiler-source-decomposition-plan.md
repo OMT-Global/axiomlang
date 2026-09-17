@@ -233,6 +233,13 @@ rather than mutable cache or vendor paths, and required `main.rs` to preserve
 structured resolver failure evidence. Those fail-closed boundaries account for
 the final measured increase recorded here.
 
+The structured JSON-error recovery extracts generated-Rust serialization support
+into `codegen/json_serdes.rs`, native error construction/document boundaries into
+`cranelift_backend/evaluator/json_errors.rs`, and shared scalar JSON intrinsics
+into `cranelift_backend/intrinsics/json.rs`. The existing parser limits and
+backend contracts stay intact. These extractions lower the tracked monolith and
+top-seven ceilings; the new siblings have their own measured ceilings below.
+
 ## Current Top Files
 
 Snapshot updated 2026-07-29 after the Package Resolver v1 security review:
@@ -266,13 +273,13 @@ matching ceiling in this table in the same PR.
 | Tracked item | Ceiling |
 | --- | ---: |
 | `summary.top_file_line_share` | 0.5767 |
-| `summary.top_file_lines` | 71278 |
+| `summary.top_file_lines` | 70857 |
 | `stage1/crates/axiomc/src/cranelift_backend.rs` | 20120 |
 | `stage1/crates/axiomc/src/cranelift_backend/static_output_purity.rs` | 282 |
 | `stage1/crates/axiomc/src/cranelift_backend/host_env_proc_clock.rs` | 620 |
 | `stage1/crates/axiomc/src/cranelift_backend/host_json_serdes.rs` | 257 |
-| `stage1/crates/axiomc/src/cranelift_backend/intrinsics.rs` | 921 |
-| `stage1/crates/axiomc/src/cranelift_backend/evaluator.rs` | 4281 |
+| `stage1/crates/axiomc/src/cranelift_backend/intrinsics.rs` | 733 |
+| `stage1/crates/axiomc/src/cranelift_backend/evaluator.rs` | 4273 |
 | `stage1/crates/axiomc/src/cranelift_backend/host_fs.rs` | 984 |
 | `stage1/crates/axiomc/src/cranelift_backend/host_crypto.rs` | 783 |
 | `stage1/crates/axiomc/src/cranelift_backend/host_net_http.rs` | 1121 |
@@ -282,7 +289,11 @@ matching ceiling in this table in the same PR.
 | `stage1/crates/axiomc/src/main.rs` | 11934 |
 | `stage1/crates/axiomc/src/formatter.rs` | 191 |
 | `stage1/crates/axiomc/src/formatter_tests.rs` | 122 |
-| `stage1/crates/axiomc/src/codegen.rs` | 8035 |
+| `stage1/crates/axiomc/src/codegen.rs` | 7655 |
+| `stage1/crates/axiomc/src/cranelift_backend/intrinsics/json.rs` | 196 |
+| `stage1/crates/axiomc/src/cranelift_backend/evaluator/json_errors.rs` | 85 |
+| `stage1/crates/axiomc/src/codegen/json_serdes.rs` | 517 |
+| `stage1/crates/axiomc/src/codegen/json_serdes_tests.rs` | 71 |
 | `stage1/crates/axiomc/src/syntax.rs` | 6396 |
 | `stage1/crates/axiomc/src/hir/async_runtime.rs` | 188 |
 | `stage1/crates/axiomc/src/hir/capabilities.rs` | 773 |

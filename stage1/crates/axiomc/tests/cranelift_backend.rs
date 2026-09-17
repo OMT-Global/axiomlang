@@ -17165,3 +17165,60 @@ fn write_env_denial_project(project: &Path) {
     )
     .expect("write env denied source");
 }
+
+#[cfg(not(windows))]
+#[test]
+fn cranelift_backend_structured_json_errors_preserve_lowering_guard() {
+    assert!(which::which("cc").is_ok(), "C compiler required for native JSON error proof");
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("structured-json-errors");
+    fs::create_dir_all(project.join("src")).expect("project src");
+    copy_fixture("axiom.toml", &project.join("axiom.toml"));
+    copy_fixture("axiom.lock", &project.join("axiom.lock"));
+    fs::write(project.join("src/main.ax"), r#"import "std/serdes.ax"
+match from_json_str("{\"outer\":[true,}") {
+Ok(value) {
+print "unexpected success"
+}
+Err(error) {
+print parse_error_offset(error)
+}
+}
+match from_json_str("{\"outer\":[true,}") {
+Ok(value) {
+print "unexpected success"
+}
+Err(error) {
+print parse_error_path(error)
+}
+}
+match from_json_str("{\"outer\":[true,}") {
+Ok(value) {
+print "unexpected success"
+}
+Err(error) {
+print parse_error_message(error)
+}
+}
+match from_json_str("[1,2,]") {
+Ok(value) {
+print "unexpected success"
+}
+Err(error) {
+print parse_error_path(error)
+}
+}
+"#).expect("write program");
+    let checked = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args(["check", project.to_str().unwrap(), "--json"])
+        .output().expect("typecheck public error accessors");
+    assert!(checked.status.success(), "error accessors must typecheck: {} {}", String::from_utf8_lossy(&checked.stdout), String::from_utf8_lossy(&checked.stderr));
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args(["build", project.to_str().unwrap(), "--backend", "cranelift", "--json"])
+        .output().expect("build real native program");
+    // General JSON serdes has no qualified runtime lowering yet. This slice
+    // must not turn evaluator availability into build-time execution permission.
+    assert_runtime_lowering_required(&output, "structured JSON errors");
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("build JSON");
+    assert_eq!(payload["lowering"]["execution_mode"], "not_produced");
+}
