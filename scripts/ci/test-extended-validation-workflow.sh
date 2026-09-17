@@ -183,6 +183,16 @@ for name, body, prerequisite in (
     elif 'install -y --no-install-recommends gcc libc6-dev' not in setup.group("body") or 'exit 1' not in setup.group("body"):
         errors.append(f"{name} compiler provisioning must retain installation and fail-closed checks")
 
+# Required qualification must have the same pinned supply-chain tool available.
+vet_setup = re.search(r"^      - name: Ensure cargo-vet\n(?P<body>.*?)(?=^      - |\Z)", extended_job, re.MULTILINE | re.DOTALL)
+if vet_setup is None or vet_setup.start() >= extended_job.index("      - name: Run extended validation"):
+    errors.append("extended-checks must provision cargo-vet before qualification")
+else:
+    source = (workflow_path.parent / "toolchain-supply-chain.yml").read_text(encoding="utf-8")
+    canonical = re.search(r"^      - name: Ensure cargo-vet\n(?P<body>.*?)(?=^      - |\Z)", source, re.MULTILINE | re.DOTALL)
+    if canonical is None or canonical.group("body").strip() != vet_setup.group("body").strip():
+        errors.append("extended-checks cargo-vet setup must match pinned supply-chain provisioning")
+
 if errors:
     for error in errors:
         print(f"error: {error}", file=sys.stderr)
