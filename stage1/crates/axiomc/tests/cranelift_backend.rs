@@ -1,5 +1,5 @@
 use serde_json::Value;
-use std::fs;
+use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::Path;
 use std::process::{Command, Output, Stdio};
@@ -4339,7 +4339,21 @@ fn cranelift_backend_reports_scoped_file_metadata_at_runtime() {
     let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
     assert_eq!(payload["backend"], "cranelift");
     assert_eq!(payload["generated_rust"], Value::Null);
+    assert_eq!(payload["lowering"]["execution_mode"], "direct_native_runtime");
+    assert_eq!(payload["lowering"]["direct_native_runtime"], true);
     let binary = payload["binary"].as_str().expect("binary path");
+    let large_file = project.join("src/large.txt");
+    let large_len = 64 * 1024 * 1024 + 1;
+    OpenOptions::new()
+        .write(true)
+        .open(&large_file)
+        .expect("open large metadata fixture")
+        .set_len(large_len)
+        .expect("expand large metadata fixture");
+    let outside = temp.path().join("metadata-outside.txt");
+    fs::write(&outside, "outside-metadata").expect("write metadata symlink target");
+    std::os::unix::fs::symlink(&outside, project.join("src/escape.txt"))
+        .expect("create metadata symlink escape");
     let audit_log = project.join("native-fs-metadata-audit.jsonl");
     assert!(
         !audit_log.exists(),
@@ -4352,7 +4366,7 @@ fn cranelift_backend_reports_scoped_file_metadata_at_runtime() {
         .expect("run cranelift file metadata binary");
     assert_eq!(
         run.status.code(),
-        Some(runtime_content.len() as i32),
+        Some(42),
         "runtime metadata should determine the exit code: stdout={} stderr={}",
         String::from_utf8_lossy(&run.stdout),
         String::from_utf8_lossy(&run.stderr)
@@ -4362,6 +4376,80 @@ fn cranelift_backend_reports_scoped_file_metadata_at_runtime() {
     assert!(audit.contains("\"intrinsic\":\"fs_file_size\""));
     assert!(audit.contains("\"outcome\":\"ok\""));
     assert!(!audit.contains("compile-time"));
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[test]
+fn cranelift_backend_metadata_rejects_special_files_without_reading() {
+    use std::ffi::CString;
+    use std::os::unix::fs::{PermissionsExt, symlink};
+    use std::os::unix::net::UnixListener;
+    use std::process::Stdio;
+    use std::time::{Duration, Instant};
+
+    assert!(which::which("cc").is_ok(), "metadata regression requires native linker");
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("metadata-types");
+    write_fs_file_metadata_project(&project);
+    for name in ["fifo", "socket", "private.txt", "link.txt"] {
+        fs::write(project.join("src").join(name), "seed").unwrap();
+    }
+    fs::write(project.join("src/main.ax"), r#"import "std/fs.ax"
+fn main(): int {
+let fifo_exists: bool = file_exists("src/fifo")
+let fifo_size: int = file_size("src/fifo")
+let socket_exists: bool = file_exists("src/socket")
+let socket_size: int = file_size("src/socket")
+let private_exists: bool = file_exists("src/private.txt")
+let private_size: int = file_size("src/private.txt")
+let link_size: int = file_size("src/link.txt")
+if fifo_exists == false && fifo_size == -1 && socket_exists == false && socket_size == -1 && private_exists == true && private_size == 7 && link_size == 7 {
+return 43
+} else {
+return 1
+}
+}
+"#).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args(["build", project.to_str().unwrap(), "--json"])
+        .output().expect("build default native metadata fixture");
+    assert!(output.status.success(), "build failed: {} {}",
+        String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+    let payload: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    assert_eq!(payload["lowering"]["direct_native_runtime"], true);
+
+    // Change every queried object after compilation: evaluator answers cannot pass.
+    let fifo = project.join("src/fifo");
+    fs::remove_file(&fifo).unwrap();
+    let fifo_c = CString::new(fifo.as_os_str().as_encoded_bytes()).unwrap();
+    assert_eq!(unsafe { libc::mkfifo(fifo_c.as_ptr(), 0o600) }, 0);
+    let socket = project.join("src/socket");
+    fs::remove_file(&socket).unwrap();
+    let _listener = UnixListener::bind(&socket).unwrap();
+    let private = project.join("src/private.txt");
+    fs::write(&private, b"private").unwrap();
+    fs::set_permissions(&private, fs::Permissions::from_mode(0)).unwrap();
+    let link = project.join("src/link.txt");
+    fs::remove_file(&link).unwrap();
+    symlink("private.txt", &link).unwrap();
+
+    let mut child = Command::new(payload["binary"].as_str().unwrap())
+        .stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        if child.try_wait().unwrap().is_some() { break; }
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            panic!("metadata opened FIFO for content and blocked");
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let run = child.wait_with_output().unwrap();
+    assert_eq!(run.status.code(), Some(43), "metadata descriptor classification/permission policy: {} {}",
+        String::from_utf8_lossy(&run.stdout), String::from_utf8_lossy(&run.stderr));
 }
 
 #[cfg(not(windows))]
@@ -16075,6 +16163,7 @@ return 1
 
 fn write_fs_file_metadata_project(project: &Path) {
     fs::create_dir_all(project.join("src")).expect("create fs metadata project src");
+    fs::create_dir(project.join("src/metadata-dir")).expect("create metadata directory fixture");
     write_manifest_fixture(
         project.join("axiom.toml"),
         r#"[package]
@@ -16087,6 +16176,7 @@ out_dir = "dist"
 
 [capabilities]
 fs = true
+"fs:write" = true
 net = false
 process = false
 env = false
@@ -16108,19 +16198,33 @@ source = "path"
     .expect("write fs metadata lockfile");
     fs::write(project.join("src/metadata.txt"), "compile-time\n")
         .expect("write fs metadata fixture");
+    fs::write(project.join("src/zero.txt"), "").expect("write zero-byte metadata fixture");
+    fs::write(project.join("src/large.txt"), "seed").expect("write large metadata fixture");
     fs::write(
         project.join("src/main.ax"),
         r#"import "std/fs.ax"
 
 static METADATA_PATH: string = "src/metadata.txt"
+static ZERO_PATH: string = "src/zero.txt"
+static DIRECTORY_PATH: string = "src/metadata-dir"
+static LARGE_PATH: string = "src/large.txt"
+static ESCAPE_PATH: string = "src/escape.txt"
 
 fn main(): int {
+let write_status: int = fs_write(METADATA_PATH, "runtime-metadata\\n")
+let replace_status: int = replace_file(METADATA_PATH, "runtime-metadata\\n")
 let exists: bool = file_exists(METADATA_PATH)
 let missing: bool = file_exists("src/missing.txt")
 let size: int = file_size(METADATA_PATH)
 let missing_size: int = file_size("src/missing.txt")
-if exists == true && missing == false && size > 0 && missing_size == -1 {
-return size
+let zero_exists: bool = file_exists(ZERO_PATH)
+let zero_size: int = file_size(ZERO_PATH)
+let directory_exists: bool = file_exists(DIRECTORY_PATH)
+let directory_size: int = file_size(DIRECTORY_PATH)
+let large_size: int = file_size(LARGE_PATH)
+let escape_exists: bool = file_exists(ESCAPE_PATH)
+if write_status == 0 && replace_status == 0 && exists == true && missing == false && size == 18 && missing_size == -1 && zero_exists == true && zero_size == 0 && directory_exists == false && directory_size == -1 && large_size == 67108865 && escape_exists == false {
+return 42
 } else {
 return 1
 }
@@ -17164,4 +17268,95 @@ fn write_env_denial_project(project: &Path) {
         "import \"std/env.ax\"\nmatch get_env(\"AXIOM_CRANELIFT_ENV_READ\") {\nSome(value) {\nprint value\n}\nNone {\nprint \"missing\"\n}\n}\n",
     )
     .expect("write env denied source");
+}
+
+#[cfg(not(windows))]
+#[test]
+fn cranelift_backend_structured_json_errors_preserve_lowering_guard() {
+    assert!(which::which("cc").is_ok(), "C compiler required for native JSON error proof");
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("structured-json-errors");
+    fs::create_dir_all(project.join("src")).expect("project src");
+    copy_fixture("axiom.toml", &project.join("axiom.toml"));
+    copy_fixture("axiom.lock", &project.join("axiom.lock"));
+    fs::write(project.join("src/main.ax"), r#"import "std/serdes.ax"
+match from_json_str("{\"outer\":[true,}") {
+Ok(value) {
+print "unexpected success"
+}
+Err(error) {
+print parse_error_offset(error)
+}
+}
+match from_json_str("{\"outer\":[true,}") {
+Ok(value) {
+print "unexpected success"
+}
+Err(error) {
+print parse_error_path(error)
+}
+}
+match from_json_str("{\"outer\":[true,}") {
+Ok(value) {
+print "unexpected success"
+}
+Err(error) {
+print parse_error_message(error)
+}
+}
+match from_json_str("[1,2,]") {
+Ok(value) {
+print "unexpected success"
+}
+Err(error) {
+print parse_error_path(error)
+}
+}
+"#).expect("write program");
+    let checked = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args(["check", project.to_str().unwrap(), "--json"])
+        .output().expect("typecheck public error accessors");
+    assert!(checked.status.success(), "error accessors must typecheck: {} {}", String::from_utf8_lossy(&checked.stdout), String::from_utf8_lossy(&checked.stderr));
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args(["build", project.to_str().unwrap(), "--backend", "cranelift", "--json"])
+        .output().expect("build real native program");
+    // General JSON serdes has no qualified runtime lowering yet. This slice
+    // must not turn evaluator availability into build-time execution permission.
+    assert_runtime_lowering_required(&output, "structured JSON errors");
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("build JSON");
+    assert_eq!(payload["lowering"]["execution_mode"], "not_produced");
+}
+
+#[cfg(not(windows))]
+#[test]
+fn cranelift_backend_default_cli_lowers_loop_control() {
+    assert!(which::which("cc").is_ok(), "native loop acceptance requires cc");
+    let cases = [
+        ("nested", "let outer: int = 0\nlet total: int = 0\nwhile outer < 3 {\nouter = outer + 1\nlet inner: int = 0\nwhile inner < 4 {\ninner = inner + 1\nif inner == 2 {\ncontinue\n}\nif inner == 4 {\nbreak\n}\ntotal = total + outer * 10 + inner\n}\n}\nprint total\nprint outer\n", "132\n3\n"),
+        ("terminated-branches", "let iteration: int = 0\nwhile iteration < 3 {\niteration = iteration + 1\nif iteration == 2 {\nbreak\n} else {\ncontinue\n}\n}\nprint iteration\n", "2\n"),
+    ];
+    for (label, source, expected) in cases {
+        let temp = tempfile::tempdir().expect("loop fixture");
+        let project = temp.path().join(label);
+        fs::create_dir_all(project.join("src")).expect("project src");
+        copy_fixture("axiom.toml", &project.join("axiom.toml"));
+        copy_fixture("axiom.lock", &project.join("axiom.lock"));
+        fs::write(project.join("src/main.ax"), source).expect("loop source");
+        let path = project.to_str().expect("project path");
+        let checked = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+            .args(["check", path, "--json"]).output().expect("public check");
+        assert!(checked.status.success(), "{label}: check failed: {} {}", String::from_utf8_lossy(&checked.stdout), String::from_utf8_lossy(&checked.stderr));
+        // Omit --backend: this must prove the public default, not internal Rust fallback.
+        let built = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+            .args(["build", path, "--json"]).output().expect("public default build");
+        assert!(built.status.success(), "{label}: default build failed: {} {}", String::from_utf8_lossy(&built.stdout), String::from_utf8_lossy(&built.stderr));
+        let payload: Value = serde_json::from_slice(&built.stdout).expect("build envelope");
+        assert_eq!(payload["backend"], "cranelift");
+        assert_eq!(payload["generated_rust"], Value::Null);
+        let binary = payload["binary"].as_str().expect("native binary");
+        assert!(Path::new(binary).with_extension("cranelift.o").is_file());
+        let execution = Command::new(binary).output().expect("execute actual loop binary");
+        assert!(execution.status.success(), "{label}: native execution failed");
+        assert_eq!(String::from_utf8_lossy(&execution.stdout), expected, "{label}");
+    }
 }

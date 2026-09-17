@@ -67,6 +67,7 @@ fast_checks_trusted_base_ref=$(awk '
 benchmark_gate_reference=$(grep -nE 'check-stage1-benchmarks\.py|stage1-comparison-report\.json' "$workflow" || true)
 runtime_abi_status_check=$(grep -nF 'scripts/ci/render-direct-native-runtime-abi-status.py' "$fast_checks_script" || true)
 runtime_abi_coverage_check=$(grep -nF -- '--coverage-matrix' "$fast_checks_script" || true)
+schema_metadata_bin_check=$(grep -nA1 -E '^cargo test --manifest-path "\$repo_root/stage1/Cargo[.]toml" -p axiomc \\$' "$fast_checks_script" | grep -E '^[0-9]+-[[:space:]]+--bin axiomc --test schema_metadata --locked$' || true)
 full_lib_triage_check=$(grep -nF 'scripts/ci/check-stage1-full-lib-triage.py' "$fast_checks_script" || true)
 full_lib_suite_job=$(grep -nF 'full-lib-suite:' "$workflow" || true)
 full_lib_suite_run=$(grep -nF 'cargo test --manifest-path stage1/Cargo.toml -p axiomc --lib --features run-native-tests' "$workflow" || true)
@@ -81,14 +82,11 @@ full_lib_suite_section="$(
 full_lib_suite_linker=$(printf '%s\n' "$full_lib_suite_section" | grep -F 'Ensure Rust linker availability' || true)
 axiomc_bin_suite=$(printf '%s\n' "$full_lib_suite_section" | grep -F -- 'cargo test --manifest-path stage1/Cargo.toml -p axiomc --bin axiomc --features run-native-tests' || true)
 axiomc_cranelift_suite=$(printf '%s\n' "$full_lib_suite_section" | grep -F -- 'cargo test --manifest-path stage1/Cargo.toml -p axiomc --test cranelift_backend --features run-native-tests' || true)
+axiomc_manifest_schema_parity_suite=$(printf '%s\n' "$full_lib_suite_section" | grep -E -- '^[[:space:]]*run: RUST_MIN_STACK=8388608 cargo test --manifest-path stage1/Cargo\.toml -p axiomc --test manifest_schema_parity --locked -- --test-threads=1[[:space:]]*$' || true)
+axiomc_json_contract_suite=$(printf '%s\n' "$full_lib_suite_section" | grep -E -- '^[[:space:]]*run: RUST_MIN_STACK=8388608 cargo test --manifest-path stage1/Cargo\.toml -p axiomc --test json_contract_snapshots --locked -- --test-threads=1[[:space:]]*$' || true)
 axiomc_numeric_overflow_suite=$(printf '%s\n' "$full_lib_suite_section" | grep -F -- 'cargo test --manifest-path stage1/Cargo.toml -p axiomc --test cranelift_numeric_overflow --features run-native-tests' || true)
-# The schema-rejection test intentionally constructs malformed input (#1682).
-# Do not mistake that negative control for an executable compiler fixture.
-legacy_cranelift_manifest=$(awk '
-  /^fn manifest_fixture_validation_precedes_disk_write\(\)/ { negative=1 }
-  !negative && /\[unsafe_rationale\]/ { print NR ":" $0 }
-  negative && /^}/ { negative=0 }
-' "$repo_root/stage1/crates/axiomc/tests/cranelift_backend.rs")
+# Keep the intentional schema-rejection test byte-pinned; reject legacy tables elsewhere.
+python3 "$repo_root/scripts/ci/check-cranelift-manifest-fixtures.py"
 proof_workload_test=$(grep -nF 'bash scripts/ci/run-stage1-proof-test.sh' "$fast_checks_script" || true)
 stdlib_catalog_check=$(grep -nF 'scripts/ci/check-stdlib-catalog.py' "$fast_checks_script" || true)
 stdlib_catalog_regression=$(grep -nF 'scripts/ci/test-check-stdlib-catalog.py' "$fast_checks_script" || true)
@@ -203,6 +201,16 @@ if [[ -z "$runtime_abi_coverage_check" ]]; then
   exit 1
 fi
 
+if ! grep -Fxq 'python3 "$script_repo_root/scripts/ci/test-fast-check-target-isolation.py"' "$fast_checks_script"; then
+  echo "run-fast-checks must exercise commit-bound target isolation (#1195)" >&2
+  exit 1
+fi
+
+if [[ -z "$schema_metadata_bin_check" ]]; then
+  echo "run-fast-checks must select the axiomc binary for schema metadata CLI tests (#1195)" >&2
+  exit 1
+fi
+
 if [[ -z "$axiomc_bin_suite" ]]; then
   echo "fast-checks must execute the axiomc bin target so CLI/help tests cannot disappear from PR CI (#1542)" >&2
   exit 1
@@ -213,16 +221,22 @@ if [[ -z "$axiomc_cranelift_suite" ]]; then
   exit 1
 fi
 
+if [[ -z "$axiomc_json_contract_suite" ]]; then
+  echo "full-lib-suite must run json_contract_snapshots; actual CLI envelopes must satisfy their schemas" >&2
+  exit 1
+fi
+
+if [[ -z "$axiomc_manifest_schema_parity_suite" ]]; then
+  echo "full-lib-suite must run manifest_schema_parity; schema metadata must be checked against the real parser" >&2
+  exit 1
+fi
+
 if [[ -z "$axiomc_numeric_overflow_suite" ]]; then
   echo "pr-fast-ci must execute the native numeric overflow matrix in required native mode (#1659)" >&2
   exit 1
 fi
 
-if [[ -n "$legacy_cranelift_manifest" ]]; then
-  echo "cranelift_backend fixtures must use capabilities.unsafe_rationale after the #1519 manifest migration" >&2
-  printf '%s\n' "$legacy_cranelift_manifest" >&2
-  exit 1
-fi
+
 
 if [[ -z "$full_lib_suite_job" || -z "$full_lib_suite_run" || -z "$full_lib_suite_gate" ]]; then
   echo "pr-fast-ci must run the full axiomc lib suite as a CI Gate dependency (#1255 blocking lane)" >&2

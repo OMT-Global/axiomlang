@@ -7,7 +7,7 @@ capability-ledger:
 compatibility-v1:
 	python3 scripts/ci/extract-public-contract-v1.py --check
 	python3 scripts/ci/check-compatibility-corpus-v1.py --json
-	python3 scripts/ci/check-compatibility-v1.py --old stage1/compatibility/fixtures/accepted-baseline/contract.json --old-policy stage1/compatibility/fixtures/accepted-baseline/policy.json --new stage1/compatibility/fixtures/current/contract.json --json
+	python3 scripts/ci/check-compatibility-v1.py --old stage1/compatibility/fixtures/accepted-baseline/contract.json --old-policy stage1/compatibility/fixtures/accepted-baseline/policy.json --new stage1/compatibility/fixtures/current/contract.json --historical-baseline --json
 
 compatibility-v1-test:
 	bash scripts/ci/test-check-compatibility-v1.sh
