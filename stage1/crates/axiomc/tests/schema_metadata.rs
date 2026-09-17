@@ -124,7 +124,7 @@ fn quality_v1_schemas_reject_contradictory_reports() {
             "targets": ["lib", "bin:axiomc"],
             "locked": true,
             "testThreads": 1,
-            "skippedTests": ["tests::check_properties_runs_property_only_tests"],
+            "skippedTests": ["tests::check_properties_runs_only_property_tests_and_fails_closed_without_runtime_lowering"],
             "budgetSeconds": 600
         },
         "status": "passed",
@@ -157,6 +157,14 @@ fn quality_v1_schemas_reject_contradictory_reports() {
     report_validator
         .validate(&report)
         .expect("minimal passing quality report matches its schema");
+
+    let mut stale_profile = report.clone();
+    stale_profile["profile"]["skippedTests"] =
+        serde_json::json!(["tests::check_properties_runs_property_only_tests"]);
+    assert!(
+        !report_validator.is_valid(&stale_profile),
+        "quality reports reject the superseded skipped-test profile"
+    );
 
     let finding = serde_json::json!({
         "code": "global_coverage_regression",

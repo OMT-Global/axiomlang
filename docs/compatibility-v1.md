@@ -80,7 +80,7 @@ release history or a previous compiler.
 `previous-contract-fixture/` remains sparse synthetic checker input and is not
 used as the canonical ratchet.
 
-The current source contract is version `0.6.0` with 70 surfaces. Its changes
+The current source contract is version `0.7.0` with 70 surfaces. Its changes
 from the byte-frozen 52-surface `0.1.0` accepted baseline include the five
 Package Trust v1 schemas, eight additive base-contract schemas (Filesystem v1,
 Provider ABI, HTTP client, runtime observability, Semantic MIR, runtime lifecycle, target support, and persistent LSP), two quality
@@ -108,15 +108,22 @@ python3 scripts/ci/check-compatibility-corpus-v1.py --json
 
 ## Compatibility reports
 
-Run the checker against the corpus contracts:
+Run the checker against the frozen accepted baseline and current corpus:
 
 ```bash
 python3 scripts/ci/check-compatibility-v1.py \
   --old stage1/compatibility/fixtures/accepted-baseline/contract.json \
   --old-policy stage1/compatibility/fixtures/accepted-baseline/policy.json \
   --new stage1/compatibility/fixtures/current/contract.json \
+  --historical-baseline \
   --json
 ```
+
+`--historical-baseline` permits stored migration history on surfaces added since
+the frozen baseline; their additive report entries have no migration. Use this
+mode only for that historical ratchet. Omit it for live-base comparisons, which
+remain strict about migration metadata for newly added surfaces. Existing
+surfaces still require version increases for semantic changes in either mode.
 
 The success report records exact old and new policy and contract versions plus
 exact old and new compiler current/minimum/maximum versions. Its changes are
