@@ -88,6 +88,8 @@ struct I64RuntimeRefs {
     #[cfg(not(windows))]
     unlinkat: FuncRef,
     lseek: FuncRef,
+    #[cfg(not(windows))]
+    metadata_stat: FuncRef,
     close: FuncRef,
     #[cfg(not(windows))]
     fsync: FuncRef,
@@ -255,6 +257,11 @@ pub enum I64Expr {
     FileLen {
         path: String,
         max_bytes: u64,
+    },
+    /// Runtime file metadata length. Unlike `FileLen`, this is a stat-style
+    /// probe: it never reads file contents and has no read-size cap.
+    FileMetadataLen {
+        path: String,
     },
     AuditFs {
         intrinsic: String,
@@ -874,6 +881,20 @@ fn emit_i64_exit_object(
         .map_err(|message| {
             CraneliftBackendError::new(format!("declare lseek import: {message}"))
         })?;
+    #[cfg(not(windows))]
+    let mut metadata_stat_sig = module.make_signature();
+    #[cfg(not(windows))]
+    metadata_stat_sig.params.push(AbiParam::new(if cfg!(target_os = "macos") { pointer_type } else { types::I32 }));
+    #[cfg(not(windows))]
+    metadata_stat_sig.params.push(AbiParam::new(pointer_type));
+    #[cfg(not(windows))]
+    metadata_stat_sig.returns.push(AbiParam::new(types::I32));
+    #[cfg(not(windows))]
+    let metadata_stat_id = module
+        .declare_function(if cfg!(all(target_os = "macos", target_arch = "x86_64")) { "stat$INODE64" } else if cfg!(target_os = "macos") { "stat" } else { "fstat" }, Linkage::Import, &metadata_stat_sig)
+        .map_err(|message| {
+            CraneliftBackendError::new(format!("declare metadata_stat import: {message}"))
+        })?;
     let mut close_sig = module.make_signature();
     close_sig.params.push(AbiParam::new(types::I32));
     close_sig.returns.push(AbiParam::new(types::I32));
@@ -1172,6 +1193,7 @@ fn emit_i64_exit_object(
                 renameat_id,
                 unlinkat_id,
                 lseek_id,
+                metadata_stat_id,
                 close_id,
                 fsync_id,
                 syncfs_id,
@@ -1284,6 +1306,8 @@ fn emit_i64_exit_object(
         #[cfg(not(windows))]
         let unlinkat_ref = module.declare_func_in_func(unlinkat_id, builder.func);
         let lseek_ref = module.declare_func_in_func(lseek_id, builder.func);
+        #[cfg(not(windows))]
+        let metadata_stat_ref = module.declare_func_in_func(metadata_stat_id, builder.func);
         let close_ref = module.declare_func_in_func(close_id, builder.func);
         #[cfg(not(windows))]
         let fsync_ref = module.declare_func_in_func(fsync_id, builder.func);
@@ -1344,6 +1368,8 @@ fn emit_i64_exit_object(
             #[cfg(not(windows))]
             unlinkat: unlinkat_ref,
             lseek: lseek_ref,
+            #[cfg(not(windows))]
+            metadata_stat: metadata_stat_ref,
             close: close_ref,
             #[cfg(not(windows))]
             fsync: fsync_ref,
@@ -1624,6 +1650,7 @@ fn define_i64_function(
     #[cfg(not(windows))]
     unlinkat_id: FuncId,
     lseek_id: FuncId,
+    #[cfg(not(windows))] metadata_stat_id: FuncId,
     close_id: FuncId,
     #[cfg(not(windows))]
     fsync_id: FuncId,
@@ -1706,6 +1733,8 @@ fn define_i64_function(
         #[cfg(not(windows))]
         let unlinkat_ref = module.declare_func_in_func(unlinkat_id, builder.func);
         let lseek_ref = module.declare_func_in_func(lseek_id, builder.func);
+        #[cfg(not(windows))]
+        let metadata_stat_ref = module.declare_func_in_func(metadata_stat_id, builder.func);
         let close_ref = module.declare_func_in_func(close_id, builder.func);
         #[cfg(not(windows))]
         let fsync_ref = module.declare_func_in_func(fsync_id, builder.func);
@@ -1766,6 +1795,8 @@ fn define_i64_function(
             #[cfg(not(windows))]
             unlinkat: unlinkat_ref,
             lseek: lseek_ref,
+            #[cfg(not(windows))]
+            metadata_stat: metadata_stat_ref,
             close: close_ref,
             #[cfg(not(windows))]
             fsync: fsync_ref,
@@ -3569,6 +3600,16 @@ fn emit_i64_expr(
         I64Expr::FileLen { path, max_bytes } => {
             emit_i64_file_len_expr(builder, runtime_refs, path, *max_bytes)
         }
+        I64Expr::FileMetadataLen { path } => {
+            #[cfg(not(windows))]
+            {
+                emit_i64_file_metadata_len_expr(builder, runtime_refs, path)
+            }
+            #[cfg(windows)]
+            {
+                emit_i64_file_len_expr(builder, runtime_refs, path, i64::MAX as u64)
+            }
+        }
         I64Expr::AuditFs {
             intrinsic,
             package,
@@ -5145,6 +5186,98 @@ fn emit_i64_file_len_expr(
         .ins()
         .jump(merge_block, &[BlockArg::Value(missing_result)]);
 
+    builder.switch_to_block(merge_block);
+    builder.seal_block(merge_block);
+    Ok(builder.block_params(merge_block)[0])
+}
+
+#[cfg(not(windows))]
+fn emit_i64_file_metadata_len_expr(
+    builder: &mut FunctionBuilder<'_>,
+    runtime_refs: I64RuntimeRefs,
+    path: &str,
+) -> Result<cranelift_codegen::ir::Value, CraneliftBackendError> {
+    if path.as_bytes().contains(&0) {
+        return Err(CraneliftBackendError::new("filesystem path contains an interior null byte"));
+    }
+    // This backend emits only the host ISA. Use the maintained host libc ABI,
+    // not an opaque buffer, guessed offsets, or a second path-based probe.
+    if std::mem::size_of::<libc::off_t>() != 8 {
+        return Err(CraneliftBackendError::new("unsupported native stat size ABI"));
+    }
+    let mode_type = types::Type::int((std::mem::size_of::<libc::mode_t>() * 8) as u16)
+        .ok_or_else(|| CraneliftBackendError::new("unsupported native stat mode ABI"))?;
+    let stat_slot = builder.create_sized_stack_slot(StackSlotData::new(
+        StackSlotKind::ExplicitSlot,
+        std::mem::size_of::<libc::stat>() as u32,
+        std::mem::align_of::<libc::stat>().trailing_zeros() as u8,
+    ));
+    let stat_ptr = builder.ins().stack_addr(types::I64, stat_slot, 0);
+    let path_ptr = emit_i64_path_ptr(builder, path)?;
+    // Linux metadata-only descriptors require no content read permission.
+    // Darwin O_EVTONLY still requires read permission, so use stat there, just
+    // like the evaluator's metadata query. Existing runtime scope guards remain.
+    #[cfg(target_os = "macos")]
+    let handle: Option<Value> = None;
+    #[cfg(not(target_os = "macos"))]
+    let handle = {
+        #[cfg(any(target_os = "linux", target_os = "android"))]
+        let flags = libc::O_PATH | libc::O_CLOEXEC;
+        #[cfg(not(any(target_os = "linux", target_os = "android")))]
+        let flags = libc::O_RDONLY | libc::O_NONBLOCK | libc::O_CLOEXEC;
+        let open_flags = builder.ins().iconst(types::I32, i64::from(flags));
+        let open_call = builder.ins().call(runtime_refs.open, &[path_ptr, open_flags]);
+        Some(builder.inst_results(open_call)[0])
+    };
+    let missing_block = builder.create_block();
+    let stat_block = builder.create_block();
+    let inspect_block = builder.create_block();
+    let close_missing_block = builder.create_block();
+    let length_block = builder.create_block();
+    let present_block = builder.create_block();
+    let merge_block = builder.create_block();
+    builder.append_block_param(merge_block, types::I64);
+    if let Some(fd) = handle {
+        let open_failed = builder.ins().icmp_imm(IntCC::SignedLessThan, fd, 0);
+        builder.ins().brif(open_failed, missing_block, &[], stat_block, &[]);
+    } else {
+        builder.ins().jump(stat_block, &[]);
+    }
+
+    builder.switch_to_block(stat_block);
+    builder.seal_block(stat_block);
+    let call = builder.ins().call(runtime_refs.metadata_stat, &[handle.unwrap_or(path_ptr), stat_ptr]);
+    let status = builder.inst_results(call)[0];
+    let failed = builder.ins().icmp_imm(IntCC::NotEqual, status, 0);
+    builder.ins().brif(failed, close_missing_block, &[], inspect_block, &[]);
+
+    builder.switch_to_block(inspect_block);
+    builder.seal_block(inspect_block);
+    let mode = builder.ins().load(mode_type, MemFlags::trusted(), stat_ptr,
+        std::mem::offset_of!(libc::stat, st_mode) as i32);
+    let kind = builder.ins().band_imm(mode, i64::from(libc::S_IFMT));
+    let regular = builder.ins().icmp_imm(IntCC::Equal, kind, i64::from(libc::S_IFREG));
+    builder.ins().brif(regular, length_block, &[], close_missing_block, &[]);
+
+    builder.switch_to_block(length_block);
+    builder.seal_block(length_block);
+    let length = builder.ins().load(types::I64, MemFlags::trusted(), stat_ptr,
+        std::mem::offset_of!(libc::stat, st_size) as i32);
+    let overflow = builder.ins().icmp_imm(IntCC::SignedLessThan, length, 0);
+    builder.ins().brif(overflow, close_missing_block, &[], present_block, &[]);
+
+    builder.switch_to_block(present_block);
+    builder.seal_block(present_block);
+    if let Some(fd) = handle { builder.ins().call(runtime_refs.close, &[fd]); }
+    builder.ins().jump(merge_block, &[BlockArg::Value(length)]);
+    builder.switch_to_block(close_missing_block);
+    builder.seal_block(close_missing_block);
+    if let Some(fd) = handle { builder.ins().call(runtime_refs.close, &[fd]); }
+    builder.ins().jump(missing_block, &[]);
+    builder.switch_to_block(missing_block);
+    builder.seal_block(missing_block);
+    let missing = builder.ins().iconst(types::I64, -1);
+    builder.ins().jump(merge_block, &[BlockArg::Value(missing)]);
     builder.switch_to_block(merge_block);
     builder.seal_block(merge_block);
     Ok(builder.block_params(merge_block)[0])
