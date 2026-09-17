@@ -10,7 +10,7 @@
       "sha256": "30e92d85d0e0cc6cf14a32477e5b45afbc44d3d36803a8e456d55ef93860767a"
     }
   },
-  "contract_version": "0.6.0",
+  "contract_version": "0.7.0",
   "edition": {
     "id": "2026",
     "source": {
@@ -650,17 +650,20 @@
     {
       "id": "axiom://schema/axiom-quality-report-v1",
       "kind": "schema",
-      "signature": "published schema id=https://omt-global.github.io/axiom/schemas/axiom-quality-report-v1.schema.json; semantic_digest=1b51c517158840aec4dbdaf1b0773604b8a7208d24334612dde2afd2589af549",
+      "migration": {
+        "action": "Quality reports retain the same single-test exclusion and profile semantics, but skippedTests now names tests::check_properties_runs_only_property_tests_and_fails_closed_without_runtime_lowering, matching the existing quality-gate producer and renamed binary test. Consumers validating current reports must use schema surface version 0.2.0; historical reports using the former test name retain their historical schema."
+      },
+      "signature": "published schema id=https://omt-global.github.io/axiom/schemas/axiom-quality-report-v1.schema.json; semantic_digest=8fc7532bfcfec8c8a52c56308efacc4bf4f078aa6ae42cfe2a68145a317e4c08",
       "sources": [
         {
           "path": "stage1/schemas/axiom-quality-report-v1.schema.json",
           "role": "published_schema",
           "selector": "$id,properties.schema_version.const",
-          "sha256": "e8a63acfb396d76722e47b1bd0ae0e4f21dda41ab86642344baedca3b7f2f653"
+          "sha256": "efa3f2468c3bb8b1b3d8a4e27bcb14149964a9086359e3660e8c5b0496bba572"
         }
       ],
       "stability": "experimental",
-      "version": "0.1.0"
+      "version": "0.2.0"
     },
     {
       "id": "axiom://schema/axiom-registry-index-v2",
