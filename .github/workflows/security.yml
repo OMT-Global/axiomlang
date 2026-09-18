@@ -13,7 +13,7 @@ permissions:
 jobs:
   dependency-review:
     if: github.event_name == 'pull_request' && vars.DEPENDENCY_REVIEW_ENABLED == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       pull-requests: read
@@ -32,10 +32,10 @@ jobs:
         include:
         - language: python
           build-mode: none
-          runner: ubuntu-latest
+          runner: ubuntu-24.04
         - language: rust
           build-mode: none
-          runner: ubuntu-latest
+          runner: ubuntu-24.04
     permissions:
       contents: read
       security-events: write
@@ -51,7 +51,7 @@ jobs:
 
   sbom:
     if: github.event_name == 'push' || github.event_name == 'schedule'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:

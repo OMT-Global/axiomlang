@@ -53,8 +53,8 @@ ci_gate_head_ref=$(printf '%s\n' "$ci_gate_section" | grep -F 'github.event.pull
 # The fast-checks job legitimately checks out the PR head as *data*, so a
 # blanket head.sha search would false-positive here. Instead resolve the `ref:`
 # that belongs to the step declaring `path: .trusted-ci` and require it to be
-# the base SHA. That step's script is executed on a persistent self-hosted
-# runner, so it must never come from the PR head (#1543).
+# the base SHA. That step's script is executed from the trusted checkout while
+# the PR head is data, so it must never come from the PR head (#1543).
 fast_checks_trusted_base_ref=$(awk '
   /^  fast-checks:$/ { in_job=1; next }
   in_job && /^  [A-Za-z0-9_-]+:$/ { exit }
@@ -156,7 +156,7 @@ if (( ci_gate_checkout_line >= ci_gate_fork_validate_line || ci_gate_fork_valida
 fi
 
 if [[ -z "$ci_gate_base_ref_line" || -n "$ci_gate_head_ref" ]]; then
-  echo "ci-gate must checkout the trusted base SHA before running repository scripts on self-hosted runners" >&2
+  echo "ci-gate must checkout the trusted base SHA before running repository scripts" >&2
   exit 1
 fi
 

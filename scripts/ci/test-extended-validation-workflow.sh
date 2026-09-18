@@ -81,10 +81,10 @@ else:
         jobs_section[1],
         re.MULTILINE | re.DOTALL,
     )
-expected_runner = "runs-on: ['self-hosted', 'linux', 'shell-only', 'public']"
+expected_runner = "runs-on: ubuntu-24.04"
 for job_name, body in jobs:
     if expected_runner not in body:
-        errors.append(f"job {job_name} must remain on the shell-safe public runner pool")
+        errors.append(f"job {job_name} must remain on the standard ubuntu-24.04 hosted runner")
 
 fast_job = next((body for name, body in jobs if name == "fast-checks"), "")
 rust_setup = "uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8"

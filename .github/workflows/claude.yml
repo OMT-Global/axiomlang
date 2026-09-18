@@ -29,7 +29,7 @@ jobs:
       (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')) ||
       (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude')) ||
       (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude'))
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
       contents: read # Required to check out and inspect source; this workflow must not push commits.
@@ -67,8 +67,8 @@ jobs:
             Keep required PR status checks aligned with CI Gate.
             Preserve the split fast and extended validation model.
             Keep Claude review and automation on GitHub-hosted runners because this public-comment workflow uses ANTHROPIC_API_KEY.
-            Shell-safe jobs must use `[self-hosted, linux, shell-only, public]`.
-            Docker, service-container, browser, and `container:` jobs require a dedicated self-hosted pool with matching capability labels.
+            Ordinary shell-safe public CI uses `ubuntu-24.04` GitHub-hosted runners.
+            Docker, service-container, browser, and `container:` jobs require an explicitly reviewed runner class with matching capabilities.
             Prefer the smallest safe change and add tests for behavior changes.
 
             MANUAL TASK: ${{ github.event.inputs.prompt }}
