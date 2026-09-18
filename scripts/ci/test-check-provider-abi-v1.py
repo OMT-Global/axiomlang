@@ -5,6 +5,7 @@ import contextlib
 import importlib.util
 import io
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -15,8 +16,13 @@ from unittest import mock
 R = Path(__file__).resolve().parents[2]
 CHECKER = "scripts/ci/check-provider-abi-v1.py"
 
+def checker_env(root):
+    env = os.environ.copy()
+    env["AXIOM_CHECKOUT_PATH"] = str(root)
+    return env
+
 def run(root):
-    return subprocess.run([sys.executable, str(root / CHECKER), "--target", "test-target"], cwd=root, capture_output=True, text=True).returncode
+    return subprocess.run([sys.executable, str(root / CHECKER), "--target", "test-target"], cwd=root, env=checker_env(root), capture_output=True, text=True).returncode
 
 def mutate(path, value):
     def apply(document):
@@ -124,7 +130,7 @@ with tempfile.TemporaryDirectory() as directory:
         fixture.write_text(original_fixture.replace(before, after, 1))
         result = subprocess.run(
             [sys.executable, str(repo / CHECKER), "--target", "test-target"],
-            cwd=repo, capture_output=True, text=True,
+            cwd=repo, env=checker_env(repo), capture_output=True, text=True,
         )
         if result.returncode != 1 or "C reference fixture runtime probe failed for test-target" not in result.stderr:
             raise SystemExit(f"{name} did not reach runtime rejection: {result.stderr}")
