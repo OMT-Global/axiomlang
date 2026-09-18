@@ -96,7 +96,8 @@ jobs:
 
           REPOSITORY = "OMT-Global/axiomlang"
           BASE = "4facdeb6358720e10f9187b38a4921f5c9091c16"
-          REPAIR = "a26544991d4e9377ded6613cf983d3999d5584ea"
+          REPAIR = "67b9b1360c06ea05659870f9006e53fdf3fe19d2"
+          RETAINED_SOURCE_REF = "ci-source/axiom-copied-checkers-67b9b136"
           BRANCH = "pheidon/provider-abi-negative-env"
           PR_NUMBER = 1698
           STAGE_ID = 13536211154
@@ -178,7 +179,7 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4 pinned 2026-05-30
         with:
           repository: OMT-Global/axiomlang
-          ref: a26544991d4e9377ded6613cf983d3999d5584ea
+          ref: 67b9b1360c06ea05659870f9006e53fdf3fe19d2
           path: .approved-ci
           persist-credentials: false
 
@@ -261,7 +262,7 @@ jobs:
         run: |
           set -euo pipefail
           if [[ -n "$APPROVED_REPAIR" ]]; then
-            [[ "$APPROVED_REPAIR" == a26544991d4e9377ded6613cf983d3999d5584ea ]]
+            [[ "$APPROVED_REPAIR" == 67b9b1360c06ea05659870f9006e53fdf3fe19d2 ]]
             [[ "$(git -C .approved-ci rev-parse HEAD)" == "$APPROVED_REPAIR" ]]
             AXIOM_CHECKOUT_PATH="$GITHUB_WORKSPACE" bash .approved-ci/scripts/ci/run-fast-checks.sh
           else

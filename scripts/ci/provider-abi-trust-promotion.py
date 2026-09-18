@@ -7,7 +7,8 @@ import urllib.request
 
 REPOSITORY = "OMT-Global/axiomlang"
 BASE = "4facdeb6358720e10f9187b38a4921f5c9091c16"
-REPAIR = "a26544991d4e9377ded6613cf983d3999d5584ea"
+REPAIR = "67b9b1360c06ea05659870f9006e53fdf3fe19d2"
+RETAINED_SOURCE_REF = "ci-source/axiom-copied-checkers-67b9b136"
 BRANCH = "pheidon/provider-abi-negative-env"
 PR_NUMBER = 1698
 STAGE_ID = 13536211154

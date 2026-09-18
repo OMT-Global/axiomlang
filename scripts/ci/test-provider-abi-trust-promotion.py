@@ -3,9 +3,14 @@
 import copy
 import hashlib
 import importlib.util
+import json
+import os
 from pathlib import Path
 import textwrap
+import tempfile
 import unittest
+import urllib.error
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "scripts/ci/provider-abi-trust-promotion.py"
@@ -32,6 +37,8 @@ def contract(workflow, source):
     block = workflow.split(marker, 1)[1].split("          PYTHON\n", 1)[0]
     if block != textwrap.indent(source, "          "):
         raise ValueError("inline authorization differs from tested source")
+    if m.RETAINED_SOURCE_REF != "ci-source/axiom-copied-checkers-67b9b136":
+        raise ValueError("unexpected retained source reference")
     job = workflow.split("  fast-checks:\n", 1)[1].split("  full-lib-suite:\n", 1)[0]
     for token in [
         "    environment: stage\n",
@@ -99,6 +106,24 @@ class PromotionTests(unittest.TestCase):
 
     def test_authorization_not_optimized_away(self):
         self.assertNotIn("assert ", SCRIPT.read_text())
+
+    def test_api_error_fails_closed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            event = Path(directory) / "event.json"
+            event.write_text(json.dumps({"number": m.PR_NUMBER}))
+            output = Path(directory) / "output"
+            with mock.patch.dict(m.os.environ, {
+                "GITHUB_REPOSITORY": m.REPOSITORY,
+                "GITHUB_EVENT_NAME": "pull_request",
+                "GITHUB_EVENT_PATH": str(event),
+                "GITHUB_RUN_ID": "1",
+                "GITHUB_OUTPUT": str(output),
+                "GH_TOKEN": "test-token",
+            }, clear=False), mock.patch.object(
+                m.urllib.request, "urlopen", side_effect=urllib.error.URLError("offline")
+            ):
+                with self.assertRaises(urllib.error.URLError):
+                    m.main()
 
     def test_other_jobs_are_base_identical(self):
         workflow = (ROOT / ".github/workflows/pr-fast-ci.yml").read_text()
