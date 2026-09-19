@@ -21,6 +21,7 @@ repo:
     - .github/workflows/pr-fast-ci.yml
     - .github/workflows/extended-validation.yml
     - .github/workflows/claude.yml
+    - .github/workflows/toolchain-supply-chain.yml
     - .github/dependabot.yml
     - .github/ISSUE_TEMPLATE/implementation.yml
     - .github/ISSUE_TEMPLATE/flow_blocker.yml
@@ -303,7 +304,7 @@ ci:
   codeqlLanguages:
     - python
     - rust
-  runnerPolicy: hybrid-safe
+  runnerPolicy: github-hosted-public
   nodeVersion: "20"
   pythonVersion: "3.12"
   fastChecks:

@@ -120,6 +120,13 @@ the ratchet was still advisory; the ratchet now runs in the fast PR lane via
 `run-fast-checks.sh`, so future growth fails CI unless the ceiling change is
 explicit in the same PR.
 
+The recovered loop-control slice (#1584) retains the JSON parser extractions and
+adds nearest-loop defer boundaries and recursive scope-termination checks.
+Its exact file ceilings below cover these additions without restoring the old
+monolithic codegen ceiling. The top-seven bound increases by exactly 29 lines:
+26 for defer-boundary plumbing, two native loop-edge mappings, and one HIR line.
+Broader loop-exit ownership propagation remains open.
+
 The JUnit test-report output slice adds a bounded 25-line dispatch surface to
 `main.rs`; its measured ceiling is raised with that feature PR, while future
 command-surface growth remains subject to this ratchet and should be extracted
@@ -233,6 +240,13 @@ rather than mutable cache or vendor paths, and required `main.rs` to preserve
 structured resolver failure evidence. Those fail-closed boundaries account for
 the final measured increase recorded here.
 
+The structured JSON-error recovery extracts generated-Rust serialization support
+into `codegen/json_serdes.rs`, native error construction/document boundaries into
+`cranelift_backend/evaluator/json_errors.rs`, and shared scalar JSON intrinsics
+into `cranelift_backend/intrinsics/json.rs`. The existing parser limits and
+backend contracts stay intact. These extractions lower the tracked monolith and
+top-seven ceilings; the new siblings have their own measured ceilings below.
+
 ## Current Top Files
 
 Snapshot updated 2026-07-29 after the Package Resolver v1 security review:
@@ -242,11 +256,18 @@ Snapshot updated 2026-07-29 after the Package Resolver v1 security review:
 | 1 | `stage1/crates/axiomc/src/cranelift_backend.rs` | 20,076 | `compiler.backend.native` | Runtime-intrinsic implementations live in `.../cranelift_backend/intrinsics.rs`, the compile-time evaluator in `.../cranelift_backend/evaluator.rs`, host-capability lowering in the `host_*` siblings, and static-output eligibility in `.../cranelift_backend/static_output_purity.rs`; the remaining work is sub-partitioning the mutually-recursive value/control core by value shape. |
 
 | 2 | `stage1/crates/axiomc/src/project.rs` | 13,493 | `compiler.package_graph`, `compiler.commands`, `compiler.evidence` | Build lowering evidence now lives in `stage1/crates/axiomc/src/project/build_contract.rs`; Documentation v1 now derives public symbols here; Package Resolver v1 now consumes authenticated registry manifests and sources from a bounded in-memory archive view. Continue splitting manifest/workspace loading, command orchestration, provenance/debug records, artifact planning, and the future `compiler.docs` semantic projection along package ownership. |
-| 3 | `stage1/crates/axiomc/src/main.rs` | 11,917 | `compiler.commands` | Formatter reporting and edit planning now live in `stage1/crates/axiomc/src/formatter.rs`; Documentation v1 owns deterministic rendering, HTML/Markdown link validation, search, and doctest orchestration here; Package Trust v1 adds package verification and signed-registry command dispatch, while Package Resolver v1 adds bounded fetch/update/vendor parsing, structured failure evidence, and dispatch. Continue moving command parsing, JSON envelope construction, check/build/run/test/doc/trace orchestration, and package-management dispatch behind package-owned APIs. |
+| 3 | `stage1/crates/axiomc/src/main.rs` | 11,934 | `compiler.commands` | Formatter reporting and edit planning now live in `stage1/crates/axiomc/src/formatter.rs`; Documentation v1 owns deterministic rendering, HTML/Markdown link validation, search, and doctest orchestration here; Package Trust v1 adds package verification and signed-registry command dispatch, while Package Resolver v1 adds bounded fetch/update/vendor parsing, structured failure evidence, and dispatch. Continue moving command parsing, JSON envelope construction, check/build/run/test/doc/trace orchestration, and package-management dispatch behind package-owned APIs. |
 | 4 | `stage1/crates/axiomc/src/codegen.rs` | 7,919 | `compiler.backend.generated_rust`, `compiler.backend.contracts` | Isolate generated-Rust compatibility emission from backend target selection and unsupported-feature contracts. |
 | 5 | `stage1/crates/axiomc/src/syntax.rs` | 6,370 | `compiler.syntax`, `compiler.diagnostics` | Split lexer/parser, parse recovery, source spans, macros, and syntax diagnostics behind the syntax boundary. |
 | 6 | `stage1/crates/axiomc/src/hir.rs` | 5,849 | `compiler.hir` | Generic inference and monomorphization now live in `stage1/crates/axiomc/src/hir/generics.rs`; public HIR model types now live in `stage1/crates/axiomc/src/hir/model.rs`; syntax-to-HIR type/literal lowering now lives in `stage1/crates/axiomc/src/hir/types.rs`; type-name, aggregate, and trait-use definition checks now live in `stage1/crates/axiomc/src/hir/definitions.rs`; function/method signatures and trait impl signature validation now live in `stage1/crates/axiomc/src/hir/signatures.rs`; capability analysis now lives in `stage1/crates/axiomc/src/hir/capabilities.rs`; expression typing helpers now live in `stage1/crates/axiomc/src/hir/expressions.rs`; ownership and borrow-state helpers now live in `stage1/crates/axiomc/src/hir/ownership.rs`; property clause checks now live in `stage1/crates/axiomc/src/hir/properties.rs`; reachability/call-graph discovery now lives in `stage1/crates/axiomc/src/hir/reachability.rs`; diagnostic recovery helpers now live in `stage1/crates/axiomc/src/hir/diagnostics.rs`; monomorphized symbol and intrinsic helpers now live in `stage1/crates/axiomc/src/hir/symbols.rs`; source-location helpers now live in `stage1/crates/axiomc/src/hir/source_locations.rs`; return-flow analysis now lives in `stage1/crates/axiomc/src/hir/control_flow.rs`; const-array length validation now lives in `stage1/crates/axiomc/src/hir/const_arrays.rs`; const-function validation now lives in `stage1/crates/axiomc/src/hir/const_functions.rs`; match lowering now lives in `stage1/crates/axiomc/src/hir/matches.rs`; enum variant constructor helpers now live in `stage1/crates/axiomc/src/hir/variants.rs`; async runtime intrinsic lowering now lives in `stage1/crates/axiomc/src/hir/async_runtime.rs`; map intrinsic lowering now lives in `stage1/crates/axiomc/src/hir/maps.rs`; HIR boundary regression tests now live in `stage1/crates/axiomc/tests/hir_unit.rs`; continue splitting remaining HIR helper clusters behind the package APIs in `docs/compiler-hir-ownership-capability.md`. |
-| 7 | `stage1/crates/axiomc/src/package_trust.rs` | 5,410 | `compiler.package_trust` | Extract authenticated catalog parsing/projection and release-scoped expectation construction first into `package_trust/catalog.rs`; then move strict document/schema parsing, trust-root transition evaluation, and package verification into focused siblings while preserving the Package Trust v1 wire contract. |
+| 7 | `stage1/crates/axiomc/src/package_trust.rs` | 5,485 | `compiler.package_trust` | Extract authenticated catalog parsing/projection and release-scoped expectation construction first into `package_trust/catalog.rs`; then move strict document/schema parsing, trust-root transition evaluation, and package verification into focused siblings while preserving the Package Trust v1 wire contract. |
+
+The malformed release-expectation template repair (#1660, PR #1673) adds a
+bounded 75 lines to `package_trust.rs` for validation before mutation and the
+34 malformed-shape regression cases across both release builders. Its measured
+ceiling increases from 5,410 to 5,485 with this security fix. The planned
+`package_trust/catalog.rs` extraction above remains the next decomposition
+boundary; this update does not grant headroom beyond the measured repair.
 
 ## Ratchet Ceilings
 
@@ -259,29 +280,33 @@ matching ceiling in this table in the same PR.
 | Tracked item | Ceiling |
 | --- | ---: |
 | `summary.top_file_line_share` | 0.5767 |
-| `summary.top_file_lines` | 71278 |
+| `summary.top_file_lines` | 70886 |
 | `stage1/crates/axiomc/src/cranelift_backend.rs` | 20120 |
 | `stage1/crates/axiomc/src/cranelift_backend/static_output_purity.rs` | 282 |
 | `stage1/crates/axiomc/src/cranelift_backend/host_env_proc_clock.rs` | 620 |
 | `stage1/crates/axiomc/src/cranelift_backend/host_json_serdes.rs` | 257 |
-| `stage1/crates/axiomc/src/cranelift_backend/intrinsics.rs` | 921 |
-| `stage1/crates/axiomc/src/cranelift_backend/evaluator.rs` | 4260 |
+| `stage1/crates/axiomc/src/cranelift_backend/intrinsics.rs` | 733 |
+| `stage1/crates/axiomc/src/cranelift_backend/evaluator.rs` | 4273 |
 | `stage1/crates/axiomc/src/cranelift_backend/host_fs.rs` | 984 |
 | `stage1/crates/axiomc/src/cranelift_backend/host_crypto.rs` | 783 |
 | `stage1/crates/axiomc/src/cranelift_backend/host_net_http.rs` | 1121 |
-| `stage1/crates/axiomc/src/hir.rs` | 5904 |
-| `stage1/crates/axiomc/src/project.rs` | 13571 |
+| `stage1/crates/axiomc/src/hir.rs` | 5934 |
+| `stage1/crates/axiomc/src/project.rs` | 13385 |
 | `stage1/crates/axiomc/src/project/build_contract.rs` | 118 |
-| `stage1/crates/axiomc/src/main.rs` | 11917 |
+| `stage1/crates/axiomc/src/main.rs` | 11934 |
 | `stage1/crates/axiomc/src/formatter.rs` | 191 |
 | `stage1/crates/axiomc/src/formatter_tests.rs` | 122 |
-| `stage1/crates/axiomc/src/codegen.rs` | 8020 |
+| `stage1/crates/axiomc/src/codegen.rs` | 7681 |
+| `stage1/crates/axiomc/src/cranelift_backend/intrinsics/json.rs` | 196 |
+| `stage1/crates/axiomc/src/cranelift_backend/evaluator/json_errors.rs` | 85 |
+| `stage1/crates/axiomc/src/codegen/json_serdes.rs` | 517 |
+| `stage1/crates/axiomc/src/codegen/json_serdes_tests.rs` | 71 |
 | `stage1/crates/axiomc/src/syntax.rs` | 6396 |
 | `stage1/crates/axiomc/src/hir/async_runtime.rs` | 188 |
 | `stage1/crates/axiomc/src/hir/capabilities.rs` | 773 |
 | `stage1/crates/axiomc/src/hir/const_arrays.rs` | 330 |
 | `stage1/crates/axiomc/src/hir/const_functions.rs` | 117 |
-| `stage1/crates/axiomc/src/hir/control_flow.rs` | 37 |
+| `stage1/crates/axiomc/src/hir/control_flow.rs` | 114 |
 | `stage1/crates/axiomc/src/hir/definitions.rs` | 686 |
 | `stage1/crates/axiomc/src/hir/diagnostics.rs` | 28 |
 | `stage1/crates/axiomc/src/hir/expressions.rs` | 205 |
@@ -297,9 +322,19 @@ matching ceiling in this table in the same PR.
 | `stage1/crates/axiomc/src/hir/symbols.rs` | 134 |
 | `stage1/crates/axiomc/src/hir/types.rs` | 241 |
 | `stage1/crates/axiomc/src/hir/variants.rs` | 188 |
-| `stage1/crates/axiomc/src/package_trust.rs` | 5410 |
+| `stage1/crates/axiomc/src/package_trust.rs` | 5485 |
 | `stage1/crates/axiomc/src/registry.rs` | 4319 |
-| `stage1/crates/axiomc/src/lib.rs` | 37 |
+| `stage1/crates/axiomc/src/lib.rs` | 38 |
+| `stage1/crates/axiomc/src/lsp.rs` | 2540 |
+| `stage1/crates/axiomc/src/dap.rs` | 566 |
+| `stage1/crates/axiomc/src/framed_protocol.rs` | 371 |
+
+The shared LSP/DAP frame-reader extraction (#1573/#1615) adds one module
+registration to the `lib.rs` facade (37 to 38 lines), not implementation logic.
+It removes the duplicated readers from LSP (2577 to 2540 lines) and DAP
+(602 to 566 lines). Their new exact ceilings, and the 371-line shared reader
+including endpoint/memory regression tests, keep this split ratcheted. The
+aggregate top-file line and share ceilings above are unchanged.
 
 ## Extraction Order
 
@@ -467,3 +502,8 @@ This plan is about migration mechanics only. It does not define Axiom semantics
 in terms of Rust files, Rust modules, Cargo, or Cranelift internals. AxiOM
 package names and backend-neutral contracts remain the durable self-hosting
 boundary.
+
+The #1195 inspect-evidence recovery exposes the existing report implementation in
+production and adds readable CLI parsing/dispatch and help text. Its `main.rs`
+ceiling records the exact measured 11,934 lines; no unused slack, blank-line
+compression, checker changes, or global ceiling increase is used.
