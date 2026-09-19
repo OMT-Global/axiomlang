@@ -2,8 +2,16 @@
 
 The authoritative grammar lives in the Rust parser under
 `stage1/crates/axiomc/src/syntax.rs`. This document is a compact guide to the
-currently supported source shape. The self-hosted migration contract for parser
-entrypoints, macro expansion records, and diagnostic recovery lives in
+currently supported source shape; the EBNF below is a notation guide, not a
+whitespace-independent parser specification. The current parser splits source
+into lines and recognizes declarations, block boundaries, and most statements
+from those lines. Keep ordinary statements, function signatures, and call
+expressions on one line, with block bodies on separate lines as in the checked
+examples. Dedicated forms such as multi-line `let ... = match` and whole-statement
+macro expansions have their own handling; this does not imply arbitrary
+multi-line expressions or calls are accepted.
+
+The self-hosted migration contract for parser entrypoints, macro expansion records, and diagnostic recovery lives in
 [Compiler Diagnostics and Syntax Boundary](compiler-diagnostics-syntax.md).
 
 ```ebnf

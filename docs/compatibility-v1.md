@@ -80,10 +80,10 @@ release history or a previous compiler.
 `previous-contract-fixture/` remains sparse synthetic checker input and is not
 used as the canonical ratchet.
 
-The current source contract is version `0.5.0` with 69 surfaces. Its changes
+The current source contract is version `0.7.0` with 70 surfaces. Its changes
 from the byte-frozen 52-surface `0.1.0` accepted baseline include the five
-Package Trust v1 schemas, seven additive base-contract schemas (Filesystem v1,
-Provider ABI, runtime observability, Semantic MIR, runtime lifecycle, target support, and persistent LSP), two quality
+Package Trust v1 schemas, eight additive base-contract schemas (Filesystem v1,
+Provider ABI, HTTP client, runtime observability, Semantic MIR, runtime lifecycle, target support, and persistent LSP), two quality
 schemas (quality policy and quality report), and three package-resolver schemas.
 The existing CLI, manifest, lockfile, `axiom.toml` schema, and stage1
 JSON-envelope schema surfaces also carry their governed package-resolver
@@ -108,15 +108,22 @@ python3 scripts/ci/check-compatibility-corpus-v1.py --json
 
 ## Compatibility reports
 
-Run the checker against the corpus contracts:
+Run the checker against the frozen accepted baseline and current corpus:
 
 ```bash
 python3 scripts/ci/check-compatibility-v1.py \
   --old stage1/compatibility/fixtures/accepted-baseline/contract.json \
   --old-policy stage1/compatibility/fixtures/accepted-baseline/policy.json \
   --new stage1/compatibility/fixtures/current/contract.json \
+  --historical-baseline \
   --json
 ```
+
+`--historical-baseline` permits stored migration history on surfaces added since
+the frozen baseline; their additive report entries have no migration. Use this
+mode only for that historical ratchet. Omit it for live-base comparisons, which
+remain strict about migration metadata for newly added surfaces. Existing
+surfaces still require version increases for semantic changes in either mode.
 
 The success report records exact old and new policy and contract versions plus
 exact old and new compiler current/minimum/maximum versions. Its changes are
@@ -168,3 +175,13 @@ issue `#1457`. A later qualification lane must build or obtain two immutable
 compiler versions, run both against the same corpus, publish exact old/new
 compiler and contract identities, and validate forward/backward outcomes. Until
 that evidence exists, readiness remains `partial`.
+
+### Structured JSON error migration
+
+The experimental stdlib catalog is version `1.2.0`; its schema surface is
+`0.3.0`. `std/serdes.ParseError` carries `message`, `offset`, and `path`.
+Use `parse_error_offset` for UTF-8 byte positions and `parse_error_path` for
+nested field/index context. Direct constructors must initialize all three
+fields; `parse_error_message` remains available for text consumers. Parser
+size, depth, item, and number limits remain enforced. This is a structured-error
+slice, not completion of the broader Serialization v1 acceptance matrix.

@@ -4398,6 +4398,8 @@ fn lower_i64_runtime_stmt(
                 allow_stdio_effects,
             )?,
         }),
+        Stmt::Break { .. } => Some(CraneliftI64Stmt::Break),
+        Stmt::Continue { .. } => Some(CraneliftI64Stmt::Continue),
         _ => None,
     }
 }
@@ -13362,22 +13364,36 @@ fn lower_i64_expr(
                 ArithmeticOp::Mul => CraneliftI64BinaryOp::Mul,
                 ArithmeticOp::Div => CraneliftI64BinaryOp::Div,
             };
-            let expr = CraneliftI64Expr::Binary {
-                op,
-                lhs: Box::new(lower_i64_expr(
-                    lhs,
-                    local_indexes,
-                    local_conditions,
-                    helper_signatures,
-                    static_bindings,
-                )?),
-                rhs: Box::new(lower_i64_expr(
-                    rhs,
-                    local_indexes,
-                    local_conditions,
-                    helper_signatures,
-                    static_bindings,
-                )?),
+            let lhs = Box::new(lower_i64_expr(
+                lhs,
+                local_indexes,
+                local_conditions,
+                helper_signatures,
+                static_bindings,
+            )?);
+            let rhs = Box::new(lower_i64_expr(
+                rhs,
+                local_indexes,
+                local_conditions,
+                helper_signatures,
+                static_bindings,
+            )?);
+            let signed_add_type = match ty {
+                Type::Int | Type::Numeric(NumericType::I64) => Some("i64"),
+                Type::Numeric(NumericType::Isize) => Some("isize"),
+                _ => None,
+            };
+            let expr = match signed_add_type {
+                Some(ty_name) if i64_debug_build() && arith_op == ArithmeticOp::Add => {
+                    CraneliftI64Expr::CheckedSignedAdd {
+                        lhs,
+                        rhs,
+                        message: format!(
+                            "{{\"kind\":\"runtime\",\"message\":\"numeric overflow: {ty_name} addition\"}}"
+                        ),
+                    }
+                }
+                _ => CraneliftI64Expr::Binary { op, lhs, rhs },
             };
             // Debug builds trap on sized-integer overflow before the wrapping
             // cast; release builds keep the wrapping behavior.
@@ -17688,7 +17704,8 @@ fn json_serdes_parse_value(
     text: &str,
     index: usize,
     depth: usize,
-) -> Result<(SpikeValue, usize), String> {
+    path: &str,
+) -> Result<(SpikeValue, usize), JsonSerdesError> {
     let index = json_skip_ws(text, index);
     match text.as_bytes().get(index).copied() {
         Some(b'n') if text[index..].starts_with("null") => {
@@ -17704,19 +17721,19 @@ fn json_serdes_parse_value(
         )),
         Some(b'"') => {
             let end = json_scan_string_end(text, index)
-                .ok_or_else(|| String::from("unterminated JSON string"))?;
+                .ok_or_else(|| json_serdes_error("unterminated JSON string", index, path))?;
             let value = json_parse_string(&text[index..end])
-                .ok_or_else(|| String::from("invalid JSON string"))?;
+                .ok_or_else(|| json_serdes_error("invalid JSON string", index, path))?;
             Ok((
                 json_serdes_value_variant("Text", vec![SpikeValue::Text(value)]),
                 end,
             ))
         }
-        Some(b'[') => json_serdes_parse_array(text, index, depth),
-        Some(b'{') => json_serdes_parse_object(text, index, depth),
-        Some(b'-' | b'0'..=b'9') => json_serdes_parse_number(text, index),
-        Some(_) => Err(String::from("unexpected JSON token")),
-        None => Err(String::from("empty JSON input")),
+        Some(b'[') => json_serdes_parse_array(text, index, depth, path),
+        Some(b'{') => json_serdes_parse_object(text, index, depth, path),
+        Some(b'-' | b'0'..=b'9') => json_serdes_parse_number(text, index, path),
+        Some(_) => Err(json_serdes_error("unexpected JSON token", index, path)),
+        None => Err(json_serdes_error("empty JSON input", index, path)),
     }
 }
 
@@ -17724,11 +17741,13 @@ fn json_serdes_parse_array(
     text: &str,
     index: usize,
     depth: usize,
-) -> Result<(SpikeValue, usize), String> {
+    path: &str,
+) -> Result<(SpikeValue, usize), JsonSerdesError> {
     if depth >= JSON_MAX_DEPTH {
-        return Err(format!(
-            "JSON nesting exceeds {} level limit",
-            JSON_MAX_DEPTH
+        return Err(json_serdes_error(
+            format!("JSON nesting exceeds {} level limit", JSON_MAX_DEPTH),
+            index,
+            path,
         ));
     }
     let mut index = index + 1;
@@ -17736,7 +17755,7 @@ fn json_serdes_parse_array(
     loop {
         index = json_skip_ws(text, index);
         match text.as_bytes().get(index).copied() {
-            Some(b']') => {
+            Some(b']') if values.is_empty() => {
                 return Ok((
                     json_serdes_value_variant("Array", vec![SpikeValue::Array(values)]),
                     index + 1,
@@ -17744,12 +17763,18 @@ fn json_serdes_parse_array(
             }
             Some(_) => {
                 if values.len() >= JSON_MAX_COLLECTION_ITEMS {
-                    return Err(format!(
-                        "JSON collection exceeds {} item limit",
-                        JSON_MAX_COLLECTION_ITEMS
+                    return Err(json_serdes_error(
+                        format!(
+                            "JSON collection exceeds {} item limit",
+                            JSON_MAX_COLLECTION_ITEMS
+                        ),
+                        index,
+                        path,
                     ));
                 }
-                let (value, next) = json_serdes_parse_value(text, index, depth + 1)?;
+                let value_path = json_serdes_index_path(path, values.len());
+                let (value, next) =
+                    json_serdes_parse_value(text, index, depth + 1, &value_path)?;
                 values.push(value);
                 index = json_skip_ws(text, next);
                 match text.as_bytes().get(index).copied() {
@@ -17760,10 +17785,16 @@ fn json_serdes_parse_array(
                             index + 1,
                         ));
                     }
-                    _ => return Err(String::from("array expects ',' or ']'")),
+                    _ => {
+                        return Err(json_serdes_error(
+                            "array expects ',' or ']'",
+                            index,
+                            path,
+                        ));
+                    }
                 }
             }
-            None => return Err(String::from("unterminated JSON array")),
+            None => return Err(json_serdes_error("unterminated JSON array", index, path)),
         }
     }
 }
@@ -17772,11 +17803,13 @@ fn json_serdes_parse_object(
     text: &str,
     index: usize,
     depth: usize,
-) -> Result<(SpikeValue, usize), String> {
+    path: &str,
+) -> Result<(SpikeValue, usize), JsonSerdesError> {
     if depth >= JSON_MAX_DEPTH {
-        return Err(format!(
-            "JSON nesting exceeds {} level limit",
-            JSON_MAX_DEPTH
+        return Err(json_serdes_error(
+            format!("JSON nesting exceeds {} level limit", JSON_MAX_DEPTH),
+            index,
+            path,
         ));
     }
     let mut index = index + 1;
@@ -17784,7 +17817,7 @@ fn json_serdes_parse_object(
     loop {
         index = json_skip_ws(text, index);
         match text.as_bytes().get(index).copied() {
-            Some(b'}') => {
+            Some(b'}') if entries.is_empty() => {
                 return Ok((
                     json_serdes_value_variant("Object", vec![SpikeValue::Map(entries)]),
                     index + 1,
@@ -17792,22 +17825,32 @@ fn json_serdes_parse_object(
             }
             Some(b'"') => {
                 if entries.len() >= JSON_MAX_COLLECTION_ITEMS {
-                    return Err(format!(
-                        "JSON collection exceeds {} item limit",
-                        JSON_MAX_COLLECTION_ITEMS
+                    return Err(json_serdes_error(
+                        format!(
+                            "JSON collection exceeds {} item limit",
+                            JSON_MAX_COLLECTION_ITEMS
+                        ),
+                        index,
+                        path,
                     ));
                 }
                 let key_end = json_scan_string_end(text, index)
-                    .ok_or_else(|| String::from("unterminated JSON object key"))?;
+                    .ok_or_else(|| json_serdes_error("unterminated JSON object key", index, path))?;
                 let key = json_parse_string(&text[index..key_end])
-                    .ok_or_else(|| String::from("invalid JSON object key"))?;
+                    .ok_or_else(|| json_serdes_error("invalid JSON object key", index, path))?;
+                let value_path = json_serdes_field_path(path, &key);
                 index = json_skip_ws(text, key_end);
                 if text.as_bytes().get(index).copied() != Some(b':') {
-                    return Err(String::from("object field expects ':'"));
+                    return Err(json_serdes_error(
+                        "object field expects ':'",
+                        index,
+                        &value_path,
+                    ));
                 }
-                let (value, next) = json_serdes_parse_value(text, index + 1, depth + 1)?;
+                let (value, next) =
+                    json_serdes_parse_value(text, index + 1, depth + 1, &value_path)?;
                 insert_map_entry(&mut entries, SpikeValue::Text(key), value)
-                    .map_err(|err| err.message)?;
+                    .map_err(|err| json_serdes_error(err.message, index, path))?;
                 index = json_skip_ws(text, next);
                 match text.as_bytes().get(index).copied() {
                     Some(b',') => index += 1,
@@ -17817,16 +17860,26 @@ fn json_serdes_parse_object(
                             index + 1,
                         ));
                     }
-                    _ => return Err(String::from("object expects ',' or '}'")),
+                    _ => {
+                        return Err(json_serdes_error(
+                            "object expects ',' or '}'",
+                            index,
+                            path,
+                        ));
+                    }
                 }
             }
-            Some(_) => return Err(String::from("object expects string keys")),
-            None => return Err(String::from("unterminated JSON object")),
+            Some(_) => return Err(json_serdes_error("object expects string keys", index, path)),
+            None => return Err(json_serdes_error("unterminated JSON object", index, path)),
         }
     }
 }
 
-fn json_serdes_parse_number(text: &str, index: usize) -> Result<(SpikeValue, usize), String> {
+fn json_serdes_parse_number(
+    text: &str,
+    index: usize,
+    path: &str,
+) -> Result<(SpikeValue, usize), JsonSerdesError> {
     let start = index;
     let bytes = text.as_bytes();
     let mut index = index;
@@ -17841,7 +17894,7 @@ fn json_serdes_parse_number(text: &str, index: usize) -> Result<(SpikeValue, usi
                 index += 1;
             }
         }
-        _ => return Err(String::from("invalid JSON number")),
+        _ => return Err(json_serdes_error("invalid JSON number", start, path)),
     }
     let mut is_float = false;
     if bytes.get(index).copied() == Some(b'.') {
@@ -17852,7 +17905,7 @@ fn json_serdes_parse_number(text: &str, index: usize) -> Result<(SpikeValue, usi
             index += 1;
         }
         if index == fraction_start {
-            return Err(String::from("invalid JSON fraction"));
+            return Err(json_serdes_error("invalid JSON fraction", start, path));
         }
     }
     if matches!(bytes.get(index).copied(), Some(b'e' | b'E')) {
@@ -17866,22 +17919,23 @@ fn json_serdes_parse_number(text: &str, index: usize) -> Result<(SpikeValue, usi
             index += 1;
         }
         if index == exponent_start {
-            return Err(String::from("invalid JSON exponent"));
+            return Err(json_serdes_error("invalid JSON exponent", start, path));
         }
     }
     let raw = &text[start..index];
     if raw.bytes().filter(u8::is_ascii_digit).count() > JSON_MAX_NUMBER_DIGITS {
-        return Err(format!(
-            "JSON number exceeds {} digit limit",
-            JSON_MAX_NUMBER_DIGITS
+        return Err(json_serdes_error(
+            format!("JSON number exceeds {} digit limit", JSON_MAX_NUMBER_DIGITS),
+            start,
+            path,
         ));
     }
     if is_float {
         let value = raw
             .parse::<f64>()
-            .map_err(|_| String::from("invalid JSON float"))?;
+            .map_err(|_| json_serdes_error("invalid JSON float", start, path))?;
         if !value.is_finite() {
-            return Err(String::from("non-finite JSON float"));
+            return Err(json_serdes_error("non-finite JSON float", start, path));
         }
         Ok((
             json_serdes_value_variant("Float", vec![SpikeValue::Float(value)]),
@@ -17895,7 +17949,7 @@ fn json_serdes_parse_number(text: &str, index: usize) -> Result<(SpikeValue, usi
                     index,
                 )
             })
-            .map_err(|_| String::from("invalid JSON int"))
+            .map_err(|_| json_serdes_error("invalid JSON int", start, path))
     }
 }
 
