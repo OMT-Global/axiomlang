@@ -7,6 +7,9 @@
 //! reused by the i64 lowering path stay in the parent module and are visible
 //! here through `use super::*`.
 
+mod json_errors;
+pub(crate) use json_errors::*;
+
 use super::*;
 
 pub(crate) fn with_spike_stdin<T>(
@@ -818,6 +821,9 @@ pub(crate) fn eval_call(
     }
     if name == "io_eprintln" {
         return eval_io_eprintln_call(args, functions, env, lines);
+    }
+    if name == "io_println" {
+        return eval_io_println_call(args, functions, env, lines);
     }
     if name == "io_readline" {
         return eval_io_readline_call(args);
@@ -2096,41 +2102,6 @@ pub(crate) fn std_serdes_as_object_value(value: &SpikeValue) -> Result<Option<Sp
         ("Object", [SpikeValue::Map(entries)]) => Some(SpikeValue::Map(entries.clone())),
         _ => None,
     })
-}
-
-pub(crate) fn json_serdes_result(value: Result<SpikeValue, String>) -> SpikeValue {
-    match value {
-        Ok(value) => SpikeValue::Enum {
-            enum_name: String::from("Result"),
-            variant: String::from("Ok"),
-            field_names: Vec::new(),
-            payloads: vec![value],
-        },
-        Err(message) => SpikeValue::Enum {
-            enum_name: String::from("Result"),
-            variant: String::from("Err"),
-            field_names: Vec::new(),
-            payloads: vec![SpikeValue::Struct {
-                name: String::from("std_serdes_ParseError"),
-                fields: vec![(String::from("message"), SpikeValue::Text(message))],
-            }],
-        },
-    }
-}
-
-pub(crate) fn json_serdes_parse_document(text: &str) -> Result<SpikeValue, String> {
-    if text.len() > JSON_MAX_DOCUMENT_BYTES {
-        return Err(format!(
-            "JSON document exceeds {} byte limit",
-            JSON_MAX_DOCUMENT_BYTES
-        ));
-    }
-    let (value, index) = json_serdes_parse_value(text, json_skip_ws(text, 0), 0)?;
-    if json_skip_ws(text, index) == text.len() {
-        Ok(value)
-    } else {
-        Err(String::from("trailing characters after JSON value"))
-    }
 }
 
 pub(crate) fn is_crypto_call(name: &str) -> bool {
@@ -3730,6 +3701,24 @@ pub(crate) fn eval_io_eprintln_call(
     Ok(SpikeValue::Int(written))
 }
 
+pub(crate) fn eval_io_println_call(
+    args: &[Expr],
+    functions: &HashMap<&str, &Function>,
+    env: &SpikeEnv,
+    lines: &mut Vec<OutputLine>,
+) -> Result<SpikeValue, Diagnostic> {
+    let [arg] = args else {
+        return Err(unsupported("io_println expects exactly one argument"));
+    };
+    let text = match eval_expr(arg, functions, env, lines)? {
+        SpikeValue::Text(value) => value,
+        _ => return Err(unsupported("io_println expects a string")),
+    };
+    let written = text.len() as i64 + 1;
+    lines.push(OutputLine::stdout(text));
+    Ok(SpikeValue::Int(written))
+}
+
 pub(crate) fn eval_io_readline_call(args: &[Expr]) -> Result<SpikeValue, Diagnostic> {
     let [] = args else {
         return Err(unsupported("io_readline expects no arguments"));
@@ -4222,17 +4211,39 @@ mod json_limit_tests {
     }
 
     #[test]
+    fn rejects_control_characters_inside_json_strings() {
+        let error = json_serdes_parse_document("\"line\nbreak\"")
+            .expect_err("raw control character in JSON string");
+        assert_eq!(error.message, "invalid JSON string");
+        assert_eq!(error.offset, 0);
+        assert_eq!(error.path, "$");
+    }
+
+    #[test]
+    fn reports_structured_nested_json_error_location() {
+        let error = json_serdes_parse_document("{\"outer\":[true,}")
+            .expect_err("malformed nested JSON");
+        assert_eq!(error.path, "$.outer[1]");
+        assert_eq!(error.offset, 15);
+        assert_eq!(error.message, "unexpected JSON token");
+    }
+
+    #[test]
     fn rejects_documents_over_byte_limit() {
         let document = "x".repeat(JSON_MAX_DOCUMENT_BYTES + 1);
         let error = json_serdes_parse_document(&document).expect_err("oversized JSON");
-        assert!(error.contains("byte limit"));
+        assert!(error.message.contains("byte limit"));
+        assert_eq!(error.path, "$");
+        assert_eq!(error.offset, JSON_MAX_DOCUMENT_BYTES);
     }
 
     #[test]
     fn rejects_excessive_nesting() {
         let document = "[".repeat(JSON_MAX_DEPTH + 1) + &"]".repeat(JSON_MAX_DEPTH + 1);
         let error = json_serdes_parse_document(&document).expect_err("deep JSON");
-        assert!(error.contains("level limit"));
+        assert!(error.message.contains("level limit"));
+        assert!(error.path.starts_with("$[0]"));
+        assert!(error.offset > 0);
     }
 
     #[test]
@@ -4244,14 +4255,16 @@ mod json_limit_tests {
                 .join(",")
         );
         let error = json_serdes_parse_document(&document).expect_err("large JSON array");
-        assert!(error.contains("item limit"));
+        assert!(error.message.contains("item limit"));
+        assert_eq!(error.path, "$");
     }
 
     #[test]
     fn rejects_excessive_number_digits() {
         let document = "1".repeat(JSON_MAX_NUMBER_DIGITS + 1);
         let error = json_serdes_parse_document(&document).expect_err("large JSON number");
-        assert!(error.contains("digit limit"));
+        assert!(error.message.contains("digit limit"));
+        assert_eq!(error.path, "$");
     }
 }
 

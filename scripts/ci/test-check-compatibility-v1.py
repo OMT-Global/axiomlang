@@ -42,6 +42,7 @@ def run(
     *,
     policy: Path = POLICY,
     old_policy: Path | None = None,
+    historical_baseline: bool = False,
 ) -> subprocess.CompletedProcess[str]:
     command = [
             sys.executable,
@@ -56,6 +57,8 @@ def run(
         ]
     if old_policy is not None:
         command.extend(["--old-policy", str(old_policy)])
+    if historical_baseline:
+        command.append("--historical-baseline")
     return subprocess.run(
         command,
         cwd=ROOT,
@@ -73,12 +76,19 @@ def expect_failure(
     *,
     policy: Path = POLICY,
     old_policy: Path | None = None,
+    historical_baseline: bool = False,
 ) -> None:
     old = directory / "old.json"
     new = directory / "new.json"
     write(old, old_payload)
     write(new, new_payload)
-    result = run(old, new, policy=policy, old_policy=old_policy)
+    result = run(
+        old,
+        new,
+        policy=policy,
+        old_policy=old_policy,
+        historical_baseline=historical_baseline,
+    )
     assert result.returncode != 0, result.stdout + result.stderr
     assert message in result.stdout, result.stdout
     failure = json.loads(result.stdout)
@@ -194,8 +204,11 @@ def main() -> int:
         "axiom://schema/axiom-trust-roots-v1",
     }
     new_main_schema_ids = {
+        "axiom://schema/axiom.filesystem.v1",
         "axiom://schema/axiom.lsp.v1",
         "axiom://schema/axiom.provider-abi.v1",
+        "axiom://schema/axiom.runtime_observability.v1",
+        "axiom://schema/axiom.runtime_http_client.v1",
         "axiom://schema/axiom.runtime_lifecycle.v1",
         "axiom://schema/axiom.semantic_mir.v1",
     }
@@ -229,10 +242,13 @@ def main() -> int:
         "axiom://schema/axiom.stage1.v1",
     }
     assert len(baseline_ids) == 52, "accepted baseline must remain the frozen 52-surface ratchet"
-    assert len(current_ids) == 67, "current contract must include package trust, quality, Provider ABI, Semantic MIR, runtime lifecycle, target support, persistent LSP, and package resolver schemas"
+    assert len(current_ids) == 70, "current contract must include package trust, quality, Filesystem v1, Provider ABI, HTTP client, runtime observability, Semantic MIR, runtime lifecycle, target support, persistent LSP, and package resolver schemas"
     assert set(baseline_ids) < set(current_ids)
     assert set(current_ids) - set(baseline_ids) == new_public_schema_ids | new_package_resolver_ids
-    assert current_payload["contract_version"] == "0.4.0"
+    assert current_payload["contract_version"] == "0.7.0"
+    assert surface(current_payload, "axiom://schema/axiom-quality-report-v1")["version"] == "0.2.0"
+    assert surface(current_payload, "axiom://stdlib/catalog")["version"] == "1.2.0"
+    assert surface(current_payload, "axiom://schema/axiom.compiler.stdlib_catalog.v1")["version"] == "0.3.0"
     current_cli = surface(current_payload, "axiom://cli/axiomc")
     assert current_cli["version"] == "0.3.0"
     current_stage1_schema = surface(current_payload, "axiom://schema/axiom.stage1.v1")
@@ -244,16 +260,26 @@ def main() -> int:
         current_cli["signature"].split("; ", maxsplit=1)[0].split("=")[1].split(",")
     )
     assert {"pkg fetch", "pkg update", "pkg vendor", "pkg verify"} <= set(current_commands)
+    with tempfile.TemporaryDirectory() as historical_temporary:
+        expect_failure(
+            Path(historical_temporary),
+            baseline_payload,
+            current_payload,
+            "added public surface axiom://schema/axiom-quality-report-v1 must not declare migration",
+            policy=CURRENT_POLICY,
+            old_policy=BASELINE_POLICY,
+        )
     canonical = run(
         BASELINE,
         CURRENT,
         policy=CURRENT_POLICY,
         old_policy=BASELINE_POLICY,
+        historical_baseline=True,
     )
     assert canonical.returncode == 0, canonical.stdout + canonical.stderr
     canonical_report = json.loads(canonical.stdout)
     assert canonical_report["summary"] == {
-        "additive": 15,
+        "additive": 18,
         "breaking": 9,
         "compatible": 0,
         "deprecated": 0,
@@ -269,6 +295,53 @@ def main() -> int:
     assert {
         item["surface_id"] for item in canonical_report["changes"]
     } == expected_changed_ids
+    quality_report_change = next(
+        item
+        for item in canonical_report["changes"]
+        if item["surface_id"] == "axiom://schema/axiom-quality-report-v1"
+    )
+    assert quality_report_change["change"] == "added"
+    assert quality_report_change["severity"] == "additive"
+    assert quality_report_change["migration"] is None
+    previous_current = copy.deepcopy(current_payload)
+    previous_current["snapshot_id"] = (
+        "axiom://compatibility/previous-current-before-filesystem-v1"
+    )
+    previous_current["contract_version"] = "0.4.0"
+    previous_current["surfaces"] = [
+        item
+        for item in previous_current["surfaces"]
+        if item["id"] != "axiom://schema/axiom.filesystem.v1"
+    ]
+    with tempfile.TemporaryDirectory() as previous_temporary:
+        previous_directory = Path(previous_temporary)
+        previous_path = previous_directory / "previous-current.json"
+        current_path = previous_directory / "current.json"
+        write(previous_path, previous_current)
+        write(current_path, current_payload)
+        previous_report = run(
+            previous_path,
+            current_path,
+            policy=CURRENT_POLICY,
+        )
+        assert previous_report.returncode == 0, (
+            previous_report.stdout + previous_report.stderr
+        )
+        assert json.loads(previous_report.stdout)["summary"] == {
+            "additive": 1,
+            "breaking": 0,
+            "compatible": 0,
+            "deprecated": 0,
+        }
+        unversioned_current = copy.deepcopy(current_payload)
+        unversioned_current["contract_version"] = "0.4.0"
+        expect_failure(
+            previous_directory,
+            previous_current,
+            unversioned_current,
+            "semantic drift requires an increased new.contract_version",
+            policy=CURRENT_POLICY,
+        )
     assert all(
         item["change"] == "added"
         and item["severity"] == "additive"
@@ -322,6 +395,7 @@ def main() -> int:
                 mutated,
                 f"changed public surface {identifier} must increase its version",
                 policy=CURRENT_POLICY,
+                historical_baseline=True,
             )
 
         compiler_old = copy.deepcopy(baseline_payload)

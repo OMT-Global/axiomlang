@@ -33,7 +33,7 @@
 ## GitHub Action
 
 - Workflow file: `.github/workflows/claude.yml`
-- Runner: `ubuntu-latest`
+- Runner: `ubuntu-24.04`
 - Triggers:
   - manual `workflow_dispatch`
   - PR or issue comments containing `@claude`
@@ -48,7 +48,7 @@
 - Prefer Claude Code on the web for long-running async review or fix tasks; use the devcontainer when you need a local interactive container.
 - Treat the devcontainer as a trusted-repo workspace because the mounted `~/.claude` profile is available inside the container.
 - Do not relax the action to allow non-write users on public repos unless you intentionally accept the prompt-injection risk.
-- Keep Claude review and automation on GitHub-hosted runners; do not move it onto the self-hosted shell-only fleet.
+- Keep Claude review and automation on the standard GitHub-hosted runner; do not move it to a specialized runner without explicit review.
 
     ## Project
 
