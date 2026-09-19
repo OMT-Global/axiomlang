@@ -116,6 +116,106 @@ fn symlink_escape_is_denied_for_write_rename_delete_and_chmod() {
     assert_eq!(fs::read(source.join("owned.txt")).unwrap(), b"committed");
 }
 
+#[cfg(unix)]
+#[test]
+fn symlink_aliases_are_denied_for_every_filesystem_operation() {
+    use std::os::unix::fs::symlink;
+
+    let (root, source, sha) = fixture();
+    let worktree = root.path().join("transaction");
+    let mut scoped = policy();
+    for path in [
+        "owned.txt",
+        "escape/owned.txt",
+        "escape/renamed.txt",
+        "destination/owned.txt",
+        "leaf.txt",
+        "protected_alias/secret.txt",
+        "nested/ordinary.txt",
+    ] {
+        scoped.allowed_read_paths.insert(path.to_owned());
+        scoped.allowed_write_paths.insert(path.to_owned());
+    }
+    let mut transaction =
+        TransactionalWorkspace::create(&source, &worktree, &sha, scoped).expect("create");
+
+    transaction
+        .write("nested/ordinary.txt", b"ordinary")
+        .expect("ordinary nested write remains supported");
+    assert_eq!(
+        transaction.read("nested/ordinary.txt").unwrap(),
+        b"ordinary"
+    );
+
+    symlink(&source, worktree.join("escape")).expect("create external alias");
+    symlink(worktree.join("owned.txt"), worktree.join("leaf.txt")).expect("create leaf alias");
+    fs::create_dir_all(worktree.join(".codex/policies")).expect("create protected fixture");
+    fs::write(worktree.join(".codex/policies/secret.txt"), b"protected")
+        .expect("write protected fixture");
+    symlink(
+        worktree.join(".codex/policies"),
+        worktree.join("protected_alias"),
+    )
+    .expect("create protected alias");
+    symlink(&source, worktree.join("destination")).expect("create destination alias");
+
+    let expected = "path contains a symlink or reparse component";
+    assert_eq!(transaction.read("escape/owned.txt").unwrap_err(), expected);
+    assert_eq!(
+        transaction
+            .write("escape/owned.txt", b"escape")
+            .unwrap_err(),
+        expected
+    );
+    assert_eq!(
+        transaction.delete("escape/owned.txt").unwrap_err(),
+        expected
+    );
+    assert_eq!(
+        transaction
+            .rename("escape/owned.txt", "escape/renamed.txt")
+            .unwrap_err(),
+        expected
+    );
+    assert_eq!(
+        transaction.chmod("escape/owned.txt", 0o600).unwrap_err(),
+        expected
+    );
+    assert_eq!(
+        transaction.record_artifact("escape/owned.txt").unwrap_err(),
+        expected
+    );
+
+    assert_eq!(transaction.read("leaf.txt").unwrap_err(), expected);
+    assert_eq!(
+        transaction.write("leaf.txt", b"leaf").unwrap_err(),
+        expected
+    );
+    assert_eq!(transaction.delete("leaf.txt").unwrap_err(), expected);
+    assert_eq!(transaction.chmod("leaf.txt", 0o600).unwrap_err(), expected);
+    assert_eq!(
+        transaction.record_artifact("leaf.txt").unwrap_err(),
+        expected
+    );
+    assert_eq!(
+        transaction
+            .rename("owned.txt", "destination/owned.txt")
+            .unwrap_err(),
+        expected
+    );
+    assert_eq!(
+        transaction.read("protected_alias/secret.txt").unwrap_err(),
+        expected
+    );
+    assert_eq!(
+        transaction
+            .write("protected_alias/secret.txt", b"bypass")
+            .unwrap_err(),
+        expected
+    );
+    assert_eq!(fs::read(source.join("owned.txt")).unwrap(), b"committed");
+}
+
 #[test]
 fn failed_transaction_rolls_back_and_preserves_dirty_source_index() {
     let (root, source, sha) = fixture();
