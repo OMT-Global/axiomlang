@@ -5,6 +5,7 @@ import contextlib
 import importlib.util
 import io
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -15,8 +16,13 @@ from unittest import mock
 R = Path(__file__).resolve().parents[2]
 CHECKER = "scripts/ci/check-provider-abi-v1.py"
 
+def checker_env(root):
+    env = os.environ.copy()
+    env["AXIOM_CHECKOUT_PATH"] = str(root)
+    return env
+
 def run(root):
-    return subprocess.run([sys.executable, str(root / CHECKER), "--target", "test-target"], cwd=root, capture_output=True, text=True).returncode
+    return subprocess.run([sys.executable, str(root / CHECKER), "--target", "test-target"], cwd=root, env=checker_env(root), capture_output=True, text=True).returncode
 
 def mutate(path, value):
     def apply(document):
@@ -58,6 +64,15 @@ FIXTURE_CASES = {
     "fixture-signature-call": ("axiom_handle h, axiom_borrowed_bytes in, axiom_owned_bytes *out", "uint32_t h, axiom_borrowed_bytes in, axiom_owned_bytes *out"),
     "fixture-signature-close-handle": ("int axiom_provider_close_handle(axiom_handle h)", "int axiom_provider_close_handle(uint32_t h)"),
     "fixture-signature-release-owned-buffer": ("axiom_owned_bytes v", "axiom_borrowed_bytes v"),
+}
+
+
+RUNTIME_CASES = {
+    "runtime-version": ("out->major=1", "out->major=2"),
+    "runtime-invalid-handle": ("if (!h || !out)", "(void)h; if (!out)"),
+    "runtime-valid-call": ("out->len=0; return 0;", "out->len=0; return -1;"),
+    "runtime-owned-length": ("out->len=0", "out->len=1"),
+    "runtime-close": ("return h ? 0 : -1;", "return h ? -1 : 0;"),
 }
 
 # Exercise compiler discovery while still compiling and inspecting the real
@@ -109,4 +124,16 @@ with tempfile.TemporaryDirectory() as directory:
         (repo / "stage1/compiler-contracts/schemas/axiom.provider-abi.v1.schema.json").write_text(json.dumps(original_schema))
         fixture.write_text(original_fixture.replace(before, after, 1))
         if not run(repo): raise SystemExit(f"{name} accepted")
-print(f"Provider ABI v1 checker tests passed ({len(CASES) + len(FIXTURE_CASES)} negative cases)")
+    for name, (before, after) in RUNTIME_CASES.items():
+        if original_fixture.count(before) != 1:
+            raise SystemExit(f"{name} mutation anchor changed")
+        fixture.write_text(original_fixture.replace(before, after, 1))
+        result = subprocess.run(
+            [sys.executable, str(repo / CHECKER), "--target", "test-target"],
+            cwd=repo, env=checker_env(repo), capture_output=True, text=True,
+        )
+        if result.returncode != 1 or "C reference fixture runtime probe failed for test-target" not in result.stderr:
+            raise SystemExit(f"{name} did not reach runtime rejection: {result.stderr}")
+    fixture.write_text(original_fixture)
+    if run(repo): raise SystemExit("restored valid fixture rejected")
+print(f"Provider ABI v1 checker tests passed ({len(CASES) + len(FIXTURE_CASES) + len(RUNTIME_CASES)} negative cases)")

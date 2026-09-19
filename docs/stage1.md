@@ -1,6 +1,6 @@
 # Stage1 bootstrap
 
-<!-- capability-ledger:v1 commands=31 stdlib_modules=34 stdlib_functions=305 capabilities=9 backend=cranelift -->
+<!-- capability-ledger:v1 commands=31 stdlib_modules=34 stdlib_functions=307 capabilities=9 backend=cranelift -->
 
 The Rust bootstrap compiler in `stage1/` is the supported Axiom toolchain.
 The Python `stage0` interpreter, bytecode compiler, bytecode format, bytecode
@@ -17,7 +17,7 @@ compiler-owned tables and validated by
 `python3 scripts/ci/check-capability-ledger.py --check-docs --json`.
 
 The current inventory contains 31 CLI commands, 34 synthetic standard-library
-modules with 305 exported functions, and 9 manifest capability kinds. Cranelift
+modules with 307 exported functions, and 9 manifest capability kinds. Cranelift
 is the only supported CLI backend. Those counts describe discovered surfaces,
 not production qualification: the ledger currently records zero
 `production_qualified` rows and preserves narrower `direct_runtime`,
@@ -344,7 +344,7 @@ no row is currently production-qualified.
 - Packages: local packages, path dependencies, workspaces, lockfile validation,
   and local registry publication shapes are implemented as bootstrap/static
   evidence. Remote registry resolution remains unsupported.
-- Runtime and stdlib: 34 stdlib modules and 305 exported functions are compiler-owned
+- Runtime and stdlib: 34 stdlib modules and 307 exported functions are compiler-owned
   surfaces. Direct-runtime rows identify where native execution evidence exists;
   module rows stay partial because evidence covers bounded shapes rather than
   every legal input and composition.

@@ -3,16 +3,30 @@ set -euo pipefail
 
 script_repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 repo_root="${AXIOM_CHECKOUT_PATH:-$script_repo_root}"
+if [[ ! -f "$repo_root/stage1/Cargo.toml" ]]; then
+  echo "error: AXIOM_CHECKOUT_PATH must identify an Axiom checkout" >&2
+  exit 1
+fi
+repo_root="$(cd "$repo_root" && pwd)"
+export AXIOM_CHECKOUT_PATH="$repo_root"
 cd "$repo_root"
 
-target_dir="${CARGO_TARGET_DIR:-${RUNNER_TEMP:-/tmp}/axiom-fast-ci-target}"
+if [[ -n "${CARGO_TARGET_DIR:-}" ]]; then
+  target_dir="$CARGO_TARGET_DIR"
+else
+  checkout_head="$(git rev-parse --verify HEAD)"
+  target_dir="${RUNNER_TEMP:-/tmp}/axiom-fast-ci-target-${checkout_head:0:12}"
+fi
 mkdir -p "$target_dir"
-export CARGO_TARGET_DIR="$target_dir"
+export CARGO_TARGET_DIR="$(cd "$target_dir" && pwd)"
 
 bash "$script_repo_root/scripts/ci/check-python-exit-docs.sh"
+python3 "$script_repo_root/scripts/ci/test-fast-check-target-isolation.py"
 bash "$script_repo_root/scripts/ci/validate-capability-manifests.sh"
 bash "$script_repo_root/scripts/ci/test-validate-capability-manifests.sh"
 bash "$script_repo_root/scripts/ci/test-pr-fast-ci-workflow.sh"
+python3 "$script_repo_root/scripts/ci/test-fast-checkout-isolation.py"
+python3 "$script_repo_root/scripts/ci/test-check-cranelift-manifest-fixtures.py"
 bash "$script_repo_root/scripts/ci/test-extended-validation-workflow.sh"
 bash "$script_repo_root/scripts/ci/test-run-stage1-basic-smoke.sh"
 bash "$script_repo_root/scripts/ci/test-run-stage1-stdlib-smoke.sh"
@@ -76,7 +90,7 @@ bash "$script_repo_root/scripts/ci/test-propose-stage1-crap-thresholds.sh"
 python3 "$script_repo_root/scripts/ci/test-run-toolchain-qualification.py"
 python3 "$script_repo_root/scripts/ci/test-report-toolchain-qualification.py"
 cargo test --manifest-path "$repo_root/stage1/Cargo.toml" -p axiomc \
-  --test schema_metadata --locked
+  --bin axiomc --test schema_metadata --locked
 cargo test --manifest-path "$repo_root/stage1/Cargo.toml" -p axiomc \
   --test migration_plan_cli --locked
 python3 "$script_repo_root/scripts/ci/check-capability-ledger.py" \

@@ -80,7 +80,7 @@ struct DoctorPackage {
 pub fn doctor_report(project: &Path, command_count: usize) -> DoctorReport {
     let rustc = probe_tool("rustc", &["-vV"]);
     let cargo = probe_tool("cargo", &["--version"]);
-    let target_triple = rustc.version.as_deref().and_then(parse_rustc_host_target);
+    let target_triple = target_support::host_target();
     let target_support = target_support_report(target_triple.clone());
     let check = check_project_with_options(project, &CheckOptions::default());
     let (ok, lockfile_status, capabilities, workspace_graph, error) = match check {
@@ -191,10 +191,6 @@ fn probe_tool(program: &str, args: &[&str]) -> ToolProbe {
     }
 }
 
-fn parse_rustc_host_target(version: &str) -> Option<String> {
-    target_support::parse_rustc_host_target(version)
-}
-
 pub fn doctor_text(report: &DoctorReport) -> String {
     let mut lines = vec![
         format!("project: {}", report.project),
@@ -247,9 +243,54 @@ fn tool_text(tool: &ToolProbe) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{CheckedCapabilityLedger, doctor_report, parse_rustc_host_target};
+    use super::{CheckedCapabilityLedger, doctor_report};
     use crate::json_contract;
     use crate::new_project::{WorkloadTemplate, create_project_with_template};
+
+    #[test]
+    fn native_identity_survives_missing_runtime_toolchain() {
+        const CHILD: &str = "AXIOM_TEST_NO_RUNTIME_TOOLCHAIN";
+        const COMPLETED: &str = "AXIOM_NO_RUNTIME_TOOLCHAIN_ASSERTIONS_PASSED";
+        if std::env::var_os(CHILD).is_some() {
+            let dir = tempfile::tempdir().expect("project tempdir");
+            let project = dir.path().join("doctor");
+            create_project_with_template(&project, Some("doctor-app"), WorkloadTemplate::Cli)
+                .expect("create project");
+            let host = super::target_support::host_target().expect("compiled supported host");
+            assert_eq!(super::target_support::resolve_requested_target(None), Ok(Some(host.clone())));
+            assert_eq!(super::target_support::resolve_requested_target(Some(&host)), Ok(Some(host.clone())));
+            let checked_ledger: CheckedCapabilityLedger = serde_json::from_str(include_str!(
+                "../../../compiler-contracts/snapshots/capability-ledger.json"
+            ))
+            .expect("checked capability ledger must be valid JSON");
+            let report = doctor_report(&project, checked_ledger.summary.commands);
+            assert!(!report.rustc.available);
+            assert!(!report.cargo.available);
+            assert_eq!(report.target_triple.as_deref(), Some(host.as_str()));
+            assert_eq!(report.target_support.host_target.as_deref(), Some(host.as_str()));
+            assert!(report.target_support.host_supported);
+            let unsupported = super::target_support::resolve_requested_target(Some("wasm32"))
+                .expect_err("missing tools must not enable cross-target compilation");
+            assert_eq!(unsupported.code.as_deref(), Some("target.unsupported"));
+            println!("{COMPLETED}");
+            return;
+        }
+        // Process-local PATH avoids racing other tests or mutating their environment.
+        let empty_path = tempfile::tempdir().expect("empty PATH");
+        let result = std::process::Command::new(std::env::current_exe().expect("test executable"))
+            .args(["--exact", "doctor::tests::native_identity_survives_missing_runtime_toolchain", "--nocapture"])
+            .env(CHILD, "1")
+            .env("PATH", empty_path.path())
+            .output()
+            .expect("run isolated no-toolchain test");
+        assert!(result.status.success(), "no-toolchain child failed: {}{}",
+            String::from_utf8_lossy(&result.stdout), String::from_utf8_lossy(&result.stderr));
+        assert!(
+            String::from_utf8_lossy(&result.stdout).contains(COMPLETED),
+            "child succeeded without executing the no-toolchain assertions: {}",
+            String::from_utf8_lossy(&result.stdout),
+        );
+    }
 
     #[test]
     fn reports_project_health_and_capability_ledger_json_fields() {
@@ -333,12 +374,4 @@ mod tests {
         );
     }
 
-    #[test]
-    fn rustc_host_target_parser_reads_verbose_version_output() {
-        let version = "rustc 1.90.0\nhost: aarch64-apple-darwin\nrelease: 1.90.0\n";
-        assert_eq!(
-            parse_rustc_host_target(version).as_deref(),
-            Some("aarch64-apple-darwin")
-        );
-    }
 }

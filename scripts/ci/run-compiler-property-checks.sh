@@ -38,8 +38,15 @@ run_with_writable_outputs() {
   local dir="$1"
   shift
   mkdir -p "$dir"
+  # This helper inherits the current shell's traps. Clear them before fork so
+  # a fast compiler exit cannot kill the helper before its own trap reset and
+  # run cleanup_test_report from the helper's EXIT handler.
+  local saved_traps
+  saved_traps="$(trap -p EXIT HUP INT TERM)"
+  trap - EXIT HUP INT TERM
   keep_outputs_writable "$dir" &
   local fixer_pid=$!
+  eval "$saved_traps"
   local status=0
   if "$@"; then
     status=0

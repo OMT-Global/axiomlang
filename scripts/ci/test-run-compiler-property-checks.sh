@@ -18,6 +18,18 @@ if ! awk '
   exit 1
 fi
 
+if ! awk '
+  /^run_with_writable_outputs\(\) \{$/ { in_runner=1 }
+  in_runner && /saved_traps="\$\(trap -p EXIT HUP INT TERM\)"/ { saved=NR }
+  in_runner && /^  trap - EXIT HUP INT TERM$/ { cleared=NR }
+  in_runner && /keep_outputs_writable "\$dir" &/ { spawned=NR }
+  in_runner && /^  eval "\$saved_traps"$/ { restored=NR; exit }
+  END { exit (saved && cleared && spawned && restored && saved < cleared && cleared < spawned && spawned < restored) ? 0 : 1 }
+' "$script"; then
+  echo "run_with_writable_outputs must clear inherited traps before spawning its background helper and restore them afterward" >&2
+  exit 1
+fi
+
 if grep -Eq 'mktemp .*[.]XXXXXX[.]' "$script"; then
   echo "compiler property checks must use BSD-compatible mktemp templates" >&2
   exit 1
