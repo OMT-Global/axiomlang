@@ -81,10 +81,18 @@ else:
         jobs_section[1],
         re.MULTILINE | re.DOTALL,
     )
-expected_runner = "runs-on: ['self-hosted', 'linux', 'shell-only', 'public']"
+expected_runner = "runs-on: ubuntu-24.04"
 for job_name, body in jobs:
     if expected_runner not in body:
-        errors.append(f"job {job_name} must remain on the shell-safe public runner pool")
+        errors.append(f"job {job_name} must remain on the standard ubuntu-24.04 hosted runner")
+
+fast_job = next((body for name, body in jobs if name == "fast-checks"), "")
+rust_setup = "uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8"
+fast_entrypoint = "run: bash scripts/ci/run-fast-checks.sh"
+if rust_setup not in fast_job or fast_entrypoint not in fast_job:
+    errors.append("fast-checks must provision Rust before running Cargo-dependent checks")
+elif fast_job.index(rust_setup) > fast_job.index(fast_entrypoint):
+    errors.append("fast-checks Rust setup must precede the fast-check entrypoint")
 
 extended_job = next((body for name, body in jobs if name == "extended-checks"), "")
 if "needs.changes.outputs.extended == 'true'" not in extended_job:
@@ -163,6 +171,27 @@ if "if: always()" not in extended_job or "actions/upload-artifact@" not in exten
     errors.append("extended-checks must upload qualification evidence even after failures")
 if "timeout-minutes: 120" not in extended_job:
     errors.append("extended-checks must allow the complete product qualification suite to finish")
+
+# Compiler setup is needed before any native reference or coverage-tool build.
+for name, body, prerequisite in (
+    ("fast-checks", fast_job, "      - name: Run fast checks"),
+    ("extended-checks", extended_job, "      - name: Ensure pinned coverage tooling"),
+):
+    setup = re.search(r"^      - name: Ensure C compiler availability\n(?P<body>.*?)(?=^      - |\Z)", body, re.MULTILINE | re.DOTALL)
+    if setup is None or prerequisite not in body or setup.start() >= body.index(prerequisite):
+        errors.append(f"{name} must provision a C compiler before native work")
+    elif 'install -y --no-install-recommends gcc libc6-dev' not in setup.group("body") or 'exit 1' not in setup.group("body"):
+        errors.append(f"{name} compiler provisioning must retain installation and fail-closed checks")
+
+# Required qualification must have the same pinned supply-chain tool available.
+vet_setup = re.search(r"^      - name: Ensure cargo-vet\n(?P<body>.*?)(?=^      - |\Z)", extended_job, re.MULTILINE | re.DOTALL)
+if vet_setup is None or vet_setup.start() >= extended_job.index("      - name: Run extended validation"):
+    errors.append("extended-checks must provision cargo-vet before qualification")
+else:
+    source = (workflow_path.parent / "toolchain-supply-chain.yml").read_text(encoding="utf-8")
+    canonical = re.search(r"^      - name: Ensure cargo-vet\n(?P<body>.*?)(?=^      - |\Z)", source, re.MULTILINE | re.DOTALL)
+    if canonical is None or canonical.group("body").strip() != vet_setup.group("body").strip():
+        errors.append("extended-checks cargo-vet setup must match pinned supply-chain provisioning")
 
 if errors:
     for error in errors:

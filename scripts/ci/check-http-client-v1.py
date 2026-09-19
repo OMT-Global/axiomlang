@@ -5,13 +5,14 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
 from pathlib import Path
 from typing import Any
 
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(os.environ.get("AXIOM_CHECKOUT_PATH") or Path(__file__).resolve().parents[2]).resolve()
 SCHEMA = Path("stage1/compiler-contracts/schemas/axiom.runtime_http_client.v1.schema.json")
 SNAPSHOT = Path("stage1/compiler-contracts/snapshots/http-client-v1.json")
 FIXTURES = Path("stage1/compiler-contracts/fixtures/http-client-v1")

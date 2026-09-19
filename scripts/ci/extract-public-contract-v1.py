@@ -10,13 +10,14 @@ import json
 import re
 import sys
 import tomllib
+import os
 from pathlib import Path
 from typing import Any
 
 from compatibility_v1_common import SEMVER, reject_rust_detail
 
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(os.environ.get("AXIOM_CHECKOUT_PATH") or Path(__file__).resolve().parents[2]).resolve()
 INVENTORY = ROOT / "stage1/compatibility/source-inventory-v1.json"
 POLICY = ROOT / "stage1/compatibility/policy-v1.json"
 CURRENT = ROOT / "stage1/compatibility/fixtures/current/contract.json"

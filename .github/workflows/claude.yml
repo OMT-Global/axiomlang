@@ -29,7 +29,7 @@ jobs:
       (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')) ||
       (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude')) ||
       (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude'))
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
       contents: read # Required to check out and inspect source; this workflow must not push commits.
@@ -53,7 +53,7 @@ jobs:
           fi
 
       - name: Run Claude Code
-        uses: anthropics/claude-code-action@be7b93b1907a4abad570368f3c74b6fe3807510b # v1 pinned 2026-04-19
+        uses: anthropics/claude-code-action@7b0b255830a1fab6e602658672acad11c12d841d # v1 pinned 2026-04-19
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           track_progress: true
@@ -67,8 +67,8 @@ jobs:
             Keep required PR status checks aligned with CI Gate.
             Preserve the split fast and extended validation model.
             Keep Claude review and automation on GitHub-hosted runners because this public-comment workflow uses ANTHROPIC_API_KEY.
-            Shell-safe jobs must use `[self-hosted, linux, shell-only, public]`.
-            Docker, service-container, browser, and `container:` jobs require a dedicated self-hosted pool with matching capability labels.
+            Ordinary shell-safe public CI uses `ubuntu-24.04` GitHub-hosted runners.
+            Docker, service-container, browser, and `container:` jobs require an explicitly reviewed runner class with matching capabilities.
             Prefer the smallest safe change and add tests for behavior changes.
 
             MANUAL TASK: ${{ github.event.inputs.prompt }}
