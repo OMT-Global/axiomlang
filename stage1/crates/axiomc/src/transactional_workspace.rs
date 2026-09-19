@@ -585,6 +585,9 @@ impl TransactionalWorkspace {
         ) {
             return Err("transaction is already terminal".into());
         }
+        #[cfg(unix)]
+        let root = descriptor_path(&self.root_dir);
+        #[cfg(not(unix))]
         let root = PathBuf::from(&self.state.worktree);
         git(&root, &["reset", "--hard", &self.state.base_sha])?;
         git(&root, &["clean", "-fd", "--exclude", STATE_FILE])?;
@@ -1101,6 +1104,11 @@ fn open_root_directory(root: &Path) -> Result<File, String> {
         .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC)
         .open(root)
         .map_err(|error| format!("cannot safely open transaction worktree root: {error}"))
+}
+
+#[cfg(unix)]
+fn descriptor_path(root: &File) -> PathBuf {
+    PathBuf::from(format!("/proc/self/fd/{}", root.as_raw_fd()))
 }
 
 #[cfg(unix)]

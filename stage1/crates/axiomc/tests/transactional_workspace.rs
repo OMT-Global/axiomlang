@@ -243,6 +243,31 @@ fn failed_transaction_rolls_back_and_preserves_dirty_source_index() {
     assert!(git(&source, &["diff", "--cached", "--name-only"]).is_empty());
 }
 
+#[cfg(unix)]
+#[test]
+fn abort_uses_retained_root_descriptor_after_worktree_path_is_replaced() {
+    use std::os::unix::fs::symlink;
+
+    let (root, source, sha) = fixture();
+    let worktree = root.path().join("transaction");
+    let moved_worktree = root.path().join("retained-transaction");
+    let mut transaction =
+        TransactionalWorkspace::create(&source, &worktree, &sha, policy()).expect("create");
+    transaction.write("allowed.txt", b"changed").expect("write");
+    transaction
+        .write("created.txt", b"created")
+        .expect("create untracked file");
+
+    fs::rename(&worktree, &moved_worktree).expect("move checked-out worktree");
+    symlink(&source, &worktree).expect("replace worktree pathname with source symlink");
+
+    transaction.abort().expect("rollback through retained descriptor");
+
+    assert_eq!(fs::read(source.join("allowed.txt")).unwrap(), b"original");
+    assert_eq!(fs::read(moved_worktree.join("allowed.txt")).unwrap(), b"original");
+    assert!(!moved_worktree.join("created.txt").exists());
+}
+
 #[test]
 fn interrupted_transaction_is_inspectable_and_can_resume_or_roll_back() {
     let (root, source, sha) = fixture();
