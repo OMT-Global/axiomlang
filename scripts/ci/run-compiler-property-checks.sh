@@ -74,28 +74,48 @@ trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-# Keep the report directory under the checked-out workspace in Actions. The
-# runner fleet may reclaim nested RUNNER_TEMP paths while a long compiler
-# subprocess is still producing its JSON report. Keep TMPDIR as the
-# local/test-harness default so regression cases can inspect the cleanup
-# boundary.
-if [[ "${GITHUB_ACTIONS:-}" == "true" && -n "${RUNNER_TEMP:-}" ]]; then
-  report_parent="$repo_root"
+# Actions reports belong to the trusted script checkout, never the PR data
+# checkout or runner scratch space. The workflow must retain this checkout
+# until validation completes; no pathname alone proves filesystem durability.
+# Local invocations retain TMPDIR semantics.
+if [[ "${GITHUB_ACTIONS:-}" == "true" ]]; then
+  report_parent="$script_repo_root"
 else
   report_parent="${TMPDIR:-/tmp}"
 fi
-mkdir -p "$report_parent"
-test_report_dir="$(mktemp -d "${report_parent%/}/axiom-compiler-property-cranelift.XXXXXX")"
+if ! mkdir -p "$report_parent" || ! report_parent="$(cd "$report_parent" && pwd -P)" || ! test_report_dir="$(mktemp -d "${report_parent%/}/axiom-compiler-property-cranelift.XXXXXX")"; then
+  echo "compiler property report directory could not be allocated under $report_parent" >&2
+  exit 1
+fi
 test_report="$test_report_dir/report.json"
+if ! : >"$test_report"; then
+  echo "compiler property report could not be created at $test_report (report parent unavailable)" >&2
+  exit 1
+fi
 rm -rf "$project_dir/dist"
 run_with_writable_outputs "$project_dir/dist" \
   cargo run --manifest-path stage1/Cargo.toml -p axiomc -- test "$project_dir" --properties --backend cranelift --json >"$test_report" || true
 
+# The data checkout may have been reclaimed while cargo was running. Do not
+# initialize Python from a deleted working directory; validation is trusted.
+cd "$script_repo_root"
 python3 - "$test_report" <<'PY'
 import json
 import sys
 
-payload = json.load(open(sys.argv[1], encoding="utf-8"))
+try:
+    with open(sys.argv[1], encoding="utf-8") as report:
+        payload = json.load(report)
+except FileNotFoundError:
+    raise SystemExit(
+        f"compiler property report missing at {sys.argv[1]}; "
+        "the report or its parent was removed before validation; "
+        "retain the trusted script checkout for the entire Actions job"
+    ) from None
+except (OSError, ValueError) as error:
+    raise SystemExit(f"compiler property report unreadable at {sys.argv[1]}: {error}") from None
+if not isinstance(payload, dict):
+    raise SystemExit("compiler property report must be a JSON object")
 if payload.get("backend") != "cranelift":
     raise SystemExit(f"compiler property tests must run on cranelift, got {payload.get('backend')!r}")
 cases = payload.get("cases")
