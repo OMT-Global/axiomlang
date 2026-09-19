@@ -7,10 +7,10 @@
       "path": "stage1/Cargo.toml",
       "role": "compiler_version",
       "selector": "workspace.package.version",
-      "sha256": "0a7df662030a201d7953255a50ad4a5355758bc0626faa44ba879cd1d4eee00f"
+      "sha256": "30e92d85d0e0cc6cf14a32477e5b45afbc44d3d36803a8e456d55ef93860767a"
     }
   },
-  "contract_version": "0.5.0",
+  "contract_version": "0.7.0",
   "edition": {
     "id": "2026",
     "source": {
@@ -57,19 +57,19 @@
       "id": "axiom://stdlib/catalog",
       "kind": "stdlib",
       "migration": {
-        "action": "Existing stdlib modules and functions remain valid. Consumers adopting the Unicode scalar helpers should use scalar_count for code-point cardinality and scalar_at for bounds-checked scalar access."
+        "action": "Accept catalog_version 1.2.0 and the additive parse_error_offset and parse_error_path accessors. std/serdes ParseError now carries offset and path as well as message: direct constructors must initialize all three fields; consumers may continue using parse_error_message for text. Offsets count UTF-8 bytes and paths identify nested object fields and array indices."
       },
-      "signature": "axiom.compiler.stdlib_catalog.v1; catalog_semantic_digest=d120dc235e4ecfc96b512e6c0c2f9d9a24f84dac800d04600c6d0782dd7716ee; modules=34; symbols=304",
+      "signature": "axiom.compiler.stdlib_catalog.v1; catalog_semantic_digest=5e964d8a58fd552a12cd1c3679d1976cbf17af828d4487aea974b651646582d6; modules=34; symbols=307",
       "sources": [
         {
           "path": "stage1/compiler-contracts/snapshots/stdlib-catalog.json",
           "role": "stdlib_catalog",
           "selector": "modules[*].name,symbols[*].signature",
-          "sha256": "1c1cb5b87d78f8b7ace5db35ceda705231afdc6e60c43c10d0d4293380d5d977"
+          "sha256": "744fff40230d6cf138974baeb3ffa3f54400164c55c9e7c47c98fc3778d0ee98"
         }
       ],
       "stability": "experimental",
-      "version": "1.1.0"
+      "version": "1.2.0"
     },
     {
       "id": "axiom://cli/axiomc",
@@ -77,31 +77,31 @@
       "migration": {
         "action": "Existing command invocations require no changes. To adopt registry dependencies, run axiomc pkg fetch to create the v2 lock and verified cache, use axiomc pkg update for explicit re-resolution, and run axiomc pkg vendor before cache-independent locked offline builds. Package Trust v1 remains available through axiomc pkg verify with exact artifact and trust metadata paths plus --json."
       },
-      "signature": "commands=bench,build,caps,caps diff,check,dap,doc,doctor,evidence,explain,fmt,generate,generate openapi,generate policy,generate runbook,generate sql,generate terraform,inspect,inspect artifacts,inspect effects,inspect graph,inspect intent,inspect symbols,lsp,migrate,mutation-report,new,parse,pkg,pkg fetch,pkg graph,pkg update,pkg vendor,pkg verify,publish,registry-index,registry-serve,registry-validate,repair-plan,repl,run,semantic-diff,task-contract,test,trace,verification-plan,verify; command_semantic_digest=af506b3fccca2c0b539655a6966fe364eaf25c9d486d30f3930ed5be963754ed; flags_status=experimental_partial; flags=--json is the versioned machine envelope opt-in where the command publishes JSON; command-specific optional flags remain additive.; exit=0 means the requested operation completed successfully; nonzero means diagnostics or an operational failure.; json=axiom.stage1.v1 for governed stage1 command payloads; command-specific schemas retain their own AxiOM schema IDs.",
+      "signature": "commands=bench,build,caps,caps diff,check,dap,doc,doctor,evidence,explain,fmt,generate,generate openapi,generate policy,generate runbook,generate sql,generate terraform,inspect,inspect artifacts,inspect effects,inspect evidence,inspect graph,inspect intent,inspect symbols,lsp,migrate,mutation-report,new,parse,pkg,pkg fetch,pkg graph,pkg update,pkg vendor,pkg verify,publish,registry-index,registry-serve,registry-validate,repair-plan,repl,run,semantic-diff,task-contract,test,trace,verification-plan,verify; command_semantic_digest=9a6558998fdbbf2ec144668a5f042790e18a2aa827360e5f64192908baebe102; flags_status=experimental_partial; flags=--json is the versioned machine envelope opt-in where the command publishes JSON; command-specific optional flags remain additive.; exit=0 means the requested operation completed successfully; nonzero means diagnostics or an operational failure.; json=axiom.stage1.v1 for governed stage1 command payloads; command-specific schemas retain their own AxiOM schema IDs.",
       "sources": [
         {
           "path": "stage1/compatibility/cli-surface-v1.json",
           "role": "cli_public_surface",
           "selector": "command_paths,flags,exit_status,migration",
-          "sha256": "07bbb71adee957f8137ffa45e8a76ed13cfb06e5bbe26d7e5bd245b414bd6409"
+          "sha256": "a742f334a6eae8bdf958e3d8b757873b7639160ffcd57af0cbc53b8b17c88be5"
         },
         {
           "path": "stage1/compiler-contracts/schemas/axiom.stage1.command.schema.json",
           "role": "cli_json_envelope",
           "selector": "$id,oneOf",
-          "sha256": "7cc009c7e11ec2396416169ebef3bfd50a78163613614465436c1f2b427408ec"
+          "sha256": "2e39b9d0a192e208c440d361c007bcca5b144e8dc06c050d2b48ffb89232f2e0"
         },
         {
           "path": "stage1/compiler-contracts/snapshots/capability-ledger.json",
           "role": "cli_top_level_parity",
           "selector": "commands[*].name",
-          "sha256": "7904cf770ea7353fc5cc5cee58affe9c770ba15d3f6eb3120068d1a345a770b1"
+          "sha256": "f8f4b1c42ea19f42c8e0ce6f2782e8068939057ceaf5cb11f8244a2e0817e869"
         },
         {
           "path": "stage1/crates/axiomc/src/main.rs",
           "role": "cli_command_graph_parity",
           "selector": "Command and nested command variant names",
-          "sha256": "bc45caf55899c1dc1457ea48ac8bcca0e7722c7b8bfb350a917be115f34bd73b"
+          "sha256": "764f1e726cde37de60746d0e31fd32335f1a36b60df6cc4f75ab93909080d3f0"
         }
       ],
       "stability": "experimental",
@@ -149,7 +149,7 @@
       "migration": {
         "action": "Existing path dependencies remain valid. Registry consumers add one root [registry] table with index, trust_roots, and expectation paths, then use the closed registry dependency form with registry, namespace, package, and an exact or caret version requirement before running axiomc pkg fetch."
       },
-      "signature": "axiom.toml schema=https://axiom.omt.global/schemas/axiom.toml.schema.json; semantic_digest=fe45690ed5f1217eb0a3461e106573f13d1159d2d694843f9be3c08ba0099b6d; fields=build,capabilities,dependencies,package,publish,registry,runtime,tests,workspace; edition_selector=unavailable",
+      "signature": "axiom.toml schema=https://axiom.omt.global/schemas/axiom.toml.schema.json; semantic_digest=de3adf449f541de6d3c64d18a06f9952db5978cb438003c8bd68506ef29b85f2; fields=build,capabilities,dependencies,package,publish,registry,runtime,tests,workspace; edition_selector=unavailable",
       "sources": [
         {
           "path": "stage1/compatibility/manifest-parser-contract-v1.json",
@@ -167,7 +167,7 @@
           "path": "stage1/schemas/axiom.toml.schema.json",
           "role": "package_manifest_schema",
           "selector": "$id,properties",
-          "sha256": "de567ce7d89ae36558c21922ea61d661f9f372ccd194365bfba5d7d4b756147f"
+          "sha256": "fca1c18ca56ed87441e38f352aadf2e4dcc974a416c65df30f102fe69bc2c390"
         }
       ],
       "stability": "experimental",
@@ -650,17 +650,20 @@
     {
       "id": "axiom://schema/axiom-quality-report-v1",
       "kind": "schema",
-      "signature": "published schema id=https://omt-global.github.io/axiom/schemas/axiom-quality-report-v1.schema.json; semantic_digest=1b51c517158840aec4dbdaf1b0773604b8a7208d24334612dde2afd2589af549",
+      "migration": {
+        "action": "Quality reports retain the same single-test exclusion and profile semantics. The skippedTests field now uses the current renamed property-test identifier, matching the existing producer. Validate current reports with schema surface version 0.2.0; historical reports retain their historical schema."
+      },
+      "signature": "published schema id=https://omt-global.github.io/axiom/schemas/axiom-quality-report-v1.schema.json; semantic_digest=8fc7532bfcfec8c8a52c56308efacc4bf4f078aa6ae42cfe2a68145a317e4c08",
       "sources": [
         {
           "path": "stage1/schemas/axiom-quality-report-v1.schema.json",
           "role": "published_schema",
           "selector": "$id,properties.schema_version.const",
-          "sha256": "e8a63acfb396d76722e47b1bd0ae0e4f21dda41ab86642344baedca3b7f2f653"
+          "sha256": "efa3f2468c3bb8b1b3d8a4e27bcb14149964a9086359e3660e8c5b0496bba572"
         }
       ],
       "stability": "experimental",
-      "version": "0.1.0"
+      "version": "0.2.0"
     },
     {
       "id": "axiom://schema/axiom-registry-index-v2",
@@ -966,19 +969,19 @@
       "id": "axiom://schema/axiom.compiler.stdlib_catalog.v1",
       "kind": "schema",
       "migration": {
-        "action": "Update catalog consumers to accept catalog_version 1.1.0 and the additive file_exists and file_size stdlib symbols before consuming the refreshed catalog."
+        "action": "Accept catalog_version 1.2.0 when reading the refreshed catalog; its closed schema and provider identities are otherwise unchanged."
       },
-      "signature": "published schema id=https://omt-global.github.io/axiom/schemas/axiom.compiler.stdlib_catalog.v1.schema.json; semantic_digest=c04c6ae6929b0a68d376b0b3ea771d7cacca72b39dd668b6266c74b455a76708; envelope=axiom.compiler.stdlib_catalog.v1",
+      "signature": "published schema id=https://omt-global.github.io/axiom/schemas/axiom.compiler.stdlib_catalog.v1.schema.json; semantic_digest=0252c28fae7525559634a1124340a2bf27618b99065a01aafc5b8221106604fa; envelope=axiom.compiler.stdlib_catalog.v1",
       "sources": [
         {
           "path": "stage1/compiler-contracts/schemas/axiom.compiler.stdlib_catalog.v1.schema.json",
           "role": "published_schema",
           "selector": "$id,properties.schema_version.const",
-          "sha256": "04d715c4e77a8f74e967b5953a0f63dd1bee1bb255cec18971f7f748830416f5"
+          "sha256": "14b622875d1d2feb7e801f16d9c2c44c87ae2e691cb36c43178cd4f1a3598505"
         }
       ],
       "stability": "experimental",
-      "version": "0.2.0"
+      "version": "0.3.0"
     },
     {
       "id": "axiom://schema/axiom.docs.v1",
@@ -1041,6 +1044,21 @@
       "version": "0.1.0"
     },
     {
+      "id": "axiom://schema/axiom.runtime_http_client.v1",
+      "kind": "schema",
+      "signature": "published schema id=https://axiom-lang.org/schemas/axiom.runtime_http_client.v1.schema.json; semantic_digest=738e10782ad2e2d57b75e2f7065c70d9a2b3c742c3866fba490862b4df42a944; envelope=axiom.runtime_http_client.v1",
+      "sources": [
+        {
+          "path": "stage1/compiler-contracts/schemas/axiom.runtime_http_client.v1.schema.json",
+          "role": "published_schema",
+          "selector": "$id,properties.schema_version.const",
+          "sha256": "73dc79a78c1b94a76ab5e8f9efc5ac67bef9284860e1061e79f4146d3f87d832"
+        }
+      ],
+      "stability": "experimental",
+      "version": "0.1.0"
+    },
+    {
       "id": "axiom://schema/axiom.runtime_lifecycle.v1",
       "kind": "schema",
       "signature": "published schema id=https://omt-global.github.io/axiom/schemas/axiom.runtime_lifecycle.v1.schema.json; semantic_digest=67e7c80a1bb8e7a9331ae311dd616608188bc86db87eff015798c73961a10af6; envelope=axiom.runtime_lifecycle.v1",
@@ -1091,13 +1109,13 @@
       "migration": {
         "action": "Update consumers to understand the new diagnostic and lowering fields before consuming axiom.stage1.command envelopes."
       },
-      "signature": "published schema id=https://omt-global.github.io/axiom/schemas/axiom.stage1.command.schema.json; semantic_digest=aa49a0885cba0e06e4f0bf79ca00a8f0b3c58bf16f6148a8c72af070ea701239",
+      "signature": "published schema id=https://omt-global.github.io/axiom/schemas/axiom.stage1.command.schema.json; semantic_digest=b178c57975139e6dcd13ed5597cc2965b1875b75fe3d3f088edc574ec944f298",
       "sources": [
         {
           "path": "stage1/compiler-contracts/schemas/axiom.stage1.command.schema.json",
           "role": "published_schema",
           "selector": "$id,properties.schema_version.const",
-          "sha256": "7cc009c7e11ec2396416169ebef3bfd50a78163613614465436c1f2b427408ec"
+          "sha256": "2e39b9d0a192e208c440d361c007bcca5b144e8dc06c050d2b48ffb89232f2e0"
         }
       ],
       "stability": "experimental",
@@ -1109,13 +1127,13 @@
       "migration": {
         "action": "Update consumers to understand the new diagnostic and lowering fields plus the optional structured trace and resolver fields before consuming axiom.stage1.v1 envelopes."
       },
-      "signature": "published schema id=https://axiom.omt.global/schemas/axiom.stage1.v1.schema.json; semantic_digest=417176c8832c77f390d1487dd84afe16b1ee04175ed612a64e62ee32378cdf93; envelope=axiom.stage1.v1",
+      "signature": "published schema id=https://axiom.omt.global/schemas/axiom.stage1.v1.schema.json; semantic_digest=7e77b6910e7d3532543fb5e87378db091082c1291b4b2fcd214bba2d2393eb75; envelope=axiom.stage1.v1",
       "sources": [
         {
           "path": "stage1/schemas/axiom.stage1.v1.schema.json",
           "role": "published_schema",
           "selector": "$id,properties.schema_version.const",
-          "sha256": "9970368648e147e199942df3c0202be397e5e3284241bb1f670938004fb96c78"
+          "sha256": "e44ebc595f8c9cd4e1bb53ec6d44e3ed86a1de4657ddeee27bcc6667f49b759a"
         }
       ],
       "stability": "experimental",
@@ -1127,13 +1145,13 @@
       "migration": {
         "action": "Existing path-only manifests remain valid. To adopt registry dependencies, add the root registry configuration and use the closed registry dependency object documented by the 0.2 schema, then run axiomc pkg fetch to create axiom.lock version 2."
       },
-      "signature": "published schema id=https://axiom.omt.global/schemas/axiom.toml.schema.json; semantic_digest=e0d385251a6ba1c8aae6ff2641e89cb5e29d8ceba0d724f07bf7ba2f7a621e8a",
+      "signature": "published schema id=https://axiom.omt.global/schemas/axiom.toml.schema.json; semantic_digest=dca1546106d9c8d188b9b27380328853c9d54bb17aeca9e9f1fb40549bebafc5",
       "sources": [
         {
           "path": "stage1/schemas/axiom.toml.schema.json",
           "role": "published_schema",
           "selector": "$id,properties.schema_version.const",
-          "sha256": "de567ce7d89ae36558c21922ea61d661f9f372ccd194365bfba5d7d4b756147f"
+          "sha256": "fca1c18ca56ed87441e38f352aadf2e4dcc974a416c65df30f102fe69bc2c390"
         }
       ],
       "stability": "experimental",

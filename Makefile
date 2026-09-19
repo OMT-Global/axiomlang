@@ -7,7 +7,7 @@ capability-ledger:
 compatibility-v1:
 	python3 scripts/ci/extract-public-contract-v1.py --check
 	python3 scripts/ci/check-compatibility-corpus-v1.py --json
-	python3 scripts/ci/check-compatibility-v1.py --old stage1/compatibility/fixtures/accepted-baseline/contract.json --old-policy stage1/compatibility/fixtures/accepted-baseline/policy.json --new stage1/compatibility/fixtures/current/contract.json --json
+	python3 scripts/ci/check-compatibility-v1.py --old stage1/compatibility/fixtures/accepted-baseline/contract.json --old-policy stage1/compatibility/fixtures/accepted-baseline/policy.json --new stage1/compatibility/fixtures/current/contract.json --historical-baseline --json
 
 compatibility-v1-test:
 	bash scripts/ci/test-check-compatibility-v1.sh
@@ -255,9 +255,9 @@ stage1-basic-smoke:
 stage1-stdlib-smoke:
 	bash scripts/ci/run-stage1-stdlib-smoke.sh
 
+# Example expectations: scripts/ci/stage1-smoke-expectations.json (docs/stage1-smoke-contract.md).
 stage1-smoke:
 	$(MAKE) stage1-basic-smoke
-	cargo run --manifest-path stage1/Cargo.toml -p axiomc -- test stage1/examples/capabilities --json
 	$(MAKE) stage1-stdlib-smoke
 	$(MAKE) stage1-proof-test
 	cargo run --manifest-path stage1/Cargo.toml -p axiomc -- caps stage1/examples/hello --json

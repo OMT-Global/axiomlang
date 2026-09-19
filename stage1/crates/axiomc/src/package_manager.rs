@@ -27,8 +27,8 @@ use crate::package_resolver::{
     VerifiedCandidate, resolve_packages,
 };
 use crate::package_store::{
-    CachedPackage, PackageStore, StoreError, VendorPackage, VendorSnapshot, VerifiedArtifacts,
-    read_bounded_regular_file,
+    CachedPackage, PackageStore, StoreError, VendorLifecycleEvidence, VendorPackage,
+    VendorSnapshot, VerifiedArtifacts, read_bounded_regular_file,
 };
 use crate::package_trust::{
     AuthenticatedRegistryCatalog, AuthenticatedRegistryRelease, PackageArtifacts,
@@ -122,6 +122,8 @@ pub struct PackageOperationReport {
     pub trace: Vec<TraceEvent>,
     pub transport_used: bool,
     pub summary: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vendor_lifecycle: Option<VendorLifecycleEvidence>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -485,6 +487,7 @@ impl PackageManager {
             graph,
             Vec::new(),
             false,
+            None,
         )))
     }
 
@@ -505,6 +508,7 @@ impl PackageManager {
                 graph,
                 Vec::new(),
                 false,
+                None,
             ));
         }
         let trust = offline_trust_context(&self.project_root, &self.manifest, &lockfile)?;
@@ -533,6 +537,9 @@ impl PackageManager {
         let snapshot = store
             .vendor_snapshot(&vendor_root, &vendor_packages)
             .map_err(store_error)?;
+        let _snapshot_lease = PackageStore::lease_vendor_snapshot(&vendor_root, &snapshot)
+            .map_err(store_error)?;
+        let vendor_lifecycle = snapshot.lifecycle.clone();
         verify_vendor_against_lock(&snapshot, &lockfile)?;
         for package in lockfile
             .package
@@ -581,6 +588,7 @@ impl PackageManager {
             graph,
             Vec::new(),
             false,
+            Some(vendor_lifecycle),
         ))
     }
 
@@ -605,6 +613,8 @@ impl PackageManager {
             let snapshot =
                 PackageStore::verify_vendor_snapshot_exact(&vendor_root, &vendor_packages)
                     .map_err(store_error)?;
+            let _snapshot_lease = PackageStore::lease_vendor_snapshot(&vendor_root, &snapshot)
+                .map_err(store_error)?;
             verify_vendor_against_lock(&snapshot, &lockfile)?;
             for package in lockfile
                 .package
@@ -998,6 +1008,7 @@ impl PackageManager {
             graph,
             resolved.resolution.trace.clone(),
             transport_used,
+            None,
         ))
     }
 
@@ -2460,6 +2471,7 @@ fn operation_report(
     graph: MaterializedPackageGraph,
     trace: Vec<TraceEvent>,
     transport_used: bool,
+    vendor_lifecycle: Option<VendorLifecycleEvidence>,
 ) -> PackageOperationReport {
     let registry_count = graph
         .packages
@@ -2487,6 +2499,7 @@ fn operation_report(
         trace,
         transport_used,
         summary,
+        vendor_lifecycle,
     }
 }
 
@@ -3721,6 +3734,7 @@ mod tests {
             trace: Vec::new(),
             transport_used: false,
             summary: "materialized 0 registry packages".to_owned(),
+            vendor_lifecycle: None,
         };
         let first = serde_json::to_string(&report).expect("serialize report");
         let second = serde_json::to_string(&report).expect("serialize report again");
@@ -3913,6 +3927,7 @@ out_dir = "dist"
                 }],
             },
             packages: BTreeMap::new(),
+            lifecycle: VendorLifecycleEvidence::default(),
         };
         verify_vendor_against_lock(&snapshot, &lockfile).expect("exact vendor snapshot");
         let mut extra = snapshot;
