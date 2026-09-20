@@ -269,6 +269,12 @@ ceiling increases from 5,410 to 5,485 with this security fix. The planned
 `package_trust/catalog.rs` extraction above remains the next decomposition
 boundary; this update does not grant headroom beyond the measured repair.
 
+The Unicode-scalar stdin lowering slice adds bounded runtime recognition and
+scalar-index lowering to `cranelift_backend.rs`, with its focused helpers in
+`cranelift_backend/cranelift_unicode_scalars.rs`. Its measured ceiling rises by
+exactly 46 lines, and the top-seven bound rises by exactly 95 lines, to cover
+that feature slice without weakening the ratchet for subsequent growth.
+
 ## Ratchet Ceilings
 
 These ceilings are consumed by
@@ -280,8 +286,8 @@ matching ceiling in this table in the same PR.
 | Tracked item | Ceiling |
 | --- | ---: |
 | `summary.top_file_line_share` | 0.5767 |
-| `summary.top_file_lines` | 70886 |
-| `stage1/crates/axiomc/src/cranelift_backend.rs` | 20120 |
+| `summary.top_file_lines` | 70981 |
+| `stage1/crates/axiomc/src/cranelift_backend.rs` | 20166 |
 | `stage1/crates/axiomc/src/cranelift_backend/static_output_purity.rs` | 282 |
 | `stage1/crates/axiomc/src/cranelift_backend/host_env_proc_clock.rs` | 620 |
 | `stage1/crates/axiomc/src/cranelift_backend/host_json_serdes.rs` | 257 |
