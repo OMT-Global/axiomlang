@@ -142,6 +142,16 @@ jobs:
           if (( install_cargo_vet )); then
             cargo install cargo-vet --version "$install_version" --locked --force
           fi
+      - name: Ensure cargo-audit
+        run: |
+          required_version="0.22.2"
+          installed_version=""
+          if command -v cargo-audit >/dev/null 2>&1; then
+            installed_version="$(cargo audit --version || true)"
+          fi
+          if [[ "$installed_version" != "cargo-audit-audit ${required_version}" ]]; then
+            cargo install cargo-audit --version "$required_version" --locked --force
+          fi
       - name: Run supply-chain checks
         env:
           SOURCE_DATE_EPOCH: '1704067200'
@@ -151,5 +161,7 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v4 pinned 2026-04-19
         with:
           name: stage1-sbom
-          path: stage1/target/sbom/stage1.spdx.json
+          path: |
+            stage1/target/sbom/stage1.spdx.json
+            stage1/target/sbom/stage1.cargo-audit.json
           if-no-files-found: error
