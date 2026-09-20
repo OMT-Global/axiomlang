@@ -267,6 +267,15 @@ jobs:
             cargo install cargo-vet --version "$install_version" --locked --force
           fi
 
+      - name: Ensure pinned cargo-audit tooling
+        run: |
+          required_version="0.22.2"
+          installed_version="$(cargo-audit --version 2>/dev/null || true)"
+          if [[ "$installed_version" != "cargo-audit $required_version" ]]; then
+            cargo install cargo-audit --version "$required_version" --locked --force
+          fi
+          test "$(cargo-audit --version)" = "cargo-audit $required_version"
+
       - name: Run extended validation
         run: >-
           bash scripts/ci/run-extended-validation.sh
