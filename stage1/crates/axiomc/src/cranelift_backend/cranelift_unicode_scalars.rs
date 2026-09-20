@@ -191,3 +191,257 @@ pub(crate) fn i64_scan_stdin_text_usage_expr(
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn span() -> crate::mir::SourceSpan {
+        crate::mir::SourceSpan { line: 1, column: 1 }
+    }
+
+    fn stdin_read() -> Expr {
+        Expr::Call {
+            name: String::from("io_read_to_string"),
+            args: Vec::new(),
+            ty: Type::String,
+        }
+    }
+
+    fn text_ref() -> Expr {
+        Expr::VarRef {
+            name: String::from("text"),
+            ty: Type::String,
+        }
+    }
+
+    fn call(name: &str, args: Vec<Expr>, ty: Type) -> Expr {
+        Expr::Call {
+            name: String::from(name),
+            args,
+            ty,
+        }
+    }
+
+    #[test]
+    fn lowers_only_single_stdin_scalar_count_argument() {
+        let mut bindings = I64StaticBindings::default();
+        bindings.stdin_text_bindings.insert(String::from("text"));
+
+        assert!(i64_expr_is_io_read_to_string_call(&stdin_read(), &bindings));
+        assert!(i64_expr_is_stdin_text_source(&text_ref(), &bindings));
+        assert!(i64_expr_is_stdin_text_source(
+            &Expr::StringBorrow {
+                expr: Box::new(text_ref()),
+                ty: Type::Str,
+            },
+            &bindings,
+        ));
+        assert_eq!(
+            lower_i64_unicode_scalar_count_intrinsic_expr(
+                "string_scalar_count",
+                &[text_ref()],
+                &bindings,
+            ),
+            Some(CraneliftI64Expr::StdinScalarCount {
+                max_bytes: I64_STDIN_BUFFER_BYTES,
+            })
+        );
+        assert_eq!(
+            lower_i64_unicode_scalar_count_intrinsic_expr(
+                "string_scalar_count",
+                &[Expr::Literal(LiteralValue::String(String::from("static")))],
+                &bindings,
+            ),
+            None
+        );
+        assert_eq!(
+            lower_i64_unicode_scalar_count_intrinsic_expr(
+                "string_scalar_at",
+                &[text_ref()],
+                &bindings,
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn scanner_counts_unicode_and_length_uses_through_nested_control_flow() {
+        let scalar_count = call("string_scalar_count", vec![text_ref()], Type::Int);
+        let scalar_at = call(
+            "string_scalar_at",
+            vec![Expr::StringBorrow {
+                expr: Box::new(text_ref()),
+                ty: Type::Str,
+            }, Expr::Literal(LiteralValue::Int(1))],
+            Type::Option(Box::new(Type::String)),
+        );
+        let len = call("len", vec![text_ref()], Type::Int);
+        let nested = Expr::BinaryLogic {
+            op: LogicOp::And,
+            lhs: Box::new(Expr::BinaryCompare {
+                op: CompareOp::Gt,
+                lhs: Box::new(Expr::BinaryAdd {
+                    op: ArithmeticOp::Add,
+                    lhs: Box::new(scalar_count.clone()),
+                    rhs: Box::new(Expr::Literal(LiteralValue::Int(0))),
+                    ty: Type::Int,
+                }),
+                rhs: Box::new(Expr::Literal(LiteralValue::Int(0))),
+                ty: Type::Bool,
+            }),
+            rhs: Box::new(Expr::Literal(LiteralValue::Bool(true))),
+            ty: Type::Bool,
+        };
+        let stmts = vec![
+            Stmt::Let {
+                name: String::from("value"),
+                ty: Type::Int,
+                expr: scalar_count.clone(),
+                span: span(),
+            },
+            Stmt::Assign {
+                target: Expr::Index {
+                    base: Box::new(Expr::ArrayLiteral {
+                        elements: vec![Expr::Literal(LiteralValue::Int(0))],
+                        ty: Type::Array(Box::new(Type::Int), Some(1)),
+                    }),
+                    index: Box::new(Expr::Literal(LiteralValue::Int(0))),
+                    ty: Type::Int,
+                },
+                expr: nested,
+                span: span(),
+            },
+            Stmt::Defer {
+                expr: Expr::Cast {
+                    expr: Box::new(len.clone()),
+                    ty: Type::Int,
+                },
+                span: span(),
+            },
+            Stmt::If {
+                cond: Expr::Literal(LiteralValue::Bool(true)),
+                then_block: vec![Stmt::Print {
+                    expr: scalar_at,
+                    span: span(),
+                }],
+                else_block: Some(vec![Stmt::Panic {
+                    message: len.clone(),
+                    span: span(),
+                }]),
+                span: span(),
+            },
+            Stmt::While {
+                cond: Expr::Literal(LiteralValue::Bool(false)),
+                body: vec![Stmt::Match {
+                    expr: Expr::TupleIndex {
+                        base: Box::new(Expr::TupleLiteral {
+                            elements: vec![text_ref()],
+                            ty: Type::Tuple(vec![Type::String]),
+                        }),
+                        index: 0,
+                        ty: Type::String,
+                    },
+                    arms: vec![crate::mir::MatchArm {
+                        enum_name: String::from("Option"),
+                        variant: String::from("Some"),
+                        bindings: Vec::new(),
+                        is_named: false,
+                        ignore_payloads: true,
+                        body: vec![Stmt::Return {
+                            expr: Expr::Match {
+                                expr: Box::new(Expr::EnumVariant {
+                                    enum_name: String::from("Option"),
+                                    variant: String::from("Some"),
+                                    field_names: Vec::new(),
+                                    payloads: vec![text_ref()],
+                                    ty: Type::Option(Box::new(Type::String)),
+                                }),
+                                arms: vec![crate::mir::MatchExprArm {
+                                    enum_name: String::from("Option"),
+                                    variant: String::from("Some"),
+                                    bindings: Vec::new(),
+                                    is_named: false,
+                                    expr: len,
+                                }],
+                                ty: Type::Int,
+                            },
+                            span: span(),
+                        }],
+                    }],
+                    span: span(),
+                }],
+                span: span(),
+            },
+            Stmt::Break { span: span() },
+            Stmt::Continue { span: span() },
+        ];
+
+        let usage = i64_scan_stdin_text_usage("text", &stmts);
+        assert_eq!(usage.scalar_uses, 3);
+        assert_eq!(usage.len_uses, 3);
+    }
+
+    #[test]
+    fn unicode_scalar_stdin_lowering_preserves_runtime_scalar_operations() {
+        let span = crate::mir::SourceSpan { line: 1, column: 1 };
+        let read = Expr::Call {
+            name: String::from("io_read_to_string"),
+            args: Vec::new(),
+            ty: Type::String,
+        };
+        let text = Expr::VarRef {
+            name: String::from("text"),
+            ty: Type::String,
+        };
+        let count = Expr::Call {
+            name: String::from("string_scalar_count"),
+            args: vec![text.clone()],
+            ty: Type::Int,
+        };
+        let body = lower_i64_body(
+            &[],
+            &[
+                Stmt::Let {
+                    name: String::from("text"),
+                    ty: Type::String,
+                    expr: read,
+                    span: span.clone(),
+                },
+                Stmt::Return { expr: count, span },
+            ],
+            &HashMap::new(),
+            &I64StaticBindings::default(),
+            &HashMap::new(),
+            true,
+            false,
+        )
+        .expect("single stdin scalar count should lower");
+        assert!(matches!(
+            body.2,
+            I64ExitBody::Return(CraneliftI64Expr::StdinScalarCount { .. })
+        ));
+
+        let mut bindings = I64StaticBindings::default();
+        bindings.stdin_text_bindings.insert(String::from("text"));
+        let scalar_at = lower_i64_runtime_string_option_len_expr(
+            &Expr::Call {
+                name: String::from("string_scalar_at"),
+                args: vec![text, Expr::Literal(LiteralValue::Int(2))],
+                ty: Type::Option(Box::new(Type::String)),
+            },
+            &HashMap::new(),
+            &HashMap::new(),
+            &HashMap::new(),
+            &bindings,
+        )
+        .expect("stdin scalar index should lower");
+        assert_eq!(
+            scalar_at,
+            CraneliftI64Expr::StdinScalarLenAt {
+                index: Box::new(CraneliftI64Expr::Literal(2)),
+                max_bytes: I64_STDIN_BUFFER_BYTES,
+            }
+        );
+    }
+}
+
