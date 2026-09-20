@@ -20163,4 +20163,67 @@ mod tests {
         assert_eq!(host.resolved_len, 20);
         assert_ne!(host.resolved_len, host.host.len() as i64);
     }
+
+    #[test]
+    fn unicode_scalar_stdin_lowering_preserves_runtime_scalar_operations() {
+        let span = crate::mir::SourceSpan { line: 1, column: 1 };
+        let read = Expr::Call {
+            name: String::from("io_read_to_string"),
+            args: Vec::new(),
+            ty: Type::String,
+        };
+        let text = Expr::VarRef {
+            name: String::from("text"),
+            ty: Type::String,
+        };
+        let count = Expr::Call {
+            name: String::from("string_scalar_count"),
+            args: vec![text.clone()],
+            ty: Type::Int,
+        };
+        let body = lower_i64_body(
+            &[],
+            &[
+                Stmt::Let {
+                    name: String::from("text"),
+                    ty: Type::String,
+                    expr: read,
+                    span: span.clone(),
+                },
+                Stmt::Return { expr: count, span },
+            ],
+            &HashMap::new(),
+            &I64StaticBindings::default(),
+            &HashMap::new(),
+            true,
+            false,
+        )
+        .expect("single stdin scalar count should lower");
+        assert!(matches!(
+            body.2,
+            I64ExitBody::Return(CraneliftI64Expr::StdinScalarCount { .. })
+        ));
+
+        let mut bindings = I64StaticBindings::default();
+        bindings.stdin_text_bindings.insert(String::from("text"));
+        let scalar_at = lower_i64_runtime_string_option_len_expr(
+            &Expr::Call {
+                name: String::from("string_scalar_at"),
+                args: vec![text, Expr::Literal(LiteralValue::Int(2))],
+                ty: Type::Option(Box::new(Type::String)),
+            },
+            &HashMap::new(),
+            &HashMap::new(),
+            &HashMap::new(),
+            &bindings,
+        )
+        .expect("stdin scalar index should lower");
+        assert_eq!(
+            scalar_at,
+            CraneliftI64Expr::StdinScalarLenAt {
+                index: Box::new(CraneliftI64Expr::Literal(2)),
+                max_bytes: I64_STDIN_BUFFER_BYTES,
+            }
+        );
+    }
 }
