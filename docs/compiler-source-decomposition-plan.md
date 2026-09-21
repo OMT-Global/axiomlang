@@ -331,7 +331,7 @@ matching ceiling in this table in the same PR.
 | `stage1/crates/axiomc/src/package_trust.rs` | 5485 |
 | `stage1/crates/axiomc/src/registry.rs` | 4319 |
 | `stage1/crates/axiomc/src/lib.rs` | 38 |
-| `stage1/crates/axiomc/src/lsp.rs` | 2540 |
+| `stage1/crates/axiomc/src/lsp.rs` | 2753 |
 | `stage1/crates/axiomc/src/dap.rs` | 566 |
 | `stage1/crates/axiomc/src/framed_protocol.rs` | 371 |
 
