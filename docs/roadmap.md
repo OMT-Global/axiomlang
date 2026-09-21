@@ -61,10 +61,13 @@ implementation surfaces; see
 - Use complete Intent IR emission for real packages and workspaces (#1418) so
   semantic APIs share one canonical graph rather than partial,
   command-specific views.
-- Qualify Package Resolver v1 (#1459) as a local static/loopback registry
-  surface: deterministic registry dependency selection, lockfile v2,
-  Package-Trust-gated content-addressed cache, strict locked-offline replay,
-  vendoring, and inspectable resolver/package-graph decisions. Do not treat
+- Maintain the executable static-spike Package Resolver v1 (#1459) bounded
+  static/local/loopback surface: deterministic registry dependency selection,
+  lockfile v2, Package-Trust-gated content-addressed cache, strict
+  locked-offline replay, vendoring, and inspectable resolver/package-graph
+  decisions. Add the immutable exact-head supported-host receipt before
+  runtime-complete promotion, then load, recovery, security, release, and
+  operational receipts before production qualification. Do not treat
   this slice as a public hosted registry or edition-selection service.
 - Advance the [Autonomous Agent Execution Roadmap](autonomous-agent-roadmap.md)
   (#1417 and #1419-#1424) from typed authority through transactional execution,

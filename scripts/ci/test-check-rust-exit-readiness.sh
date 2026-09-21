@@ -86,6 +86,65 @@ rust-exit-readiness-test:
 	bash scripts/ci/test-check-rust-exit-readiness.sh
 MAKE
 
+# The live manifest must include every currently incomplete ABI row. Use the
+# contract itself to build a deterministic issue-state fixture so this test
+# catches omissions when a new blocker is added to the contract.
+python3 - "$case_dir/stage1/runtime-abi/direct-native-v0.json" "$case_dir/docs/rust-exit-readiness.json" "$temp_dir/manifest-issues.txt" <<'PY'
+import json
+import sys
+
+contract = json.load(open(sys.argv[1], encoding="utf-8"))
+manifest = json.load(open(sys.argv[2], encoding="utf-8"))
+issues = {731}
+for group in ("value_features", "capability_shims"):
+    for row in contract.get(group, []):
+        if row.get("status") != "implemented":
+            issues.update(row.get("blockers", []))
+manifest_issues = {entry["issue"] for entry in manifest["blockingIssues"]}
+with open(sys.argv[3], "w", encoding="utf-8") as handle:
+    for issue in sorted(manifest_issues):
+        handle.write(f"{issue} OPEN\n")
+if not issues <= manifest_issues:
+    missing = ", ".join(f"#{issue}" for issue in sorted(issues - manifest_issues))
+    raise SystemExit(f"manifest is missing ABI blockers: {missing}")
+PY
+
+(
+  cd "$case_dir"
+  if bash scripts/ci/check-rust-exit-readiness.sh --json --issue-state-file "$temp_dir/manifest-issues.txt" >"$temp_dir/manifest-abi.json" 2>"$temp_dir/manifest-abi.err"; then
+    echo "expected readiness check to fail while the ABI remains partial" >&2
+    exit 1
+  fi
+  python3 - "$temp_dir/manifest-abi.json" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    payload = json.load(handle)
+
+statuses = {check["name"]: check["status"] for check in payload["checks"]}
+if statuses.get("readiness_manifest_valid") != "pass":
+    raise SystemExit("manifest-abi case: readiness manifest must cover all ABI blockers")
+PY
+)
+
+# The remaining synthetic cases use a contract whose incomplete rows all point
+# at the independent tooling blocker, so keep their fixture manifest aligned
+# with that synthetic contract.
+python3 - "$case_dir/docs/rust-exit-readiness.json" <<'PY'
+import json
+import sys
+
+path = sys.argv[1]
+payload = json.load(open(path, encoding="utf-8"))
+payload["blockingIssues"] = [
+    entry for entry in payload["blockingIssues"] if entry["issue"] == 731
+]
+with open(path, "w", encoding="utf-8") as handle:
+    json.dump(payload, handle)
+    handle.write("\n")
+PY
+
 cat >"$temp_dir/partial-issues.txt" <<'ISSUES'
 731 OPEN
 ISSUES
@@ -143,8 +202,6 @@ if expected not in actual:
     )
 PY
 )
-
-cp "$repo_root/docs/rust-exit-readiness.json" "$case_dir/docs/rust-exit-readiness.json"
 
 python3 - "$case_dir/stage1/runtime-abi/direct-native-v0.json" <<'PY'
 import json
@@ -501,6 +558,20 @@ for row in contract["value_features"] + contract["capability_shims"]:
 
 with open(path, "w", encoding="utf-8") as handle:
     json.dump(contract, handle)
+PY
+
+python3 - "$case_dir/docs/rust-exit-readiness.json" <<'PY'
+import json
+import sys
+
+path = sys.argv[1]
+payload = json.load(open(path, encoding="utf-8"))
+payload["blockingIssues"] = [
+    entry for entry in payload["blockingIssues"] if entry["issue"] == 731
+]
+with open(path, "w", encoding="utf-8") as handle:
+    json.dump(payload, handle)
+    handle.write("\n")
 PY
 
 python3 - "$case_dir/stage1/compiler-contracts/snapshots/command-lsp.json" <<'PY'

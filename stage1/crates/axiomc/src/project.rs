@@ -41,16 +41,18 @@ use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::thread;
 use std::time::{Duration, Instant};
 
 const PACKAGE_GRAPH_RUNTIME_SCHEMA_VERSION: &str = "axiom.compiler.package_graph.runtime.v1";
 const PACKAGE_GRAPH_RUNTIME_CONTRACT: &str = "compiler.package_graph.runtime";
 
+mod bounded_test_runner;
 mod expected_build_failure;
 mod lsp_analysis;
 mod module_parse_cache;
+use bounded_test_runner::{
+    run_bounded_command, run_bounded_http_fixture_case, run_command_with_stdin, run_test_command,
+};
 use expected_build_failure::{expected_build_error_path, run_build_fail_case};
 pub use lsp_analysis::{LspResolvedModule, analyze_package_for_lsp};
 use module_parse_cache::ModuleParseCache;
@@ -375,6 +377,47 @@ pub struct TestOutput {
     pub duration_ms: u64,
 }
 
+/// An opt-in, bounded plan for retrying individual project test cases.
+///
+/// `retries` counts attempts after the initial execution, so the runner makes
+/// at most 256 executions for one case. Each executed test process receives
+/// deterministic `AXIOM_TEST_ATTEMPT` and `AXIOM_TEST_SEED` environment variables.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TestRetryPlan {
+    pub retries: u8,
+    pub seed: u64,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct TestRetryAttempt {
+    pub attempt: u8,
+    pub seed: u64,
+    pub ok: bool,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct TestRetryResult {
+    pub package_root: String,
+    pub name: String,
+    pub attempts: Vec<TestRetryAttempt>,
+    pub terminal_attempt: u8,
+}
+
+/// The ordinary test output plus attempt accounting when a retry plan is supplied.
+///
+/// The contained `TestOutput` always represents only each case's terminal attempt.
+#[derive(Debug, Clone, Serialize)]
+pub struct TestRetryOutput {
+    pub output: TestOutput,
+    pub retries: Vec<TestRetryResult>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct TestRetrySeed {
+    attempt: u8,
+    seed: u64,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct PackageGraphOutput {
     pub schema_version: &'static str,
@@ -416,6 +459,8 @@ pub struct PackageGraphDependency {
     pub source_kind: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub requested: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub selected_version: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
 }
@@ -837,181 +882,6 @@ pub fn run_project_report_with_limits(
     })
 }
 
-struct BoundedCommandOutput {
-    status: std::process::ExitStatus,
-    stdout: Vec<u8>,
-    stderr: Vec<u8>,
-}
-
-fn run_test_command(
-    command: &mut Command,
-    limits: Option<RunLimits>,
-) -> io::Result<std::process::Output> {
-    match limits {
-        Some(limits) => run_bounded_command(command, limits).map(|output| std::process::Output {
-            status: output.status,
-            stdout: output.stdout,
-            stderr: output.stderr,
-        }),
-        None => command.output(),
-    }
-}
-
-fn run_bounded_command(
-    command: &mut Command,
-    limits: RunLimits,
-) -> io::Result<BoundedCommandOutput> {
-    command
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    configure_bounded_command(command, limits);
-    let mut child = command.spawn()?;
-    let stdout = child
-        .stdout
-        .take()
-        .ok_or_else(|| io::Error::other("bounded command stdout pipe unavailable"))?;
-    let stderr = child
-        .stderr
-        .take()
-        .ok_or_else(|| io::Error::other("bounded command stderr pipe unavailable"))?;
-    let output_bytes = Arc::new(AtomicUsize::new(0));
-    let stdout_reader =
-        capture_bounded_stream(stdout, limits.max_output_bytes, Arc::clone(&output_bytes));
-    let stderr_reader =
-        capture_bounded_stream(stderr, limits.max_output_bytes, Arc::clone(&output_bytes));
-    let deadline = Instant::now() + limits.timeout;
-    let status = loop {
-        if output_bytes.load(Ordering::Relaxed) > limits.max_output_bytes {
-            terminate_bounded_child(&mut child);
-            let _ = stdout_reader.join();
-            let _ = stderr_reader.join();
-            return Err(io::Error::other(format!(
-                "output exceeded the {} byte limit",
-                limits.max_output_bytes
-            )));
-        }
-        if let Some(status) = child.try_wait()? {
-            break status;
-        }
-        if Instant::now() >= deadline {
-            terminate_bounded_child(&mut child);
-            let _ = stdout_reader.join();
-            let _ = stderr_reader.join();
-            return Err(io::Error::new(
-                ErrorKind::TimedOut,
-                format!("execution exceeded the {:?} timeout", limits.timeout),
-            ));
-        }
-        thread::sleep(Duration::from_millis(10));
-    };
-    let stdout = join_bounded_stream(stdout_reader)?;
-    let stderr = join_bounded_stream(stderr_reader)?;
-    if output_bytes.load(Ordering::Relaxed) > limits.max_output_bytes {
-        return Err(io::Error::other(format!(
-            "output exceeded the {} byte limit",
-            limits.max_output_bytes
-        )));
-    }
-    Ok(BoundedCommandOutput {
-        status,
-        stdout,
-        stderr,
-    })
-}
-
-fn capture_bounded_stream<R>(
-    mut stream: R,
-    limit: usize,
-    output_bytes: Arc<AtomicUsize>,
-) -> thread::JoinHandle<io::Result<Vec<u8>>>
-where
-    R: Read + Send + 'static,
-{
-    thread::spawn(move || {
-        let mut captured = Vec::new();
-        let mut buffer = [0u8; 8192];
-        loop {
-            let read = stream.read(&mut buffer)?;
-            if read == 0 {
-                return Ok(captured);
-            }
-            let previous = output_bytes.fetch_add(read, Ordering::Relaxed);
-            if previous < limit {
-                let remaining = limit - previous;
-                captured.extend_from_slice(&buffer[..read.min(remaining)]);
-            }
-        }
-    })
-}
-
-fn join_bounded_stream(reader: thread::JoinHandle<io::Result<Vec<u8>>>) -> io::Result<Vec<u8>> {
-    reader
-        .join()
-        .map_err(|_| io::Error::other("bounded command output reader panicked"))?
-}
-
-#[cfg(unix)]
-fn configure_bounded_command(command: &mut Command, limits: RunLimits) {
-    use std::os::unix::process::CommandExt;
-
-    unsafe {
-        command.pre_exec(move || {
-            if libc::setsid() < 0 {
-                return Err(io::Error::last_os_error());
-            }
-            set_bounded_rlimit(limits.max_cpu_seconds, |rlimit| {
-                libc::setrlimit(libc::RLIMIT_CPU, rlimit)
-            })?;
-            set_bounded_rlimit(limits.max_file_bytes, |rlimit| {
-                libc::setrlimit(libc::RLIMIT_FSIZE, rlimit)
-            })?;
-            Ok(())
-        });
-    }
-}
-
-#[cfg(not(unix))]
-fn configure_bounded_command(_command: &mut Command, _limits: RunLimits) {}
-
-#[cfg(unix)]
-fn set_bounded_rlimit(
-    limit: u64,
-    set_limit: impl FnOnce(*const libc::rlimit) -> libc::c_int,
-) -> io::Result<()> {
-    let limits = libc::rlimit {
-        rlim_cur: limit as libc::rlim_t,
-        rlim_max: limit as libc::rlim_t,
-    };
-    if set_limit(&limits) != 0 {
-        return Err(io::Error::last_os_error());
-    }
-    Ok(())
-}
-
-fn terminate_bounded_child(child: &mut std::process::Child) {
-    #[cfg(unix)]
-    {
-        let process_group = -(child.id() as i32);
-        unsafe {
-            libc::kill(process_group, libc::SIGTERM);
-        }
-        let grace_deadline = Instant::now() + Duration::from_millis(100);
-        while Instant::now() < grace_deadline {
-            if child.try_wait().ok().flatten().is_some() {
-                return;
-            }
-            thread::sleep(Duration::from_millis(10));
-        }
-        unsafe {
-            libc::kill(process_group, libc::SIGKILL);
-        }
-    }
-    #[cfg(not(unix))]
-    let _ = child.kill();
-    let _ = child.wait();
-}
-
 fn prepare_run_project(
     project_root: &Path,
     options: &RunOptions,
@@ -1136,20 +1006,36 @@ pub fn run_project_tests_with_options(
     project_root: &Path,
     options: &TestOptions,
 ) -> Result<TestOutput, Diagnostic> {
+    Ok(run_project_tests_with_retry_plan(project_root, options, None)?.output)
+}
+
+/// Run project tests with optional, deterministic retry accounting.
+///
+/// Supplying no plan is equivalent to `run_project_tests_with_options` and
+/// leaves test process environments unchanged. A plan runs each case once plus
+/// its bounded number of retries, stopping at the first successful attempt.
+pub fn run_project_tests_with_retry_plan(
+    project_root: &Path,
+    options: &TestOptions,
+    retry_plan: Option<&TestRetryPlan>,
+) -> Result<TestRetryOutput, Diagnostic> {
     let project_root = canonicalize_existing_path(&normalize_path(project_root), "project root")?;
     let graph = load_package_graph(&project_root)?;
-    run_project_tests_with_graph(&project_root, &graph, options)
+    let (output, retries) = run_project_tests_with_graph(&project_root, &graph, options, retry_plan)?;
+    Ok(TestRetryOutput { output, retries })
 }
 
 fn run_project_tests_with_graph(
     project_root: &Path,
     graph: &PackageGraph,
     options: &TestOptions,
-) -> Result<TestOutput, Diagnostic> {
+    retry_plan: Option<&TestRetryPlan>,
+) -> Result<(TestOutput, Vec<TestRetryResult>), Diagnostic> {
     validate_workspace_root_lockfile(graph, project_root)?;
     let manifest_path_text = manifest_path(&project_root).display().to_string();
     let mut packages = Vec::new();
     let mut cases = Vec::new();
+    let mut retries = Vec::new();
     let mut parse_cache = ModuleParseCache::default();
     let started = Instant::now();
     for package_root in workspace_package_roots(graph, project_root, options.package.as_deref())? {
@@ -1168,18 +1054,35 @@ fn run_project_tests_with_graph(
                 &package_root_text,
             ) {
                 packages.push(package_root_text.clone());
-                cases.push(if expected_build_error.exists() {
-                    run_build_fail_case(&package_root, graph, manifest, &test.name, test.kind)
-                } else {
-                    run_compile_fail_case(
-                        &package_root,
-                        graph,
-                        manifest,
-                        &test.name,
-                        test.kind,
-                        &mut parse_cache,
-                    )
-                });
+                let (case, retry) = run_test_case_with_retries(
+                    retry_plan,
+                    &package_root_text,
+                    &test.name,
+                    |_| {
+                        if expected_build_error.exists() {
+                            run_build_fail_case(
+                                &package_root,
+                                graph,
+                                manifest,
+                                &test.name,
+                                test.kind,
+                            )
+                        } else {
+                            run_compile_fail_case(
+                                &package_root,
+                                graph,
+                                manifest,
+                                &test.name,
+                                test.kind,
+                                &mut parse_cache,
+                            )
+                        }
+                    },
+                );
+                cases.push(case);
+                if let Some(retry) = retry {
+                    retries.push(retry);
+                }
             }
             continue;
         }
@@ -1196,15 +1099,27 @@ fn run_project_tests_with_graph(
         }
         packages.push(package_root_text.clone());
         for test in &tests {
-            cases.push(run_test_case(
-                &package_root,
-                graph,
-                manifest,
-                test,
-                options.backend,
-                options.run_limits,
-                &mut parse_cache,
-            ));
+            let (case, retry) = run_test_case_with_retries(
+                retry_plan,
+                &package_root_text,
+                &test.name,
+                |retry_seed| {
+                    run_test_case(
+                        &package_root,
+                        graph,
+                        manifest,
+                        test,
+                        options.backend,
+                        options.run_limits,
+                        &mut parse_cache,
+                        retry_seed,
+                    )
+                },
+            );
+            cases.push(case);
+            if let Some(retry) = retry {
+                retries.push(retry);
+            }
         }
     }
     if cases.is_empty() {
@@ -1216,16 +1131,66 @@ fn run_project_tests_with_graph(
     for case in &cases {
         *kinds.entry(case.kind).or_insert(0) += 1;
     }
-    Ok(TestOutput {
-        backend: options.backend,
-        manifest: manifest_path_text,
-        packages,
-        cases,
-        passed,
-        failed,
-        skipped: 0,
-        kinds,
-        duration_ms: started.elapsed().as_millis() as u64,
+    Ok((
+        TestOutput {
+            backend: options.backend,
+            manifest: manifest_path_text,
+            packages,
+            cases,
+            passed,
+            failed,
+            skipped: 0,
+            kinds,
+            duration_ms: started.elapsed().as_millis() as u64,
+        },
+        retries,
+    ))
+}
+
+fn run_test_case_with_retries(
+    retry_plan: Option<&TestRetryPlan>,
+    package_root: &str,
+    name: &str,
+    mut execute: impl FnMut(Option<TestRetrySeed>) -> TestCaseResult,
+) -> (TestCaseResult, Option<TestRetryResult>) {
+    let Some(retry_plan) = retry_plan else {
+        return (execute(None), None);
+    };
+
+    let mut attempts = Vec::with_capacity(usize::from(retry_plan.retries) + 1);
+    let mut terminal_case = None;
+    for retry_seed in retry_attempt_seeds(*retry_plan) {
+        let case = execute(Some(retry_seed));
+        let ok = case.ok;
+        attempts.push(TestRetryAttempt {
+            attempt: retry_seed.attempt,
+            seed: retry_seed.seed,
+            ok,
+        });
+        terminal_case = Some(case);
+        if ok {
+            break;
+        }
+    }
+    let terminal_attempt = attempts
+        .last()
+        .expect("retry plan always schedules an initial attempt")
+        .attempt;
+    (
+        terminal_case.expect("retry plan always executes an initial attempt"),
+        Some(TestRetryResult {
+            package_root: package_root.to_string(),
+            name: name.to_string(),
+            attempts,
+            terminal_attempt,
+        }),
+    )
+}
+
+fn retry_attempt_seeds(plan: TestRetryPlan) -> impl Iterator<Item = TestRetrySeed> {
+    (0..=plan.retries).map(move |attempt| TestRetrySeed {
+        attempt,
+        seed: plan.seed.wrapping_add(u64::from(attempt)),
     })
 }
 
@@ -1865,6 +1830,11 @@ fn package_graph_metadata_with_graph(
                     package_id: graph.package_id(dependency_root).map(str::to_owned),
                     source_kind: edge.map(|edge| edge.source_kind.clone()),
                     requested: edge.map(|edge| edge.requested.clone()),
+                    selected_version: dependency
+                        .manifest
+                        .package
+                        .as_ref()
+                        .map(|package| package.version.clone()),
                     reason: edge.map(|edge| edge.reason.clone()),
                 })
             })
@@ -4876,6 +4846,7 @@ fn run_test_case(
     backend: NativeBackendKind,
     run_limits: Option<RunLimits>,
     parse_cache: &mut ModuleParseCache,
+    retry_seed: Option<TestRetrySeed>,
 ) -> TestCaseResult {
     if test.expected_error.is_some() {
         return run_manifest_compile_fail_case(project_root, graph, manifest, test, parse_cache);
@@ -4939,13 +4910,19 @@ fn run_test_case(
 
     let build_output_dir = out_dir_path(project_root, manifest);
     let command_result = if test.http.is_some() {
-        run_http_fixture_case(&binary, &build_output_dir, test)
+        run_http_fixture_case(&binary, &build_output_dir, test, run_limits, retry_seed)
     } else if let Some(stdin) = &test.stdin {
         command_for_build_output(&binary, &build_output_dir)
-            .and_then(|command| run_command_with_stdin(command, stdin))
+            .and_then(|mut command| {
+                configure_test_retry_environment(&mut command, retry_seed);
+                run_command_with_stdin(command, stdin, run_limits)
+            })
     } else {
         command_for_build_output(&binary, &build_output_dir)
-            .and_then(|mut command| run_test_command(&mut command, run_limits))
+            .and_then(|mut command| {
+                configure_test_retry_environment(&mut command, retry_seed);
+                run_test_command(&mut command, run_limits)
+            })
     };
 
     match command_result {
@@ -5063,22 +5040,26 @@ fn run_test_case(
     }
 }
 
-fn run_command_with_stdin(mut command: Command, stdin: &str) -> io::Result<std::process::Output> {
-    command
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    let mut child = command.spawn()?;
-    if let Some(mut input) = child.stdin.take() {
-        input.write_all(stdin.as_bytes())?;
-    }
-    child.wait_with_output()
-}
-
 fn run_http_fixture_case(
     binary: &Path,
     build_output_dir: &Path,
     test: &crate::manifest::TestTarget,
+    limits: Option<RunLimits>,
+    retry_seed: Option<TestRetrySeed>,
+) -> io::Result<std::process::Output> {
+    match limits {
+        Some(limits) => {
+            run_bounded_http_fixture_case(binary, build_output_dir, test, limits, retry_seed)
+        }
+        None => run_http_fixture_case_unbounded(binary, build_output_dir, test, retry_seed),
+    }
+}
+
+fn run_http_fixture_case_unbounded(
+    binary: &Path,
+    build_output_dir: &Path,
+    test: &crate::manifest::TestTarget,
+    retry_seed: Option<TestRetrySeed>,
 ) -> io::Result<std::process::Output> {
     let fixture = test.http.as_ref().expect("http fixture present");
     let (target_addr, injected_bind) = if let Some(bind) = &fixture.bind {
@@ -5096,6 +5077,7 @@ fn run_http_fixture_case(
     if let Some(bind) = injected_bind {
         command.env("AXIOM_TEST_BIND", bind);
     }
+    configure_test_retry_environment(&mut command, retry_seed);
     command.stdout(Stdio::piped()).stderr(Stdio::piped());
     let mut child = command.spawn()?;
 
@@ -5133,6 +5115,17 @@ fn run_http_fixture_case(
     }
 
     child.wait_with_output()
+}
+
+pub(super) fn configure_test_retry_environment(
+    command: &mut Command,
+    retry_seed: Option<TestRetrySeed>,
+) {
+    if let Some(retry_seed) = retry_seed {
+        command
+            .env("AXIOM_TEST_ATTEMPT", retry_seed.attempt.to_string())
+            .env("AXIOM_TEST_SEED", retry_seed.seed.to_string());
+    }
 }
 
 fn parse_http_fixture_bind(bind: &str) -> io::Result<std::net::SocketAddr> {
@@ -10832,17 +10825,74 @@ mod tests {
     use std::os::unix::fs::PermissionsExt;
     use tempfile::tempdir;
 
-    #[cfg(unix)]
+    fn retry_case(ok: bool) -> TestCaseResult {
+        TestCaseResult {
+            package_root: "package".to_string(),
+            name: "case".to_string(),
+            kind: TestKind::Unit,
+            entry: "src/case_test.ax".to_string(),
+            ok,
+            binary: None,
+            generated_rust: None,
+            exit_code: None,
+            stdout: String::new(),
+            stderr: String::new(),
+            expected_stdout: None,
+            expected_stderr: None,
+            expected_error: None,
+            lowering: None,
+            duration_ms: 0,
+            error: None,
+        }
+    }
+
     #[test]
-    fn bounded_test_command_enforces_benchmark_timeout() {
-        let mut command = Command::new("sh");
-        command.args(["-c", "sleep 2"]);
-        let error = run_test_command(
-            &mut command,
-            Some(RunLimits::benchmark(Duration::from_millis(50))),
-        )
-        .expect_err("sleeping command should exceed benchmark timeout");
-        assert_eq!(error.kind(), ErrorKind::TimedOut);
+    fn retry_seed_order_is_deterministic_and_wraps() {
+        let attempts = retry_attempt_seeds(TestRetryPlan {
+            retries: 2,
+            seed: u64::MAX - 1,
+        })
+        .map(|attempt| (attempt.attempt, attempt.seed))
+        .collect::<Vec<_>>();
+
+        assert_eq!(attempts, vec![(0, u64::MAX - 1), (1, u64::MAX), (2, 0)]);
+    }
+
+    #[test]
+    fn retry_accounting_uses_only_the_terminal_successful_attempt() {
+        let mut outcomes = vec![false, false, true].into_iter();
+        let (case, retry) = run_test_case_with_retries(
+            Some(&TestRetryPlan {
+                retries: 5,
+                seed: 41,
+            }),
+            "package",
+            "case",
+            |_| retry_case(outcomes.next().expect("runner must stop after success")),
+        );
+
+        assert!(case.ok);
+        let retry = retry.expect("retry plan should produce accounting");
+        assert_eq!(retry.terminal_attempt, 2);
+        assert_eq!(
+            retry
+                .attempts
+                .iter()
+                .map(|attempt| (attempt.attempt, attempt.seed, attempt.ok))
+                .collect::<Vec<_>>(),
+            vec![(0, 41, false), (1, 42, false), (2, 43, true)]
+        );
+    }
+
+    #[test]
+    fn no_retry_plan_executes_once_without_accounting() {
+        let (case, retry) = run_test_case_with_retries(None, "package", "case", |seed| {
+            assert!(seed.is_none());
+            retry_case(true)
+        });
+
+        assert!(case.ok);
+        assert!(retry.is_none());
     }
 
     #[test]
@@ -11279,7 +11329,12 @@ out_dir = "dist"
             assert_eq!(built.packages.len(), 1);
             assert_eq!(built.packages[0].package_root, root.display().to_string());
 
-            let tests = run_project_tests_with_graph(&root, &graph, &TestOptions::default())
+            let (tests, _) = run_project_tests_with_graph(
+                &root,
+                &graph,
+                &TestOptions::default(),
+                None,
+            )
                 .expect("test materialized registry graph");
             assert_eq!(tests.passed, 1);
             assert_eq!(tests.failed, 0);
