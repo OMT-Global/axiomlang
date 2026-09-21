@@ -4363,7 +4363,6 @@ fn axiom_crypto_ed25519_keygen_inner() -> Option<(Vec<u8>, Vec<u8>)> {
     }
     public_key.truncate(public_len);
     private_key.truncate(private_len);
-    private_key.extend_from_slice(&public_key);
     Some((public_key, private_key))
 }
 
@@ -4477,10 +4476,10 @@ fn axiom_crypto_ed25519_verify_inner(
 
 #[allow(dead_code)]
 fn axiom_crypto_ed25519_signing_key(secret_key: &[u8]) -> Option<&[u8]> {
-    match secret_key.len() {
-        32 => Some(secret_key),
-        64 => Some(&secret_key[..32]),
-        _ => None,
+    if secret_key.len() == 32 {
+        Some(secret_key)
+    } else {
+        None
     }
 }
 

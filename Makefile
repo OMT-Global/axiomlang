@@ -169,6 +169,11 @@ stage1-mir-backend-boundary-test:
 stage1-runtime-lifecycle-v1:
 	python3 scripts/ci/check-runtime-lifecycle-v1.py
 
+.PHONY: stage1-runtime-crypto-provider-policy-v1
+stage1-runtime-crypto-provider-policy-v1:
+	python3 scripts/ci/test-check-runtime-crypto-provider-policy-v1.py --root "$(CURDIR)"
+	python3 scripts/ci/check-runtime-crypto-provider-policy-v1.py --root "$(CURDIR)"
+
 stage1-filesystem-v1:
 	python3 scripts/ci/check-filesystem-v1.py
 
