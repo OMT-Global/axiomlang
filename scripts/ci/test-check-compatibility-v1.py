@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import importlib.util
 import json
 import subprocess
@@ -24,6 +25,8 @@ CURRENT_POLICY = ROOT / "stage1/compatibility/policy-v1.json"
 BASELINE = ROOT / "stage1/compatibility/fixtures/accepted-baseline/contract.json"
 BASELINE_POLICY = ROOT / "stage1/compatibility/fixtures/accepted-baseline/policy.json"
 CURRENT = ROOT / "stage1/compatibility/fixtures/current/contract.json"
+PREVIOUS_CURRENT = ROOT / "stage1/compatibility/fixtures/previous-current/contract.json"
+PREVIOUS_CURRENT_METADATA = ROOT / "stage1/compatibility/fixtures/previous-current/metadata.json"
 
 
 def load(path: Path) -> dict[str, Any]:
@@ -42,6 +45,7 @@ def run(
     *,
     policy: Path = POLICY,
     old_policy: Path | None = None,
+    historical_baseline: bool = False,
 ) -> subprocess.CompletedProcess[str]:
     command = [
             sys.executable,
@@ -56,6 +60,8 @@ def run(
         ]
     if old_policy is not None:
         command.extend(["--old-policy", str(old_policy)])
+    if historical_baseline:
+        command.append("--historical-baseline")
     return subprocess.run(
         command,
         cwd=ROOT,
@@ -73,12 +79,19 @@ def expect_failure(
     *,
     policy: Path = POLICY,
     old_policy: Path | None = None,
+    historical_baseline: bool = False,
 ) -> None:
     old = directory / "old.json"
     new = directory / "new.json"
     write(old, old_payload)
     write(new, new_payload)
-    result = run(old, new, policy=policy, old_policy=old_policy)
+    result = run(
+        old,
+        new,
+        policy=policy,
+        old_policy=old_policy,
+        historical_baseline=historical_baseline,
+    )
     assert result.returncode != 0, result.stdout + result.stderr
     assert message in result.stdout, result.stdout
     failure = json.loads(result.stdout)
@@ -88,6 +101,11 @@ def expect_failure(
 
 def surface(contract: dict[str, Any], identifier: str) -> dict[str, Any]:
     return next(item for item in contract["surfaces"] if item["id"] == identifier)
+
+
+def git_blob_oid(payload: bytes) -> str:
+    header = f"blob {len(payload)}\0".encode("ascii")
+    return hashlib.sha1(header + payload).hexdigest()
 
 
 def extractor_module() -> Any:
@@ -184,6 +202,9 @@ def main() -> int:
 
     baseline_payload = load(BASELINE)
     current_payload = load(CURRENT)
+    previous_current_bytes = PREVIOUS_CURRENT.read_bytes()
+    previous_current_payload = json.loads(previous_current_bytes)
+    previous_current_metadata = load(PREVIOUS_CURRENT_METADATA)
     baseline_ids = [item["id"] for item in baseline_payload["surfaces"]]
     current_ids = [item["id"] for item in current_payload["surfaces"]]
     new_package_trust_ids = {
@@ -197,6 +218,7 @@ def main() -> int:
         "axiom://schema/axiom.filesystem.v1",
         "axiom://schema/axiom.lsp.v1",
         "axiom://schema/axiom.provider-abi.v1",
+        "axiom://schema/axiom.runtime_crypto_provider_policy.v1",
         "axiom://schema/axiom.runtime_observability.v1",
         "axiom://schema/axiom.runtime_http_client.v1",
         "axiom://schema/axiom.runtime_lifecycle.v1",
@@ -232,36 +254,70 @@ def main() -> int:
         "axiom://schema/axiom.stage1.v1",
     }
     assert len(baseline_ids) == 52, "accepted baseline must remain the frozen 52-surface ratchet"
-    assert len(current_ids) == 70, "current contract must include package trust, quality, Filesystem v1, Provider ABI, HTTP client, runtime observability, Semantic MIR, runtime lifecycle, target support, persistent LSP, and package resolver schemas"
+    assert len(current_ids) == 71, "current contract must include package trust, quality, Filesystem v1, Provider ABI, runtime crypto policy, HTTP client, runtime observability, Semantic MIR, runtime lifecycle, target support, persistent LSP, and package resolver schemas"
     assert set(baseline_ids) < set(current_ids)
     assert set(current_ids) - set(baseline_ids) == new_public_schema_ids | new_package_resolver_ids
-    assert current_payload["contract_version"] == "0.5.0"
+    assert current_payload["contract_version"] == "0.8.0"
+    assert surface(current_payload, "axiom://schema/axiom-quality-report-v1")["version"] == "0.2.0"
+    assert surface(current_payload, "axiom://stdlib/catalog")["version"] == "1.2.0"
+    assert surface(current_payload, "axiom://schema/axiom.compiler.stdlib_catalog.v1")["version"] == "0.3.0"
     current_cli = surface(current_payload, "axiom://cli/axiomc")
     assert current_cli["version"] == "0.3.0"
+    current_abi = surface(current_payload, "axiom://abi/direct-native")
+    assert current_abi["version"] == "0.2.0"
     current_stage1_schema = surface(current_payload, "axiom://schema/axiom.stage1.v1")
     assert current_stage1_schema["version"] == "0.2.0"
     compatibility_doc = (ROOT / "docs/compatibility-v1.md").read_text(encoding="utf-8")
     assert f"current source contract is version `{current_payload['contract_version']}` with {len(current_ids)} surfaces" in compatibility_doc
     assert f"CLI surface is version `{current_cli['version']}`" in compatibility_doc
+    assert previous_current_metadata == {
+        "schema_version": "axiom.compatibility_previous_current_evidence.v1",
+        "role": "byte_exact_previous_current_source_snapshot",
+        "source_commit": "b3149c5e9bf10a4a244b0d89c6e6cd804b47ae3f",
+        "source_path": "stage1/compatibility/fixtures/current/contract.json",
+        "git_blob": "e5ad22e48e4504d62de8ea343e58fd4c1e262cb4",
+        "sha256": "dff36c546df53be343c9d06017e9d439ed981e1f3fcca1fc91a01bcdce9ae3ac",
+        "contract_version": "0.4.0",
+        "surface_count": 68,
+        "qualification": (
+            "Byte-exact origin/main evidence only; not release history or a "
+            "qualified previous compiler."
+        ),
+    }
+    assert hashlib.sha256(previous_current_bytes).hexdigest() == previous_current_metadata["sha256"]
+    assert git_blob_oid(previous_current_bytes) == previous_current_metadata["git_blob"]
+    assert previous_current_payload["contract_version"] == "0.4.0"
+    assert len(previous_current_payload["surfaces"]) == 68
     current_commands = (
         current_cli["signature"].split("; ", maxsplit=1)[0].split("=")[1].split(",")
     )
     assert {"pkg fetch", "pkg update", "pkg vendor", "pkg verify"} <= set(current_commands)
+    with tempfile.TemporaryDirectory() as historical_temporary:
+        expect_failure(
+            Path(historical_temporary),
+            baseline_payload,
+            current_payload,
+            "added public surface axiom://schema/axiom-quality-report-v1 must not declare migration",
+            policy=CURRENT_POLICY,
+            old_policy=BASELINE_POLICY,
+        )
     canonical = run(
         BASELINE,
         CURRENT,
         policy=CURRENT_POLICY,
         old_policy=BASELINE_POLICY,
+        historical_baseline=True,
     )
     assert canonical.returncode == 0, canonical.stdout + canonical.stderr
     canonical_report = json.loads(canonical.stdout)
     assert canonical_report["summary"] == {
-        "additive": 18,
-        "breaking": 9,
+        "additive": 19,
+        "breaking": 10,
         "compatible": 0,
         "deprecated": 0,
     }
     expected_changed_ids = new_public_schema_ids | new_package_resolver_ids | modified_schema_ids | {
+        "axiom://abi/direct-native",
         "axiom://cli/axiomc",
         "axiom://package/lockfile",
         "axiom://package/manifest",
@@ -272,6 +328,14 @@ def main() -> int:
     assert {
         item["surface_id"] for item in canonical_report["changes"]
     } == expected_changed_ids
+    quality_report_change = next(
+        item
+        for item in canonical_report["changes"]
+        if item["surface_id"] == "axiom://schema/axiom-quality-report-v1"
+    )
+    assert quality_report_change["change"] == "added"
+    assert quality_report_change["severity"] == "additive"
+    assert quality_report_change["migration"] is None
     previous_current = copy.deepcopy(current_payload)
     previous_current["snapshot_id"] = (
         "axiom://compatibility/previous-current-before-filesystem-v1"
@@ -364,6 +428,7 @@ def main() -> int:
                 mutated,
                 f"changed public surface {identifier} must increase its version",
                 policy=CURRENT_POLICY,
+                historical_baseline=True,
             )
 
         compiler_old = copy.deepcopy(baseline_payload)

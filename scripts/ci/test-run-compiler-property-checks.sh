@@ -18,6 +18,18 @@ if ! awk '
   exit 1
 fi
 
+if ! awk '
+  /^run_with_writable_outputs\(\) \{$/ { in_runner=1 }
+  in_runner && /saved_traps="\$\(trap -p EXIT HUP INT TERM\)"/ { saved=NR }
+  in_runner && /^  trap - EXIT HUP INT TERM$/ { cleared=NR }
+  in_runner && /keep_outputs_writable "\$dir" &/ { spawned=NR }
+  in_runner && /^  eval "\$saved_traps"$/ { restored=NR; exit }
+  END { exit (saved && cleared && spawned && restored && saved < cleared && cleared < spawned && spawned < restored) ? 0 : 1 }
+' "$script"; then
+  echo "run_with_writable_outputs must clear inherited traps before spawning its background helper and restore them afterward" >&2
+  exit 1
+fi
+
 if grep -Eq 'mktemp .*[.]XXXXXX[.]' "$script"; then
   echo "compiler property checks must use BSD-compatible mktemp templates" >&2
   exit 1
@@ -171,5 +183,120 @@ if find "$run_tmp" -maxdepth 1 -name 'axiom-compiler-property-cranelift*' -print
   find "$run_tmp" -maxdepth 1 -name 'axiom-compiler-property-cranelift*' -print >&2
   exit 1
 fi
+
+# Execute reclamation controls in disposable, distinct trusted/data checkouts.
+# Locate the redirected report by inode rather than a Linux-only /proc probe
+# or a source-text fallback: this proves the file actually used by cargo.
+python3 - "$script" "$harness_tmp" <<'PY'
+import json
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+
+source = Path(sys.argv[1])
+root = Path(sys.argv[2]).resolve() / "reclamation-controls"
+root.mkdir()
+fake = root / "bin"
+fake.mkdir()
+(fake / "cargo").write_text(r'''#!/usr/bin/env python3
+import json
+import os
+from pathlib import Path
+import shutil
+import sys
+
+if "test" not in sys.argv:
+    sys.exit(0)
+root = Path(os.environ["REPORT_CONTROL_ROOT"])
+fd = os.fstat(1)
+reports = [p for p in root.rglob("report.json")
+           if (p.stat().st_dev, p.stat().st_ino) == (fd.st_dev, fd.st_ino)]
+if len(reports) != 1:
+    raise SystemExit("expected exactly one redirected compiler report")
+report = reports[0]
+(root / "observed-report.txt").write_text(str(report))
+# Only test-owned paths can be reclaimed; never touch a real checkout.
+os.chdir(root)
+mode = os.environ["REPORT_CONTROL_MODE"]
+if mode == "reclaim-data":
+    shutil.rmtree(root / "data")
+elif mode == "reclaim-runner":
+    shutil.rmtree(root / "runner")
+elif mode == "missing":
+    shutil.rmtree(report.parent)
+if mode == "invalid":
+    print("{invalid json")
+else:
+    print(json.dumps({"backend": "cranelift", "cases": [{
+        "kind": "property", "name": "report_survival", "duration_ms": 1,
+        "binary": "/fake/property-bin", "ok": True, "exit_code": 0,
+        "generated_rust": None}]}))
+''')
+(fake / "cargo").chmod(0o755)
+
+for name, actions, runner_temp, mode, succeeds in [
+    ("actions-reclaim-data", True, True, "reclaim-data", True),
+    ("actions-reclaim-runner", True, True, "reclaim-runner", True),
+    ("actions-without-runner-temp", True, False, "valid", True),
+    ("actions-missing-report", True, True, "missing", False),
+    ("actions-invalid-report", True, True, "invalid", False),
+    ("local-tmpdir", False, True, "valid", True),
+    ("local-relative-tmpdir", False, True, "valid", True),
+    ("local-unavailable-parent", False, True, "valid", False),
+]:
+    case = root / name
+    trusted = case / "trusted"
+    data = case / "data"
+    runner = case / "runner"
+    script = trusted / "scripts/ci/run-compiler-property-checks.sh"
+    script.parent.mkdir(parents=True)
+    shutil.copyfile(source, script)
+    corpus = data / "stage1/examples/compiler_properties/src"
+    corpus.mkdir(parents=True)
+    (corpus / "main.ax").write_text("".join(
+        f"property fn p_{i}() {{ }}\n" for i in range(100)))
+    runner.mkdir()
+    env = dict(os.environ, PATH=str(fake) + os.pathsep + os.environ["PATH"],
+               TMPDIR=str(runner), AXIOM_CHECKOUT_PATH=str(data),
+               REPORT_CONTROL_ROOT=str(case), REPORT_CONTROL_MODE=mode)
+    env.pop("GITHUB_ACTIONS", None)
+    env.pop("RUNNER_TEMP", None)
+    if actions:
+        env["GITHUB_ACTIONS"] = "true"
+    if runner_temp:
+        env["RUNNER_TEMP"] = str(runner)
+    expected_parent = trusted if actions else runner
+    if name == "local-relative-tmpdir":
+        env["TMPDIR"] = "relative-reports"
+        expected_parent = data / "relative-reports"
+    if name == "local-unavailable-parent":
+        runner.rmdir()
+        runner.write_text("not a directory")
+    result = subprocess.run(["bash", str(script)], env=env, cwd=trusted,
+                            text=True, capture_output=True)
+    assert (result.returncode == 0) == succeeds, (name, result.stdout, result.stderr)
+    if name == "local-unavailable-parent":
+        assert "compiler property report directory could not be allocated" in result.stderr, result.stderr
+        assert not (case / "observed-report.txt").exists(), "cargo test ran without a report directory"
+        print(f"PASS {name}")
+        continue
+    observed = Path((case / "observed-report.txt").read_text())
+    assert observed.parent.parent == expected_parent, (name, observed)
+    assert not list(case.rglob("axiom-compiler-property-cranelift.*")), (name, "report leaked")
+    if mode == "missing":
+        assert "compiler property report missing" in result.stderr, result.stderr
+        assert "removed before validation" in result.stderr, result.stderr
+        assert "Traceback" not in result.stderr, result.stderr
+    if mode == "invalid":
+        assert "compiler property report unreadable" in result.stderr, result.stderr
+        assert "Traceback" not in result.stderr, result.stderr
+    if mode == "reclaim-data":
+        assert not data.exists(), "data reclamation did not happen"
+    if mode == "reclaim-runner":
+        assert not runner.exists(), "runner reclamation did not happen"
+    print(f"PASS {name}")
+PY
 
 echo "run-compiler-property-checks regression cases passed"

@@ -24,12 +24,12 @@ defaults:
 jobs:
   changes:
     name: Detect Relevant Changes
-    runs-on: ['self-hosted', 'linux', 'shell-only', 'public']
+    runs-on: ubuntu-24.04
     outputs:
       app: ${{ steps.filter.outputs.app }}
       ci: ${{ steps.filter.outputs.ci }}
     steps:
-      - uses: dorny/paths-filter@d1c1ffe0248fe513906c8e24db8ea791d46f8590 # v3 pinned 2026-05-30
+      - uses: dorny/paths-filter@0e4a8c6effa4802afeda77dc8d303f8176d7dfad # v3 pinned 2026-05-30
         id: filter
         with:
           filters: |
@@ -62,7 +62,7 @@ jobs:
 
   fast-checks:
     name: Fast Checks
-    runs-on: ['self-hosted', 'linux', 'shell-only', 'public']
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     needs: changes
     if: >-
@@ -78,8 +78,8 @@ jobs:
 
       - name: Checkout trusted CI scripts
         # SECURITY (#1543): this checkout must stay pinned to the PR *base*.
-        # `run-fast-checks.sh` is executed from it below on a persistent
-        # self-hosted runner, with the PR head mounted only as data via
+        # `run-fast-checks.sh` is executed from it below, with the PR head
+        # mounted only as data via
         # AXIOM_CHECKOUT_PATH. Pinning to head.sha would run PR-authored
         # scripts under a "trusted" label and defeat the split entirely --
         # exactly the regression #1405 introduced against #1211. Compare the
@@ -163,12 +163,13 @@ jobs:
 
       - name: Run fast checks
         env:
+          CARGO_TARGET_DIR: ${{ runner.temp }}/axiom-fast-${{ github.run_id }}-${{ github.run_attempt }}
           GITHUB_TOKEN: ${{ github.token }}
         run: AXIOM_CHECKOUT_PATH="$GITHUB_WORKSPACE" bash .trusted-ci/scripts/ci/run-fast-checks.sh
 
   full-lib-suite:
     name: Full Lib Suite
-    runs-on: ['self-hosted', 'linux', 'shell-only', 'public']
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     needs: changes
     if: >-
@@ -229,7 +230,7 @@ jobs:
 
       - name: Run full axiomc lib suite
         # The #1255 blocking lane: the full lib suite must be green. Tests
-        # that require unavailable local capabilities self-skip so shell-only
+        # that require unavailable local capabilities self-skip so standard hosted
         # runners do not produce false reds.
         run: RUST_MIN_STACK=8388608 cargo test --manifest-path stage1/Cargo.toml -p axiomc --lib --features run-native-tests -- --test-threads=1
 
@@ -247,9 +248,23 @@ jobs:
         # explicit so manifest/ABI regressions cannot hide behind --lib coverage.
         run: RUST_MIN_STACK=8388608 cargo test --manifest-path stage1/Cargo.toml -p axiomc --test cranelift_backend --features run-native-tests -- --test-threads=1
 
+      - name: Run manifest schema parity suite
+        # Manifest acceptance regressions need the real parser and schema validator.
+        # This integration target is not included by --lib or the other explicit targets.
+        run: RUST_MIN_STACK=8388608 cargo test --manifest-path stage1/Cargo.toml -p axiomc --test manifest_schema_parity --locked -- --test-threads=1
+
+      - name: Run CLI JSON contract snapshots
+        # Real success and failure payloads must be tested on the PR head, not only schemas.
+        run: RUST_MIN_STACK=8388608 cargo test --manifest-path stage1/Cargo.toml -p axiomc --test json_contract_snapshots --locked -- --test-threads=1
+
+      - name: Run native signed-add overflow matrix
+        # #1659: this separate integration target is not covered by --lib or
+        # cranelift_backend. Explicit native mode requires cc rather than skipping.
+        run: RUST_MIN_STACK=8388608 cargo test --manifest-path stage1/Cargo.toml -p axiomc --test cranelift_numeric_overflow --features run-native-tests -- --test-threads=1
+
   provider-abi-target-matrix:
     name: Provider ABI C Fixture (${{ matrix.target }})
-    runs-on: ['self-hosted', 'linux', 'shell-only', 'public']
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     needs: changes
     if: >-
@@ -263,7 +278,7 @@ jobs:
         # only with a corresponding supported runner/compiler toolchain.
         target: [linux-x86_64]
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4 pinned 2026-05-30
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4 pinned 2026-05-30
         with:
           ref: ${{ github.event.pull_request.head.sha }}
       - name: Ensure C compiler availability
@@ -314,7 +329,7 @@ jobs:
 
   validate-pr-description:
     name: Validate PR Description
-    runs-on: ['self-hosted', 'linux', 'shell-only', 'public']
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     if: >-
       github.event.pull_request.draft == false &&
@@ -325,7 +340,7 @@ jobs:
     steps:
       - name: Require generated PR template content
         # Keep this validation inline in the trusted workflow. The job runs for
-        # pull_request events on a self-hosted public runner, so it must not
+        # pull_request events on a public hosted runner, so it must not
         # check out or execute scripts from the untrusted pull request head.
         run: |
           set -euo pipefail
@@ -410,7 +425,7 @@ jobs:
 
   validate-secrets:
     name: Validate Secrets
-    runs-on: ['self-hosted', 'linux', 'shell-only', 'public']
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     if: >-
       github.event.pull_request.draft == false &&
@@ -429,7 +444,7 @@ jobs:
 
   ci-gate:
     name: CI Gate
-    runs-on: ['self-hosted', 'linux', 'shell-only', 'public']
+    runs-on: ubuntu-24.04
     if: always()
     needs:
       - changes
@@ -439,8 +454,8 @@ jobs:
       - validate-pr-description
       - validate-secrets
     steps:
-      # SECURITY: ci-gate runs on a persistent self-hosted runner with no fork
-      # guard (if: always), so it must never execute code from the PR head tree.
+      # SECURITY: ci-gate has no fork guard (if: always), so it must never
+      # execute code from the PR head tree even though each hosted runner is ephemeral.
       # The gate only needs the result envs below plus the trusted gate helper,
       # so check out the base ref (target-repo, trusted) instead of the fork head
       # and drop persisted credentials. See scripts/ci/check-pr-fast-ci-gate.sh.

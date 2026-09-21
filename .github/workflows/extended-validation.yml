@@ -26,7 +26,7 @@ defaults:
 jobs:
   changes:
     name: Detect Extended Validation Scope
-    runs-on: ['self-hosted', 'linux', 'shell-only', 'public']
+    runs-on: ubuntu-24.04
     outputs:
       app: ${{ steps.preset.outputs.app || steps.filter.outputs.app || 'false' }}
       ci: ${{ steps.preset.outputs.ci || steps.filter.outputs.ci || 'false' }}
@@ -47,7 +47,7 @@ jobs:
           extended=true
           EOF
 
-      - uses: dorny/paths-filter@d1c1ffe0248fe513906c8e24db8ea791d46f8590 # v3 pinned 2026-05-30
+      - uses: dorny/paths-filter@0e4a8c6effa4802afeda77dc8d303f8176d7dfad # v3 pinned 2026-05-30
         id: filter
         if: github.event_name == 'push'
         with:
@@ -87,19 +87,65 @@ jobs:
 
   fast-checks:
     name: Fast Checks
-    runs-on: ['self-hosted', 'linux', 'shell-only', 'public']
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     needs: changes
     if: needs.changes.outputs.app == 'true' || needs.changes.outputs.ci == 'true'
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4 pinned 2026-05-30
 
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable pinned 2026-04-19
+
+      - name: Ensure C compiler availability
+        run: |
+          set -euo pipefail
+
+          for candidate in cc gcc clang; do
+            if command -v "$candidate" >/dev/null 2>&1; then
+              exit 0
+            fi
+          done
+
+          if command -v apt-get >/dev/null 2>&1; then
+            apt_cache="${RUNNER_TEMP:-/tmp}/axiom-extended-apt-cache"
+            apt_lists="${RUNNER_TEMP:-/tmp}/axiom-extended-apt-lists"
+            mkdir -p "$apt_cache/partial" "$apt_lists/partial"
+            apt_get=(
+              apt-get
+              -o Acquire::Retries=3
+              -o Dpkg::Use-Pty=0
+              -o APT::Sandbox::User=root
+              -o Dir::Cache::archives="$apt_cache"
+              -o Dir::State::lists="$apt_lists"
+            )
+            if [[ "$(id -u)" != "0" ]]; then
+              if command -v sudo >/dev/null 2>&1; then
+                apt_get=(sudo "${apt_get[@]}")
+              else
+                apt_get=()
+              fi
+            fi
+            if (( ${#apt_get[@]} )); then
+              "${apt_get[@]}" update || true
+              DEBIAN_FRONTEND=noninteractive "${apt_get[@]}" install -y --no-install-recommends gcc libc6-dev || true
+            fi
+          fi
+
+          for candidate in cc gcc clang; do
+            if command -v "$candidate" >/dev/null 2>&1; then
+              exit 0
+            fi
+          done
+
+          echo "::error::Extended validation requires a usable C compiler (cc, gcc, or clang)" >&2
+          exit 1
+
       - name: Run fast checks
         run: bash scripts/ci/run-fast-checks.sh
 
   extended-checks:
     name: Extended Checks
-    runs-on: ['self-hosted', 'linux', 'shell-only', 'public']
+    runs-on: ubuntu-24.04
     timeout-minutes: 120
     needs: changes
     if: needs.changes.outputs.extended == 'true' || needs.changes.outputs.app == 'true'
@@ -121,6 +167,50 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
 
+      - name: Ensure C compiler availability
+        run: |
+          set -euo pipefail
+
+          for candidate in cc gcc clang; do
+            if command -v "$candidate" >/dev/null 2>&1; then
+              exit 0
+            fi
+          done
+
+          if command -v apt-get >/dev/null 2>&1; then
+            apt_cache="${RUNNER_TEMP:-/tmp}/axiom-extended-apt-cache"
+            apt_lists="${RUNNER_TEMP:-/tmp}/axiom-extended-apt-lists"
+            mkdir -p "$apt_cache/partial" "$apt_lists/partial"
+            apt_get=(
+              apt-get
+              -o Acquire::Retries=3
+              -o Dpkg::Use-Pty=0
+              -o APT::Sandbox::User=root
+              -o Dir::Cache::archives="$apt_cache"
+              -o Dir::State::lists="$apt_lists"
+            )
+            if [[ "$(id -u)" != "0" ]]; then
+              if command -v sudo >/dev/null 2>&1; then
+                apt_get=(sudo "${apt_get[@]}")
+              else
+                apt_get=()
+              fi
+            fi
+            if (( ${#apt_get[@]} )); then
+              "${apt_get[@]}" update || true
+              DEBIAN_FRONTEND=noninteractive "${apt_get[@]}" install -y --no-install-recommends gcc libc6-dev || true
+            fi
+          fi
+
+          for candidate in cc gcc clang; do
+            if command -v "$candidate" >/dev/null 2>&1; then
+              exit 0
+            fi
+          done
+
+          echo "::error::Extended validation requires a usable C compiler (cc, gcc, or clang)" >&2
+          exit 1
+
       - name: Ensure pinned coverage tooling
         run: |
           required_version="0.8.5"
@@ -129,6 +219,62 @@ jobs:
             cargo install cargo-llvm-cov --version "$required_version" --locked --force
           fi
           test "$(cargo llvm-cov --version)" = "cargo-llvm-cov $required_version"
+
+      - name: Ensure cargo-vet
+        run: |
+          required_version="$(
+            awk '
+              /^\[cargo-vet\]$/ { in_cargo_vet = 1; next }
+              /^\[/ { in_cargo_vet = 0 }
+              in_cargo_vet && $1 == "version" {
+                gsub(/"/, "", $3)
+                print $3
+                exit
+              }
+            ' stage1/supply-chain/config.toml
+          )"
+          if [[ -z "$required_version" ]]; then
+            echo "unable to read cargo-vet version from stage1/supply-chain/config.toml" >&2
+            exit 1
+          fi
+          install_version="$required_version"
+          required_is_minor=0
+          if [[ "$required_version" == "0.10" ]]; then
+            install_version="0.10.2"
+          elif [[ "$install_version" =~ ^[0-9]+[.][0-9]+$ ]]; then
+            required_is_minor=1
+            install_version="^${install_version}"
+          fi
+          if [[ "$install_version" == "0.10.0" ]]; then
+            install_version="0.10.2"
+          fi
+
+          installed_version=""
+          if command -v cargo-vet >/dev/null 2>&1; then
+            installed_version="$(cargo-vet --version || true)"
+          fi
+
+          install_cargo_vet=0
+          if [[ -z "$installed_version" ]]; then
+            install_cargo_vet=1
+          elif (( required_is_minor )); then
+            install_cargo_vet=1
+          elif [[ "$installed_version" != "cargo-vet ${install_version}" ]]; then
+            install_cargo_vet=1
+          fi
+
+          if (( install_cargo_vet )); then
+            cargo install cargo-vet --version "$install_version" --locked --force
+          fi
+
+      - name: Ensure pinned cargo-audit tooling
+        run: |
+          required_version="0.22.2"
+          installed_version="$(cargo-audit --version 2>/dev/null || true)"
+          if [[ "$installed_version" != "cargo-audit $required_version" ]]; then
+            cargo install cargo-audit --version "$required_version" --locked --force
+          fi
+          test "$(cargo-audit --version)" = "cargo-audit $required_version"
 
       - name: Run extended validation
         run: >-
@@ -195,7 +341,7 @@ jobs:
 
   validate-secrets:
     name: Validate Secrets
-    runs-on: ['self-hosted', 'linux', 'shell-only', 'public']
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4 pinned 2026-05-30
@@ -204,7 +350,7 @@ jobs:
 
   extended-validation-gate:
     name: Extended Validation Gate
-    runs-on: ['self-hosted', 'linux', 'shell-only', 'public']
+    runs-on: ubuntu-24.04
     if: always()
     needs:
       - changes
