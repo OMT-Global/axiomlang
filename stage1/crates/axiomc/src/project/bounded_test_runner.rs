@@ -1,5 +1,6 @@
 use super::{
-    RunLimits, command_for_build_output, normalize_http_fixture_path, parse_http_fixture_bind,
+    RunLimits, TestRetrySeed, command_for_build_output, configure_test_retry_environment,
+    normalize_http_fixture_path, parse_http_fixture_bind,
 };
 use std::io::ErrorKind;
 use std::io::{self, Read, Write};
@@ -291,6 +292,7 @@ pub(super) fn run_bounded_http_fixture_case(
     build_output_dir: &std::path::Path,
     test: &crate::manifest::TestTarget,
     limits: RunLimits,
+    retry_seed: Option<TestRetrySeed>,
 ) -> io::Result<std::process::Output> {
     let fixture = test.http.as_ref().expect("http fixture present");
     let (target_addr, injected_bind) = if let Some(bind) = &fixture.bind {
@@ -308,6 +310,7 @@ pub(super) fn run_bounded_http_fixture_case(
     if let Some(bind) = injected_bind {
         command.env("AXIOM_TEST_BIND", bind);
     }
+    configure_test_retry_environment(&mut command, retry_seed);
     let mut process = spawn_bounded_child(&mut command, limits, None)?;
     let deadline = Instant::now() + limits.timeout;
     let mut stream = loop {
@@ -585,6 +588,7 @@ mod tests {
                 max_file_bytes: 8 * 1024 * 1024,
                 max_cpu_seconds: 1,
             },
+            None,
         )
         .expect_err("bounded HTTP fixture should hit its global timeout");
         assert_eq!(error.kind(), ErrorKind::TimedOut);
