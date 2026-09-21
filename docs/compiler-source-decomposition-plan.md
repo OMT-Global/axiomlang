@@ -286,8 +286,8 @@ matching ceiling in this table in the same PR.
 | Tracked item | Ceiling |
 | --- | ---: |
 | `summary.top_file_line_share` | 0.5767 |
-| `summary.top_file_lines` | 71215 |
-| `stage1/crates/axiomc/src/cranelift_backend.rs` | 20166 |
+| `summary.top_file_lines` | 71227 |
+| `stage1/crates/axiomc/src/cranelift_backend.rs` | 20179 |
 | `stage1/crates/axiomc/src/cranelift_backend/static_output_purity.rs` | 282 |
 | `stage1/crates/axiomc/src/cranelift_backend/host_env_proc_clock.rs` | 620 |
 | `stage1/crates/axiomc/src/cranelift_backend/host_json_serdes.rs` | 257 |
