@@ -1,4 +1,6 @@
 use super::normalize_path;
+use crate::project::Diagnostic;
+use crate::stdlib;
 use crate::syntax;
 use std::collections::{BTreeMap, HashMap};
 use std::fs;
