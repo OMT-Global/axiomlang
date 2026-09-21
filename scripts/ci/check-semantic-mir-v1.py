@@ -2,9 +2,10 @@
 """Validate the deterministic, Axiom-neutral Semantic MIR v1 fixture."""
 import json
 import sys
+import os
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(os.environ.get("AXIOM_CHECKOUT_PATH") or Path(__file__).resolve().parents[2]).resolve()
 SCHEMA = ROOT / "stage1/compiler-contracts/schemas/axiom.semantic_mir.v1.schema.json"
 SNAPSHOT = ROOT / "stage1/compiler-contracts/snapshots/semantic-mir-v1.json"
 CAPTURE = {"rust", "cargo", "cranelift", "serde", "main.rs", "mir.rs"}

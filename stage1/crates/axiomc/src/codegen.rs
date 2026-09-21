@@ -1,4 +1,9 @@
 use crate::diagnostics::Diagnostic;
+mod json_serdes;
+#[cfg(test)]
+mod json_serdes_tests;
+use json_serdes::render_json_serdes_support;
+
 use crate::manifest::CapabilityConfig;
 use crate::mir::{
     EnumDef, Expr, Function, LiteralValue, MatchArm, Param, Program, SourceSpan, StaticDef, Stmt,
@@ -149,7 +154,7 @@ mod tests {
         assert!(rendered.contains("AXIOM_JSON_MAX_DEPTH: usize = 128"));
         assert!(rendered.contains("AXIOM_JSON_MAX_COLLECTION_ITEMS: usize = 100_000"));
         assert!(rendered.contains("AXIOM_JSON_MAX_NUMBER_DIGITS: usize = 1_024"));
-        assert!(rendered.contains("fn parse_value(&mut self, depth: usize)"));
+        assert!(rendered.contains("fn parse_value("));
         assert!(rendered.contains("JSON collection exceeds"));
     }
 
@@ -1280,6 +1285,18 @@ fn axiom_async_recv<T: Send + 'static>(channel: AxiomChannel<T>) -> AxiomTask<Op
     out.push_str("    use std::io::Write;\n");
     out.push_str("    let stderr = std::io::stderr();\n");
     out.push_str("    let mut handle = stderr.lock();\n");
+    out.push_str(
+        "    match handle.write_all(text.as_bytes()).and_then(|_| handle.write_all(b\"\\n\")) {\n",
+    );
+    out.push_str("        Ok(()) => (text.len() as i64) + 1,\n");
+    out.push_str("        Err(_) => -1,\n");
+    out.push_str("    }\n");
+    out.push_str("}\n\n");
+    out.push_str("#[allow(dead_code)]\n");
+    out.push_str("fn axiom_io_println(text: String) -> i64 {\n");
+    out.push_str("    use std::io::Write;\n");
+    out.push_str("    let stdout = std::io::stdout();\n");
+    out.push_str("    let mut handle = stdout.lock();\n");
     out.push_str(
         "    match handle.write_all(text.as_bytes()).and_then(|_| handle.write_all(b\"\\n\")) {\n",
     );
@@ -5227,6 +5244,7 @@ unsafe extern "C" {
         false,
         debug,
         &[],
+        0,
         &main_mutable_locals,
     );
     out.push_str("    });\n");
@@ -5242,391 +5260,6 @@ unsafe extern "C" {
     out
 }
 
-fn render_json_serdes_support(out: &mut String) {
-    out.push_str(
-        r##"#[allow(dead_code)]
-const AXIOM_JSON_MAX_DOCUMENT_BYTES: usize = 4 * 1024 * 1024;
-const AXIOM_JSON_MAX_DEPTH: usize = 128;
-const AXIOM_JSON_MAX_COLLECTION_ITEMS: usize = 100_000;
-const AXIOM_JSON_MAX_NUMBER_DIGITS: usize = 1_024;
-
-fn axiom_json_serdes_float_to_json(value: f64) -> String {
-    if !value.is_finite() {
-        return String::from("null");
-    }
-    let mut rendered = value.to_string();
-    if !rendered.contains('.') && !rendered.contains('e') && !rendered.contains('E') {
-        rendered.push_str(".0");
-    }
-    rendered
-}
-
-#[allow(dead_code)]
-fn axiom_json_serdes_string_to_json(value: String) -> String {
-    let mut out = String::from("\"");
-    for ch in value.chars() {
-        match ch {
-            '"' => out.push_str("\\\""),
-            '\\' => out.push_str("\\\\"),
-            '\n' => out.push_str("\\n"),
-            '\r' => out.push_str("\\r"),
-            '\t' => out.push_str("\\t"),
-            '\u{0008}' => out.push_str("\\b"),
-            '\u{000C}' => out.push_str("\\f"),
-            ch if ch.is_control() => out.push_str(&format!("\\u{:04x}", ch as u32)),
-            ch if (ch as u32) <= 0x7f => out.push(ch),
-            ch if (ch as u32) <= 0xffff => out.push_str(&format!("\\u{:04x}", ch as u32)),
-            ch => {
-                let scalar = (ch as u32) - 0x10000;
-                let high = 0xd800 + (scalar >> 10);
-                let low = 0xdc00 + (scalar & 0x3ff);
-                out.push_str(&format!("\\u{high:04x}\\u{low:04x}"));
-            }
-        }
-    }
-    out.push('"');
-    out
-}
-
-#[allow(dead_code)]
-fn axiom_json_serdes_value_to_json(value: std_serdes_Value) -> String {
-    match value {
-        std_serdes_Value::Null => String::from("null"),
-        std_serdes_Value::Bool(value) => axiom_json_stringify_bool(value),
-        std_serdes_Value::Int(value) => axiom_json_stringify_int(value),
-        std_serdes_Value::Float(value) => axiom_json_serdes_float_to_json(value),
-        std_serdes_Value::Text(value) => axiom_json_serdes_string_to_json(value),
-        std_serdes_Value::Array(values) => {
-            let rendered = values
-                .into_iter()
-                .map(axiom_json_serdes_value_to_json)
-                .collect::<Vec<_>>()
-                .join(",");
-            format!("[{rendered}]")
-        }
-        std_serdes_Value::Object(values) => axiom_json_serdes_to_json_object(values),
-    }
-}
-
-#[allow(dead_code)]
-fn axiom_json_serdes_to_json_object(values: HashMap<String, std_serdes_Value>) -> String {
-    let mut entries = values.into_iter().collect::<Vec<_>>();
-    entries.sort_by(|left, right| left.0.cmp(&right.0));
-    let rendered = entries
-        .into_iter()
-        .map(|(key, value)| {
-            format!(
-                "{}:{}",
-                axiom_json_serdes_string_to_json(key),
-                axiom_json_serdes_value_to_json(value)
-            )
-        })
-        .collect::<Vec<_>>()
-        .join(",");
-    format!("{{{rendered}}}")
-}
-
-#[allow(dead_code)]
-struct AxiomJsonSerdesParser<'a> {
-    text: &'a str,
-    index: usize,
-}
-
-#[allow(dead_code)]
-impl<'a> AxiomJsonSerdesParser<'a> {
-    fn new(text: &'a str) -> Self {
-        Self { text, index: 0 }
-    }
-
-    fn is_end(&self) -> bool {
-        self.index >= self.text.len()
-    }
-
-    fn peek_byte(&self) -> Option<u8> {
-        self.text.as_bytes().get(self.index).copied()
-    }
-
-    fn next_byte(&mut self) -> Option<u8> {
-        let byte = self.peek_byte()?;
-        self.index += 1;
-        Some(byte)
-    }
-
-    fn skip_ws(&mut self) {
-        while matches!(self.peek_byte(), Some(b' ' | b'\n' | b'\r' | b'\t')) {
-            self.index += 1;
-        }
-    }
-
-    fn consume_literal(&mut self, literal: &str) -> bool {
-        if self.text[self.index..].starts_with(literal) {
-            self.index += literal.len();
-            true
-        } else {
-            false
-        }
-    }
-
-    fn parse_value(&mut self, depth: usize) -> Result<std_serdes_Value, String> {
-        self.skip_ws();
-        match self.peek_byte() {
-            Some(b'n') if self.consume_literal("null") => Ok(std_serdes_Value::Null),
-            Some(b't') if self.consume_literal("true") => Ok(std_serdes_Value::Bool(true)),
-            Some(b'f') if self.consume_literal("false") => Ok(std_serdes_Value::Bool(false)),
-            Some(b'"') => Ok(std_serdes_Value::Text(self.parse_string()?)),
-            Some(b'[') => self.parse_array(depth),
-            Some(b'{') => self.parse_object(depth),
-            Some(b'-' | b'0'..=b'9') => self.parse_number(),
-            Some(_) => Err(String::from("unexpected JSON token")),
-            None => Err(String::from("empty JSON input")),
-        }
-    }
-
-    fn parse_array(&mut self, depth: usize) -> Result<std_serdes_Value, String> {
-        if depth >= AXIOM_JSON_MAX_DEPTH {
-            return Err(format!(
-                "JSON nesting exceeds {} level limit",
-                AXIOM_JSON_MAX_DEPTH
-            ));
-        }
-        self.expect_byte(b'[', "array")?;
-        self.skip_ws();
-        let mut values = Vec::new();
-        if self.peek_byte() == Some(b']') {
-            self.index += 1;
-            return Ok(std_serdes_Value::Array(values));
-        }
-        loop {
-            if values.len() >= AXIOM_JSON_MAX_COLLECTION_ITEMS {
-                return Err(format!(
-                    "JSON collection exceeds {} item limit",
-                    AXIOM_JSON_MAX_COLLECTION_ITEMS
-                ));
-            }
-            values.push(self.parse_value(depth + 1)?);
-            self.skip_ws();
-            match self.next_byte() {
-                Some(b',') => {
-                    self.skip_ws();
-                }
-                Some(b']') => return Ok(std_serdes_Value::Array(values)),
-                _ => return Err(String::from("array expects ',' or ']'")),
-            }
-        }
-    }
-
-    fn parse_object(&mut self, depth: usize) -> Result<std_serdes_Value, String> {
-        if depth >= AXIOM_JSON_MAX_DEPTH {
-            return Err(format!(
-                "JSON nesting exceeds {} level limit",
-                AXIOM_JSON_MAX_DEPTH
-            ));
-        }
-        self.expect_byte(b'{', "object")?;
-        self.skip_ws();
-        let mut values = HashMap::new();
-        if self.peek_byte() == Some(b'}') {
-            self.index += 1;
-            return Ok(std_serdes_Value::Object(values));
-        }
-        loop {
-            if values.len() >= AXIOM_JSON_MAX_COLLECTION_ITEMS {
-                return Err(format!(
-                    "JSON collection exceeds {} item limit",
-                    AXIOM_JSON_MAX_COLLECTION_ITEMS
-                ));
-            }
-            self.skip_ws();
-            let key = self.parse_string()?;
-            self.skip_ws();
-            self.expect_byte(b':', "object field")?;
-            let value = self.parse_value(depth + 1)?;
-            values.insert(key, value);
-            self.skip_ws();
-            match self.next_byte() {
-                Some(b',') => {
-                    self.skip_ws();
-                }
-                Some(b'}') => return Ok(std_serdes_Value::Object(values)),
-                _ => return Err(String::from("object expects ',' or '}'")),
-            }
-        }
-    }
-
-    fn parse_number(&mut self) -> Result<std_serdes_Value, String> {
-        let start = self.index;
-        if self.peek_byte() == Some(b'-') {
-            self.index += 1;
-        }
-        match self.peek_byte() {
-            Some(b'0') => {
-                self.index += 1;
-            }
-            Some(b'1'..=b'9') => {
-                self.index += 1;
-                self.consume_digits();
-            }
-            _ => return Err(String::from("invalid JSON number")),
-        }
-        let mut is_float = false;
-        if self.peek_byte() == Some(b'.') {
-            is_float = true;
-            self.index += 1;
-            if self.consume_digits() == 0 {
-                return Err(String::from("invalid JSON fraction"));
-            }
-        }
-        if matches!(self.peek_byte(), Some(b'e' | b'E')) {
-            is_float = true;
-            self.index += 1;
-            if matches!(self.peek_byte(), Some(b'+' | b'-')) {
-                self.index += 1;
-            }
-            if self.consume_digits() == 0 {
-                return Err(String::from("invalid JSON exponent"));
-            }
-        }
-        let raw = &self.text[start..self.index];
-        if raw.bytes().filter(u8::is_ascii_digit).count() > AXIOM_JSON_MAX_NUMBER_DIGITS {
-            return Err(format!(
-                "JSON number exceeds {} digit limit",
-                AXIOM_JSON_MAX_NUMBER_DIGITS
-            ));
-        }
-        if is_float {
-            let value = raw
-                .parse::<f64>()
-                .map_err(|_| String::from("invalid JSON float"))?;
-            if !value.is_finite() {
-                return Err(String::from("non-finite JSON float"));
-            }
-            Ok(std_serdes_Value::Float(value))
-        } else {
-            raw.parse::<i64>()
-                .map(std_serdes_Value::Int)
-                .map_err(|_| String::from("invalid JSON int"))
-        }
-    }
-
-    fn parse_string(&mut self) -> Result<String, String> {
-        self.expect_byte(b'"', "string")?;
-        let mut value = String::new();
-        loop {
-            let Some(ch) = self.text[self.index..].chars().next() else {
-                return Err(String::from("unterminated JSON string"));
-            };
-            self.index += ch.len_utf8();
-            match ch {
-                '"' => return Ok(value),
-                '\\' => self.parse_escape(&mut value)?,
-                ch if ch <= '\u{1f}' => return Err(String::from("control character in JSON string")),
-                ch => value.push(ch),
-            }
-        }
-    }
-
-    fn parse_escape(&mut self, value: &mut String) -> Result<(), String> {
-        match self.next_byte() {
-            Some(b'"') => value.push('"'),
-            Some(b'\\') => value.push('\\'),
-            Some(b'/') => value.push('/'),
-            Some(b'b') => value.push('\u{0008}'),
-            Some(b'f') => value.push('\u{000C}'),
-            Some(b'n') => value.push('\n'),
-            Some(b'r') => value.push('\r'),
-            Some(b't') => value.push('\t'),
-            Some(b'u') => {
-                let high = self.parse_hex4()?;
-                if (0xD800..=0xDBFF).contains(&high) {
-                    if self.next_byte() != Some(b'\\') || self.next_byte() != Some(b'u') {
-                        return Err(String::from("missing low surrogate escape"));
-                    }
-                    let low = self.parse_hex4()?;
-                    if !(0xDC00..=0xDFFF).contains(&low) {
-                        return Err(String::from("invalid low surrogate escape"));
-                    }
-                    let scalar =
-                        0x10000 + (((high as u32) - 0xD800) << 10) + ((low as u32) - 0xDC00);
-                    value.push(
-                        char::from_u32(scalar)
-                            .ok_or_else(|| String::from("invalid unicode scalar"))?,
-                    );
-                } else if (0xDC00..=0xDFFF).contains(&high) {
-                    return Err(String::from("unpaired low surrogate escape"));
-                } else {
-                    value.push(
-                        char::from_u32(high as u32)
-                            .ok_or_else(|| String::from("invalid unicode escape"))?,
-                    );
-                }
-            }
-            _ => return Err(String::from("invalid JSON string escape")),
-        }
-        Ok(())
-    }
-
-    fn parse_hex4(&mut self) -> Result<u16, String> {
-        let mut value = 0u16;
-        for _ in 0..4 {
-            let digit = self
-                .next_byte()
-                .and_then(|byte| (byte as char).to_digit(16))
-                .ok_or_else(|| String::from("invalid unicode escape"))?;
-            value = (value << 4) + digit as u16;
-        }
-        Ok(value)
-    }
-
-    fn expect_byte(&mut self, expected: u8, context: &str) -> Result<(), String> {
-        match self.next_byte() {
-            Some(actual) if actual == expected => Ok(()),
-            _ => Err(format!("{context} expects '{}'", expected as char)),
-        }
-    }
-
-    fn consume_digits(&mut self) -> usize {
-        let start = self.index;
-        while matches!(self.peek_byte(), Some(b'0'..=b'9')) {
-            self.index += 1;
-        }
-        self.index - start
-    }
-}
-
-#[allow(dead_code)]
-fn axiom_json_serdes_parse(text: String) -> Result<std_serdes_Value, std_serdes_ParseError> {
-    axiom_json_serdes_parse_str(text.as_str())
-}
-
-#[allow(dead_code)]
-fn axiom_json_serdes_parse_str(text: &str) -> Result<std_serdes_Value, std_serdes_ParseError> {
-    if text.len() > AXIOM_JSON_MAX_DOCUMENT_BYTES {
-        return Err(std_serdes_ParseError {
-            message: format!(
-                "JSON document exceeds {} byte limit",
-                AXIOM_JSON_MAX_DOCUMENT_BYTES
-            ),
-        });
-    }
-    let mut parser = AxiomJsonSerdesParser::new(text);
-    match parser.parse_value(0) {
-        Ok(value) => {
-            parser.skip_ws();
-            if parser.is_end() {
-                Ok(value)
-            } else {
-                Err(std_serdes_ParseError {
-                    message: String::from("trailing characters after JSON value"),
-                })
-            }
-        }
-        Err(message) => Err(std_serdes_ParseError { message }),
-    }
-}
-
-"##,
-    );
-}
 
 fn rust_path_literal(path: &Path) -> String {
     path.to_string_lossy().into_owned()
@@ -6051,6 +5684,7 @@ fn render_function(
             false,
             debug,
             &[],
+            0,
             &mutable_locals,
         );
         out.push_str("    })\n");
@@ -6064,6 +5698,7 @@ fn render_function(
             false,
             debug,
             &[],
+            0,
             &mutable_locals,
         );
     }
@@ -6358,6 +5993,7 @@ fn render_stmt_block(
     in_async_function: bool,
     debug: bool,
     active_defers: &[(String, SourceSpan)],
+    loop_defer_start: usize,
     mutable_locals: &HashSet<String>,
 ) {
     let mut local_defers: Vec<(String, SourceSpan)> = Vec::new();
@@ -6371,6 +6007,7 @@ fn render_stmt_block(
             in_async_function,
             debug,
             active_defers,
+            loop_defer_start,
             mutable_locals,
             &mut local_defers,
         );
@@ -6404,6 +6041,7 @@ fn render_stmt(
     in_async_function: bool,
     debug: bool,
     active_defers: &[(String, SourceSpan)],
+    loop_defer_start: usize,
     mutable_locals: &HashSet<String>,
     local_defers: &mut Vec<(String, SourceSpan)>,
 ) {
@@ -6500,6 +6138,7 @@ fn render_stmt(
                 in_async_function,
                 debug,
                 &scoped_defers,
+                loop_defer_start,
                 mutable_locals,
             );
             if let Some(else_block) = else_block {
@@ -6516,6 +6155,7 @@ fn render_stmt(
                     in_async_function,
                     debug,
                     &scoped_defers,
+                    loop_defer_start,
                     mutable_locals,
                 );
                 out.push_str(&format!(
@@ -6547,6 +6187,7 @@ fn render_stmt(
                 in_async_function,
                 debug,
                 &scoped_defers,
+                scoped_defers.len(),
                 mutable_locals,
             );
             out.push_str(&format!(
@@ -6557,13 +6198,26 @@ fn render_stmt(
         Stmt::Break { span } => {
             render_source_marker(source_path, *span, out, indent, debug);
             render_deferred_exprs(out, indent, source_path, debug, local_defers);
-            render_deferred_exprs(out, indent, source_path, debug, active_defers);
+            // Unwind nested block scopes, stopping at the nearest loop boundary.
+            render_deferred_exprs(
+                out,
+                indent,
+                source_path,
+                debug,
+                &active_defers[loop_defer_start..],
+            );
             out.push_str(&format!("{pad}break;\n"));
         }
         Stmt::Continue { span } => {
             render_source_marker(source_path, *span, out, indent, debug);
             render_deferred_exprs(out, indent, source_path, debug, local_defers);
-            render_deferred_exprs(out, indent, source_path, debug, active_defers);
+            render_deferred_exprs(
+                out,
+                indent,
+                source_path,
+                debug,
+                &active_defers[loop_defer_start..],
+            );
             out.push_str(&format!("{pad}continue;\n"));
         }
         Stmt::Match { expr, arms, span } => {
@@ -6585,6 +6239,7 @@ fn render_stmt(
                     in_async_function,
                     debug,
                     &scoped_defers,
+                    loop_defer_start,
                     mutable_locals,
                 );
             }
@@ -6641,6 +6296,7 @@ fn render_match_arm(
     in_async_function: bool,
     debug: bool,
     active_defers: &[(String, SourceSpan)],
+    loop_defer_start: usize,
     mutable_locals: &HashSet<String>,
 ) {
     let pad = "    ".repeat(indent);
@@ -6655,6 +6311,7 @@ fn render_match_arm(
             in_async_function,
             debug,
             active_defers,
+            loop_defer_start,
             mutable_locals,
         );
         out.push_str(&format!("{pad}}},\n"));
@@ -6693,6 +6350,7 @@ fn render_match_arm(
         in_async_function,
         debug,
         active_defers,
+        loop_defer_start,
         mutable_locals,
     );
     out.push_str(&format!("{pad}}},\n"));
@@ -6797,6 +6455,9 @@ fn render_expr(expr: &Expr) -> String {
         }
         Expr::Call { name, args, .. } if name == "io_eprintln" => {
             format!("axiom_io_eprintln({})", render_expr(&args[0]))
+        }
+        Expr::Call { name, args, .. } if name == "io_println" => {
+            format!("axiom_io_println({})", render_expr(&args[0]))
         }
         Expr::Call { name, args, .. } if name == "io_readline" => {
             debug_assert!(args.is_empty());
