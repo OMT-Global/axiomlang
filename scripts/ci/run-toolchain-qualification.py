@@ -33,6 +33,11 @@ DEFAULT_CHECKS = [
         "requiredTools": ["go"],
     },
     {
+        "id": "parser_fuzz_smoke",
+        "command": "python3 scripts/ci/run-stage1-parser-fuzz.py --axiomc stage1/target/debug/axiomc --cases 64 --timeout-ms 2000 --budget-seconds 90 --expected-head \"$AXIOM_QUALIFICATION_HEAD_SHA\" --output .axiom-build/reports/stage1-parser-fuzz.json",
+        "artifactPaths": [".axiom-build/reports/stage1-parser-fuzz.json"],
+    },
+    {
         "id": "stage1_quality_gate",
         "command": "python3 scripts/ci/run-stage1-quality-gate.py --expected-head \"$AXIOM_QUALIFICATION_HEAD_SHA\" --lcov-output .axiom-build/reports/stage1-coverage.lcov --output .axiom-build/reports/stage1-quality-report.json",
         "requiredTools": ["cargo-llvm-cov"],

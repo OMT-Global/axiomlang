@@ -59,6 +59,29 @@ The extended workflow provisions `llvm-tools-preview` and pins
 `cargo-llvm-cov 0.8.5`. A local environment must provide the same tool and
 compatible `llvm-cov`/`llvm-profdata` binaries.
 
+## Deterministic parser fuzz smoke
+
+The extended qualification suite also runs a bounded parser/recovery profile:
+
+```bash
+make stage1-parser-fuzz
+```
+
+The runner mutates the versioned corpus under
+`stage1/fuzz/parser-corpus` from a fixed seed, invokes the real
+`axiomc parse --json` entrypoint, and allows either a successful parse or a
+structured diagnostic. Timeouts, signals, and malformed JSON are failures.
+Each case
+records its derived seed, corpus entry, source digest, duration, and bounded
+reproducer path; crash/timeout reproducers are minimized with a fixed attempt
+budget. The report is `axiom.stage1.parser_fuzz.v1` and is uploaded as part of
+toolchain qualification. Re-running with the same seed and corpus reproduces
+the same case inputs and case IDs.
+
+This is the first parser/recovery fuzz slice for #1463. Manifest, lockfile,
+archive, JSON-RPC, HIR/MIR, codec, and network-framing fuzz profiles plus
+versioned crash-corpus promotion remain follow-up work.
+
 The dependency-free checker tests do not invoke Cargo:
 
 ```bash
@@ -66,6 +89,6 @@ make stage1-quality-gate-test
 make stage1-crap-thresholds-test
 ```
 
-This is a partial slice that Refs #1463. Deterministic fuzz corpora, minimized
-crash replay, per-target non-increasing coverage and complexity ratchets,
-broader nightly budgets, and unified failure evidence remain.
+This remains a partial slice that Refs #1463. Per-target non-increasing
+coverage and complexity ratchets, broader nightly budgets, and unified
+cross-area failure evidence remain.
