@@ -1081,6 +1081,12 @@
     },
     {
       "evidenceTier": "static_spike",
+      "name": "https://axiom.omt.global/schemas/axiom-stage1-parser-fuzz-v1.schema.json",
+      "source": "stage1/schemas/axiom-stage1-parser-fuzz-v1.schema.json",
+      "status": "checked"
+    },
+    {
+      "evidenceTier": "static_spike",
       "name": "https://axiom.omt.global/schemas/axiom-target-support-v1.schema.json",
       "source": "stage1/schemas/axiom-target-support-v1.schema.json",
       "status": "checked"
@@ -1201,14 +1207,56 @@
     },
     {
       "evidenceTier": "static_spike",
+      "name": "https://omt-global.github.io/axiom/schemas/axiom.compiler.syntax_migration.v1.schema.json",
+      "source": "stage1/compiler-contracts/schemas/axiom.compiler.syntax_migration.v1.schema.json",
+      "status": "checked"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "https://omt-global.github.io/axiom/schemas/axiom.compiler_native_backend_runtime.v1.schema.json",
+      "source": "stage1/compiler-contracts/schemas/axiom.compiler_native_backend_runtime.v1.schema.json",
+      "status": "checked"
+    },
+    {
+      "evidenceTier": "static_spike",
       "name": "https://axiom-lang.org/schemas/axiom.dynamic_aggregate_abi.v1.schema.json",
       "source": "stage1/compiler-contracts/schemas/axiom.dynamic_aggregate_abi.v1.schema.json",
       "status": "checked"
     },
     {
       "evidenceTier": "static_spike",
+      "name": "https://omt-global.github.io/axiom/schemas/axiom.filesystem.v1.schema.json",
+      "source": "stage1/compiler-contracts/schemas/axiom.filesystem.v1.schema.json",
+      "status": "checked"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "https://omt-global.github.io/axiom/schemas/axiom.iteration_control.v1.schema.json",
+      "source": "stage1/compiler-contracts/schemas/axiom.iteration_control.v1.schema.json",
+      "status": "checked"
+    },
+    {
+      "evidenceTier": "static_spike",
       "name": "https://omt-global.github.io/axiom/schemas/axiom.provider-abi.v1.schema.json",
       "source": "stage1/compiler-contracts/schemas/axiom.provider-abi.v1.schema.json",
+      "status": "checked"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "https://omt-global.github.io/axiom/schemas/axiom.runtime_concurrency.v1.schema.json",
+      "source": "stage1/compiler-contracts/schemas/axiom.runtime_concurrency.v1.schema.json",
+      "status": "checked"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "https://axiom-lang.org/schemas/axiom.runtime_crypto_provider_policy.v1.schema.json",
+      "source": "stage1/compiler-contracts/schemas/axiom.runtime_crypto_provider_policy.v1.schema.json",
+      "status": "checked"
+    },
+    {
+      "evidenceTier": "static_spike",
+      "name": "https://axiom-lang.org/schemas/axiom.runtime_http_client.v1.schema.json",
+      "source": "stage1/compiler-contracts/schemas/axiom.runtime_http_client.v1.schema.json",
       "status": "checked"
     },
     {
@@ -1540,6 +1588,7 @@
       "evidenceTier": "static_spike",
       "functions": [
         "eprintln",
+        "println",
         "read_to_string",
         "readline"
       ],
@@ -1778,6 +1827,8 @@
         "is_null",
         "object_field",
         "parse_error_message",
+        "parse_error_offset",
+        "parse_error_path",
         "stringify",
         "text_field",
         "to_json",
@@ -1894,12 +1945,12 @@
       "direct_runtime": 2,
       "production_qualified": 0,
       "scaffold": 5,
-      "static_spike": 223,
+      "static_spike": 231,
       "unsupported": 5
     },
     "runtimeAbiRows": 34,
-    "schemas": 62,
-    "stdlibFunctions": 304,
+    "schemas": 70,
+    "stdlibFunctions": 307,
     "stdlibModules": 34,
     "supportedNativeBackend": "cranelift"
   },

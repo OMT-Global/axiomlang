@@ -94,11 +94,12 @@ nor a binary.
 The checker accepts `--root` (also `--checkout-root`) so the trusted base-pinned
 CI script can treat the pull-request checkout strictly as data. Checker
 self-tests continue to run from the trusted script checkout. Fast Checks never
-passes `--execute`; activating executable PR CI must wait until this checker is
-present on the trusted base branch. The local executable proof still requires a
-governed digest for every program tree, compiles the selected checkout in an
-isolated target directory, and copies governed programs to a temporary
-directory before building them.
+passes `--execute` and remains base-trusted and data-only. The separate Full Lib
+Suite intentionally runs the exact PR-head schema metadata test and governed
+native fixtures with `--execute`; these checks do not run in the trusted lane.
+Executable proof requires a governed digest for every program tree, compiles
+the selected checkout in an isolated target directory, and copies governed
+programs to a temporary directory before building them.
 
 Run the focused checks with:
 

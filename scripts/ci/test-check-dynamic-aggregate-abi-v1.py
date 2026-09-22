@@ -74,6 +74,24 @@ class DynamicAggregateAbiContractTests(unittest.TestCase):
             )
             self.assertTrue(json.loads(rooted.stdout)["ok"])
 
+    def test_explicit_root_rejects_bad_data_without_executing_head_code(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self.copy_contract(root)
+            marker = root / "head-code-executed"
+            planted = root / "scripts/ci/check-dynamic-aggregate-abi-v1.py"
+            planted.parent.mkdir(parents=True)
+            planted.write_text("from pathlib import Path\nPath(" + repr(str(marker)) + ").touch()\n", encoding="utf-8")
+            command = [sys.executable, str(CHECKER), "--root", str(root), "--json"]
+            good = subprocess.run(command, capture_output=True, text=True, timeout=5)
+            self.assertEqual(good.returncode, 0, good.stdout + good.stderr)
+            snapshot = root / checker.SNAPSHOT
+            snapshot.write_text(snapshot.read_text(encoding="utf-8") + " ", encoding="utf-8")
+            bad = subprocess.run(command, capture_output=True, text=True, timeout=5)
+            self.assertNotEqual(bad.returncode, 0)
+            self.assertIn("trusted snapshot digest drifted", bad.stdout + bad.stderr)
+            self.assertFalse(marker.exists())
+
     def test_target_layout_record_is_fully_determined(self) -> None:
         fixture = checker.load(checker.ROOT / checker.FIXTURES / "target-layout-record.json")
         record = checker.compute_layout_record(fixture["evidence"]["case"])

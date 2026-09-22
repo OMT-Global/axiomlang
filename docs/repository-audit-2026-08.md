@@ -80,9 +80,9 @@ non-canonical signatures that the permissive API accepts.
   Claude workflow holds `pull-requests: write` and `issues: write` but only
   `contents: read`, so it cannot push.
 - All actions are SHA-pinned with dated comments.
-- Every self-hosted job that checks out PR head is gated on
+- Every job that checks out PR head is gated on
   `github.event.pull_request.head.repo.full_name == github.repository`, so fork
-  PRs do not execute on the persistent runners.
+  PRs do not execute repository code in those branch-validation jobs.
 - `ci-gate` runs with `if: always()` and no fork guard, and is correspondingly
   hardened: base-ref checkout, `persist-credentials: false`, and an explicit
   `# SECURITY:` comment explaining the constraint.
@@ -134,7 +134,7 @@ Tracked as #1543, fixed in #1545.
 
 `pr-fast-ci.yml` checked `.trusted-ci` out at `github.event.pull_request.head.sha`
 and then executed `.trusted-ci/scripts/ci/run-fast-checks.sh` from it on a
-persistent self-hosted runner. The script-vs-data split that the two-checkout
+hosted runner. The script-vs-data split that the two-checkout
 pattern exists to provide was not in effect for `fast-checks`.
 
 `fbb4724c` ("Add string_contains conformance coverage", #1405 — an unrelated

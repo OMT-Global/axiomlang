@@ -1,0 +1,23 @@
+{
+  "schema_version": "axiom.iteration_control.target_gap_fixture.v1",
+  "id": "iteration-control-v1/order-backpressure",
+  "category": "order_backpressure",
+  "status": "required_unimplemented",
+  "executable_proof": false,
+  "requirements": [
+    {"id": "array_sequence_order", "contract": "Arrays, slices, and runtime sequences yield ascending logical indexes independent of storage address."},
+    {"id": "backpressure", "contract": "The producer does not advance while the current item is outstanding; item release or transfer is required before the next pull."},
+    {"id": "map_order", "contract": "Maps yield their declared deterministic logical order independent of insertion layout, hash bucket order, process seed, or address."},
+    {"id": "outstanding_bound", "contract": "At most one item is outstanding per iterator, including nested and fallible iterator cases."},
+    {"id": "prefetch_bound", "contract": "Iteration v1 prefetches zero items and retains no hidden future item or future item cleanup obligation."},
+    {"id": "pull_bound", "contract": "Each iteration step performs exactly one consumer-requested next operation and yields at most one item."},
+    {"id": "static_iterator_order", "contract": "A static user iterator declares a deterministic order as part of its implementation contract."},
+    {"id": "text_order", "contract": "Text yields Unicode scalar values in source order, never bytes or host code units."}
+  ],
+  "negative_cases": [
+    {"id": "hash_bucket_order", "expected": "iteration.order_contract_missing before map iteration"},
+    {"id": "multiple_outstanding_items", "expected": "proof rejected when outstanding item count exceeds one"},
+    {"id": "speculative_prefetch", "expected": "proof rejected when prefetch count exceeds zero"},
+    {"id": "unbounded_producer_advance", "expected": "proof rejected when the producer advances before current-item release"}
+  ]
+}
