@@ -332,7 +332,7 @@ matching ceiling in this table in the same PR.
 | `stage1/crates/axiomc/src/package_trust.rs` | 5485 |
 | `stage1/crates/axiomc/src/registry.rs` | 4319 |
 | `stage1/crates/axiomc/src/lib.rs` | 38 |
-| `stage1/crates/axiomc/src/lsp.rs` | 2753 |
+| `stage1/crates/axiomc/src/lsp.rs` | 3070 |
 | `stage1/crates/axiomc/src/dap.rs` | 566 |
 | `stage1/crates/axiomc/src/framed_protocol.rs` | 371 |
 
@@ -342,6 +342,16 @@ It removes the duplicated readers from LSP (2577 to 2540 lines) and DAP
 (602 to 566 lines). Their new exact ceilings, and the 371-line shared reader
 including endpoint/memory regression tests, keep this split ratcheted. The
 aggregate top-file line and share ceilings above are unchanged.
+
+The bounded LSP workspace-discovery port from PR #1594 (issue #1581) adds
+depth, directory-entry, and elapsed-time budgets, a stable
+`workspace-discovery-truncated` diagnostic, deterministic breadth-first
+ordering, metadata-before-read handling, and focused regression tests to
+`lsp.rs` (2753 to 3070 lines). Its measured ceiling rises by exactly 317
+lines to cover that feature slice, including the follow-up repair that
+publishes non-document truncation diagnostics through the #1635 dedup,
+without weakening the ratchet for subsequent growth. `lsp.rs` is outside the top-seven files, so the aggregate
+top-file line and share ceilings above are unchanged.
 
 ## Extraction Order
 
