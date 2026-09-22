@@ -1,0 +1,11 @@
+{
+  "schema_version": "axiom.compatibility_previous_current_evidence.v1",
+  "role": "byte_exact_previous_current_source_snapshot",
+  "source_commit": "b3149c5e9bf10a4a244b0d89c6e6cd804b47ae3f",
+  "source_path": "stage1/compatibility/fixtures/current/contract.json",
+  "git_blob": "e5ad22e48e4504d62de8ea343e58fd4c1e262cb4",
+  "sha256": "dff36c546df53be343c9d06017e9d439ed981e1f3fcca1fc91a01bcdce9ae3ac",
+  "contract_version": "0.4.0",
+  "surface_count": 68,
+  "qualification": "Byte-exact origin/main evidence only; not release history or a qualified previous compiler."
+}

@@ -114,16 +114,16 @@ class ParserFuzzTest(unittest.TestCase):
         self.assertEqual("invalid_output", result.status)
 
     def test_failure_reproducer_is_smaller_when_failure_survives(self) -> None:
-        crash_fake = self.root / "crash-axiomc"
-        crash_fake.write_text(
-            "#!/usr/bin/env python3\nimport os\nos.kill(os.getpid(), 6)\n", encoding="utf-8"
+        invalid_fake = self.root / "invalid-axiomc"
+        invalid_fake.write_text(
+            "#!/usr/bin/env python3\nprint('not json')\n", encoding="utf-8"
         )
-        crash_fake.chmod(0o755)
+        invalid_fake.chmod(0o755)
         source = "line one\nline two\nline three\n"
         result = fuzz.minimize_failure(
-            crash_fake,
+            invalid_fake,
             source,
-            "crash",
+            "invalid_output",
             1000,
             self.root,
             fuzz.time.monotonic() + 5,
