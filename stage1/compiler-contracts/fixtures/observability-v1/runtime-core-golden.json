@@ -1,0 +1,52 @@
+{
+  "schema_version": "axiom.runtime_observability.runtime_proof.v1",
+  "delivery": "executed_rust_runtime",
+  "event": {
+    "schema_version": "axiom.runtime_observability.evidence.v1",
+    "kind": "event",
+    "sequence": 1,
+    "timestamp_unix_ms": 42,
+    "level": "info",
+    "target": "runtime.test",
+    "message": "login attempted",
+    "fields": {
+      "attempt": {"type": "integer", "value": 2},
+      "password": {"type": "redacted", "value": "[REDACTED]", "redaction": {"reason": "sensitive_key"}}
+    },
+    "error": {
+      "category": "authorization",
+      "code": "auth.denied",
+      "message": {"type": "redacted", "value": "[REDACTED]", "redaction": {"reason": "error_message", "sensitivity_class": "untrusted_text"}}
+    },
+    "correlation": {
+      "request_id": "req-0000000000000001-0000000000000001",
+      "runtime_origin": "native",
+      "span_id": "0000000000000001",
+      "trace_id": "00000000000000010000000000000001"
+    }
+  },
+  "shutdown_report": {
+    "schema_version": "axiom.runtime_observability.evidence.v1",
+    "kind": "shutdown_report",
+    "state": "flushed",
+    "queue_remaining": 0,
+    "queued_bytes": 0,
+    "flush_attempted": true,
+    "deadline_exceeded": false,
+    "counters": {
+      "attempted": 1,
+      "accepted": 1,
+      "filtered": 0,
+      "dropped": 0,
+      "rejected": 0,
+      "written": 1,
+      "sink_failures": 0
+    },
+    "sink_failure": null
+  },
+  "assertions": [
+    "only sanitized bytes entered the bounded queue",
+    "secret-key and sensitive-error values were redacted before sink write",
+    "shutdown drained the accepted event before exactly one successful flush"
+  ]
+}
