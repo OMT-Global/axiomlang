@@ -85,7 +85,7 @@
     {
       "id": "crypto.signature",
       "capability": "crypto",
-      "logical_semantics": "Signature operations require declared crypto authority and preserve algorithm, key, message, signature, and verification behavior."
+      "logical_semantics": "Signature operations require declared crypto authority. Ed25519 signing accepts exactly the canonical 32-byte private seed and rejects the former 64-byte seed-plus-public-key input; key generation returns the 32-byte seed and verification preserves public-key, message, signature, and boolean behavior."
     },
     {
       "id": "env.read",

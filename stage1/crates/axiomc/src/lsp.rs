@@ -1,10 +1,12 @@
 use crate::diagnostics::Diagnostic;
+use crate::framed_protocol;
 use crate::hir;
 use crate::manifest::load_manifest;
 use crate::mir;
 use crate::project::{analyze_package_for_lsp, package_graph_metadata, project_capabilities};
-use crate::syntax;
+use crate::syntax::{self, Visibility};
 use serde_json::{Value, json};
+use std::any::Any;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fs;
 use std::io::{BufRead, Write};
@@ -38,9 +40,29 @@ struct LspSymbol {
     line: usize,
     column: usize,
     detail: String,
+    visibility: Visibility,
+    package_root: Option<PathBuf>,
+    parameters: Vec<String>,
+    signature: Option<String>,
 }
 
-#[derive(Debug, Default)]
+/// Opaque cache storage shared with the project LSP adapter without exposing
+/// the project's private cache implementation through the public project API.
+#[derive(Default)]
+pub struct LspAnalysisCache {
+    pub(crate) state: Option<Box<dyn Any>>,
+}
+
+impl std::fmt::Debug for LspAnalysisCache {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("LspAnalysisCache")
+            .field("initialized", &self.state.is_some())
+            .finish()
+    }
+}
+
+#[derive(Debug, Clone, Default)]
 struct WorkspaceIndex {
     documents: BTreeMap<String, String>,
     symbols: Vec<LspSymbol>,
@@ -77,6 +99,15 @@ impl WorkspaceIndex {
             .iter()
             .filter(move |symbol| symbol.name == name && visible.contains(&symbol.uri))
     }
+
+    fn symbols_accessible_from<'a>(
+        &'a self,
+        origin: &str,
+        name: &str,
+    ) -> impl Iterator<Item = &'a LspSymbol> {
+        self.symbols_visible_from(origin, name)
+            .filter(move |symbol| symbol_accessible_from(symbol, origin))
+    }
 }
 
 /// Stateful, bounded LSP service. The public protocol only exposes compiler
@@ -86,6 +117,9 @@ pub struct LspServer {
     documents: BTreeMap<String, LspDocument>,
     workspace_roots: BTreeSet<PathBuf>,
     cancelled_requests: BTreeSet<String>,
+    analysis_cache: LspAnalysisCache,
+    source_diagnostics_cache: BTreeMap<String, (u64, Vec<Diagnostic>)>,
+    published_diagnostics: BTreeMap<String, Vec<Diagnostic>>,
     workspace_generation: u64,
     last_analysis_ms: u128,
     analysis_latency_samples_ms: VecDeque<u128>,
@@ -279,6 +313,8 @@ impl LspServer {
         if self.documents.remove(uri).is_none() {
             return Vec::new();
         }
+        self.source_diagnostics_cache.remove(uri);
+        self.published_diagnostics.remove(uri);
         vec![
             json!({ "jsonrpc": "2.0", "method": "textDocument/publishDiagnostics", "params": { "uri": uri, "diagnostics": [] } }),
         ]
@@ -329,7 +365,7 @@ impl LspServer {
         let mut diagnostics = BTreeMap::<String, Vec<Diagnostic>>::new();
         let mut resolved = BTreeSet::new();
         for root in &self.workspace_roots {
-            match analyze_package_for_lsp(root, &overlays) {
+            match analyze_package_for_lsp(root, &overlays, &mut self.analysis_cache) {
                 Ok(modules) => {
                     for module in modules {
                         let uri = workspace_uri_for_path(&module.path, &documents);
@@ -366,6 +402,10 @@ impl LspServer {
             if resolved.contains(uri) {
                 continue;
             }
+            let source_diagnostics = self.cached_source_diagnostics(uri, text);
+            if !source_diagnostics.is_empty() && !diagnostics.contains_key(uri) {
+                diagnostics.insert(uri.clone(), source_diagnostics);
+            }
             match syntax::parse_program_with_recovery(text, &path_for_uri(uri)) {
                 Ok(program) => symbols.extend(symbols_for_program(uri, text, &program)),
                 Err(_) => symbols.extend(symbols_for_incomplete_source(uri, text)),
@@ -396,17 +436,52 @@ impl LspServer {
 
     fn publish_workspace_diagnostics(&mut self) -> Vec<Value> {
         let index = self.workspace_index();
-        index
+        let current = index
             .documents
-            .iter()
-            .map(|(uri, source)| {
-                if let Some(diagnostics) = index.diagnostics.get(uri) {
-                    publish_diagnostic_values(uri, source, diagnostics.clone())
-                } else {
-                    publish_diagnostics(uri, source)
-                }
+            .keys()
+            .map(|uri| {
+                (
+                    uri.clone(),
+                    index.diagnostics.get(uri).cloned().unwrap_or_default(),
+                )
             })
-            .collect()
+            .collect::<BTreeMap<_, _>>();
+        let mut messages = Vec::new();
+        let uris = current
+            .keys()
+            .chain(self.published_diagnostics.keys())
+            .cloned()
+            .collect::<BTreeSet<_>>();
+        for uri in uris {
+            let diagnostics = current.get(&uri).cloned().unwrap_or_default();
+            if self.published_diagnostics.get(&uri) == Some(&diagnostics) {
+                continue;
+            }
+            messages.push(publish_diagnostic_values(
+                &uri,
+                index
+                    .documents
+                    .get(&uri)
+                    .map(String::as_str)
+                    .unwrap_or_default(),
+                diagnostics,
+            ));
+        }
+        self.published_diagnostics = current;
+        messages
+    }
+
+    fn cached_source_diagnostics(&mut self, uri: &str, source: &str) -> Vec<Diagnostic> {
+        let generation = source_generation(source);
+        if let Some((cached_generation, diagnostics)) = self.source_diagnostics_cache.get(uri) {
+            if *cached_generation == generation {
+                return diagnostics.clone();
+            }
+        }
+        let diagnostics = analyze_source(uri, source);
+        self.source_diagnostics_cache
+            .insert(uri.to_owned(), (generation, diagnostics.clone()));
+        diagnostics
     }
 
     fn hover_response(&mut self, id: Value, message: &Value) -> Value {
@@ -530,36 +605,67 @@ impl LspServer {
 
     fn completion_response(&mut self, id: Value, message: &Value) -> Value {
         let index = self.workspace_index();
-        let prefix = request_position(message)
-            .and_then(|(uri, position)| {
-                index
-                    .documents
-                    .get(&uri)
-                    .and_then(|source| word_prefix_at(source, &position))
+        let Some((uri, position)) = request_position(message) else {
+            return json!({ "jsonrpc": "2.0", "id": id, "result": { "isIncomplete": false, "items": [] } });
+        };
+        let Some(source) = index.documents.get(&uri) else {
+            return json!({ "jsonrpc": "2.0", "id": id, "result": { "isIncomplete": false, "items": [] } });
+        };
+        let Some(offset) = position_offset(source, position) else {
+            return json!({ "jsonrpc": "2.0", "id": id, "result": { "isIncomplete": false, "items": [] } });
+        };
+        if !is_code_position(source, offset) {
+            return json!({ "jsonrpc": "2.0", "id": id, "result": { "isIncomplete": false, "items": [] } });
+        }
+        let prefix = word_prefix_at(source, position).unwrap_or_default();
+        let mut items = index
+            .symbols
+            .iter()
+            .filter(|symbol| {
+                symbol_accessible_from(symbol, &uri)
+                    && (prefix.is_empty() || symbol.name.starts_with(&prefix))
+                    && index.visible_uris(&uri).contains(&symbol.uri)
             })
-            .unwrap_or_default();
-        let mut items = index.symbols.iter().filter(|symbol| prefix.is_empty() || symbol.name.starts_with(&prefix)).map(|symbol| json!({ "label": symbol.name, "kind": lsp_symbol_kind(symbol.kind), "detail": format!("{} {}", symbol.kind, symbol.detail) })).collect::<Vec<_>>();
+            .map(|symbol| {
+                json!({ "label": symbol.name, "kind": lsp_symbol_kind(symbol.kind), "detail": format!("{} {}", symbol.kind, symbol.detail) })
+            })
+            .collect::<Vec<_>>();
         items.dedup_by(|left, right| left["label"] == right["label"]);
         json!({ "jsonrpc": "2.0", "id": id, "result": { "isIncomplete": false, "items": items } })
     }
 
     fn signature_help_response(&mut self, id: Value, message: &Value) -> Value {
         let index = self.workspace_index();
-        let name = request_position(message)
-            .and_then(|(uri, position)| {
-                index
-                    .documents
-                    .get(&uri)
-                    .and_then(|source| word_at(source, &position))
-            })
-            .unwrap_or_default();
+        let Some((uri, position)) = request_position(message) else {
+            return empty_signature_help_response(id);
+        };
+        let Some(source) = index.documents.get(&uri) else {
+            return empty_signature_help_response(id);
+        };
+        let Some(offset) = position_offset(source, position) else {
+            return empty_signature_help_response(id);
+        };
+        let Some(call) = call_context_at(source, offset) else {
+            return empty_signature_help_response(id);
+        };
         let signatures = index
-            .symbols
-            .iter()
-            .filter(|symbol| symbol.name == name && matches!(symbol.kind, "function" | "method"))
-            .map(|symbol| json!({ "label": symbol.detail, "parameters": [] }))
+            .symbols_accessible_from(&uri, &call.name)
+            .filter(|symbol| matches!(symbol.kind, "function" | "method"))
+            .map(|symbol| {
+                let label = symbol
+                    .signature
+                    .as_deref()
+                    .unwrap_or(&symbol.detail)
+                    .to_owned();
+                let parameters = symbol
+                    .parameters
+                    .iter()
+                    .map(|parameter| json!({ "label": parameter }))
+                    .collect::<Vec<_>>();
+                json!({ "label": label, "parameters": parameters })
+            })
             .collect::<Vec<_>>();
-        json!({ "jsonrpc": "2.0", "id": id, "result": { "signatures": signatures, "activeSignature": 0, "activeParameter": 0 } })
+        json!({ "jsonrpc": "2.0", "id": id, "result": { "signatures": signatures, "activeSignature": 0, "activeParameter": call.active_parameter } })
     }
 
     fn server_status_response(&mut self, id: Value) -> Value {
@@ -606,7 +712,7 @@ where
     W: Write,
 {
     let mut server = LspServer::default();
-    while let Some(message) = read_message(&mut input)? {
+    while let Some(message) = framed_protocol::read_message(&mut input, "lsp")? {
         let response = server.handle_message(&message)?;
         for payload in response.messages {
             write_message(&mut output, &payload)?;
@@ -803,7 +909,15 @@ fn percent_encode_path(path: &str) -> String {
 
 fn symbols_for_program(uri: &str, source: &str, program: &syntax::Program) -> Vec<LspSymbol> {
     let mut symbols = Vec::new();
-    let mut push = |name: &str, kind: &'static str, line: usize, column: usize| {
+    let package_root =
+        package_root_for_path(&path_for_uri(uri)).and_then(|root| fs::canonicalize(root).ok());
+    let mut push = |name: &str,
+                    kind: &'static str,
+                    line: usize,
+                    column: usize,
+                    visibility: Visibility,
+                    parameters: Vec<String>,
+                    signature: Option<String>| {
         symbols.push(LspSymbol {
             name: name.to_owned(),
             kind,
@@ -811,6 +925,10 @@ fn symbols_for_program(uri: &str, source: &str, program: &syntax::Program) -> Ve
             line,
             column: utf16_column_for_source_position(source, line, column),
             detail: source_line(source, line).to_owned(),
+            visibility,
+            package_root: package_root.clone(),
+            parameters,
+            signature,
         });
     };
     for declaration in &program.macros {
@@ -819,6 +937,9 @@ fn symbols_for_program(uri: &str, source: &str, program: &syntax::Program) -> Ve
             "macro",
             declaration.line,
             declaration.column,
+            Visibility::Module,
+            Vec::new(),
+            None,
         );
     }
     for declaration in &program.axioms {
@@ -827,6 +948,9 @@ fn symbols_for_program(uri: &str, source: &str, program: &syntax::Program) -> Ve
             "axiom",
             declaration.line,
             declaration.column,
+            Visibility::Module,
+            Vec::new(),
+            None,
         );
     }
     for declaration in &program.semantic_capabilities {
@@ -835,6 +959,9 @@ fn symbols_for_program(uri: &str, source: &str, program: &syntax::Program) -> Ve
             "capability",
             declaration.line,
             declaration.column,
+            Visibility::Module,
+            Vec::new(),
+            None,
         );
     }
     for declaration in &program.evidence {
@@ -843,6 +970,9 @@ fn symbols_for_program(uri: &str, source: &str, program: &syntax::Program) -> Ve
             "evidence",
             declaration.line,
             declaration.column,
+            Visibility::Module,
+            Vec::new(),
+            None,
         );
     }
     for declaration in &program.consts {
@@ -851,6 +981,9 @@ fn symbols_for_program(uri: &str, source: &str, program: &syntax::Program) -> Ve
             "constant",
             declaration.line,
             declaration.column,
+            declaration.visibility,
+            Vec::new(),
+            None,
         );
     }
     for declaration in &program.type_aliases {
@@ -859,6 +992,9 @@ fn symbols_for_program(uri: &str, source: &str, program: &syntax::Program) -> Ve
             "type",
             declaration.line,
             declaration.column,
+            declaration.visibility,
+            Vec::new(),
+            None,
         );
     }
     for declaration in &program.structs {
@@ -867,9 +1003,20 @@ fn symbols_for_program(uri: &str, source: &str, program: &syntax::Program) -> Ve
             "struct",
             declaration.line,
             declaration.column,
+            declaration.visibility,
+            Vec::new(),
+            None,
         );
         for field in &declaration.fields {
-            push(&field.name, "field", field.line, field.column);
+            push(
+                &field.name,
+                "field",
+                field.line,
+                field.column,
+                Visibility::Module,
+                Vec::new(),
+                None,
+            );
         }
     }
     for declaration in &program.enums {
@@ -878,9 +1025,20 @@ fn symbols_for_program(uri: &str, source: &str, program: &syntax::Program) -> Ve
             "enum",
             declaration.line,
             declaration.column,
+            declaration.visibility,
+            Vec::new(),
+            None,
         );
         for variant in &declaration.variants {
-            push(&variant.name, "variant", variant.line, variant.column);
+            push(
+                &variant.name,
+                "variant",
+                variant.line,
+                variant.column,
+                declaration.visibility,
+                Vec::new(),
+                None,
+            );
         }
     }
     for declaration in &program.traits {
@@ -889,21 +1047,59 @@ fn symbols_for_program(uri: &str, source: &str, program: &syntax::Program) -> Ve
             "trait",
             declaration.line,
             declaration.column,
+            declaration.visibility,
+            Vec::new(),
+            None,
         );
         for method in &declaration.methods {
-            push(&method.name, "method", method.line, method.column);
+            let parameters = method
+                .params
+                .iter()
+                .map(|parameter| format!("{}: {}", parameter.name, render_type_name(&parameter.ty)))
+                .collect::<Vec<_>>();
+            let signature = Some(format!(
+                "{}({}): {}",
+                method.name,
+                parameters.join(", "),
+                render_type_name(&method.return_ty)
+            ));
+            push(
+                &method.name,
+                "method",
+                method.line,
+                method.column,
+                declaration.visibility,
+                parameters,
+                signature,
+            );
         }
     }
     for declaration in &program.functions {
+        let kind = if declaration.impl_target.is_some() {
+            "method"
+        } else {
+            "function"
+        };
+        let parameters = declaration
+            .params
+            .iter()
+            .map(|parameter| format!("{}: {}", parameter.name, render_type_name(&parameter.ty)))
+            .collect::<Vec<_>>();
+        let signature = Some(format!(
+            "{}{}({}): {}",
+            if declaration.is_async { "async " } else { "" },
+            declaration.source_name,
+            parameters.join(", "),
+            render_type_name(&declaration.return_ty)
+        ));
         push(
             &declaration.name,
-            if declaration.impl_target.is_some() {
-                "method"
-            } else {
-                "function"
-            },
+            kind,
             declaration.line,
             declaration.column,
+            declaration.visibility,
+            parameters,
+            signature,
         );
     }
     symbols
@@ -914,9 +1110,17 @@ fn symbols_for_program(uri: &str, source: &str, program: &syntax::Program) -> Ve
 /// documents always use the compiler parser/HIR path above.
 fn symbols_for_incomplete_source(uri: &str, source: &str) -> Vec<LspSymbol> {
     let mut symbols = Vec::new();
+    let package_root =
+        package_root_for_path(&path_for_uri(uri)).and_then(|root| fs::canonicalize(root).ok());
     for (line_index, line) in source.lines().enumerate() {
         let trimmed = line.trim_start();
-        let declaration = trimmed.strip_prefix("pub ").unwrap_or(trimmed);
+        let (visibility, declaration) = if let Some(rest) = trimmed.strip_prefix("pub(pkg) ") {
+            (Visibility::Package, rest)
+        } else if let Some(rest) = trimmed.strip_prefix("pub ") {
+            (Visibility::Public, rest)
+        } else {
+            (Visibility::Module, trimmed)
+        };
         let kind = [
             ("fn ", "function"),
             ("struct ", "struct"),
@@ -945,9 +1149,233 @@ fn symbols_for_incomplete_source(uri: &str, source: &str) -> Vec<LspSymbol> {
             line: line_index + 1,
             column,
             detail: line.trim().to_owned(),
+            visibility,
+            package_root: package_root.clone(),
+            parameters: Vec::new(),
+            signature: None,
         });
     }
     symbols
+}
+
+fn render_type_name(ty: &syntax::TypeName) -> String {
+    use syntax::TypeName;
+    match ty {
+        TypeName::Int => "int".to_owned(),
+        TypeName::Numeric(numeric) => numeric.as_str().to_owned(),
+        TypeName::Bool => "bool".to_owned(),
+        TypeName::String => "string".to_owned(),
+        TypeName::Str => "str".to_owned(),
+        TypeName::Named(name, args) if args.is_empty() => name.clone(),
+        TypeName::Named(name, args) => format!(
+            "{}<{}>",
+            name,
+            args.iter()
+                .map(render_type_name)
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+        TypeName::Ptr(inner) => format!("ptr<{}>", render_type_name(inner)),
+        TypeName::MutPtr(inner) => format!("mut ptr<{}>", render_type_name(inner)),
+        TypeName::MutRef(inner) => format!("&mut {}", render_type_name(inner)),
+        TypeName::Slice(inner) => format!("&[{}]", render_type_name(inner)),
+        TypeName::MutSlice(inner) => format!("&mut [{}]", render_type_name(inner)),
+        TypeName::LifetimeSlice(lifetime, inner) => {
+            format!("&'{lifetime} [{}]", render_type_name(inner))
+        }
+        TypeName::LifetimeMutSlice(lifetime, inner) => {
+            format!("&'{lifetime} mut [{}]", render_type_name(inner))
+        }
+        TypeName::Option(inner) => format!("Option<{}>", render_type_name(inner)),
+        TypeName::Result(ok, err) => {
+            format!(
+                "Result<{}, {}>",
+                render_type_name(ok),
+                render_type_name(err)
+            )
+        }
+        TypeName::Tuple(elements) => format!(
+            "({})",
+            elements
+                .iter()
+                .map(render_type_name)
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+        TypeName::Map(key, value) => {
+            format!("{{{}: {}}}", render_type_name(key), render_type_name(value))
+        }
+        TypeName::Array(inner, Some(size)) => format!("[{}; {}]", render_type_name(inner), size),
+        TypeName::Array(inner, None) => format!("[{}]", render_type_name(inner)),
+        TypeName::Fn(params, ret) => format!(
+            "fn({}) -> {}",
+            params
+                .iter()
+                .map(render_type_name)
+                .collect::<Vec<_>>()
+                .join(", "),
+            render_type_name(ret)
+        ),
+    }
+}
+
+fn symbol_accessible_from(symbol: &LspSymbol, origin: &str) -> bool {
+    if symbol.uri == origin {
+        return true;
+    }
+    match symbol.visibility {
+        Visibility::Public => true,
+        Visibility::Package => {
+            let origin_root = package_root_for_path(&path_for_uri(origin))
+                .and_then(|root| fs::canonicalize(root).ok());
+            origin_root.is_some() && origin_root == symbol.package_root
+        }
+        Visibility::Module => false,
+    }
+}
+
+fn empty_signature_help_response(id: Value) -> Value {
+    json!({ "jsonrpc": "2.0", "id": id, "result": { "signatures": [], "activeSignature": 0, "activeParameter": 0 } })
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LspLexState {
+    Code,
+    String,
+    LineComment,
+    BlockComment,
+}
+
+#[derive(Debug, Clone)]
+struct LspDelimiter {
+    kind: char,
+    call_name: Option<String>,
+    active_parameter: usize,
+}
+
+#[derive(Debug, Clone)]
+struct LspCallContext {
+    name: String,
+    active_parameter: usize,
+}
+
+fn is_code_position(source: &str, end: usize) -> bool {
+    lsp_lex(source, end).0 == LspLexState::Code
+}
+
+fn call_context_at(source: &str, end: usize) -> Option<LspCallContext> {
+    let (state, delimiters) = lsp_lex(source, end);
+    if state != LspLexState::Code {
+        return None;
+    }
+    delimiters.into_iter().rev().find_map(|delimiter| {
+        Some(LspCallContext {
+            name: delimiter.call_name?,
+            active_parameter: delimiter.active_parameter,
+        })
+    })
+}
+
+fn lsp_lex(source: &str, end: usize) -> (LspLexState, Vec<LspDelimiter>) {
+    let end = end.min(source.len());
+    let mut state = LspLexState::Code;
+    let mut escaped = false;
+    let mut delimiters = Vec::new();
+    let mut chars = source[..end].char_indices().peekable();
+    while let Some((index, character)) = chars.next() {
+        match state {
+            LspLexState::Code => match character {
+                '"' => {
+                    state = LspLexState::String;
+                    escaped = false;
+                }
+                '/' if chars.peek().is_some_and(|(_, next)| *next == '/') => {
+                    chars.next();
+                    state = LspLexState::LineComment;
+                }
+                '/' if chars.peek().is_some_and(|(_, next)| *next == '*') => {
+                    chars.next();
+                    state = LspLexState::BlockComment;
+                }
+                '(' => delimiters.push(LspDelimiter {
+                    kind: character,
+                    call_name: call_name_before(source, index),
+                    active_parameter: 0,
+                }),
+                '[' | '{' => delimiters.push(LspDelimiter {
+                    kind: character,
+                    call_name: None,
+                    active_parameter: 0,
+                }),
+                ')' | ']' | '}' => {
+                    if delimiters.last().is_some_and(|delimiter| {
+                        matches!(
+                            (delimiter.kind, character),
+                            ('(', ')') | ('[', ']') | ('{', '}')
+                        )
+                    }) {
+                        delimiters.pop();
+                    }
+                }
+                ',' if delimiters.last().is_some_and(|delimiter| {
+                    delimiter.kind == '(' && delimiter.call_name.is_some()
+                }) =>
+                {
+                    if let Some(delimiter) = delimiters.last_mut() {
+                        delimiter.active_parameter = delimiter.active_parameter.saturating_add(1);
+                    }
+                }
+                _ => {}
+            },
+            LspLexState::String => {
+                if escaped {
+                    escaped = false;
+                } else if character == '\\' {
+                    escaped = true;
+                } else if character == '"' {
+                    state = LspLexState::Code;
+                }
+            }
+            LspLexState::LineComment => {
+                if character == '\n' {
+                    state = LspLexState::Code;
+                }
+            }
+            LspLexState::BlockComment => {
+                if character == '*' && chars.peek().is_some_and(|(_, next)| *next == '/') {
+                    chars.next();
+                    state = LspLexState::Code;
+                }
+            }
+        }
+    }
+    (state, delimiters)
+}
+
+fn call_name_before(source: &str, end: usize) -> Option<String> {
+    let end = end.min(source.len());
+    let mut cursor = end;
+    while cursor > 0 {
+        let character = source[..cursor].chars().next_back()?;
+        if character.is_whitespace() {
+            cursor -= character.len_utf8();
+        } else {
+            break;
+        }
+    }
+    let identifier_end = cursor;
+    while cursor > 0 {
+        let character = source[..cursor].chars().next_back()?;
+        if character.is_ascii_alphanumeric() || character == '_' {
+            cursor -= character.len_utf8();
+        } else {
+            break;
+        }
+    }
+    if cursor == identifier_end {
+        return None;
+    }
+    Some(source[cursor..identifier_end].to_owned())
 }
 
 fn source_line(source: &str, line: usize) -> &str {
@@ -1090,44 +1518,6 @@ fn is_identifier_byte(byte: u8) -> bool {
     byte.is_ascii_alphanumeric() || byte == b'_'
 }
 
-fn read_message<R>(input: &mut R) -> Result<Option<String>, Diagnostic>
-where
-    R: BufRead,
-{
-    let mut content_length = None;
-    loop {
-        let mut line = String::new();
-        let bytes = input
-            .read_line(&mut line)
-            .map_err(|err| Diagnostic::new("lsp", format!("failed to read LSP header: {err}")))?;
-        if bytes == 0 {
-            return Ok(None);
-        }
-        let trimmed = line.trim_end_matches(['\r', '\n']);
-        if trimmed.is_empty() {
-            break;
-        }
-        if let Some((name, value)) = trimmed.split_once(':') {
-            if !name.trim().eq_ignore_ascii_case("Content-Length") {
-                continue;
-            }
-            content_length = Some(value.trim().parse::<usize>().map_err(|err| {
-                Diagnostic::new("lsp", format!("invalid Content-Length header: {err}"))
-            })?);
-        }
-    }
-
-    let length = content_length
-        .ok_or_else(|| Diagnostic::new("lsp", "missing Content-Length header in LSP message"))?;
-    let mut body = vec![0; length];
-    input
-        .read_exact(&mut body)
-        .map_err(|err| Diagnostic::new("lsp", format!("failed to read LSP body: {err}")))?;
-    String::from_utf8(body)
-        .map(Some)
-        .map_err(|err| Diagnostic::new("lsp", format!("LSP body is not UTF-8: {err}")))
-}
-
 fn write_message<W>(output: &mut W, payload: &Value) -> Result<(), Diagnostic>
 where
     W: Write,
@@ -1154,6 +1544,14 @@ pub fn analyze_source(uri: &str, source: &str) -> Vec<Diagnostic> {
         },
         Err(diagnostics) => diagnostics_with_default_path(diagnostics, &path),
     }
+}
+
+fn source_generation(source: &str) -> u64 {
+    use std::hash::{Hash, Hasher};
+
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    source.hash(&mut hasher);
+    hasher.finish()
 }
 
 fn diagnostics_with_default_path(diagnostics: Vec<Diagnostic>, path: &Path) -> Vec<Diagnostic> {
@@ -1627,13 +2025,13 @@ mod tests {
         let provider = json!({
             "jsonrpc": "2.0",
             "method": "textDocument/didOpen",
-            "params": { "textDocument": { "uri": "file:///tmp/lsp-stdio/provider.ax", "languageId": "axiom", "version": 1, "text": "pub fn health(): int {\nreturn 1\n}\n" } }
+            "params": { "textDocument": { "uri": "file:///tmp/lsp-stdio/provider.ax", "languageId": "axiom", "version": 1, "text": "pub fn health(first: int, second: int): int {\nreturn first\n}\n" } }
         })
         .to_string();
         let consumer = json!({
             "jsonrpc": "2.0",
             "method": "textDocument/didOpen",
-            "params": { "textDocument": { "uri": "file:///tmp/lsp-stdio/consumer.ax", "languageId": "axiom", "version": 1, "text": "print health()\n" } }
+            "params": { "textDocument": { "uri": "file:///tmp/lsp-stdio/consumer.ax", "languageId": "axiom", "version": 1, "text": "print health(\n" } }
         })
         .to_string();
         let definition = json!({
@@ -1643,7 +2041,14 @@ mod tests {
             "params": { "textDocument": { "uri": "file:///tmp/lsp-stdio/consumer.ax" }, "position": { "line": 0, "character": 8 } }
         })
         .to_string();
-        let input = [provider, consumer, definition]
+        let signature_help = json!({
+            "jsonrpc": "2.0",
+            "id": 10,
+            "method": "textDocument/signatureHelp",
+            "params": { "textDocument": { "uri": "file:///tmp/lsp-stdio/consumer.ax" }, "position": { "line": 0, "character": 13 } }
+        })
+        .to_string();
+        let input = [provider, consumer, definition, signature_help]
             .into_iter()
             .map(|body| format!("Content-Length: {}\r\n\r\n{body}", body.len()))
             .collect::<String>();
@@ -1654,6 +2059,8 @@ mod tests {
 
         let output = String::from_utf8(output).expect("utf8 output");
         assert!(output.contains(r#""id":9"#));
+        assert!(output.contains(r#""id":10"#));
+        assert!(output.contains("health(first: int, second: int): int"));
         assert!(output.contains("file:///tmp/lsp-stdio/provider.ax"));
     }
 
@@ -1814,6 +2221,172 @@ mod tests {
     }
 
     #[test]
+    fn completion_respects_module_and_package_visibility() {
+        let workspace = tempfile::tempdir().expect("temporary workspace");
+        let source_dir = workspace.path().join("src");
+        let dependency = workspace.path().join("deps/support");
+        let dependency_source_dir = dependency.join("src");
+        fs::create_dir_all(&source_dir).expect("source directory");
+        fs::create_dir_all(&dependency_source_dir).expect("dependency source directory");
+        fs::write(
+            workspace.path().join("axiom.toml"),
+            "[package]\nname = \"lsp-visibility\"\nversion = \"0.1.0\"\n\n[dependencies.support]\npath = \"deps/support\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n",
+        )
+        .expect("manifest");
+        fs::write(
+            dependency.join("axiom.toml"),
+            "[package]\nname = \"support\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/lib.ax\"\nout_dir = \"dist\"\n",
+        )
+        .expect("dependency manifest");
+        fs::write(
+            dependency_source_dir.join("lib.ax"),
+            "fn hidden(): int { return 1 }\npub(pkg) fn package_visible(): int { return 2 }\npub fn public_visible(): int { return 3 }\n",
+        )
+        .expect("dependency module");
+        let main = "import \"support/lib.ax\"\nprint \n";
+        let main_path = source_dir.join("main.ax");
+        fs::write(&main_path, main).expect("main module");
+        let main_uri = uri_for_path(&main_path);
+        let mut server = LspServer::default();
+        server
+            .handle_message(&notification(
+                "textDocument/didOpen",
+                json!({ "textDocument": { "uri": main_uri, "languageId": "axiom", "version": 1, "text": main } }),
+            ))
+            .expect("open main");
+
+        let response = server
+            .handle_message(&request(
+                1,
+                "textDocument/completion",
+                json!({ "textDocument": { "uri": main_uri }, "position": { "line": 1, "character": 6 } }),
+            ))
+            .expect("completion");
+        let labels = response.messages[0]["result"]["items"]
+            .as_array()
+            .expect("completion items")
+            .iter()
+            .filter_map(|item| item["label"].as_str())
+            .collect::<BTreeSet<_>>();
+        assert!(labels.contains("public_visible"), "{labels:?}");
+        assert!(
+            !labels.contains("hidden"),
+            "private symbol leaked: {labels:?}"
+        );
+        assert!(
+            !labels.contains("package_visible"),
+            "cross-package pub(pkg) symbol leaked: {labels:?}"
+        );
+    }
+
+    #[test]
+    fn signature_help_handles_nested_multiline_incomplete_calls_and_comments() {
+        let workspace = tempfile::tempdir().expect("temporary workspace");
+        let source_dir = workspace.path().join("src");
+        fs::create_dir_all(&source_dir).expect("source directory");
+        fs::write(
+            workspace.path().join("axiom.toml"),
+            "[package]\nname = \"lsp-signature\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n",
+        )
+        .expect("manifest");
+        fs::write(
+            source_dir.join("support.ax"),
+            "pub fn target(first: int, second: int, third: int): int {\nreturn first\n}\npub fn nested(value: int): int {\nreturn value\n}\n",
+        )
+        .expect("support module");
+        let main = "import \"support.ax\"\nprint \"target(\"\n// target(\nprint target(\n  nested(\n    1\n  ),\n  2,\n  \n";
+        let main_path = source_dir.join("main.ax");
+        fs::write(&main_path, main).expect("main module");
+        let main_uri = uri_for_path(&main_path);
+        let mut server = LspServer::default();
+        server
+            .handle_message(&notification(
+                "textDocument/didOpen",
+                json!({ "textDocument": { "uri": main_uri, "languageId": "axiom", "version": 1, "text": main } }),
+            ))
+            .expect("open incomplete main");
+
+        let nested = server
+            .handle_message(&request(
+                1,
+                "textDocument/signatureHelp",
+                json!({ "textDocument": { "uri": main_uri }, "position": { "line": 4, "character": 9 } }),
+            ))
+            .expect("nested signature help");
+        assert_eq!(
+            nested.messages[0]["result"]["signatures"][0]["label"],
+            json!("nested(value: int): int")
+        );
+        assert_eq!(nested.messages[0]["result"]["activeParameter"], json!(0));
+
+        let outer_after_open = server
+            .handle_message(&request(
+                2,
+                "textDocument/signatureHelp",
+                json!({ "textDocument": { "uri": main_uri }, "position": { "line": 3, "character": 13 } }),
+            ))
+            .expect("outer signature help after open");
+        assert_eq!(
+            outer_after_open.messages[0]["result"]["signatures"][0]["label"],
+            json!("target(first: int, second: int, third: int): int")
+        );
+        assert_eq!(
+            outer_after_open.messages[0]["result"]["activeParameter"],
+            json!(0)
+        );
+
+        let outer_after_first_comma = server
+            .handle_message(&request(
+                3,
+                "textDocument/signatureHelp",
+                json!({ "textDocument": { "uri": main_uri }, "position": { "line": 6, "character": 4 } }),
+            ))
+            .expect("outer signature help after first comma");
+        assert_eq!(
+            outer_after_first_comma.messages[0]["result"]["signatures"][0]["label"],
+            json!("target(first: int, second: int, third: int): int")
+        );
+        assert_eq!(
+            outer_after_first_comma.messages[0]["result"]["activeParameter"],
+            json!(1)
+        );
+
+        let outer_after_second_comma = server
+            .handle_message(&request(
+                4,
+                "textDocument/signatureHelp",
+                json!({ "textDocument": { "uri": main_uri }, "position": { "line": 7, "character": 4 } }),
+            ))
+            .expect("outer signature help after second comma");
+        assert_eq!(
+            outer_after_second_comma.messages[0]["result"]["signatures"][0]["label"],
+            json!("target(first: int, second: int, third: int): int")
+        );
+        assert_eq!(
+            outer_after_second_comma.messages[0]["result"]["activeParameter"],
+            json!(2)
+        );
+
+        for (id, line, character) in [(5, 1, 10), (6, 2, 10)] {
+            let response = server
+                .handle_message(&request(
+                    id,
+                    "textDocument/signatureHelp",
+                    json!({ "textDocument": { "uri": main_uri }, "position": { "line": line, "character": character } }),
+                ))
+                .expect("ignored string/comment signature help");
+            assert!(
+                response.messages[0]["result"]["signatures"]
+                    .as_array()
+                    .expect("signatures")
+                    .is_empty(),
+                "signature leaked into string/comment: {:?}",
+                response.messages[0]
+            );
+        }
+    }
+
+    #[test]
     fn stale_versions_and_cancelled_requests_do_not_publish_stale_results() {
         let uri = "file:///tmp/lsp-state/main.ax";
         let mut server = LspServer::default();
@@ -1967,6 +2540,150 @@ mod tests {
                 .unwrap()
                 <= maximum_p95
         );
+    }
+
+    #[test]
+    fn persistent_analysis_cache_reuses_results_and_invalidates_reverse_dependencies_only() {
+        let directory = tempfile::tempdir().expect("workspace");
+        let package_a = directory.path().join("package-a");
+        let package_b = directory.path().join("package-b");
+        for package in [&package_a, &package_b] {
+            fs::create_dir_all(package.join("src")).expect("package source directory");
+            fs::write(
+                package.join("axiom.toml"),
+                "[package]\nname = \"cache-test\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n",
+            )
+            .expect("manifest");
+        }
+        let provider = package_a.join("src/provider.ax");
+        let main_a = package_a.join("src/main.ax");
+        let main_b = package_b.join("src/main.ax");
+        fs::write(&provider, "pub fn health(): int {\nreturn 1\n}\n").expect("provider");
+        fs::write(&main_a, "import \"provider.ax\"\nprint health()\n").expect("package A entry");
+        fs::write(&main_b, "pub fn unrelated(): int {\nreturn 2\n}\n").expect("package B entry");
+
+        let provider_uri = uri_for_path(&provider);
+        let mut server = LspServer::default();
+        server.workspace_roots = BTreeSet::from([package_a.clone(), package_b.clone()]);
+        server.documents.insert(
+            provider_uri,
+            LspDocument {
+                version: 1,
+                text: "pub fn health(): int {\nreturn 1\n}\n".to_owned(),
+            },
+        );
+
+        server.workspace_index();
+        let first_runs = server.analysis_cache.analysis_runs();
+        assert_eq!(
+            first_runs, 2,
+            "both packages should analyze on first request"
+        );
+
+        server.workspace_index();
+        assert_eq!(server.analysis_cache.analysis_runs(), first_runs);
+        assert!(server.analysis_cache.cache_hits() >= 2);
+
+        server.documents.insert(
+            uri_for_path(&provider),
+            LspDocument {
+                version: 2,
+                text: "pub fn health(): int {\nreturn 3\n}\n".to_owned(),
+            },
+        );
+        server.workspace_index();
+        assert_eq!(server.analysis_cache.analysis_runs(), first_runs + 1);
+        let invalidated = server.analysis_cache.last_invalidated();
+        assert!(invalidated.contains(&fs::canonicalize(&provider).expect("provider path")));
+        assert!(invalidated.contains(&fs::canonicalize(&main_a).expect("entry path")));
+        assert!(!invalidated.contains(&fs::canonicalize(&main_b).expect("unrelated path")));
+    }
+
+    #[test]
+    fn malformed_package_overlay_is_reanalyzed_after_did_change_fix() {
+        let directory = tempfile::tempdir().expect("workspace");
+        let src = directory.path().join("src");
+        fs::create_dir_all(&src).expect("package source directory");
+        fs::write(
+            directory.path().join("axiom.toml"),
+            "[package]\nname = \"lsp-repair\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n",
+        )
+        .expect("manifest");
+        let main_path = src.join("main.ax");
+        fs::write(&main_path, "print 1\n").expect("disk source");
+        let uri = uri_for_path(&main_path);
+        let mut server = LspServer::default();
+        server
+            .workspace_roots
+            .insert(directory.path().to_path_buf());
+
+        let opened = server
+            .handle_message(&notification(
+                "textDocument/didOpen",
+                json!({
+                    "textDocument": {
+                        "uri": uri,
+                        "languageId": "axiom",
+                        "version": 1,
+                        "text": "}\n"
+                    }
+                }),
+            ))
+            .expect("open malformed package source");
+        assert_eq!(opened.messages.len(), 1);
+        assert!(
+            !opened.messages[0]["params"]["diagnostics"]
+                .as_array()
+                .expect("diagnostics")
+                .is_empty()
+        );
+        assert_eq!(server.analysis_cache.analysis_runs(), 1);
+
+        let fixed = server
+            .handle_message(&notification(
+                "textDocument/didChange",
+                json!({
+                    "textDocument": { "uri": uri, "version": 2 },
+                    "contentChanges": [{ "text": "print 2\n" }]
+                }),
+            ))
+            .expect("fix malformed package source");
+        assert_eq!(fixed.messages.len(), 1);
+        assert_eq!(fixed.messages[0]["params"]["diagnostics"], json!([]));
+        assert_eq!(server.analysis_cache.analysis_runs(), 2);
+    }
+
+    #[test]
+    fn unchanged_diagnostics_are_not_republished_and_clears_are_emitted() {
+        let uri = "file:///tmp/lsp-diagnostic-delta/main.ax";
+        let mut server = LspServer::default();
+        let open = server
+            .handle_message(&notification(
+                "textDocument/didOpen",
+                json!({ "textDocument": { "uri": uri, "languageId": "axiom", "version": 1, "text": "print missing_name\n" } }),
+            ))
+            .expect("open");
+        assert_eq!(open.messages.len(), 1);
+
+        let unchanged = server
+            .handle_message(&notification(
+                "textDocument/didChange",
+                json!({ "textDocument": { "uri": uri, "version": 2 }, "contentChanges": [{ "text": "print missing_name\n" }] }),
+            ))
+            .expect("unchanged edit");
+        assert!(
+            unchanged.messages.is_empty(),
+            "unchanged diagnostics should be cached"
+        );
+
+        let fixed = server
+            .handle_message(&notification(
+                "textDocument/didChange",
+                json!({ "textDocument": { "uri": uri, "version": 3 }, "contentChanges": [{ "text": "print 1\n" }] }),
+            ))
+            .expect("fix");
+        assert_eq!(fixed.messages.len(), 1);
+        assert_eq!(fixed.messages[0]["params"]["diagnostics"], json!([]));
     }
 
     #[test]

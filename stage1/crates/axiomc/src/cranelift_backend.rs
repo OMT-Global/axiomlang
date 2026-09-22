@@ -39,6 +39,7 @@ pub(crate) use host_env_proc_clock::*;
 mod host_json_serdes;
 pub(crate) use host_json_serdes::*;
 mod host_cli;
+mod cranelift_unicode_scalars;
 use host_cli::lower_i64_top_level_runtime_stmts;
 mod compilation_mode;
 mod static_output_purity;
@@ -134,8 +135,10 @@ pub(crate) struct I64StaticBindings {
     json_stringify_bool_wrappers: HashSet<String>,
     json_stringify_string_wrappers: HashSet<String>,
     io_eprintln_wrappers: HashSet<String>,
+    io_println_wrappers: HashSet<String>,
     io_readline_wrappers: HashSet<String>,
     io_read_to_string_wrappers: HashSet<String>,
+    stdin_text_bindings: HashSet<String>,
     log_wrappers: HashSet<String>,
     log_field_string_wrappers: HashSet<String>,
     log_field_int_wrappers: HashSet<String>,
@@ -1137,6 +1140,12 @@ fn lower_i64_exit_program(
         .functions
         .iter()
         .filter(|function| is_i64_std_io_wrapper(function, "eprintln"))
+        .flat_map(|function| [function.name.clone(), function.source_name.clone()])
+        .collect();
+    static_bindings.io_println_wrappers = program
+        .functions
+        .iter()
+        .filter(|function| is_i64_std_io_wrapper(function, "println"))
         .flat_map(|function| [function.name.clone(), function.source_name.clone()])
         .collect();
     static_bindings.io_readline_wrappers = program
@@ -2146,6 +2155,8 @@ fn lower_i64_aggregate_return_body(
                     expr,
                     &mut locals,
                     &mut local_indexes,
+                    &local_conditions,
+                    helper_signatures,
                     static_bindings,
                 ) {
                     lowered_stmts.extend(assigns);
@@ -3069,6 +3080,24 @@ fn lower_i64_body(
     let mut seen_runtime_stmt = false;
     let mut static_bindings = static_bindings.clone();
     let static_bindings = &mut static_bindings;
+    for (stmt_index, stmt) in body_stmts.iter().enumerate() {
+        if let Stmt::Let {
+            name,
+            ty: Type::String | Type::Str,
+            expr,
+            ..
+        } = stmt
+            && cranelift_unicode_scalars::i64_expr_is_io_read_to_string_call(expr, static_bindings)
+        {
+            let mut usage = cranelift_unicode_scalars::i64_scan_stdin_text_usage(name, &body_stmts[stmt_index + 1..]);
+            cranelift_unicode_scalars::i64_scan_stdin_text_usage_stmt(name, return_stmt, &mut usage, 0);
+            if usage.scalar_uses == 1 && usage.len_uses == 0 {
+                static_bindings.stdin_text_bindings.insert(name.clone());
+            } else if usage.scalar_uses > 0 {
+                return None;
+            }
+        }
+    }
     for param in params {
         if !is_i64_param_type(&param.ty, struct_defs, static_bindings) {
             return None;
@@ -3307,6 +3336,9 @@ fn lower_i64_body(
                 expr,
                 ..
             } if !seen_runtime_stmt => {
+                if static_bindings.stdin_text_bindings.contains(name) {
+                    continue;
+                }
                 lower_i64_string_len_projection_local(
                     name,
                     expr,
@@ -3526,6 +3558,8 @@ fn lower_i64_body(
                     expr,
                     &mut locals,
                     &mut local_indexes,
+                    &local_conditions,
+                    helper_signatures,
                     static_bindings,
                 ) {
                     lowered_stmts.extend(assigns);
@@ -4391,6 +4425,8 @@ fn lower_i64_runtime_stmt(
                 allow_stdio_effects,
             )?,
         }),
+        Stmt::Break { .. } => Some(CraneliftI64Stmt::Break),
+        Stmt::Continue { .. } => Some(CraneliftI64Stmt::Continue),
         _ => None,
     }
 }
@@ -4890,7 +4926,22 @@ fn lower_i64_runtime_stmts(
     let mut lowered = Vec::new();
     let mut scoped_static_bindings = static_bindings.clone();
     let static_bindings = &mut scoped_static_bindings;
-    for stmt in stmts {
+    for (stmt_index, stmt) in stmts.iter().enumerate() {
+        if let Stmt::Let {
+            name,
+            ty: Type::String | Type::Str,
+            expr,
+            ..
+        } = stmt
+            && cranelift_unicode_scalars::i64_expr_is_io_read_to_string_call(expr, static_bindings)
+        {
+            let usage = cranelift_unicode_scalars::i64_scan_stdin_text_usage(name, &stmts[stmt_index + 1..]);
+            if usage.scalar_uses == 1 && usage.len_uses == 0 {
+                static_bindings.stdin_text_bindings.insert(name.clone());
+            } else if usage.scalar_uses > 0 {
+                return None;
+            }
+        }
         if matches!(stmt, Stmt::Let { .. }) {
             if record_i64_known_string_let(stmt, static_bindings).unwrap_or(false) {
                 continue;
@@ -5129,6 +5180,8 @@ fn lower_i64_runtime_let_stmts(
             expr,
             locals,
             local_indexes,
+            local_conditions,
+            helper_signatures,
             static_bindings,
         )
     {
@@ -6170,6 +6223,9 @@ fn lower_i64_runtime_string_len_let_stmts(
     else {
         return None;
     };
+    if static_bindings.stdin_text_bindings.contains(name) {
+        return Some(Vec::new());
+    }
     let value = lower_i64_string_len_expr(
         expr,
         local_indexes,
@@ -6265,7 +6321,7 @@ fn lower_i64_eprintln_let_stmts(
     else {
         return None;
     };
-    if !is_i64_compatible_type(ty) || !is_i64_io_eprintln_name(call_name, static_bindings) {
+    if !is_i64_compatible_type(ty) || !is_i64_io_output_name(call_name, static_bindings) {
         if is_i64_log_info_attrs_name(call_name, static_bindings) {
             let [message, attributes] = args.as_slice() else {
                 return None;
@@ -6321,8 +6377,14 @@ fn lower_i64_eprintln_let_stmts(
     let [message] = args.as_slice() else {
         return None;
     };
-    let (mut stmts, written) = lower_i64_eprintln_message_stmts(
+    let stream = if is_i64_io_println_name(call_name, static_bindings) {
+        OutputStream::Stdout
+    } else {
+        OutputStream::Stderr
+    };
+    let (mut stmts, written) = lower_i64_io_output_message_stmts(
         message,
+        stream,
         local_indexes,
         local_conditions,
         helper_signatures,
@@ -6340,8 +6402,9 @@ fn lower_i64_eprintln_let_stmts(
     Some(stmts)
 }
 
-fn lower_i64_eprintln_message_stmts(
+fn lower_i64_io_output_message_stmts(
     message: &Expr,
+    stream: OutputStream,
     local_indexes: &HashMap<String, usize>,
     local_conditions: &HashMap<String, CraneliftI64Condition>,
     helper_signatures: &HashMap<&str, I64HelperSignature>,
@@ -6351,7 +6414,7 @@ fn lower_i64_eprintln_message_stmts(
         let written = i64::try_from(text.len()).ok()?.checked_add(1)?;
         return Some((
             vec![CraneliftI64Stmt::WriteLine {
-                stream: OutputStream::Stderr,
+                stream,
                 text,
             }],
             CraneliftI64Expr::Literal(written),
@@ -6359,7 +6422,7 @@ fn lower_i64_eprintln_message_stmts(
     }
     if let Some((stmts, written)) = lower_i64_dynamic_known_string_line_stmts_with_written(
         message,
-        OutputStream::Stderr,
+        stream,
         local_indexes,
         local_conditions,
         helper_signatures,
@@ -6376,7 +6439,7 @@ fn lower_i64_eprintln_message_stmts(
             let value = CraneliftI64Expr::Local(*local);
             return Some((
                 vec![CraneliftI64Stmt::WriteI64Line {
-                    stream: OutputStream::Stderr,
+                    stream,
                     value: value.clone(),
                 }],
                 CraneliftI64Expr::Binary {
@@ -6390,7 +6453,7 @@ fn lower_i64_eprintln_message_stmts(
             .get(i64_printable_bool_string_key(name).as_str())
             .cloned()
         {
-            return Some(lower_i64_eprintln_bool_message_stmts(cond));
+            return Some(lower_i64_io_output_bool_message_stmts(cond, stream));
         }
     }
     if let Expr::Call { name, args, .. } = message {
@@ -6403,7 +6466,7 @@ fn lower_i64_eprintln_message_stmts(
                 &level,
                 message,
                 Some(attributes),
-                OutputStream::Stderr,
+                stream,
                 local_indexes,
                 local_conditions,
                 helper_signatures,
@@ -6423,7 +6486,7 @@ fn lower_i64_eprintln_message_stmts(
             )?;
             return Some((
                 vec![CraneliftI64Stmt::WriteI64Line {
-                    stream: OutputStream::Stderr,
+                    stream,
                     value: value.clone(),
                 }],
                 CraneliftI64Expr::Binary {
@@ -6444,12 +6507,12 @@ fn lower_i64_eprintln_message_stmts(
                 helper_signatures,
                 static_bindings,
             )?;
-            return Some(lower_i64_eprintln_bool_message_stmts(cond));
+            return Some(lower_i64_io_output_bool_message_stmts(cond, stream));
         }
         if is_i64_json_stringify_string_name(name, static_bindings) {
             return lower_i64_json_stringify_string_line_stmts_with_written(
                 message,
-                OutputStream::Stderr,
+                stream,
                 local_indexes,
                 local_conditions,
                 helper_signatures,
@@ -6460,18 +6523,19 @@ fn lower_i64_eprintln_message_stmts(
     None
 }
 
-fn lower_i64_eprintln_bool_message_stmts(
+fn lower_i64_io_output_bool_message_stmts(
     cond: CraneliftI64Condition,
+    stream: OutputStream,
 ) -> (Vec<CraneliftI64Stmt>, CraneliftI64Expr) {
     (
         vec![CraneliftI64Stmt::If {
             cond: cond.clone(),
             then_body: vec![CraneliftI64Stmt::WriteLine {
-                stream: OutputStream::Stderr,
+                stream,
                 text: String::from("true"),
             }],
             else_body: vec![CraneliftI64Stmt::WriteLine {
-                stream: OutputStream::Stderr,
+                stream,
                 text: String::from("false"),
             }],
         }],
@@ -7595,12 +7659,12 @@ fn lower_i64_string_option_len_call_let_stmts(
     locals: &mut Vec<CraneliftI64Expr>,
     local_indexes: &mut HashMap<String, usize>,
 ) -> Option<Vec<CraneliftI64Stmt>> {
-    let payload_local = local_indexes.len();
+    let payload_local = locals.len();
     local_indexes.insert(i64_option_payload_slot_key(name, 0), payload_local);
     local_indexes.insert(i64_option_payload_key(name), payload_local);
     locals.push(CraneliftI64Expr::Literal(0));
 
-    let tag_local = local_indexes.len();
+    let tag_local = locals.len();
     local_indexes.insert(i64_option_tag_key(name), tag_local);
     locals.push(CraneliftI64Expr::Literal(0));
 
@@ -7631,17 +7695,28 @@ fn lower_i64_runtime_string_option_call_let_stmts(
     expr: &Expr,
     locals: &mut Vec<CraneliftI64Expr>,
     local_indexes: &mut HashMap<String, usize>,
+    local_conditions: &HashMap<String, CraneliftI64Condition>,
+    helper_signatures: &HashMap<&str, I64HelperSignature>,
     static_bindings: &I64StaticBindings,
 ) -> Option<Vec<CraneliftI64Stmt>> {
     if !matches!(inner, Type::String | Type::Str) {
         return None;
     }
-    let payload_len = lower_i64_runtime_string_option_len_expr(expr, static_bindings)?;
+    let payload_len = lower_i64_runtime_string_option_len_expr(
+        expr,
+        local_indexes,
+        local_conditions,
+        helper_signatures,
+        static_bindings,
+    )?;
     lower_i64_string_option_len_call_let_stmts(name, payload_len, locals, local_indexes)
 }
 
 fn lower_i64_runtime_string_option_len_expr(
     expr: &Expr,
+    local_indexes: &HashMap<String, usize>,
+    local_conditions: &HashMap<String, CraneliftI64Condition>,
+    helper_signatures: &HashMap<&str, I64HelperSignature>,
     static_bindings: &I64StaticBindings,
 ) -> Option<CraneliftI64Expr> {
     if let Some(key) = i64_env_get_key(expr, static_bindings) {
@@ -7660,6 +7735,25 @@ fn lower_i64_runtime_string_option_len_expr(
     };
     if is_i64_io_readline_name(call_name, static_bindings) && args.is_empty() {
         return Some(CraneliftI64Expr::StdinLineLen {
+            max_bytes: I64_STDIN_BUFFER_BYTES,
+        });
+    }
+    if call_name == "string_scalar_at" {
+        let [text, index] = args.as_slice() else {
+            return None;
+        };
+        if !cranelift_unicode_scalars::i64_expr_is_stdin_text_source(text, static_bindings) {
+            return None;
+        }
+        let index = lower_i64_expr(
+            index,
+            local_indexes,
+            local_conditions,
+            helper_signatures,
+            static_bindings,
+        )?;
+        return Some(CraneliftI64Expr::StdinScalarLenAt {
+            index: Box::new(index),
             max_bytes: I64_STDIN_BUFFER_BYTES,
         });
     }
@@ -12700,6 +12794,8 @@ fn i64_known_pure_intrinsic_call(name: &str, static_bindings: &I64StaticBindings
             | "string_trim_start"
             | "string_line_at"
             | "string_byte_at"
+            | "string_scalar_count"
+            | "string_scalar_at"
             | "encoding_url_component_encode"
             | "encoding_url_component_decode"
             | "encoding_path_segment_encode"
@@ -12824,6 +12920,21 @@ fn i64_string_option_text(
                 text.lines()
                     .nth(index as usize)
                     .map(std::string::ToString::to_string),
+            )
+        }
+        "string_scalar_at" => {
+            let [text, index] = args.as_slice() else {
+                return None;
+            };
+            let text = i64_string_text(text, static_bindings)?;
+            let index = i64_static_scalar_value(index, static_bindings)?;
+            if index < 0 {
+                return Some(None);
+            }
+            Some(
+                text.chars()
+                    .nth(index as usize)
+                    .map(|scalar| scalar.to_string()),
             )
         }
         name if is_i64_encoding_url_component_decode_name(name, static_bindings) => {
@@ -13326,6 +13437,7 @@ fn lower_i64_expr(
                     static_bindings,
                 )
             })
+            .or_else(|| cranelift_unicode_scalars::lower_i64_unicode_scalar_count_intrinsic_expr(name, args, static_bindings))
             .or_else(|| i64_known_helper_call_i64_expr(name, args, static_bindings))
             .or_else(|| {
                 lower_i64_call_expr(
@@ -13347,22 +13459,36 @@ fn lower_i64_expr(
                 ArithmeticOp::Mul => CraneliftI64BinaryOp::Mul,
                 ArithmeticOp::Div => CraneliftI64BinaryOp::Div,
             };
-            let expr = CraneliftI64Expr::Binary {
-                op,
-                lhs: Box::new(lower_i64_expr(
-                    lhs,
-                    local_indexes,
-                    local_conditions,
-                    helper_signatures,
-                    static_bindings,
-                )?),
-                rhs: Box::new(lower_i64_expr(
-                    rhs,
-                    local_indexes,
-                    local_conditions,
-                    helper_signatures,
-                    static_bindings,
-                )?),
+            let lhs = Box::new(lower_i64_expr(
+                lhs,
+                local_indexes,
+                local_conditions,
+                helper_signatures,
+                static_bindings,
+            )?);
+            let rhs = Box::new(lower_i64_expr(
+                rhs,
+                local_indexes,
+                local_conditions,
+                helper_signatures,
+                static_bindings,
+            )?);
+            let signed_add_type = match ty {
+                Type::Int | Type::Numeric(NumericType::I64) => Some("i64"),
+                Type::Numeric(NumericType::Isize) => Some("isize"),
+                _ => None,
+            };
+            let expr = match signed_add_type {
+                Some(ty_name) if i64_debug_build() && arith_op == ArithmeticOp::Add => {
+                    CraneliftI64Expr::CheckedSignedAdd {
+                        lhs,
+                        rhs,
+                        message: format!(
+                            "{{\"kind\":\"runtime\",\"message\":\"numeric overflow: {ty_name} addition\"}}"
+                        ),
+                    }
+                }
+                _ => CraneliftI64Expr::Binary { op, lhs, rhs },
             };
             // Debug builds trap on sized-integer overflow before the wrapping
             // cast; release builds keep the wrapping behavior.
@@ -15420,6 +15546,15 @@ fn is_i64_std_io_wrapper(function: &Function, source_name: &str) -> bool {
 
 fn is_i64_io_eprintln_name(name: &str, static_bindings: &I64StaticBindings) -> bool {
     name == "io_eprintln" || static_bindings.io_eprintln_wrappers.contains(name)
+}
+
+fn is_i64_io_println_name(name: &str, static_bindings: &I64StaticBindings) -> bool {
+    name == "io_println" || static_bindings.io_println_wrappers.contains(name)
+}
+
+fn is_i64_io_output_name(name: &str, static_bindings: &I64StaticBindings) -> bool {
+    is_i64_io_eprintln_name(name, static_bindings)
+        || is_i64_io_println_name(name, static_bindings)
 }
 
 fn is_i64_io_readline_name(name: &str, static_bindings: &I64StaticBindings) -> bool {
@@ -17664,7 +17799,8 @@ fn json_serdes_parse_value(
     text: &str,
     index: usize,
     depth: usize,
-) -> Result<(SpikeValue, usize), String> {
+    path: &str,
+) -> Result<(SpikeValue, usize), JsonSerdesError> {
     let index = json_skip_ws(text, index);
     match text.as_bytes().get(index).copied() {
         Some(b'n') if text[index..].starts_with("null") => {
@@ -17680,19 +17816,19 @@ fn json_serdes_parse_value(
         )),
         Some(b'"') => {
             let end = json_scan_string_end(text, index)
-                .ok_or_else(|| String::from("unterminated JSON string"))?;
+                .ok_or_else(|| json_serdes_error("unterminated JSON string", index, path))?;
             let value = json_parse_string(&text[index..end])
-                .ok_or_else(|| String::from("invalid JSON string"))?;
+                .ok_or_else(|| json_serdes_error("invalid JSON string", index, path))?;
             Ok((
                 json_serdes_value_variant("Text", vec![SpikeValue::Text(value)]),
                 end,
             ))
         }
-        Some(b'[') => json_serdes_parse_array(text, index, depth),
-        Some(b'{') => json_serdes_parse_object(text, index, depth),
-        Some(b'-' | b'0'..=b'9') => json_serdes_parse_number(text, index),
-        Some(_) => Err(String::from("unexpected JSON token")),
-        None => Err(String::from("empty JSON input")),
+        Some(b'[') => json_serdes_parse_array(text, index, depth, path),
+        Some(b'{') => json_serdes_parse_object(text, index, depth, path),
+        Some(b'-' | b'0'..=b'9') => json_serdes_parse_number(text, index, path),
+        Some(_) => Err(json_serdes_error("unexpected JSON token", index, path)),
+        None => Err(json_serdes_error("empty JSON input", index, path)),
     }
 }
 
@@ -17700,11 +17836,13 @@ fn json_serdes_parse_array(
     text: &str,
     index: usize,
     depth: usize,
-) -> Result<(SpikeValue, usize), String> {
+    path: &str,
+) -> Result<(SpikeValue, usize), JsonSerdesError> {
     if depth >= JSON_MAX_DEPTH {
-        return Err(format!(
-            "JSON nesting exceeds {} level limit",
-            JSON_MAX_DEPTH
+        return Err(json_serdes_error(
+            format!("JSON nesting exceeds {} level limit", JSON_MAX_DEPTH),
+            index,
+            path,
         ));
     }
     let mut index = index + 1;
@@ -17712,7 +17850,7 @@ fn json_serdes_parse_array(
     loop {
         index = json_skip_ws(text, index);
         match text.as_bytes().get(index).copied() {
-            Some(b']') => {
+            Some(b']') if values.is_empty() => {
                 return Ok((
                     json_serdes_value_variant("Array", vec![SpikeValue::Array(values)]),
                     index + 1,
@@ -17720,12 +17858,18 @@ fn json_serdes_parse_array(
             }
             Some(_) => {
                 if values.len() >= JSON_MAX_COLLECTION_ITEMS {
-                    return Err(format!(
-                        "JSON collection exceeds {} item limit",
-                        JSON_MAX_COLLECTION_ITEMS
+                    return Err(json_serdes_error(
+                        format!(
+                            "JSON collection exceeds {} item limit",
+                            JSON_MAX_COLLECTION_ITEMS
+                        ),
+                        index,
+                        path,
                     ));
                 }
-                let (value, next) = json_serdes_parse_value(text, index, depth + 1)?;
+                let value_path = json_serdes_index_path(path, values.len());
+                let (value, next) =
+                    json_serdes_parse_value(text, index, depth + 1, &value_path)?;
                 values.push(value);
                 index = json_skip_ws(text, next);
                 match text.as_bytes().get(index).copied() {
@@ -17736,10 +17880,16 @@ fn json_serdes_parse_array(
                             index + 1,
                         ));
                     }
-                    _ => return Err(String::from("array expects ',' or ']'")),
+                    _ => {
+                        return Err(json_serdes_error(
+                            "array expects ',' or ']'",
+                            index,
+                            path,
+                        ));
+                    }
                 }
             }
-            None => return Err(String::from("unterminated JSON array")),
+            None => return Err(json_serdes_error("unterminated JSON array", index, path)),
         }
     }
 }
@@ -17748,11 +17898,13 @@ fn json_serdes_parse_object(
     text: &str,
     index: usize,
     depth: usize,
-) -> Result<(SpikeValue, usize), String> {
+    path: &str,
+) -> Result<(SpikeValue, usize), JsonSerdesError> {
     if depth >= JSON_MAX_DEPTH {
-        return Err(format!(
-            "JSON nesting exceeds {} level limit",
-            JSON_MAX_DEPTH
+        return Err(json_serdes_error(
+            format!("JSON nesting exceeds {} level limit", JSON_MAX_DEPTH),
+            index,
+            path,
         ));
     }
     let mut index = index + 1;
@@ -17760,7 +17912,7 @@ fn json_serdes_parse_object(
     loop {
         index = json_skip_ws(text, index);
         match text.as_bytes().get(index).copied() {
-            Some(b'}') => {
+            Some(b'}') if entries.is_empty() => {
                 return Ok((
                     json_serdes_value_variant("Object", vec![SpikeValue::Map(entries)]),
                     index + 1,
@@ -17768,22 +17920,32 @@ fn json_serdes_parse_object(
             }
             Some(b'"') => {
                 if entries.len() >= JSON_MAX_COLLECTION_ITEMS {
-                    return Err(format!(
-                        "JSON collection exceeds {} item limit",
-                        JSON_MAX_COLLECTION_ITEMS
+                    return Err(json_serdes_error(
+                        format!(
+                            "JSON collection exceeds {} item limit",
+                            JSON_MAX_COLLECTION_ITEMS
+                        ),
+                        index,
+                        path,
                     ));
                 }
                 let key_end = json_scan_string_end(text, index)
-                    .ok_or_else(|| String::from("unterminated JSON object key"))?;
+                    .ok_or_else(|| json_serdes_error("unterminated JSON object key", index, path))?;
                 let key = json_parse_string(&text[index..key_end])
-                    .ok_or_else(|| String::from("invalid JSON object key"))?;
+                    .ok_or_else(|| json_serdes_error("invalid JSON object key", index, path))?;
+                let value_path = json_serdes_field_path(path, &key);
                 index = json_skip_ws(text, key_end);
                 if text.as_bytes().get(index).copied() != Some(b':') {
-                    return Err(String::from("object field expects ':'"));
+                    return Err(json_serdes_error(
+                        "object field expects ':'",
+                        index,
+                        &value_path,
+                    ));
                 }
-                let (value, next) = json_serdes_parse_value(text, index + 1, depth + 1)?;
+                let (value, next) =
+                    json_serdes_parse_value(text, index + 1, depth + 1, &value_path)?;
                 insert_map_entry(&mut entries, SpikeValue::Text(key), value)
-                    .map_err(|err| err.message)?;
+                    .map_err(|err| json_serdes_error(err.message, index, path))?;
                 index = json_skip_ws(text, next);
                 match text.as_bytes().get(index).copied() {
                     Some(b',') => index += 1,
@@ -17793,16 +17955,26 @@ fn json_serdes_parse_object(
                             index + 1,
                         ));
                     }
-                    _ => return Err(String::from("object expects ',' or '}'")),
+                    _ => {
+                        return Err(json_serdes_error(
+                            "object expects ',' or '}'",
+                            index,
+                            path,
+                        ));
+                    }
                 }
             }
-            Some(_) => return Err(String::from("object expects string keys")),
-            None => return Err(String::from("unterminated JSON object")),
+            Some(_) => return Err(json_serdes_error("object expects string keys", index, path)),
+            None => return Err(json_serdes_error("unterminated JSON object", index, path)),
         }
     }
 }
 
-fn json_serdes_parse_number(text: &str, index: usize) -> Result<(SpikeValue, usize), String> {
+fn json_serdes_parse_number(
+    text: &str,
+    index: usize,
+    path: &str,
+) -> Result<(SpikeValue, usize), JsonSerdesError> {
     let start = index;
     let bytes = text.as_bytes();
     let mut index = index;
@@ -17817,7 +17989,7 @@ fn json_serdes_parse_number(text: &str, index: usize) -> Result<(SpikeValue, usi
                 index += 1;
             }
         }
-        _ => return Err(String::from("invalid JSON number")),
+        _ => return Err(json_serdes_error("invalid JSON number", start, path)),
     }
     let mut is_float = false;
     if bytes.get(index).copied() == Some(b'.') {
@@ -17828,7 +18000,7 @@ fn json_serdes_parse_number(text: &str, index: usize) -> Result<(SpikeValue, usi
             index += 1;
         }
         if index == fraction_start {
-            return Err(String::from("invalid JSON fraction"));
+            return Err(json_serdes_error("invalid JSON fraction", start, path));
         }
     }
     if matches!(bytes.get(index).copied(), Some(b'e' | b'E')) {
@@ -17842,22 +18014,23 @@ fn json_serdes_parse_number(text: &str, index: usize) -> Result<(SpikeValue, usi
             index += 1;
         }
         if index == exponent_start {
-            return Err(String::from("invalid JSON exponent"));
+            return Err(json_serdes_error("invalid JSON exponent", start, path));
         }
     }
     let raw = &text[start..index];
     if raw.bytes().filter(u8::is_ascii_digit).count() > JSON_MAX_NUMBER_DIGITS {
-        return Err(format!(
-            "JSON number exceeds {} digit limit",
-            JSON_MAX_NUMBER_DIGITS
+        return Err(json_serdes_error(
+            format!("JSON number exceeds {} digit limit", JSON_MAX_NUMBER_DIGITS),
+            start,
+            path,
         ));
     }
     if is_float {
         let value = raw
             .parse::<f64>()
-            .map_err(|_| String::from("invalid JSON float"))?;
+            .map_err(|_| json_serdes_error("invalid JSON float", start, path))?;
         if !value.is_finite() {
-            return Err(String::from("non-finite JSON float"));
+            return Err(json_serdes_error("non-finite JSON float", start, path));
         }
         Ok((
             json_serdes_value_variant("Float", vec![SpikeValue::Float(value)]),
@@ -17871,7 +18044,7 @@ fn json_serdes_parse_number(text: &str, index: usize) -> Result<(SpikeValue, usi
                     index,
                 )
             })
-            .map_err(|_| String::from("invalid JSON int"))
+            .map_err(|_| json_serdes_error("invalid JSON int", start, path))
     }
 }
 
@@ -18475,6 +18648,19 @@ fn unsupported(message: &str) -> Diagnostic {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn ed25519_signing_accepts_only_a_32_byte_seed() {
+        let seed = [7u8; 32];
+        assert_eq!(
+            spike_crypto_ed25519_signing_key(&seed),
+            Some(seed.as_slice())
+        );
+        assert!(spike_crypto_ed25519_signing_key(&[7u8; 31]).is_none());
+        assert!(spike_crypto_ed25519_signing_key(&[7u8; 33]).is_none());
+        assert!(spike_crypto_ed25519_signing_key(&[7u8; 64]).is_none());
+    }
 
     #[test]
     fn regex_replace_all_start_anchor_only_replaces_original_match() {

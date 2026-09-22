@@ -1,0 +1,90 @@
+{
+  "schema_version": "axiom.runtime_crypto_failure_catalog.v1",
+  "cases": [
+    {
+      "code": "allocation_failed",
+      "operation": "aead.seal",
+      "output": "none",
+      "secret_output": false,
+      "execution_status": "not_executed"
+    },
+    {
+      "code": "authentication_failed",
+      "operation": "aead.open",
+      "output": "none",
+      "secret_output": false,
+      "execution_status": "not_executed"
+    },
+    {
+      "code": "capability_denied",
+      "operation": "hash.digest",
+      "output": "none",
+      "secret_output": false,
+      "execution_status": "not_executed"
+    },
+    {
+      "code": "entropy_unavailable",
+      "operation": "entropy.fill",
+      "output": "discarded",
+      "secret_output": false,
+      "execution_status": "not_executed"
+    },
+    {
+      "code": "invalid_key_length",
+      "operation": "mac.compute",
+      "output": "none",
+      "secret_output": false,
+      "execution_status": "not_executed"
+    },
+    {
+      "code": "invalid_nonce_length",
+      "operation": "aead.seal",
+      "output": "none",
+      "secret_output": false,
+      "execution_status": "not_executed"
+    },
+    {
+      "code": "malformed_input",
+      "operation": "signature.verify",
+      "output": "false",
+      "secret_output": false,
+      "execution_status": "not_executed"
+    },
+    {
+      "code": "provider_failure",
+      "operation": "signature.sign",
+      "output": "none",
+      "secret_output": false,
+      "execution_status": "not_executed"
+    },
+    {
+      "code": "provider_unavailable",
+      "operation": "hash.digest",
+      "output": "none",
+      "secret_output": false,
+      "execution_status": "not_executed"
+    },
+    {
+      "code": "unsupported_algorithm",
+      "operation": "aead.seal",
+      "output": "none",
+      "secret_output": false,
+      "execution_status": "not_executed"
+    },
+    {
+      "code": "unsupported_target",
+      "operation": "entropy.fill",
+      "output": "none",
+      "secret_output": false,
+      "execution_status": "not_executed"
+    },
+    {
+      "code": "verification_failed",
+      "operation": "signature.verify",
+      "output": "false",
+      "secret_output": false,
+      "execution_status": "not_executed"
+    }
+  ],
+  "catalog_kind": "contract_cases_only_not_executed"
+}
