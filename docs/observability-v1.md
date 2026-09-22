@@ -76,3 +76,13 @@ Remaining issue blockers are exact:
 
 The value/collection and serialization dependencies remain tracked by #1425,
 #1426, #1450, and #1476. This slice is `Refs #1451`; it does not close #1451.
+
+### Bootstrap-compatible evidence adoption
+
+The v1 snapshot retains its original five-fixture registry so the base-pinned
+Fast Checks reader can validate this change before adoption. The newer checker
+separately requires `runtime-core-golden.json` and its evidence schema; omitting
+or corrupting that proof is an error. Full Lib Suite independently runs the
+PR-head checker, its controls, the Rust proof harness and runtime unit tests.
+This does not repin trusted Fast Checks scripts to the PR head or promote
+whole-language observability readiness.

@@ -24,7 +24,7 @@ class RuntimeObservabilityContractTests(unittest.TestCase):
     data_root = ROOT
 
     def copy_contract(self, destination: Path) -> None:
-        paths = [checker.SCHEMA, checker.EVIDENCE_SCHEMA, checker.SNAPSHOT]
+        paths = [checker.SCHEMA, checker.EVIDENCE_SCHEMA, checker.SNAPSHOT, checker.RUNTIME_FIXTURE]
         snapshot = checker.load(self.data_root, checker.SNAPSHOT)
         fixtures = snapshot.get("fixtures")
         checker.require(isinstance(fixtures, list), "fixtures must be an array")
@@ -64,6 +64,35 @@ class RuntimeObservabilityContractTests(unittest.TestCase):
                 "runtime_evidence": "checked_in_runtime_fixture",
             },
         )
+
+    def test_legacy_registry_remains_bootstrap_compatible(self) -> None:
+        snapshot = checker.load(self.data_root, checker.SNAPSHOT)
+        self.assertEqual(
+            [fixture["path"] for fixture in snapshot["fixtures"]],
+            ["golden-event.json", "redaction-negative.json", "unbounded-cardinality.json",
+             "sink-shutdown.json", "correlation.json"],
+        )
+
+    def test_separate_runtime_fixture_is_required(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self.copy_contract(root)
+            (root / checker.RUNTIME_FIXTURE).rename(root / "held-runtime-proof.json")
+            with self.assertRaises(checker.ContractError):
+                checker.validate_contract(root)
+
+    def test_runtime_fixture_cannot_reenter_legacy_registry(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self.copy_contract(root)
+            snapshot = checker.load(root, checker.SNAPSHOT)
+            snapshot["fixtures"].append({
+                "id": "observability-v1/runtime-core-golden", "kind": "runtime_positive",
+                "path": "runtime-core-golden.json", "asserts": ["runtime proof"],
+            })
+            (root / checker.SNAPSHOT).write_text(json.dumps(snapshot), encoding="utf-8")
+            with self.assertRaises(checker.ContractError):
+                checker.validate_contract(root)
 
     def test_external_runtime_proof_reports_executed_evidence(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

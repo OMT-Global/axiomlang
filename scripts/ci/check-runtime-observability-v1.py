@@ -20,6 +20,7 @@ SCHEMA = Path("stage1/compiler-contracts/schemas/axiom.runtime_observability.v1.
 EVIDENCE_SCHEMA = Path("stage1/compiler-contracts/schemas/axiom.runtime_observability_evidence.v1.schema.json")
 SNAPSHOT = Path("stage1/compiler-contracts/snapshots/runtime-observability-v1.json")
 FIXTURES = Path("stage1/compiler-contracts/fixtures/observability-v1")
+RUNTIME_FIXTURE = FIXTURES / "runtime-core-golden.json"
 MAX_SOURCE_BYTES = 1024 * 1024
 MAX_FIXTURE_FILES = 32
 EVIDENCE_SCHEMA_VERSION = "axiom.runtime_observability.evidence.v1"
@@ -499,13 +500,17 @@ def validate_contract(root: Path, runtime_evidence: Path | None = None) -> dict[
             snapshot,
             evidence_schema,
         )
-    require("runtime-core-golden" in seen, "executable runtime proof is missing")
+    # The v1 fixture registry stays readable by the base-pinned bootstrap checker.
+    # Runtime evidence is additive, but mandatory for this newer reader and the
+    # independently executed PR-head proof harness.
+    require("runtime-core-golden" not in seen, "runtime proof must be separate from legacy fixtures")
+    validate_runtime_proof(load(root, RUNTIME_FIXTURE), snapshot, evidence_schema)
     if runtime_evidence is not None:
         validate_runtime_proof(load_external(runtime_evidence), snapshot, evidence_schema)
     return {
         "schema": snapshot["schema_version"],
         "ok": True,
-        "fixtures": len(seen),
+        "fixtures": len(seen) + 1,
         "runtime_evidence": (
             "executed_rust_runtime"
             if runtime_evidence is not None
