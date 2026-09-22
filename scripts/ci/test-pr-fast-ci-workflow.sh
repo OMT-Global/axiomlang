@@ -328,6 +328,13 @@ if (( makefile_route_count < 2 )); then
   exit 1
 fi
 
+native_backend_checker_count=$(grep -cF 'python3 "$script_repo_root/scripts/ci/check-compiler-native-backend-runtime-v1.py" --root "$repo_root"' "$fast_checks_script" || true)
+native_backend_self_test_count=$(grep -cF 'python3 "$script_repo_root/scripts/ci/test-check-compiler-native-backend-runtime-v1.py"' "$fast_checks_script" || true)
+if [[ "$native_backend_checker_count" != 1 || "$native_backend_self_test_count" != 1 ]]; then
+  echo "run-fast-checks must execute the trusted native-backend contract checker exactly once against explicit PR-head data and retain its self-test" >&2
+  exit 1
+fi
+
 # Every checker self-test must be wired into the fast lane so it cannot rot
 # silently outside CI (#1364, #1369).
 orphaned_self_tests=0

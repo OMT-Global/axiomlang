@@ -789,8 +789,8 @@
       "governingIssue": 1474,
       "blockerIssues": [1474],
       "dependencies": [1472, 1478, 1479, 1455, 1453],
-      "evidence": ["docs/axiom-compiler-source-layout.md", "stage1/crates/axiomc/src/cranelift_backend.rs"],
-      "validatingCommand": "make stage1-mir-backend-boundary && make stage1-direct-native-runtime-abi-test",
+      "evidence": ["docs/axiom-compiler-source-layout.md", "docs/compiler-native-backend-runtime-v1.md", "stage1/compiler-contracts/snapshots/compiler-native-backend-runtime-v1.json", "stage1/crates/axiomc/src/cranelift_backend.rs"],
+      "validatingCommand": "make stage1-compiler-native-backend-runtime-v1-test && make stage1-compiler-native-backend-runtime-v1 && make stage1-mir-backend-boundary && make stage1-direct-native-runtime-abi-test",
       "rustCaptureRisk": "critical",
       "agentInspectionImpact": "Expose native provider/target selection, runtime lowering, artifacts, parity, and Rust-disable state."
     },
