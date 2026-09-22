@@ -101,10 +101,12 @@ print owned
 
 #[test]
 fn const_match_break_preserves_move() {
-    assert_hir(r#"let owned: string = "kept"
+    assert_hir(r#"const READY: int = 1
+let owned: string = "kept"
+let status: int = 1
 while true {
-match 1 {
-1 {
+match status {
+READY {
 let taken: string = owned
 break
 }
@@ -157,10 +159,12 @@ break
 
 #[test]
 fn const_match_continue_preserves_move() {
-    assert_hir(r#"let owned: string = "kept"
+    assert_hir(r#"const READY: int = 1
+let owned: string = "kept"
+let status: int = 1
 while true {
-match 1 {
-1 {
+match status {
+READY {
 let taken: string = owned
 continue
 }
@@ -508,6 +512,8 @@ print outer
     for entry in ["src/main.ax", "src/main_test.ax"] {
         std::fs::write(project.join(entry), source).expect("native source");
     }
+    // Replace the template golden so `test` compares against the loop fixture output.
+    std::fs::write(project.join("src/main_test.stdout"), "7\n2\n").expect("native golden");
     for command in ["check", "build", "run", "test"] {
         let (output, payload) = public_command(&project, command);
         assert!(output.status.success(), "{command}: {payload}");
