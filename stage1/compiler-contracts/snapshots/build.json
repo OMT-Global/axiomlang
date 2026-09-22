@@ -15,7 +15,7 @@
         "source_hash": "<hash>"
       }
     ],
-    "target": null,
+    "target": "<native-target>",
     "version": 2
   },
   "cache_misses": 1,
@@ -41,7 +41,7 @@
     "lockfile": "<project>/axiom.lock",
     "lockfile_hash": "<hash>",
     "source_hash": "<hash>",
-    "target": null
+    "target": "<native-target>"
   },
   "offline": false,
   "ok": true,
@@ -62,7 +62,7 @@
             "source_hash": "<hash>"
           }
         ],
-        "target": null,
+        "target": "<native-target>",
         "version": 2
       },
       "cache_status": "miss",
@@ -86,15 +86,15 @@
         "lockfile": "<project>/axiom.lock",
         "lockfile_hash": "<hash>",
         "source_hash": "<hash>",
-        "target": null
+        "target": "<native-target>"
       },
       "package_root": "<project>",
       "statement_count": 1,
-      "target": null
+      "target": "<native-target>"
     }
   ],
   "project": "<project>",
   "schema_version": "axiom.stage1.v1",
   "statement_count": 1,
-  "target": null
+  "target": "<native-target>"
 }

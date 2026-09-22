@@ -1,0 +1,206 @@
+[
+  {
+    "lane": "basic",
+    "example": "hello",
+    "build": "direct-native"
+  },
+  {
+    "lane": "basic",
+    "example": "arrays",
+    "build": "bounded-static"
+  },
+  {
+    "lane": "basic",
+    "example": "slices",
+    "build": "bounded-static"
+  },
+  {
+    "lane": "basic",
+    "example": "borrowed_shapes",
+    "build": "bounded-static"
+  },
+  {
+    "lane": "basic",
+    "example": "tuples",
+    "build": "bounded-static"
+  },
+  {
+    "lane": "basic",
+    "example": "maps",
+    "build": "bounded-static"
+  },
+  {
+    "lane": "basic",
+    "example": "structs",
+    "build": "bounded-static"
+  },
+  {
+    "lane": "basic",
+    "example": "enums",
+    "build": "bounded-static"
+  },
+  {
+    "lane": "basic",
+    "example": "outcomes",
+    "build": "bounded-static"
+  },
+  {
+    "lane": "basic",
+    "example": "generic_aggregates",
+    "build": "bounded-static"
+  },
+  {
+    "lane": "basic",
+    "example": "modules",
+    "build": "direct-native",
+    "test": "direct-native"
+  },
+  {
+    "lane": "basic",
+    "example": "packages",
+    "build": "direct-native",
+    "test": "direct-native"
+  },
+  {
+    "lane": "basic",
+    "example": "workspace",
+    "build": "direct-native",
+    "test": "direct-native"
+  },
+  {
+    "lane": "basic",
+    "example": "capabilities",
+    "build": "blocked",
+    "test": "blocked",
+    "expected_blocked_cases": [
+      "src/main_test"
+    ]
+  },
+  {
+    "lane": "basic",
+    "example": "workspace_only",
+    "build": "direct-native",
+    "package": "workspace-app",
+    "test": "direct-native"
+  },
+  {
+    "lane": "stdlib",
+    "example": "stdlib_time",
+    "build": "direct-native"
+  },
+  {
+    "lane": "stdlib",
+    "example": "stdlib_testing",
+    "build": "direct-native",
+    "test": "blocked",
+    "test_args": [
+      "--include-benchmarks"
+    ],
+    "expected_success_cases": [
+      "src/json_bench",
+      "src/json_snapshot_test"
+    ],
+    "expected_blocked_cases": [
+      "src/collections_slices_property",
+      "src/encoding_url_property",
+      "src/json_object_property",
+      "src/json_roundtrip_property",
+      "src/json_schema_property",
+      "src/json_table_test",
+      "src/log_event_property",
+      "src/outcome_helpers_property",
+      "src/regex_match_property",
+      "src/regex_replace_property",
+      "src/string_builder_property",
+      "src/sync_state_property",
+      "src/testing_helpers_property"
+    ]
+  },
+  {
+    "lane": "stdlib",
+    "example": "stdlib_env",
+    "build": "direct-native",
+    "test": "direct-native",
+    "runtime_env": {
+      "name": "__AXIOM_STAGE1_MISSING__",
+      "values": [
+        "axiom-smoke-first",
+        "axiom-smoke-second"
+      ]
+    }
+  },
+  {
+    "lane": "stdlib",
+    "example": "stdlib_json",
+    "build": "bounded-static"
+  },
+  {
+    "lane": "stdlib",
+    "example": "stdlib_regex",
+    "build": "bounded-static",
+    "test": "bounded-static"
+  },
+  {
+    "lane": "stdlib",
+    "example": "stdlib_collections",
+    "build": "bounded-static",
+    "test": "bounded-static"
+  },
+  {
+    "lane": "stdlib",
+    "example": "stdlib_string_builder",
+    "build": "bounded-static",
+    "test": "bounded-static"
+  },
+  {
+    "lane": "stdlib",
+    "example": "stdlib_sync",
+    "build": "bounded-static",
+    "test": "bounded-static"
+  },
+  {
+    "lane": "stdlib",
+    "example": "stdlib_fs",
+    "build": "blocked"
+  },
+  {
+    "lane": "stdlib",
+    "example": "stdlib_net",
+    "build": "blocked"
+  },
+  {
+    "lane": "stdlib",
+    "example": "stdlib_process",
+    "build": "blocked"
+  },
+  {
+    "lane": "stdlib",
+    "example": "stdlib_crypto_hash",
+    "build": "blocked"
+  },
+  {
+    "lane": "stdlib",
+    "example": "stdlib_io",
+    "build": "blocked"
+  },
+  {
+    "lane": "stdlib",
+    "example": "stdlib_log",
+    "build": "blocked",
+    "test": "bounded-static"
+  },
+  {
+    "lane": "stdlib",
+    "example": "stdlib_async",
+    "build": "blocked",
+    "test": "blocked",
+    "expected_blocked_cases": [
+      "src/main_test"
+    ]
+  },
+  {
+    "lane": "stdlib",
+    "example": "stdlib_http",
+    "build": "blocked"
+  }
+]

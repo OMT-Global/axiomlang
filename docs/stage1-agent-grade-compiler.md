@@ -1,6 +1,6 @@
 # Stage1 Agent-Grade Compiler Plan
 
-<!-- capability-ledger:v1 commands=31 stdlib_modules=34 stdlib_functions=305 capabilities=9 backend=cranelift -->
+<!-- capability-ledger:v1 commands=31 stdlib_modules=34 stdlib_functions=307 capabilities=9 backend=cranelift -->
 
 This doc is the implementation spec for turning `stage1/` into Axiom's first
 workable compiler for agent use. `docs/stage1.md` stays as the shorter status
@@ -188,7 +188,7 @@ Acceptance:
 
 Goal: provide the minimum runtime and stdlib needed for agents, workers, and small services.
 
-Status: the compiler owns 34 stdlib modules with 300 exported functions, and
+Status: the compiler owns 34 stdlib modules with 307 exported functions, and
 all 9 manifest capability kinds are compiler-recognized static surfaces. This
 is a partial service-grade surface rather than production closure: HTTP is
 loopback/bounded, filesystem and network paths are policy-constrained, async
