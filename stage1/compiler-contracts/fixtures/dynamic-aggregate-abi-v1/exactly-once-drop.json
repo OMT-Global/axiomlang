@@ -1,0 +1,20 @@
+{
+  "schema_version": "axiom.dynamic_aggregate_abi.fixture.v1",
+  "id": "dynamic-aggregate-abi-v1/exactly-once-drop",
+  "kind": "positive",
+  "scenario": "clone obligations remain independent and early exit discharges each exactly once in reverse creation order",
+  "shape": ["string", "struct"],
+  "runtime_origin": true,
+  "function_boundaries": 1,
+  "evidence": {
+    "mode": "lifecycle_model",
+    "events": [
+      {"op": "create", "value": "original"},
+      {"op": "clone", "source": "original", "target": "copy"},
+      {"op": "use", "value": "original"},
+      {"op": "use", "value": "copy"},
+      {"op": "early_exit"}
+    ],
+    "expected": {"outcome": "accepted", "diagnostic": "", "drop_order": ["copy", "original"]}
+  }
+}

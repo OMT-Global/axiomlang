@@ -115,6 +115,8 @@ python3 "$script_repo_root/scripts/ci/test-check-syntax-migration-v1.py"
 python3 "$script_repo_root/scripts/ci/check-syntax-migration-v1.py" --root "$repo_root"
 python3 "$script_repo_root/scripts/ci/test-check-compiler-native-backend-runtime-v1.py"
 python3 "$script_repo_root/scripts/ci/check-compiler-native-backend-runtime-v1.py" --root "$repo_root"
+python3 "$script_repo_root/scripts/ci/test-check-dynamic-aggregate-abi-v1.py"
+python3 "$script_repo_root/scripts/ci/check-dynamic-aggregate-abi-v1.py" --root "$repo_root"
 cargo test --manifest-path "$repo_root/stage1/Cargo.toml" -p axiomc --test syntax_migration_v1
 bash "$script_repo_root/scripts/ci/test-check-command-lsp-boundary.sh"
 bash "$script_repo_root/scripts/ci/test-check-hir-boundary.sh"

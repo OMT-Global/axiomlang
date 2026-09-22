@@ -1,0 +1,21 @@
+{
+  "schema_version": "axiom.dynamic_aggregate_abi.fixture.v1",
+  "id": "dynamic-aggregate-abi-v1/tuple-layout-inspection",
+  "kind": "positive",
+  "scenario": "tuple index order deterministically produces aligned element offsets",
+  "shape": ["tuple"],
+  "runtime_origin": false,
+  "function_boundaries": 0,
+  "evidence": {
+    "mode": "layout_model",
+    "case": {
+      "layout_id": "scalar-tuple-v1",
+      "target": {"abi_profile": "sysv64-v1", "byte_order": "little", "pointer_width_bits": 64, "target_triple": "x86_64-unknown-linux-gnu"},
+      "type_model": {"kind": "tuple", "elements": [{"kind": "scalar", "name": "u8"}, {"kind": "scalar", "name": "u64"}]}
+    },
+    "expected": {
+      "outcome": "accepted",
+      "record": {"abi_profile": "sysv64-v1", "alignment_bytes": 8, "argument_passing": "direct_value", "byte_order": "little", "discriminant_offset_bytes": null, "discriminant_width_bytes": null, "field_offsets_bytes": [0, 8], "layout_id": "scalar-tuple-v1", "payload_offset_bytes": null, "pointer_width_bits": 64, "return_passing": "direct_value", "size_bytes": 16, "target_triple": "x86_64-unknown-linux-gnu"}
+    }
+  }
+}

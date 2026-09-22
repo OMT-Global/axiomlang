@@ -1,0 +1,21 @@
+{
+  "schema_version": "axiom.dynamic_aggregate_abi.fixture.v1",
+  "id": "dynamic-aggregate-abi-v1/clone-independence",
+  "kind": "positive",
+  "scenario": "the target-neutral ownership model keeps an owner and its clone independently live",
+  "shape": ["string", "struct"],
+  "runtime_origin": false,
+  "function_boundaries": 1,
+  "evidence": {
+    "mode": "lifecycle_model",
+    "events": [
+      {"op": "create", "value": "original"},
+      {"op": "clone", "source": "original", "target": "copy"},
+      {"op": "use", "value": "original"},
+      {"op": "use", "value": "copy"},
+      {"op": "drop", "value": "copy"},
+      {"op": "drop", "value": "original"}
+    ],
+    "expected": {"outcome": "accepted", "diagnostic": "", "drop_order": ["copy", "original"]}
+  }
+}

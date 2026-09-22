@@ -375,3 +375,22 @@ done
 grep -qF 'export AXIOM_CHECKOUT_PATH="$repo_root"' "$fast_checks_script"
 grep -qF 'test-fast-checkout-isolation.py' "$fast_checks_script"
 grep -qF 'CARGO_TARGET_DIR: ${{ runner.temp }}/axiom-fast-${{ github.run_id }}-${{ github.run_attempt }}' "$workflow"
+
+# The trusted base checker may only treat PR head as data, never run its evidence.
+abi_checker_count=$(grep -cxF 'python3 "$script_repo_root/scripts/ci/check-dynamic-aggregate-abi-v1.py" --root "$repo_root"' "$fast_checks_script" || true)
+abi_self_test_count=$(grep -cxF 'python3 "$script_repo_root/scripts/ci/test-check-dynamic-aggregate-abi-v1.py"' "$fast_checks_script" || true)
+abi_native_test_count=$(printf '%s\n' "$full_lib_suite_section" | grep -cF 'cargo test --manifest-path stage1/Cargo.toml -p axiomc --test schema_metadata dynamic_aggregate_abi_schema_requires_deterministic_layout_metadata --locked -- --test-threads=1' || true)
+if [[ "$abi_checker_count" != 1 || "$abi_self_test_count" != 1 || "$abi_native_test_count" != 1 ]]; then
+  echo "Dynamic Aggregate ABI requires exactly one trusted root-data checker, self-test and PR-head metadata test" >&2
+  exit 1
+fi
+if grep -F 'check-dynamic-aggregate-abi-v1.py' "$fast_checks_script" | grep -qF -- '--execute'; then
+  echo "Dynamic Aggregate ABI trusted fast lane cannot execute PR-head evidence" >&2
+  exit 1
+fi
+
+abi_execution_count=$(printf '%s\n' "$full_lib_suite_section" | grep -cF 'python3 scripts/ci/check-dynamic-aggregate-abi-v1.py --root "$GITHUB_WORKSPACE" --execute --cargo-target-dir "$GITHUB_WORKSPACE/stage1/target" --json' || true)
+if [[ "$abi_execution_count" != 1 ]]; then
+  echo "Dynamic Aggregate ABI executable fixtures must run exactly once in the PR-head Full Lib Suite" >&2
+  exit 1
+fi

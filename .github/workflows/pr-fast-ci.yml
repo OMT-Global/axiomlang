@@ -261,6 +261,13 @@ jobs:
         # New fixtures must run on the PR head before trusted main adopts their checker.
         run: RUST_MIN_STACK=8388608 cargo test --manifest-path stage1/Cargo.toml -p axiomc --test syntax_migration_v1 --locked -- --test-threads=1
 
+      - name: Run Dynamic Aggregate ABI metadata
+        run: RUST_MIN_STACK=8388608 cargo test --manifest-path stage1/Cargo.toml -p axiomc --test schema_metadata dynamic_aggregate_abi_schema_requires_deterministic_layout_metadata --locked -- --test-threads=1
+
+      - name: Execute Dynamic Aggregate ABI fixtures
+        # PR-head execution belongs to Full Lib Suite, never the trusted base data lane.
+        run: python3 scripts/ci/check-dynamic-aggregate-abi-v1.py --root "$GITHUB_WORKSPACE" --execute --cargo-target-dir "$GITHUB_WORKSPACE/stage1/target" --json
+
       - name: Run native signed-add overflow matrix
         # #1659: this separate integration target is not covered by --lib or
         # cranelift_backend. Explicit native mode requires cc rather than skipping.

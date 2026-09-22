@@ -84,9 +84,9 @@ historical main commit `b3149c5e9bf10a4a244b0d89c6e6cd804b47ae3f`, blob
 `e5ad22e48e4504d62de8ea343e58fd4c1e262cb4`. Its metadata freezes the SHA-256,
 `0.4.0` version, and 68-surface count; it is not release history.
 
-The current source contract is version `0.12.0` with 76 surfaces. Its changes
+The current source contract is version `0.13.0` with 77 surfaces. Its changes
 from the byte-frozen 52-surface `0.1.0` accepted baseline include the five
-Package Trust v1 schemas, thirteen additive base-contract schemas (Compiler Native Backend Runtime v1, Compiler Syntax Migration v1, Iteration Control v1, Filesystem v1,
+Package Trust v1 schemas, fourteen additive base-contract schemas (Dynamic Aggregate ABI v1, Compiler Native Backend Runtime v1, Compiler Syntax Migration v1, Iteration Control v1, Filesystem v1,
 Provider ABI, Structured Concurrency v1, runtime crypto provider policy, HTTP
 client, runtime observability, Semantic MIR, runtime lifecycle, target support,
 and persistent LSP), two quality
@@ -209,3 +209,5 @@ size, depth, item, and number limits remain enforced. This is a structured-error
 slice, not completion of the broader Serialization v1 acceptance matrix.
 
 The before-native-backend-runtime-v1 snapshot freezes the prior 0.11.0/75-surface contract. The 0.12.0 transition adds only the native-backend runtime schema; previous iteration and syntax ratchets remain checked against frozen historical snapshots.
+
+The before-dynamic-aggregate-abi-v1 snapshot freezes the 0.12.0/76-surface contract. The 0.13.0 transition adds only Dynamic Aggregate ABI v1; prior iteration, syntax and native-backend ratchets remain bound to frozen historical snapshots.
