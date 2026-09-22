@@ -394,3 +394,10 @@ if [[ "$abi_execution_count" != 1 ]]; then
   echo "Dynamic Aggregate ABI executable fixtures must run exactly once in the PR-head Full Lib Suite" >&2
   exit 1
 fi
+
+stdlib_transition_fast=$(grep -cxF 'python3 "$script_repo_root/scripts/ci/test-check-stdlib-catalog-transition.py"' "$fast_checks_script" || true)
+stdlib_transition_head=$(printf '%s\n' "$full_lib_suite_section" | grep -cxF '        run: python3 scripts/ci/test-check-stdlib-catalog-transition.py' || true)
+if [[ "$stdlib_transition_fast" != 1 || "$stdlib_transition_head" != 1 ]]; then
+  echo "Stdlib catalog transition controls require trusted-main and exact PR-head execution" >&2
+  exit 1
+fi
