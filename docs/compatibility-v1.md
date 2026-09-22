@@ -84,7 +84,7 @@ historical main commit `b3149c5e9bf10a4a244b0d89c6e6cd804b47ae3f`, blob
 `e5ad22e48e4504d62de8ea343e58fd4c1e262cb4`. Its metadata freezes the SHA-256,
 `0.4.0` version, and 68-surface count; it is not release history.
 
-The current source contract is version `0.9.0` with 72 surfaces. Its changes
+The current source contract is version `0.9.0` with 73 surfaces. Its changes
 from the byte-frozen 52-surface `0.1.0` accepted baseline include the five
 Package Trust v1 schemas, ten additive base-contract schemas (Filesystem v1,
 Provider ABI, Structured Concurrency v1, runtime crypto provider policy, HTTP

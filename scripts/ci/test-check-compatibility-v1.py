@@ -232,6 +232,9 @@ def main() -> int:
         "axiom://schema/axiom-quality-policy-v1",
         "axiom://schema/axiom-quality-report-v1",
     }
+    new_parser_fuzz_schema_ids = {
+        "axiom://schema/axiom-stage1-parser-fuzz-v1",
+    }
     new_package_resolver_ids = {
         "axiom://schema/axiom.compiler.package_graph.runtime.v1",
         "axiom://schema/axiom-lockfile-v2",
@@ -240,6 +243,7 @@ def main() -> int:
     new_public_schema_ids = (
         new_package_trust_ids
         | new_main_schema_ids
+        | new_parser_fuzz_schema_ids
         | new_quality_schema_ids
         | new_target_support_schema_ids
     )
@@ -247,6 +251,7 @@ def main() -> int:
         new_package_trust_ids
         | new_main_schema_ids
         | new_package_resolver_ids
+        | new_parser_fuzz_schema_ids
         | new_target_support_schema_ids
     )
     modified_schema_ids = {
@@ -255,7 +260,7 @@ def main() -> int:
         "axiom://schema/axiom.stage1.v1",
     }
     assert len(baseline_ids) == 52, "accepted baseline must remain the frozen 52-surface ratchet"
-    assert len(current_ids) == 72, "current contract must include package trust, quality, Filesystem v1, Provider ABI, Structured Concurrency v1, runtime crypto policy, HTTP client, runtime observability, Semantic MIR, runtime lifecycle, target support, persistent LSP, and package resolver schemas"
+    assert len(current_ids) == 73, "current contract must include package trust, quality, parser fuzz, Filesystem v1, Provider ABI, Structured Concurrency v1, runtime crypto policy, HTTP client, runtime observability, Semantic MIR, runtime lifecycle, target support, persistent LSP, and package resolver schemas"
     assert set(baseline_ids) < set(current_ids)
     assert set(current_ids) - set(baseline_ids) == new_public_schema_ids | new_package_resolver_ids
     assert current_payload["contract_version"] == "0.9.0"
@@ -312,7 +317,7 @@ def main() -> int:
     assert canonical.returncode == 0, canonical.stdout + canonical.stderr
     canonical_report = json.loads(canonical.stdout)
     assert canonical_report["summary"] == {
-        "additive": 20,
+        "additive": 21,
         "breaking": 10,
         "compatible": 0,
         "deprecated": 0,

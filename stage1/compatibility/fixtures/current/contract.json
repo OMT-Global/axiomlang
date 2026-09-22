@@ -95,7 +95,7 @@
           "path": "stage1/compiler-contracts/snapshots/capability-ledger.json",
           "role": "cli_top_level_parity",
           "selector": "commands[*].name",
-          "sha256": "034fc3966fafe3f7a96240c17fe89209745481903f27ebba3d14a2492cac4832"
+          "sha256": "ff38016d1542039bd7143a640fc102252fe7b3bd7f3f7d036686e461c6d95179"
         },
         {
           "path": "stage1/crates/axiomc/src/main.rs",
@@ -738,6 +738,21 @@
           "role": "published_schema",
           "selector": "$id,properties.schema_version.const",
           "sha256": "520148cc501f65d0be2c9d588d8aaec52f7a8e01465edfcd545fb0a22355a471"
+        }
+      ],
+      "stability": "experimental",
+      "version": "0.1.0"
+    },
+    {
+      "id": "axiom://schema/axiom-stage1-parser-fuzz-v1",
+      "kind": "schema",
+      "signature": "published schema id=https://axiom.omt.global/schemas/axiom-stage1-parser-fuzz-v1.schema.json; semantic_digest=98c8168ff0485458d261a231080a6863f06be10ae89e387eac6c5ea38902e73f; envelope=axiom.stage1.parser_fuzz.v1",
+      "sources": [
+        {
+          "path": "stage1/schemas/axiom-stage1-parser-fuzz-v1.schema.json",
+          "role": "published_schema",
+          "selector": "$id,properties.schema_version.const",
+          "sha256": "b1ca712357d46a145f665ea6ea769102285014811dcfcc0154b5432b9e22d445"
         }
       ],
       "stability": "experimental",
