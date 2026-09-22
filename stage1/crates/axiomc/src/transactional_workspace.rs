@@ -23,8 +23,6 @@ use std::os::fd::{AsRawFd, FromRawFd};
 use std::os::unix::ffi::OsStrExt;
 #[cfg(unix)]
 use std::os::unix::fs::OpenOptionsExt;
-#[cfg(unix)]
-use std::sync::atomic::{AtomicU64, Ordering};
 
 const STATE_FILE: &str = ".axiom-transaction.json";
 const AUDIT_SCHEMA: &str = "axiom.transactional_workspace.v0";
