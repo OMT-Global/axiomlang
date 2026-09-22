@@ -347,9 +347,9 @@
       "status": "partial",
       "governingIssue": 1451,
       "blockerIssues": [1451],
-      "dependencies": [1425, 1426, 1445, 1450],
-      "evidence": ["stage1/examples/stdlib_log/axiom.toml", "docs/stage1-stdlib-status.md"],
-      "validatingCommand": "make stage1-stdlib-test",
+      "dependencies": [1425, 1426, 1444, 1445, 1449, 1450, 1452, 1476],
+      "evidence": ["stage1/crates/axiomc/src/runtime_observability.rs", "stage1/compiler-contracts/fixtures/observability-v1/runtime-core-golden.json", "stage1/compiler-contracts/schemas/axiom.runtime_observability_evidence.v1.schema.json", "docs/observability-v1.md"],
+      "validatingCommand": "make stage1-runtime-observability-v1",
       "rustCaptureRisk": "medium",
       "agentInspectionImpact": "Link effects, trace context, metrics, redaction, sinks, and evidence."
     },

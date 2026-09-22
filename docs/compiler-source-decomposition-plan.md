@@ -183,7 +183,7 @@ value/control core is sub-partitioned by value shape.
 The build-purity slice then isolated the bounded, effect-free static-output
 classifier in `stage1/crates/axiomc/src/cranelift_backend/static_output_purity.rs`
 and the backend-neutral build lowering evidence contract in
-`stage1/crates/axiomc/src/project/build_contract.rs`. Unsupported or effectful
+`stage1/crates/axiomc/src/build_contract.rs`. Unsupported or effectful
 programs now fail closed instead of using compiler-time host state to create a
 frozen artifact.
 
@@ -255,7 +255,7 @@ Snapshot updated 2026-07-29 after the Package Resolver v1 security review:
 | ---: | --- | ---: | --- | --- |
 | 1 | `stage1/crates/axiomc/src/cranelift_backend.rs` | 20,076 | `compiler.backend.native` | Runtime-intrinsic implementations live in `.../cranelift_backend/intrinsics.rs`, the compile-time evaluator in `.../cranelift_backend/evaluator.rs`, host-capability lowering in the `host_*` siblings, and static-output eligibility in `.../cranelift_backend/static_output_purity.rs`; the remaining work is sub-partitioning the mutually-recursive value/control core by value shape. |
 
-| 2 | `stage1/crates/axiomc/src/project.rs` | 13,493 | `compiler.package_graph`, `compiler.commands`, `compiler.evidence` | Build lowering evidence now lives in `stage1/crates/axiomc/src/project/build_contract.rs`; Documentation v1 now derives public symbols here; Package Resolver v1 now consumes authenticated registry manifests and sources from a bounded in-memory archive view. Continue splitting manifest/workspace loading, command orchestration, provenance/debug records, artifact planning, and the future `compiler.docs` semantic projection along package ownership. |
+| 2 | `stage1/crates/axiomc/src/project.rs` | 13,493 | `compiler.package_graph`, `compiler.commands`, `compiler.evidence` | Build lowering evidence now lives in `stage1/crates/axiomc/src/build_contract.rs`; Documentation v1 now derives public symbols here; Package Resolver v1 now consumes authenticated registry manifests and sources from a bounded in-memory archive view. Continue splitting manifest/workspace loading, command orchestration, provenance/debug records, artifact planning, and the future `compiler.docs` semantic projection along package ownership. |
 | 3 | `stage1/crates/axiomc/src/main.rs` | 11,934 | `compiler.commands` | Formatter reporting and edit planning now live in `stage1/crates/axiomc/src/formatter.rs`; Documentation v1 owns deterministic rendering, HTML/Markdown link validation, search, and doctest orchestration here; Package Trust v1 adds package verification and signed-registry command dispatch, while Package Resolver v1 adds bounded fetch/update/vendor parsing, structured failure evidence, and dispatch. Continue moving command parsing, JSON envelope construction, check/build/run/test/doc/trace orchestration, and package-management dispatch behind package-owned APIs. |
 | 4 | `stage1/crates/axiomc/src/codegen.rs` | 7,919 | `compiler.backend.generated_rust`, `compiler.backend.contracts` | Isolate generated-Rust compatibility emission from backend target selection and unsupported-feature contracts. |
 | 5 | `stage1/crates/axiomc/src/syntax.rs` | 6,370 | `compiler.syntax`, `compiler.diagnostics` | Split lexer/parser, parse recovery, source spans, macros, and syntax diagnostics behind the syntax boundary. |
@@ -299,7 +299,7 @@ matching ceiling in this table in the same PR.
 | `stage1/crates/axiomc/src/hir.rs` | 5842 |
 | `stage1/crates/axiomc/src/hir/loop_ownership.rs` | 181 |
 | `stage1/crates/axiomc/src/project.rs` | 13619 |
-| `stage1/crates/axiomc/src/project/build_contract.rs` | 118 |
+| `stage1/crates/axiomc/src/build_contract.rs` | 118 |
 | `stage1/crates/axiomc/src/main.rs` | 11934 |
 | `stage1/crates/axiomc/src/formatter.rs` | 191 |
 | `stage1/crates/axiomc/src/formatter_tests.rs` | 122 |
@@ -528,3 +528,5 @@ compression, checker changes, or global ceiling increase is used.
 ## Loop-edge ownership residual recovery
 
 `hir/loop_ownership.rs` owns nearest-loop break/continue snapshots, condition-aware backedge validation, and conservative exit joins. Match-edge cleanup releases block locals and match temporary acquisitions separately; payload aliases do not acquire a second borrow. Function return states never enter loop continuation. This fresh current-main recovery preserves assignment semantics and the landed native/backend/defer behavior. The extraction lowers `hir.rs`, `hir/matches.rs`, and both top-seven ceilings to the measured bounds above.
+
+Runtime Observability v1 registers one module without raising the lib.rs facade ceiling: the existing 118-line build_contract module moved byte-identically to its conventional source path, eliminating its former path attribute. Its 118-line ceiling and the facade 38-line ceiling are unchanged.

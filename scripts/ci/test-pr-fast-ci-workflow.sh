@@ -422,3 +422,16 @@ if [[ "$http_check_count" != 1 || "$http_selftest_count" != 1 || "$http_head_che
   echo "HTTP server requires exactly one trusted explicit-root check/selftest and PR-head check/selftest/native schema metadata test" >&2
   exit 1
 fi
+
+# Observability executes on initial head and later through trusted-main harnesses.
+obs_trusted_check=$(grep -cF 'python3 "$script_repo_root/scripts/ci/check-runtime-observability-v1.py" --root "$repo_root" --json' "$fast_checks_script" || true)
+obs_trusted_selftest=$(grep -cF 'python3 "$script_repo_root/scripts/ci/test-check-runtime-observability-v1.py"' "$fast_checks_script" || true)
+obs_trusted_harness=$(grep -cF 'bash "$script_repo_root/scripts/ci/run-runtime-observability-proof.sh" --root "$repo_root"' "$fast_checks_script" || true)
+obs_head_check=$(printf '%s\n' "$full_lib_suite_section" | grep -cF 'python3 scripts/ci/check-runtime-observability-v1.py --root "$GITHUB_WORKSPACE" --json' || true)
+obs_head_selftest=$(printf '%s\n' "$full_lib_suite_section" | grep -cF 'python3 scripts/ci/test-check-runtime-observability-v1.py' || true)
+obs_head_harness=$(printf '%s\n' "$full_lib_suite_section" | grep -cF 'bash scripts/ci/run-runtime-observability-proof.sh --root "$GITHUB_WORKSPACE"' || true)
+obs_head_unit=$(printf '%s\n' "$full_lib_suite_section" | grep -cF 'cargo test --manifest-path stage1/Cargo.toml -p axiomc --locked --lib runtime_observability::tests -- --test-threads=1' || true)
+if [[ "$obs_trusted_check" != 1 || "$obs_trusted_selftest" != 1 || "$obs_trusted_harness" != 1 || "$obs_head_check" != 1 || "$obs_head_selftest" != 1 || "$obs_head_harness" != 1 || "$obs_head_unit" != 1 ]]; then
+  echo "Runtime observability requires exactly one trusted check/selftest/harness and PR-head check/selftest/harness/unit-test invocation" >&2
+  exit 1
+fi

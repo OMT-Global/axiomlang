@@ -261,6 +261,17 @@ jobs:
         # New fixtures must run on the PR head before trusted main adopts their checker.
         run: RUST_MIN_STACK=8388608 cargo test --manifest-path stage1/Cargo.toml -p axiomc --test syntax_migration_v1 --locked -- --test-threads=1
 
+      - name: Run runtime observability controls
+        run: |
+          python3 scripts/ci/test-check-runtime-observability-v1.py
+          python3 scripts/ci/check-runtime-observability-v1.py --root "$GITHUB_WORKSPACE" --json
+
+      - name: Execute runtime observability proof
+        run: bash scripts/ci/run-runtime-observability-proof.sh --root "$GITHUB_WORKSPACE"
+
+      - name: Run runtime observability unit tests
+        run: RUST_MIN_STACK=8388608 cargo test --manifest-path stage1/Cargo.toml -p axiomc --locked --lib runtime_observability::tests -- --test-threads=1
+
       - name: Run HTTP server contract controls
         run: |
           python3 scripts/ci/test-check-http-server-v1.py
