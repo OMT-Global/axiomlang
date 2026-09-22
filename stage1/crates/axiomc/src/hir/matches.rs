@@ -272,18 +272,14 @@ pub(super) fn lower_match_stmt(
                 },
             );
         }
-        let (body, after, returns) = if arm.ignore_payloads && arm.bindings.is_empty() {
-            let cache_key = format!("{:?}", arm.body);
-            if let Some((body, after, returns)) = ignored_body_cache.get(&cache_key) {
-                (body.clone(), after.clone(), *returns)
-            } else {
-                let lowered = lower_block(&arm.body, &mut arm_env, ctx)?;
-                ignored_body_cache.insert(cache_key, lowered.clone());
-                lowered
-            }
-        } else {
-            lower_block(&arm.body, &mut arm_env, ctx)?
-        };
+        let edge_start = loop_ownership::edge_mark(ctx);
+        let (body, after, returns) = loop_ownership::lower_match_arm_body(
+            &arm, &mut arm_env, ctx, &mut ignored_body_cache,
+        )?;
+        loop_ownership::release_match_edges(
+            ctx, edge_start, &before, match_borrow_kind,
+            &match_borrowed_owners, reuse_existing_match_binding,
+        );
         lowered_arms.push(MatchArm {
             enum_name: enum_name.clone(),
             variant: arm.variant.clone(),
