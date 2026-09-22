@@ -451,7 +451,7 @@ impl LspServer {
 
     fn publish_workspace_diagnostics(&mut self) -> Vec<Value> {
         let index = self.workspace_index();
-        let current = index
+        let mut current = index
             .documents
             .keys()
             .map(|uri| {
@@ -461,11 +461,17 @@ impl LspServer {
                 )
             })
             .collect::<BTreeMap<_, _>>();
+        // Diagnostics attached to non-document URIs (such as the #1594
+        // workspace-root discovery truncation diagnostic) must participate
+        // in publishing and dedup; otherwise they are dropped before
+        // publication.
+        for (uri, diagnostics) in &index.diagnostics {
+            current.entry(uri.clone()).or_insert_with(|| diagnostics.clone());
+        }
         let mut messages = Vec::new();
         let uris = current
             .keys()
             .chain(self.published_diagnostics.keys())
-            .chain(index.diagnostics.keys())
             .cloned()
             .collect::<BTreeSet<_>>();
         for uri in uris {
