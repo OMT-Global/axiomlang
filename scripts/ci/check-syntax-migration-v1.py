@@ -98,6 +98,49 @@ EXPECTED_RESULT_FIELDS = {
 }
 
 
+# Schema and snapshot are both PR-controlled. These frozen semantic values
+# must remain independently pinned in the trusted checker.
+FROZEN_SEMANTICS = {
+    'target_contract': {
+        'input_origin': 'runtime',
+        'encoding': 'utf-8',
+    },
+    'target_contract.node_identity': {
+        'kind_encoding': 'lower_snake_case_ascii',
+        'ordinal_encoding': 'base10_no_leading_zero',
+        'ordinal_scope': 'per_source_origin',
+        'traversal_order': 'source_order_depth_first_preorder',
+        'stable_across_repeated_parse': True,
+        'collision_rule': 'source_digest_origin_kind_ordinal_tuple_unique',
+    },
+    'target_contract.recovery': {
+        'multiple_diagnostics': True,
+        'ordering': 'source_span_then_emitter_order',
+        'diagnostic_contract': 'compiler.diagnostics',
+    },
+    'target_contract.macros': {
+        'hygiene': 'definition_and_call_site_scoped',
+        'provenance': 'source_and_expansion_spans',
+    },
+    'target_contract.fuzzing': {
+        'seed_digest': 'sha256',
+    },
+    'current_floor': {
+        'tier': 'syntax_only',
+        'status': 'blocked',
+        'implementation_owner': 'rust_bootstrap',
+        'axiom_package_present': False,
+        'runtime_origin_source_proven': False,
+        'rust_path_disable_proven': False,
+        'differential_parity_present': False,
+        'canonical_axiom_node_ids': False,
+    },
+    'cutover': {
+        'approval_binding': 'maintainer_identity_plus_exact_artifact_sha256',
+        'fail_closed_diagnostic': 'self_host.syntax_cutover_not_qualified',
+    },
+}
+
 class ContractError(ValueError):
     pass
 
@@ -442,6 +485,12 @@ def validate_contract(root: Path) -> dict[str, Any]:
     snapshot = load(root, SNAPSHOT, "syntax snapshot")
     require(schema.get("$id", "").endswith("axiom.compiler.syntax_migration.v1.schema.json"), "schema id drifted")
     validate_schema(snapshot, schema, "$", schema)
+    for section, fields in FROZEN_SEMANTICS.items():
+        value = snapshot
+        for part in section.split("."):
+            value = value[part]
+        for field, expected in fields.items():
+            require(json_equal(value.get(field), expected), f"{section}.{field} semantic invariant drifted")
     require((snapshot["schema_version"], snapshot["contract"], snapshot["issue"], snapshot["parent_issue"]) == ("axiom.compiler.syntax_migration.v1", "compiler.syntax", 1471, 1468), "contract identity drifted")
     require(snapshot["dependency_issues"] == [1427, 1468, 1473], "syntax migration dependencies must include #1427, #1468, and #1473")
     gates = snapshot["entry_gates"]

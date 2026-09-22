@@ -92,6 +92,50 @@ class SyntaxMigrationContractTests(unittest.TestCase):
                 self.reject_snapshot(lambda value, field=field: value["current_floor"].update({field: True}))
         self.reject_snapshot(lambda value: value["cutover"].update(permitted=True))
 
+    def test_rejects_coordinated_schema_and_data_semantic_drift(self) -> None:
+        mutations = [
+            (("current_floor",), "currentFloor", "tier", "production_qualified"),
+            (("current_floor",), "currentFloor", "status", "ready"),
+            (("current_floor",), "currentFloor", "implementation_owner", "axiom"),
+            (("cutover",), "cutover", "approval_binding", "none"),
+            (("cutover",), "cutover", "fail_closed_diagnostic", "qualified"),
+            (("target_contract",), "targetContract", "input_origin", "compile_time"),
+            (("target_contract",), "targetContract", "encoding", "ascii"),
+            (("target_contract", "node_identity"), "nodeIdentity", "stable_across_repeated_parse", False),
+            (("target_contract", "node_identity"), "nodeIdentity", "collision_rule", "collisions_allowed"),
+            (("target_contract", "recovery"), "recovery", "multiple_diagnostics", False),
+            (("target_contract", "macros"), "macros", "hygiene", "unscoped"),
+            (("target_contract", "fuzzing"), "fuzzing", "seed_digest", "none"),
+        ]
+        for section, definition, field, replacement in mutations:
+            with self.subTest(section=section, field=field), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                snapshot = self.copy_contract(root)
+                schema = checker.load(root, checker.SCHEMA, "schema")
+                value = snapshot
+                for part in section:
+                    value = value[part]
+                value[field] = replacement
+                schema["$defs"][definition]["properties"][field] = {"const": replacement}
+                checker.validate_schema(snapshot, schema, "$", schema)
+                (root / checker.SCHEMA).write_text(json.dumps(schema), encoding="utf-8")
+                (root / checker.SNAPSHOT).write_text(json.dumps(snapshot), encoding="utf-8")
+                with self.assertRaises(checker.ContractError):
+                    checker.validate_contract(root)
+
+    def test_rejects_false_readiness_with_floor_schema_removed(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            snapshot = self.copy_contract(root)
+            schema = checker.load(root, checker.SCHEMA, "schema")
+            schema["$defs"]["currentFloor"] = {}
+            snapshot["current_floor"].update(tier="production_qualified", status="ready")
+            checker.validate_schema(snapshot, schema, "$", schema)
+            (root / checker.SCHEMA).write_text(json.dumps(schema), encoding="utf-8")
+            (root / checker.SNAPSHOT).write_text(json.dumps(snapshot), encoding="utf-8")
+            with self.assertRaises(checker.ContractError):
+                checker.validate_contract(root)
+
     def test_rejects_omitted_issue_gates(self) -> None:
         self.reject_snapshot(lambda value: value["dependency_issues"].remove(1427))
         self.reject_snapshot(lambda value: value["dependency_issues"].remove(1468))
