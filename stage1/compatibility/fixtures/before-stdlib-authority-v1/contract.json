@@ -10,7 +10,7 @@
       "sha256": "30e92d85d0e0cc6cf14a32477e5b45afbc44d3d36803a8e456d55ef93860767a"
     }
   },
-  "contract_version": "0.14.0",
+  "contract_version": "0.13.0",
   "edition": {
     "id": "2026",
     "source": {
@@ -57,19 +57,19 @@
       "id": "axiom://stdlib/catalog",
       "kind": "stdlib",
       "migration": {
-        "action": "Adopt catalog_version 2.0.0 and the pinned AxiOM-owned authority source with per-symbol capabilities/effects; do not infer each symbol effect from its module capability union. Retain the additive parse_error_offset and parse_error_path accessors. std/serdes ParseError now carries offset and path as well as message: direct constructors must initialize all three fields; consumers may continue using parse_error_message for text. Offsets count UTF-8 bytes and paths identify nested object fields and array indices."
+        "action": "Accept catalog_version 1.2.0 and the additive parse_error_offset and parse_error_path accessors. std/serdes ParseError now carries offset and path as well as message: direct constructors must initialize all three fields; consumers may continue using parse_error_message for text. Offsets count UTF-8 bytes and paths identify nested object fields and array indices."
       },
-      "signature": "axiom.compiler.stdlib_catalog.v1; catalog_semantic_digest=beb62f7073a1612e52c640a84acd009929bdf9254e27eb05b1559008eb881eaf; modules=34; symbols=307",
+      "signature": "axiom.compiler.stdlib_catalog.v1; catalog_semantic_digest=5e964d8a58fd552a12cd1c3679d1976cbf17af828d4487aea974b651646582d6; modules=34; symbols=307",
       "sources": [
         {
           "path": "stage1/compiler-contracts/snapshots/stdlib-catalog.json",
           "role": "stdlib_catalog",
           "selector": "modules[*].name,symbols[*].signature",
-          "sha256": "883bc3d73c93e5e8d715b1b7afa0c17228e6ae37016b13143159f2bfb539ea5a"
+          "sha256": "744fff40230d6cf138974baeb3ffa3f54400164c55c9e7c47c98fc3778d0ee98"
         }
       ],
       "stability": "experimental",
-      "version": "2.0.0"
+      "version": "1.2.0"
     },
     {
       "id": "axiom://cli/axiomc",
@@ -987,19 +987,19 @@
       "id": "axiom://schema/axiom.compiler.stdlib_catalog.v1",
       "kind": "schema",
       "migration": {
-        "action": "Accept schema surface version 0.4.0, catalog_version 2.0.0 and source stage1/compiler-contracts/sources/stdlib-catalog-authority-v1.json. Adopt per-symbol effects while preserving provider identities and the pending qualified-consumer boundary."
+        "action": "Accept catalog_version 1.2.0 when reading the refreshed catalog; its closed schema and provider identities are otherwise unchanged."
       },
-      "signature": "published schema id=https://omt-global.github.io/axiom/schemas/axiom.compiler.stdlib_catalog.v1.schema.json; semantic_digest=20b32afd55067845488345888c7797a2d26cd9d263cb2b5c9c33a88762fb5277; envelope=axiom.compiler.stdlib_catalog.v1",
+      "signature": "published schema id=https://omt-global.github.io/axiom/schemas/axiom.compiler.stdlib_catalog.v1.schema.json; semantic_digest=0252c28fae7525559634a1124340a2bf27618b99065a01aafc5b8221106604fa; envelope=axiom.compiler.stdlib_catalog.v1",
       "sources": [
         {
           "path": "stage1/compiler-contracts/schemas/axiom.compiler.stdlib_catalog.v1.schema.json",
           "role": "published_schema",
           "selector": "$id,properties.schema_version.const",
-          "sha256": "89b342f17a319b81fbb369d12354576da9f667a89057bd4a1d177cffb73b8ee7"
+          "sha256": "14b622875d1d2feb7e801f16d9c2c44c87ae2e691cb36c43178cd4f1a3598505"
         }
       ],
       "stability": "experimental",
-      "version": "0.4.0"
+      "version": "0.3.0"
     },
     {
       "id": "axiom://schema/axiom.compiler.syntax_migration.v1",

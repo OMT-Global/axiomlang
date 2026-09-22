@@ -752,15 +752,15 @@
       "requirement": "The compiler stdlib catalog, modules, capability/effect declarations, and intrinsic/provider bindings are AxiOM-owned.",
       "requiredForProduction": false,
       "targetTier": "runtime_complete",
-      "currentTier": "syntax_only",
-      "status": "blocked",
+      "currentTier": "static_spike",
+      "status": "partial",
       "governingIssue": 1478,
       "blockerIssues": [1478],
       "dependencies": [1472, 1476, 1477, 1441, 1443, 1444, 1445, 1448, 1449, 1450, 1451, 1452, 1453, 1481],
-      "evidence": ["docs/axiom-compiler-source-layout.md", "stage1/crates/axiomc/src/stdlib.rs", "stage1/stdlib/std"],
-      "validatingCommand": "make stage1-stdlib-test && make stage1-conformance",
+      "evidence": ["docs/compiler-stdlib-catalog.md", "docs/axiom-compiler-source-layout.md", "stage1/compiler-contracts/sources/stdlib-catalog-authority-v1.json", "stage1/compiler-contracts/schemas/axiom.compiler.stdlib_catalog.v1.schema.json", "stage1/compiler-contracts/snapshots/stdlib-catalog.json", "scripts/ci/check-stdlib-catalog.py", "stage1/crates/axiomc/src/stdlib.rs", "stage1/stdlib/std"],
+      "validatingCommand": "python3 scripts/ci/check-stdlib-catalog.py --json && python3 scripts/ci/test-check-stdlib-catalog.py && make stage1-stdlib-test && make stage1-conformance",
       "rustCaptureRisk": "high",
-      "agentInspectionImpact": "Expose module/symbol catalog, capabilities, effects, bindings, digests, parity, and Rust-disable state."
+      "agentInspectionImpact": "Expose the versioned module capability/provider authority, symbol catalog, effects, bindings, authority and release digests, ledger parity, and Rust-disable state. Rust remains only the bootstrap loader; runtime qualification and source externalization are still blocked on #1478 and its dependencies."
     },
     {
       "id": "compiler_backend_contract_source",

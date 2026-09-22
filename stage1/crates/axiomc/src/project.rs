@@ -50,6 +50,8 @@ mod bounded_test_runner;
 mod expected_build_failure;
 mod lsp_analysis;
 mod module_parse_cache;
+#[cfg(test)]
+mod stdlib_catalog_tests;
 use bounded_test_runner::{
     run_bounded_command, run_bounded_http_fixture_case, run_command_with_stdin, run_test_command,
 };
@@ -6393,27 +6395,27 @@ fn stdlib_wrapper_capabilities(
     let module = stdlib_module_file(module_path)?;
     match (module.as_str(), function_name) {
         ("net.ax", _) | ("net_tcp.ax", _) | ("net_udp.ax", _) | ("http.ax", _) => {
-            Some(vec![CapabilityKind::Net])
+            Some(::std::vec![CapabilityKind::Net])
         }
-        ("async_net.ax", _) => Some(vec![CapabilityKind::Net, CapabilityKind::Async]),
+        ("async_net.ax", _) => Some(::std::vec![CapabilityKind::Net, CapabilityKind::Async]),
         ("http_async.ax", "async_serve_route") => {
-            Some(vec![CapabilityKind::Net, CapabilityKind::Async])
+            Some(::std::vec![CapabilityKind::Net, CapabilityKind::Async])
         }
-        ("async.ax", _) => Some(vec![CapabilityKind::Async]),
-        ("time.ax", "now_ms" | "now" | "elapsed_ms" | "sleep") => Some(vec![CapabilityKind::Clock]),
-        ("async_time.ax", _) => Some(vec![CapabilityKind::Clock, CapabilityKind::Async]),
-        ("env.ax", "get_env" | "cwd") => Some(vec![CapabilityKind::Env]),
+        ("async.ax", _) => Some(::std::vec![CapabilityKind::Async]),
+        ("time.ax", "now_ms" | "now" | "elapsed_ms" | "sleep") => Some(::std::vec![CapabilityKind::Clock]),
+        ("async_time.ax", _) => Some(::std::vec![CapabilityKind::Clock, CapabilityKind::Async]),
+        ("env.ax", "get_env" | "cwd") => Some(::std::vec![CapabilityKind::Env]),
         ("fs.ax", "read_file" | "file_exists" | "file_size") => {
-            Some(vec![CapabilityKind::Fs])
+            Some(::std::vec![CapabilityKind::Fs])
         }
-        ("fs.ax", _) => Some(vec![CapabilityKind::FsWrite]),
-        ("process.ax", "run_status") => Some(vec![CapabilityKind::Process]),
+        ("fs.ax", _) => Some(::std::vec![CapabilityKind::FsWrite]),
+        ("process.ax", "run_status") => Some(::std::vec![CapabilityKind::Process]),
         ("crypto_hash.ax", _)
         | ("crypto_mac.ax", _)
         | ("crypto_rand.ax", _)
         | ("crypto_aead.ax", _)
         | ("crypto_sign.ax", _)
-        | ("crypto.ax", _) => Some(vec![CapabilityKind::Crypto]),
+        | ("crypto.ax", _) => Some(::std::vec![CapabilityKind::Crypto]),
         _ => None,
     }
 }
@@ -11635,22 +11637,6 @@ return LEAKED
                 .as_deref()
                 .is_some_and(|path| path.ends_with("deps/evil/src/leak.ax")),
             "unexpected diagnostic path: {error:?}"
-        );
-    }
-
-    #[test]
-    fn stdlib_wrapper_capabilities_match_stdlib_paths_portably() {
-        assert_eq!(
-            stdlib_wrapper_capabilities(Path::new("<stdlib>/net.ax"), "resolve"),
-            Some(vec![CapabilityKind::Net])
-        );
-        assert_eq!(
-            stdlib_wrapper_capabilities(Path::new("<stdlib>\\net.ax"), "resolve"),
-            Some(vec![CapabilityKind::Net])
-        );
-        assert_eq!(
-            stdlib_wrapper_capabilities(Path::new("<stdlib>\\http_async.ax"), "async_serve_route"),
-            Some(vec![CapabilityKind::Net, CapabilityKind::Async])
         );
     }
 
