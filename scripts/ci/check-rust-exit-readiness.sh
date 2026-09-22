@@ -419,19 +419,6 @@ if payload["finalBootstrapIssue"] in issues:
     print("finalBootstrapIssue must not also be listed as a blocker", file=sys.stderr)
     sys.exit(1)
 
-required = {731}
-missing = sorted(required - set(issues))
-if missing:
-    print("missing required blocking issues: " + ", ".join(f"#{issue}" for issue in missing), file=sys.stderr)
-    sys.exit(1)
-unexpected = sorted(set(issues) - required)
-if unexpected:
-    print("unexpected stale blocking issues: " + ", ".join(f"#{issue}" for issue in unexpected), file=sys.stderr)
-    sys.exit(1)
-if len(set(issues)) != len(issues):
-    print("blocking issue list contains duplicates", file=sys.stderr)
-    sys.exit(1)
-
 with open("stage1/runtime-abi/direct-native-v0.json", encoding="utf-8") as handle:
     contract = json.load(handle)
 
@@ -440,6 +427,19 @@ for group in ("value_features", "capability_shims"):
     for row in contract.get(group, []):
         if row.get("status") != "implemented":
             abi_blockers.update(row.get("blockers", []))
+
+required = {731}
+missing = sorted(required - set(issues))
+if missing:
+    print("missing required blocking issues: " + ", ".join(f"#{issue}" for issue in missing), file=sys.stderr)
+    sys.exit(1)
+unexpected = sorted(set(issues) - (required | abi_blockers))
+if unexpected:
+    print("unexpected stale blocking issues: " + ", ".join(f"#{issue}" for issue in unexpected), file=sys.stderr)
+    sys.exit(1)
+if len(set(issues)) != len(issues):
+    print("blocking issue list contains duplicates", file=sys.stderr)
+    sys.exit(1)
 
 missing_abi_blockers = sorted(abi_blockers - set(issues))
 if missing_abi_blockers:

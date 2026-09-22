@@ -1509,7 +1509,7 @@
       "module_loading": {
         "kind": "embedded_source",
         "source_path": "stage1/crates/axiomc/src/stdlib.rs",
-        "source_digest": "60a831734ea3df3069733921b377777215187dab48e58afe03fb0e9884a3f8e9"
+        "source_digest": "3e1ea308400d76932743bdc0cc14460149a489e8ebfddf62f0cb4dd4643718b5"
       },
       "capabilities": [],
       "symbols": [
@@ -1521,6 +1521,17 @@
           "binding_kind": "provider_contract",
           "provider": {
             "id": "axiom://provider/stage1-v1/io/eprintln",
+            "kind": "declared_provider"
+          }
+        },
+        {
+          "name": "println",
+          "signature": "fn println(text: string): int",
+          "effect": "pure",
+          "binding": "axiom://provider/stage1-v1/io/println",
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/io/println",
             "kind": "declared_provider"
           }
         },
@@ -3012,7 +3023,7 @@
       "module_loading": {
         "kind": "embedded_source",
         "source_path": "stage1/crates/axiomc/src/stdlib.rs",
-        "source_digest": "e8441e2f4c63b0a97e1526e155d09a26dc3c834b2de2f5f7634789158132265f"
+        "source_digest": "6dd3815e1cec4d96ac1b7f37d8b4b9a99765f0179639b4e56166ca77f3f741f8"
       },
       "capabilities": [],
       "symbols": [
@@ -3189,6 +3200,28 @@
           "binding_kind": "provider_contract",
           "provider": {
             "id": "axiom://provider/stage1-v1/serdes/parse_error_message",
+            "kind": "declared_provider"
+          }
+        },
+        {
+          "name": "parse_error_offset",
+          "signature": "fn parse_error_offset(error: ParseError): int",
+          "effect": "pure",
+          "binding": "axiom://provider/stage1-v1/serdes/parse_error_offset",
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/serdes/parse_error_offset",
+            "kind": "declared_provider"
+          }
+        },
+        {
+          "name": "parse_error_path",
+          "signature": "fn parse_error_path(error: ParseError): string",
+          "effect": "pure",
+          "binding": "axiom://provider/stage1-v1/serdes/parse_error_path",
+          "binding_kind": "provider_contract",
+          "provider": {
+            "id": "axiom://provider/stage1-v1/serdes/parse_error_path",
             "kind": "declared_provider"
           }
         },
@@ -3796,7 +3829,7 @@
       "symbols": []
     }
   ],
-  "release_digest": "6019466717387376d52e4f02b3513cbafbaaa4f3a9f582d9811cefa013be22e9",
+  "release_digest": "ecbf8b973d616205efc280e59a0cf79831c39955e58c06ed1912a2339afc1b25",
   "rollback_boundary": "stage1/crates/axiomc/src/stdlib.rs remains the bootstrap loader until #1436 qualifies a catalog consumer.",
   "acceptance_boundary": {
     "status": "pending",

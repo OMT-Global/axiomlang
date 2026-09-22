@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import importlib.util
 import json
 import subprocess
@@ -24,6 +25,21 @@ CURRENT_POLICY = ROOT / "stage1/compatibility/policy-v1.json"
 BASELINE = ROOT / "stage1/compatibility/fixtures/accepted-baseline/contract.json"
 BASELINE_POLICY = ROOT / "stage1/compatibility/fixtures/accepted-baseline/policy.json"
 CURRENT = ROOT / "stage1/compatibility/fixtures/current/contract.json"
+PREVIOUS_CURRENT = ROOT / "stage1/compatibility/fixtures/previous-current/contract.json"
+BEFORE_ITERATION = ROOT / "stage1/compatibility/fixtures/before-iteration-v1/contract.json"
+BEFORE_ITERATION_SHA256 = "99ebfacf460a7634b2b3b448b9657504f6d5d7ed0c031ba3a7ce1a8281f7d7fc"
+BEFORE_ITERATION_BLOB = "85af50f3b40caaf642b0ae9bf451e556cf4e56c9"
+# Frozen source commit: 351493a02a59cd8f9f970ff6513fdfc18be5032b
+BEFORE_SYNTAX = ROOT / "stage1/compatibility/fixtures/before-syntax-migration-v1/contract.json"
+BEFORE_NATIVE = ROOT / "stage1/compatibility/fixtures/before-native-backend-runtime-v1/contract.json"
+BEFORE_DYNAMIC = ROOT / "stage1/compatibility/fixtures/before-dynamic-aggregate-abi-v1/contract.json"
+BEFORE_STDLIB = ROOT / "stage1/compatibility/fixtures/before-stdlib-authority-v1/contract.json"
+BEFORE_STDLIB_SHA256 = "5839a838719b18d50a94f83b1998a65ab4de8641590a0f8025806de6a8691c1e"
+BEFORE_DYNAMIC_SHA256 = "d2f501fce8566e37cdeaedd32ca52bbff640d998bea16081c0f8a979ed96c341"
+BEFORE_NATIVE_SHA256 = "3102b916d3e33bae68aa265e198bad7fd43f3ca028a52df46ef59edcd9aa853a"
+BEFORE_SYNTAX_SHA256 = "b34e18bd43e8ab9492f41e463d5b86f9573680da790b8d93af07ee23176b96a4"
+# Frozen iteration contract tree: 4ab4464e3888509bc5620fb010c331efd31afe5d
+PREVIOUS_CURRENT_METADATA = ROOT / "stage1/compatibility/fixtures/previous-current/metadata.json"
 
 
 def load(path: Path) -> dict[str, Any]:
@@ -42,6 +58,7 @@ def run(
     *,
     policy: Path = POLICY,
     old_policy: Path | None = None,
+    historical_baseline: bool = False,
 ) -> subprocess.CompletedProcess[str]:
     command = [
             sys.executable,
@@ -56,6 +73,8 @@ def run(
         ]
     if old_policy is not None:
         command.extend(["--old-policy", str(old_policy)])
+    if historical_baseline:
+        command.append("--historical-baseline")
     return subprocess.run(
         command,
         cwd=ROOT,
@@ -73,12 +92,19 @@ def expect_failure(
     *,
     policy: Path = POLICY,
     old_policy: Path | None = None,
+    historical_baseline: bool = False,
 ) -> None:
     old = directory / "old.json"
     new = directory / "new.json"
     write(old, old_payload)
     write(new, new_payload)
-    result = run(old, new, policy=policy, old_policy=old_policy)
+    result = run(
+        old,
+        new,
+        policy=policy,
+        old_policy=old_policy,
+        historical_baseline=historical_baseline,
+    )
     assert result.returncode != 0, result.stdout + result.stderr
     assert message in result.stdout, result.stdout
     failure = json.loads(result.stdout)
@@ -88,6 +114,11 @@ def expect_failure(
 
 def surface(contract: dict[str, Any], identifier: str) -> dict[str, Any]:
     return next(item for item in contract["surfaces"] if item["id"] == identifier)
+
+
+def git_blob_oid(payload: bytes) -> str:
+    header = f"blob {len(payload)}\0".encode("ascii")
+    return hashlib.sha1(header + payload).hexdigest()
 
 
 def extractor_module() -> Any:
@@ -184,6 +215,9 @@ def main() -> int:
 
     baseline_payload = load(BASELINE)
     current_payload = load(CURRENT)
+    previous_current_bytes = PREVIOUS_CURRENT.read_bytes()
+    previous_current_payload = json.loads(previous_current_bytes)
+    previous_current_metadata = load(PREVIOUS_CURRENT_METADATA)
     baseline_ids = [item["id"] for item in baseline_payload["surfaces"]]
     current_ids = [item["id"] for item in current_payload["surfaces"]]
     new_package_trust_ids = {
@@ -194,9 +228,17 @@ def main() -> int:
         "axiom://schema/axiom-trust-roots-v1",
     }
     new_main_schema_ids = {
+        "axiom://schema/axiom.compiler.syntax_migration.v1",
+        "axiom://schema/axiom.compiler_native_backend_runtime.v1",
+        "axiom://schema/axiom.dynamic_aggregate_abi.v1",
+        "axiom://schema/axiom.iteration_control.v1",
+        "axiom://schema/axiom.filesystem.v1",
         "axiom://schema/axiom.lsp.v1",
         "axiom://schema/axiom.provider-abi.v1",
+        "axiom://schema/axiom.runtime_crypto_provider_policy.v1",
+        "axiom://schema/axiom.runtime_concurrency.v1",
         "axiom://schema/axiom.runtime_observability.v1",
+        "axiom://schema/axiom.runtime_http_client.v1",
         "axiom://schema/axiom.runtime_lifecycle.v1",
         "axiom://schema/axiom.semantic_mir.v1",
     }
@@ -207,6 +249,9 @@ def main() -> int:
         "axiom://schema/axiom-quality-policy-v1",
         "axiom://schema/axiom-quality-report-v1",
     }
+    new_parser_fuzz_schema_ids = {
+        "axiom://schema/axiom-stage1-parser-fuzz-v1",
+    }
     new_package_resolver_ids = {
         "axiom://schema/axiom.compiler.package_graph.runtime.v1",
         "axiom://schema/axiom-lockfile-v2",
@@ -215,6 +260,7 @@ def main() -> int:
     new_public_schema_ids = (
         new_package_trust_ids
         | new_main_schema_ids
+        | new_parser_fuzz_schema_ids
         | new_quality_schema_ids
         | new_target_support_schema_ids
     )
@@ -222,6 +268,7 @@ def main() -> int:
         new_package_trust_ids
         | new_main_schema_ids
         | new_package_resolver_ids
+        | new_parser_fuzz_schema_ids
         | new_target_support_schema_ids
     )
     modified_schema_ids = {
@@ -230,41 +277,147 @@ def main() -> int:
         "axiom://schema/axiom.stage1.v1",
     }
     assert len(baseline_ids) == 52, "accepted baseline must remain the frozen 52-surface ratchet"
-    assert len(current_ids) == 68, "current contract must include package trust, quality, Provider ABI, runtime observability, Semantic MIR, runtime lifecycle, target support, persistent LSP, and package resolver schemas"
+    assert len(current_ids) == 77, "current contract must include package trust, quality, parser fuzz, Compiler Syntax Migration v1, Iteration Control v1, Filesystem v1, Provider ABI, Structured Concurrency v1, runtime crypto policy, HTTP client, runtime observability, Semantic MIR, runtime lifecycle, target support, persistent LSP, and package resolver schemas"
     assert set(baseline_ids) < set(current_ids)
     assert set(current_ids) - set(baseline_ids) == new_public_schema_ids | new_package_resolver_ids
-    assert current_payload["contract_version"] == "0.5.0"
+    assert current_payload["contract_version"] == "0.14.0"
+    assert surface(current_payload, "axiom://schema/axiom-quality-report-v1")["version"] == "0.2.0"
+    assert surface(current_payload, "axiom://stdlib/catalog")["version"] == "2.0.0"
+    assert surface(current_payload, "axiom://schema/axiom.compiler.stdlib_catalog.v1")["version"] == "0.4.0"
     current_cli = surface(current_payload, "axiom://cli/axiomc")
     assert current_cli["version"] == "0.3.0"
+    current_abi = surface(current_payload, "axiom://abi/direct-native")
+    assert current_abi["version"] == "0.2.0"
     current_stage1_schema = surface(current_payload, "axiom://schema/axiom.stage1.v1")
     assert current_stage1_schema["version"] == "0.2.0"
-    current_stdlib_schema = surface(
-        current_payload, "axiom://schema/axiom.compiler.stdlib_catalog.v1"
-    )
-    assert current_stdlib_schema["version"] == "0.3.0"
-    assert surface(current_payload, "axiom://stdlib/catalog")["version"] == "2.0.0"
     compatibility_doc = (ROOT / "docs/compatibility-v1.md").read_text(encoding="utf-8")
     assert f"current source contract is version `{current_payload['contract_version']}` with {len(current_ids)} surfaces" in compatibility_doc
     assert f"CLI surface is version `{current_cli['version']}`" in compatibility_doc
+    assert previous_current_metadata == {
+        "schema_version": "axiom.compatibility_previous_current_evidence.v1",
+        "role": "byte_exact_previous_current_source_snapshot",
+        "source_commit": "b3149c5e9bf10a4a244b0d89c6e6cd804b47ae3f",
+        "source_path": "stage1/compatibility/fixtures/current/contract.json",
+        "git_blob": "e5ad22e48e4504d62de8ea343e58fd4c1e262cb4",
+        "sha256": "dff36c546df53be343c9d06017e9d439ed981e1f3fcca1fc91a01bcdce9ae3ac",
+        "contract_version": "0.4.0",
+        "surface_count": 68,
+        "qualification": (
+            "Byte-exact origin/main evidence only; not release history or a "
+            "qualified previous compiler."
+        ),
+    }
+    assert hashlib.sha256(previous_current_bytes).hexdigest() == previous_current_metadata["sha256"]
+    assert git_blob_oid(previous_current_bytes) == previous_current_metadata["git_blob"]
+    assert previous_current_payload["contract_version"] == "0.4.0"
+    assert len(previous_current_payload["surfaces"]) == 68
     current_commands = (
         current_cli["signature"].split("; ", maxsplit=1)[0].split("=")[1].split(",")
     )
     assert {"pkg fetch", "pkg update", "pkg vendor", "pkg verify"} <= set(current_commands)
+    with tempfile.TemporaryDirectory() as historical_temporary:
+        expect_failure(
+            Path(historical_temporary),
+            baseline_payload,
+            current_payload,
+            "added public surface axiom://schema/axiom-quality-report-v1 must not declare migration",
+            policy=CURRENT_POLICY,
+            old_policy=BASELINE_POLICY,
+        )
+    before_iteration_bytes = BEFORE_ITERATION.read_bytes()
+    assert hashlib.sha256(before_iteration_bytes).hexdigest() == BEFORE_ITERATION_SHA256
+    assert git_blob_oid(before_iteration_bytes) == BEFORE_ITERATION_BLOB
+    before_iteration = load(BEFORE_ITERATION)
+    assert before_iteration["contract_version"] == "0.9.0"
+    assert len(before_iteration["surfaces"]) == 73
+    iteration_ratchet = run(BEFORE_ITERATION, BEFORE_SYNTAX, policy=CURRENT_POLICY)
+    assert iteration_ratchet.returncode == 0, iteration_ratchet.stdout + iteration_ratchet.stderr
+    iteration_report = json.loads(iteration_ratchet.stdout)
+    assert iteration_report["contracts"] == {"old": "0.9.0", "new": "0.10.0"}
+    assert iteration_report["summary"] == {"additive": 1, "breaking": 0, "compatible": 0, "deprecated": 0}
+    assert [(item["surface_id"], item["change"], item["severity"]) for item in iteration_report["changes"]] == [("axiom://schema/axiom.iteration_control.v1", "added", "additive")]
+    with tempfile.TemporaryDirectory() as iteration_temporary:
+        no_bump = copy.deepcopy(load(BEFORE_SYNTAX))
+        no_bump["contract_version"] = before_iteration["contract_version"]
+        expect_failure(Path(iteration_temporary), before_iteration, no_bump,
+                       "semantic drift requires an increased new.contract_version", policy=CURRENT_POLICY)
+    assert hashlib.sha256(BEFORE_SYNTAX.read_bytes()).hexdigest() == BEFORE_SYNTAX_SHA256
+    before_syntax = load(BEFORE_SYNTAX)
+    assert before_syntax["contract_version"] == "0.10.0"
+    assert len(before_syntax["surfaces"]) == 74
+    syntax_ratchet = run(BEFORE_SYNTAX, BEFORE_NATIVE, policy=CURRENT_POLICY)
+    assert syntax_ratchet.returncode == 0, syntax_ratchet.stdout + syntax_ratchet.stderr
+    syntax_report = json.loads(syntax_ratchet.stdout)
+    assert syntax_report["contracts"] == {"old": "0.10.0", "new": "0.11.0"}
+    assert syntax_report["summary"] == {"additive": 1, "breaking": 0, "compatible": 0, "deprecated": 0}
+    assert [(item["surface_id"], item["change"], item["severity"]) for item in syntax_report["changes"]] == [("axiom://schema/axiom.compiler.syntax_migration.v1", "added", "additive")]
+    with tempfile.TemporaryDirectory() as syntax_temporary:
+        no_bump = copy.deepcopy(load(BEFORE_NATIVE))
+        no_bump["contract_version"] = before_syntax["contract_version"]
+        expect_failure(Path(syntax_temporary), before_syntax, no_bump,
+                       "semantic drift requires an increased new.contract_version", policy=CURRENT_POLICY)
+    assert hashlib.sha256(BEFORE_NATIVE.read_bytes()).hexdigest() == BEFORE_NATIVE_SHA256
+    before_native = load(BEFORE_NATIVE)
+    assert before_native["contract_version"] == "0.11.0"
+    assert len(before_native["surfaces"]) == 75
+    native_ratchet = run(BEFORE_NATIVE, BEFORE_DYNAMIC, policy=CURRENT_POLICY)
+    assert native_ratchet.returncode == 0, native_ratchet.stdout + native_ratchet.stderr
+    native_report = json.loads(native_ratchet.stdout)
+    assert native_report["contracts"] == {"old": "0.11.0", "new": "0.12.0"}
+    assert native_report["summary"] == {"additive": 1, "breaking": 0, "compatible": 0, "deprecated": 0}
+    assert [(item["surface_id"], item["change"], item["severity"]) for item in native_report["changes"]] == [("axiom://schema/axiom.compiler_native_backend_runtime.v1", "added", "additive")]
+    with tempfile.TemporaryDirectory() as native_temporary:
+        no_bump = copy.deepcopy(load(BEFORE_DYNAMIC))
+        no_bump["contract_version"] = before_native["contract_version"]
+        expect_failure(Path(native_temporary), before_native, no_bump,
+                       "semantic drift requires an increased new.contract_version", policy=CURRENT_POLICY)
+    assert hashlib.sha256(BEFORE_DYNAMIC.read_bytes()).hexdigest() == BEFORE_DYNAMIC_SHA256
+    before_dynamic = load(BEFORE_DYNAMIC)
+    assert before_dynamic["contract_version"] == "0.12.0" and len(before_dynamic["surfaces"]) == 76
+    dynamic_ratchet = run(BEFORE_DYNAMIC, BEFORE_STDLIB, policy=CURRENT_POLICY)
+    assert dynamic_ratchet.returncode == 0, dynamic_ratchet.stdout + dynamic_ratchet.stderr
+    dynamic_report = json.loads(dynamic_ratchet.stdout)
+    assert dynamic_report["contracts"] == {"old": "0.12.0", "new": "0.13.0"}
+    assert dynamic_report["summary"] == {"additive": 1, "breaking": 0, "compatible": 0, "deprecated": 0}
+    assert [(i["surface_id"], i["change"], i["severity"]) for i in dynamic_report["changes"]] == [("axiom://schema/axiom.dynamic_aggregate_abi.v1", "added", "additive")]
+    with tempfile.TemporaryDirectory() as dynamic_temporary:
+        no_bump = copy.deepcopy(load(BEFORE_STDLIB))
+        no_bump["contract_version"] = before_dynamic["contract_version"]
+        expect_failure(Path(dynamic_temporary), before_dynamic, no_bump,
+                       "semantic drift requires an increased new.contract_version", policy=CURRENT_POLICY)
+    assert hashlib.sha256(BEFORE_STDLIB.read_bytes()).hexdigest() == BEFORE_STDLIB_SHA256
+    before_stdlib = load(BEFORE_STDLIB)
+    assert before_stdlib["contract_version"] == "0.13.0" and len(before_stdlib["surfaces"]) == 77
+    stdlib_ratchet = run(BEFORE_STDLIB, CURRENT, policy=CURRENT_POLICY)
+    assert stdlib_ratchet.returncode == 0, stdlib_ratchet.stdout + stdlib_ratchet.stderr
+    stdlib_report = json.loads(stdlib_ratchet.stdout)
+    assert stdlib_report["contracts"] == {"old": "0.13.0", "new": "0.14.0"}
+    assert stdlib_report["summary"] == {"additive": 0, "breaking": 2, "compatible": 0, "deprecated": 0}
+    assert {i["surface_id"] for i in stdlib_report["changes"]} == {"axiom://stdlib/catalog", "axiom://schema/axiom.compiler.stdlib_catalog.v1"}
+    for item in stdlib_report["changes"]:
+        assert item["severity"] == "breaking" and item["migration"]
+    with tempfile.TemporaryDirectory() as stdlib_temporary:
+        no_bump = copy.deepcopy(current_payload)
+        no_bump["contract_version"] = before_stdlib["contract_version"]
+        expect_failure(Path(stdlib_temporary), before_stdlib, no_bump,
+                       "semantic drift requires an increased new.contract_version", policy=CURRENT_POLICY)
     canonical = run(
         BASELINE,
         CURRENT,
         policy=CURRENT_POLICY,
         old_policy=BASELINE_POLICY,
+        historical_baseline=True,
     )
     assert canonical.returncode == 0, canonical.stdout + canonical.stderr
     canonical_report = json.loads(canonical.stdout)
     assert canonical_report["summary"] == {
-        "additive": 16,
-        "breaking": 9,
+        "additive": 25,
+        "breaking": 10,
         "compatible": 0,
         "deprecated": 0,
     }
     expected_changed_ids = new_public_schema_ids | new_package_resolver_ids | modified_schema_ids | {
+        "axiom://abi/direct-native",
         "axiom://cli/axiomc",
         "axiom://package/lockfile",
         "axiom://package/manifest",
@@ -275,6 +428,53 @@ def main() -> int:
     assert {
         item["surface_id"] for item in canonical_report["changes"]
     } == expected_changed_ids
+    quality_report_change = next(
+        item
+        for item in canonical_report["changes"]
+        if item["surface_id"] == "axiom://schema/axiom-quality-report-v1"
+    )
+    assert quality_report_change["change"] == "added"
+    assert quality_report_change["severity"] == "additive"
+    assert quality_report_change["migration"] is None
+    previous_current = copy.deepcopy(current_payload)
+    previous_current["snapshot_id"] = (
+        "axiom://compatibility/previous-current-before-filesystem-v1"
+    )
+    previous_current["contract_version"] = "0.4.0"
+    previous_current["surfaces"] = [
+        item
+        for item in previous_current["surfaces"]
+        if item["id"] != "axiom://schema/axiom.filesystem.v1"
+    ]
+    with tempfile.TemporaryDirectory() as previous_temporary:
+        previous_directory = Path(previous_temporary)
+        previous_path = previous_directory / "previous-current.json"
+        current_path = previous_directory / "current.json"
+        write(previous_path, previous_current)
+        write(current_path, current_payload)
+        previous_report = run(
+            previous_path,
+            current_path,
+            policy=CURRENT_POLICY,
+        )
+        assert previous_report.returncode == 0, (
+            previous_report.stdout + previous_report.stderr
+        )
+        assert json.loads(previous_report.stdout)["summary"] == {
+            "additive": 1,
+            "breaking": 0,
+            "compatible": 0,
+            "deprecated": 0,
+        }
+        unversioned_current = copy.deepcopy(current_payload)
+        unversioned_current["contract_version"] = "0.4.0"
+        expect_failure(
+            previous_directory,
+            previous_current,
+            unversioned_current,
+            "semantic drift requires an increased new.contract_version",
+            policy=CURRENT_POLICY,
+        )
     assert all(
         item["change"] == "added"
         and item["severity"] == "additive"
@@ -328,6 +528,7 @@ def main() -> int:
                 mutated,
                 f"changed public surface {identifier} must increase its version",
                 policy=CURRENT_POLICY,
+                historical_baseline=True,
             )
 
         compiler_old = copy.deepcopy(baseline_payload)

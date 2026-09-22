@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Regression coverage for typed stdlib catalog parity and schema guards."""
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -17,8 +18,14 @@ CANONICAL_AUTHORITY = json.loads(AUTHORITY.read_text())
 CANONICAL_LEDGER = json.loads(LEDGER.read_text())
 
 
+def checker_env(root):
+    env = os.environ.copy()
+    env["AXIOM_CHECKOUT_PATH"] = str(root)
+    return env
+
+
 def run(root):
-    return subprocess.run([sys.executable, str(root / "scripts/ci/check-stdlib-catalog.py")], cwd=root, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    return subprocess.run([sys.executable, str(root / "scripts/ci/check-stdlib-catalog.py")], cwd=root, env=checker_env(root), text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
 
 def restore_inputs(root):

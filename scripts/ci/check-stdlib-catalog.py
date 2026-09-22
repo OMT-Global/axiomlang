@@ -5,9 +5,10 @@ import hashlib
 import json
 import math
 import re
+import os
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(os.environ.get("AXIOM_CHECKOUT_PATH") or Path(__file__).resolve().parents[2]).resolve()
 LEDGER = ROOT / "stage1/compiler-contracts/snapshots/capability-ledger.json"
 SNAPSHOT = ROOT / "stage1/compiler-contracts/snapshots/stdlib-catalog.json"
 SCHEMA = ROOT / "stage1/compiler-contracts/schemas/axiom.compiler.stdlib_catalog.v1.schema.json"
@@ -462,6 +463,54 @@ def ledger_module_index(ledger):
     return {row["module"]: row for row in rows}
 
 
+def build_legacy(ledger):
+    sources = embedded_sources()
+    modules = []
+    for row in sorted(ledger["stdlib"], key=lambda item: item["module"]):
+        name = row["module"]
+        source_name = name.removeprefix("std/")
+        module_source = sources[source_name]
+        module_signatures = signatures(module_source)
+        expected_symbols = sorted(row["functions"])
+        if sorted(module_signatures) != expected_symbols:
+            raise ValueError(f"stdlib signature parity drift for {name}")
+        capabilities = sorted(row["capabilities"])
+        effect = "pure" if not capabilities else "capability:" + ",".join(capabilities)
+        module_key = source_name.removesuffix(".ax")
+        symbols = []
+        for symbol in expected_symbols:
+            provider_id = f"axiom://provider/stage1-v1/{module_key}/{symbol}"
+            symbols.append({
+                "name": symbol,
+                "signature": module_signatures[symbol],
+                "effect": effect,
+                "binding": provider_id,
+                "binding_kind": "provider_contract",
+                "provider": {"id": provider_id, "kind": "declared_provider"},
+            })
+        modules.append({
+            "name": name,
+            "module_id": f"axiom://stdlib/stage1-v1/{module_key}",
+            "module_loading": {
+                "kind": "embedded_source",
+                "source_path": "stage1/crates/axiomc/src/stdlib.rs",
+                "source_digest": hashlib.sha256(module_source.encode()).hexdigest(),
+            },
+            "capabilities": capabilities,
+            "symbols": symbols,
+        })
+    material = {"catalog_version": "1.2.0", "modules": modules, "acceptance_boundary": ACCEPTANCE}
+    return {
+        "schema_version": "axiom.compiler.stdlib_catalog.v1",
+        "contract": "compiler.stdlib",
+        "catalog_version": "1.2.0",
+        "source": "stage1/compiler-contracts/snapshots/capability-ledger.json",
+        "modules": modules,
+        "release_digest": hashlib.sha256(json.dumps(material, sort_keys=True, separators=(",", ":")).encode()).hexdigest(),
+        "rollback_boundary": ROLLBACK,
+        "acceptance_boundary": ACCEPTANCE,
+    }
+
 def build(ledger, authority):
     sources = embedded_sources()
     embedded_modules = {f"std/{name}" for name in sources}
@@ -718,26 +767,41 @@ def validate_catalog(catalog, schema):
             require("rust" not in symbol["binding"].lower(), "host-language provider identifier leaked")
 
 
-parser = argparse.ArgumentParser()
-parser.add_argument("--write", action="store_true")
-parser.add_argument("--json", action="store_true")
-args = parser.parse_args()
-ledger = load_json(LEDGER)
-authority = load_json(AUTHORITY)
-validate_authority(authority, ledger)
-expected = build(ledger, authority)
-if args.write:
-    SNAPSHOT.write_text(json.dumps(expected, indent=2) + "\n")
-catalog = load_json(SNAPSHOT)
-schema = load_json(SCHEMA)
-require(catalog == expected, "stdlib catalog drift; regenerate with --write")
-validate_catalog(catalog, schema)
-output = {
-    "ok": True,
-    "modules": len(catalog["modules"]),
-    "symbols": sum(len(module["symbols"]) for module in catalog["modules"]),
-    "release_digest": catalog["release_digest"],
-    "authority_source": CATALOG_SOURCE,
-    "authority_digest": hashlib.sha256(AUTHORITY.read_bytes()).hexdigest(),
-}
-print(json.dumps(output, sort_keys=True) if args.json else output)
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--write", action="store_true")
+    parser.add_argument("--json", action="store_true")
+    args = parser.parse_args()
+    ledger = load_json(LEDGER)
+    # A missing generated snapshot retains the historical legacy --write default.
+    catalog = load_json(SNAPSHOT) if SNAPSHOT.exists() else {}
+    require(isinstance(catalog, dict), "catalog must be an object")
+    version = catalog.get("catalog_version", "1.2.0" if args.write and not SNAPSHOT.exists() else None)
+    require(version in {"1.2.0", "2.0.0"}, "unsupported stdlib catalog version")
+    authority = None
+    if version == "1.2.0":
+        expected = build_legacy(ledger)
+    else:
+        authority = load_json(AUTHORITY)
+        validate_authority(authority, ledger)
+        expected = build(ledger, authority)
+    schema = load_json(SCHEMA)
+    for field in ("catalog_version", "source"):
+        require(schema["properties"][field] == {"const": expected[field]},
+                f"catalog schema {field} must bind the selected contract")
+    if args.write:
+        SNAPSHOT.write_text(json.dumps(expected, indent=2) + "\n")
+    catalog = load_json(SNAPSHOT)
+    require(catalog == expected, "stdlib catalog drift; regenerate with --write")
+    validate_catalog(catalog, schema)
+    output = {"ok": True, "modules": len(catalog["modules"]),
+              "symbols": sum(len(module["symbols"]) for module in catalog["modules"]),
+              "release_digest": catalog["release_digest"], "catalog_version": version}
+    if authority is not None:
+        output.update(authority_source=CATALOG_SOURCE,
+                      authority_digest=hashlib.sha256(AUTHORITY.read_bytes()).hexdigest())
+    print(json.dumps(output, sort_keys=True) if args.json else output)
+
+
+if __name__ == "__main__":
+    main()

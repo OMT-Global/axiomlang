@@ -1,0 +1,10 @@
+{
+  "schema_version": "axiom.compiler.syntax_fixture.v1",
+  "id": "syntax-migration-v1/bootstrap-macro-recursion-limit",
+  "category": "macro",
+  "status": "bootstrap_pass",
+  "input": {"path": "main.ax", "source": "macro spin {\n() => (spin!());\n}\n\nspin!()\n", "supplied_after_build": false},
+  "expected": {"exit_outcome": "compiler_diagnostics", "compiler_diagnostics": [{"kind": "parse", "code": "parse.invalid_syntax", "message": "declarative macro expansion exceeded bounded depth of 3; invocation chain: spin! -> spin! -> spin!", "path": "main.ax", "line": 1, "column": 1}], "recovered_nodes": [], "spans": [], "macro_provenance": [], "node_identities": []},
+  "evidence": ["stage1/crates/axiomc/tests/support/lib_unit.rs::parser_honors_macro_recursion_limit_option", "stage1/crates/axiomc/tests/syntax_migration_v1.rs::bootstrap_macro_limits_match_fixtures"],
+  "qualification": {"option": "macro_recursion_limit", "value": 3, "boundary_proof": "three passes remain inclusive and a remaining invocation fails"}
+}

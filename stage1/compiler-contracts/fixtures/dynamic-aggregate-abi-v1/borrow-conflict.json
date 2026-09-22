@@ -1,0 +1,15 @@
+{
+  "schema_version": "axiom.dynamic_aggregate_abi.fixture.v1",
+  "id": "dynamic-aggregate-abi-v1/borrow-conflict",
+  "kind": "negative",
+  "scenario": "a mutable aggregate borrow is rejected while a shared borrow remains live",
+  "shape": ["array"],
+  "runtime_origin": true,
+  "function_boundaries": 0,
+  "evidence": {
+    "mode": "compiler_build_diagnostic",
+    "program": "borrow-conflict",
+    "program_sha256": "ff4a93aa7a0aaaa06a816ec764107dcd74d705a9087792e42b5bde4b9e69668d",
+    "expected": {"code": "mutable_borrow_while_shared_live", "generated_rust": null, "kind": "ownership", "ok": false}
+  }
+}
