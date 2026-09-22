@@ -310,6 +310,15 @@ def validate_contract(root: Path) -> dict[str, Any]:
     require(snapshot["ready"] is False, "iteration contract cannot be globally ready")
     require(snapshot["dependency_issues"] == DEPENDENCIES, "dependency inventory drifted")
     target = snapshot["target_contract"]
+    # --root supplies both schema and data. Frozen semantics must be enforced
+    # by trusted code, even when a PR changes the matching schema constants.
+    for field, expected in {
+        "source_evaluation": "exactly_once_before_iterator_creation",
+        "end_policy": "next_returns_none_permanently_after_exhaustion",
+        "fallible_iteration_policy": "fallibility_is_explicit_in_item_type",
+        "dynamic_dispatch_policy": "unsupported_with_stable_diagnostic",
+    }.items():
+        require(target.get(field) == expected, f"target {field} drifted")
     exact = {
         "collection_kinds": COLLECTION_KINDS,
         "iteration_modes": ITERATION_MODES,
@@ -334,6 +343,9 @@ def validate_contract(root: Path) -> dict[str, Any]:
     capture.pop("prohibited_fallbacks")
     reject_host_capture(capture)
     floor = snapshot["current_floor"]
+    require(floor.get("tier") == "syntax_only", "current floor tier overclaims iteration control")
+    require(floor.get("status") == "blocked", "current floor status overclaims iteration control")
+    require(floor.get("implementation_owner") == "rust_bootstrap", "current floor implementation owner drifted")
     positive = ["while_runtime_loops_present", "break_present", "continue_present", "loop_control_outside_while_rejected", "for_fails_closed"]
     require(all(floor[field] is True for field in positive), "bootstrap loop-control evidence disappeared")
     require(all(floor[field] is False for field in COMPLETION_FIELDS), "current floor overclaims iteration control")
@@ -342,6 +354,8 @@ def validate_contract(root: Path) -> dict[str, Any]:
     for value in floor["bootstrap_evidence"]:
         validate_evidence(root, value, "bootstrap floor")
     qualification = snapshot["qualification"]
+    require(qualification.get("build_once_run_many") is True, "build-once/run-many qualification required")
+    require(qualification.get("fail_closed_diagnostic") == "language.iteration_control_not_qualified", "qualification diagnostic drifted")
     require(qualification["minimum_nested_depth"] == 2, "minimum nested depth drifted")
     require(qualification["required_runtime_origins"] == RUNTIME_ORIGINS, "qualification origins drifted")
     require(qualification["required_collection_kinds"] == COLLECTION_KINDS, "qualification collections drifted")

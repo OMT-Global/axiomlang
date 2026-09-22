@@ -107,6 +107,46 @@ class IterationControlTests(unittest.TestCase):
     def test_rejects_readiness_promotion(self) -> None:
         self.reject_snapshot(lambda value: value["qualification"].update(readiness_promotable=True))
 
+    def test_rejects_coordinated_schema_snapshot_drift(self) -> None:
+        # Keep these cases independent of checker constants. Each mutant is
+        # schema-valid: only the trusted semantic checks can reject it.
+        mutations = [
+            ("current_floor", "currentFloor", "tier", "production_qualified"),
+            ("current_floor", "currentFloor", "status", "ready"),
+            ("current_floor", "currentFloor", "implementation_owner", "native"),
+            ("target_contract", "targetContract", "source_evaluation", "before_each_next"),
+            ("target_contract", "targetContract", "end_policy", "may_resume_after_exhaustion"),
+            ("target_contract", "targetContract", "fallible_iteration_policy", "implicit_failure"),
+            ("target_contract", "targetContract", "dynamic_dispatch_policy", "supported"),
+            ("qualification", "qualification", "build_once_run_many", False),
+            ("qualification", "qualification", "fail_closed_diagnostic", "qualified"),
+        ]
+        for section, definition, field, replacement in mutations:
+            with self.subTest(section=section, field=field), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                snapshot = self.copy_contract(root)
+                schema = checker.load(root, checker.SCHEMA)
+                snapshot[section][field] = replacement
+                schema["$defs"][definition]["properties"][field] = {"const": replacement}
+                checker.validate_schema(snapshot, schema, "$", schema)
+                (root / checker.SCHEMA).write_text(json.dumps(schema), encoding="utf-8")
+                (root / checker.SNAPSHOT).write_text(json.dumps(snapshot), encoding="utf-8")
+                with self.assertRaises(checker.ContractError):
+                    checker.validate_contract(root)
+
+    def test_rejects_readiness_with_schema_constraints_removed(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            snapshot = self.copy_contract(root)
+            schema = checker.load(root, checker.SCHEMA)
+            snapshot["current_floor"].update(tier="production_qualified", status="ready")
+            schema["$defs"]["currentFloor"] = {}
+            checker.validate_schema(snapshot, schema, "$", schema)
+            (root / checker.SCHEMA).write_text(json.dumps(schema), encoding="utf-8")
+            (root / checker.SNAPSHOT).write_text(json.dumps(snapshot), encoding="utf-8")
+            with self.assertRaises(checker.ContractError):
+                checker.validate_contract(root)
+
     def test_rejects_shallow_nested_proof(self) -> None:
         self.reject_snapshot(lambda value: value["qualification"].update(minimum_nested_depth=1))
 
