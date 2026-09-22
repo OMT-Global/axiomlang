@@ -1826,7 +1826,7 @@ mod tests {
 
         let error = txn.write("allowed.txt", b"bad").unwrap_err();
 
-        assert_eq!(error, "transaction target must not be a symlink");
+        assert_eq!(error, "path contains a symlink or reparse component");
         assert_eq!(fs::read_link(&target).unwrap(), missing);
         assert!(!missing.exists());
     }
