@@ -9,6 +9,7 @@ import re
 import sys
 from collections import Counter
 from datetime import date
+import os
 from pathlib import Path
 from typing import Any
 
@@ -16,7 +17,7 @@ from compatibility_v1_common import SEMVER, reject_rust_detail
 from json_schema_v1 import validate_draft_2020_12
 
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(os.environ.get("AXIOM_CHECKOUT_PATH") or Path(__file__).resolve().parents[2]).resolve()
 PUBLIC_CONTRACT_SCHEMA = "axiom.public_contract.v1"
 POLICY_SCHEMA = "axiom.compatibility_policy.v1"
 REPORT_SCHEMA = "axiom.compatibility_report.v1"
@@ -79,6 +80,11 @@ def parse_args() -> argparse.Namespace:
         "--schema-file",
         type=Path,
         default=ROOT / "stage1/schemas/axiom-compatibility-report-v1.schema.json",
+    )
+    parser.add_argument(
+        "--historical-baseline",
+        action="store_true",
+        help="permit migration history on surfaces absent from an explicitly historical old contract",
     )
     parser.add_argument("--json", action="store_true")
     return parser.parse_args()
@@ -597,6 +603,7 @@ def compatibility_report(
     policy_path: Path,
     old_policy_path: Path | None = None,
     policy_schema_path: Path = POLICY_SCHEMA_FILE,
+    historical_baseline: bool = False,
 ) -> dict[str, Any]:
     new_policy = load_json(policy_path)
     historical_policy_path = old_policy_path
@@ -663,14 +670,18 @@ def compatibility_report(
 
     for identifier in sorted(new_surfaces.keys() - old_surfaces.keys()):
         surface = new_surfaces[identifier]
-        if migration_action(surface.get("migration")):
+        if migration_action(surface.get("migration")) and not historical_baseline:
             raise ValueError(f"added public surface {identifier} must not declare migration")
         changes.append(
             change_record(
                 "added",
                 "additive",
                 surface,
-                migration=migration_action(surface.get("migration")),
+                migration=(
+                    None
+                    if historical_baseline
+                    else migration_action(surface.get("migration"))
+                ),
             )
         )
     for identifier in sorted(old_surfaces.keys() - new_surfaces.keys()):
@@ -921,6 +932,7 @@ def main() -> int:
             args.policy,
             args.old_policy,
             args.policy_schema,
+            args.historical_baseline,
         )
         try:
             validate_draft_2020_12(report, schema)

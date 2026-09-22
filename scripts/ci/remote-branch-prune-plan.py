@@ -289,6 +289,15 @@ def build_report(
         for branch in branches
         if branch["disposition"] == "candidate"
     ]
+    review_manifest = [
+        {
+            "branch": branch["name"],
+            "sha": branch["sha"],
+            "associated_pull_requests": branch["pull_requests"],
+        }
+        for branch in branches
+        if branch["disposition"] == "candidate"
+    ]
     return {
         "schema_version": SCHEMA_VERSION,
         "repository": repository,
@@ -313,6 +322,7 @@ def build_report(
             "candidate_count": len(candidates),
         },
         "candidates": candidates,
+        "review_manifest": review_manifest,
         "branches": branches,
     }
 
@@ -335,7 +345,19 @@ def render_text(report: dict[str, Any]) -> str:
         "No branch was deleted. Candidates require explicit approval and a fresh SHA recheck.",
     ]
     for candidate in report["candidates"]:
-        lines.append(f"candidate {candidate['name']} {candidate['sha']}")
+        manifest = next(
+            item
+            for item in report["review_manifest"]
+            if item["branch"] == candidate["name"]
+        )
+        pull_requests = ",".join(
+            f"#{pull_request['number']}:{pull_request['state']}"
+            for pull_request in manifest["associated_pull_requests"]
+        )
+        lines.append(
+            f"candidate {candidate['name']} {candidate['sha']} "
+            f"pull_requests={pull_requests}"
+        )
     return "\n".join(lines)
 
 
