@@ -140,8 +140,8 @@
       "governingIssue": 1439,
       "blockerIssues": [1439],
       "dependencies": [1436, 1438, 1425, 1426],
-      "evidence": ["stage1/runtime-abi/direct-native-v0.json", "stage1/conformance/pass/type_system_aggregates/axiom.toml"],
-      "validatingCommand": "make stage1-direct-native-runtime-abi && make stage1-conformance",
+      "evidence": ["docs/dynamic-aggregate-abi-v1.md", "stage1/compiler-contracts/snapshots/dynamic-aggregate-abi-v1.json", "stage1/runtime-abi/direct-native-v0.json", "stage1/conformance/pass/type_system_aggregates/axiom.toml"],
+      "validatingCommand": "make stage1-dynamic-aggregate-abi-v1-test && make stage1-dynamic-aggregate-abi-v1 && make stage1-direct-native-runtime-abi && make stage1-conformance",
       "rustCaptureRisk": "high",
       "agentInspectionImpact": "Expose value layouts, lifecycle, argument/return lowering, and unsupported shapes."
     },
@@ -187,9 +187,9 @@
       "status": "blocked",
       "governingIssue": 1442,
       "blockerIssues": [1442],
-      "dependencies": [1425, 1437, 1440],
-      "evidence": ["docs/grammar.md", "stage1/conformance/fail/for_loop_requires_iteration_protocol/axiom.toml"],
-      "validatingCommand": "make stage1-conformance",
+      "dependencies": [1425, 1437, 1440, 1441, 1476],
+      "evidence": ["docs/grammar.md", "docs/iteration-control-v1.md", "stage1/compiler-contracts/snapshots/iteration-control-v1.json", "stage1/conformance/fail/for_loop_requires_iteration_protocol/axiom.toml", "stage1/conformance/pass/runtime_loop_bodies/axiom.toml"],
+      "validatingCommand": "make stage1-iteration-control-v1-test && make stage1-iteration-control-v1 && make stage1-diagnostics-syntax-boundary && make stage1-hir-boundary && make stage1-mir-backend-boundary && make stage1-conformance",
       "rustCaptureRisk": "medium",
       "agentInspectionImpact": "Expose iteration collection, mode, element ownership, and loop evidence."
     },
@@ -204,10 +204,10 @@
       "governingIssue": 1443,
       "blockerIssues": [1443],
       "dependencies": [1434, 1438, 1425, 1426],
-      "evidence": ["stage1/examples/stdlib_fs_write/axiom.toml", "stage1/crates/axiomc/src/stdlib.rs"],
-      "validatingCommand": "make stage1-stdlib-test && make stage1-conformance",
+      "evidence": ["docs/filesystem-v1.md", "stage1/compiler-contracts/snapshots/filesystem-v1.json", "stage1/examples/stdlib_fs_write/axiom.toml", "stage1/crates/axiomc/src/stdlib.rs"],
+      "validatingCommand": "make stage1-filesystem-v1 && make stage1-filesystem-v1-test && make stage1-stdlib-test && make stage1-conformance",
       "rustCaptureRisk": "medium",
-      "agentInspectionImpact": "Expose scoped roots, path origin, operation, handle lifetime, and denial."
+      "agentInspectionImpact": "Expose authority, scoped root, runtime path origin, normalized path, operation, handle generation and lifetime, byte progress, and denial reason."
     },
     {
       "id": "program_host_abi",
@@ -444,10 +444,10 @@
       "governingIssue": 1481,
       "blockerIssues": [1481],
       "dependencies": [1434, 1438, 1439, 1425, 1426, 1441, 1453, 1455],
-      "evidence": ["stage1/runtime-abi/direct-native-v0.json", "stage1/examples/stdlib_crypto_hash/axiom.toml", "stage1/examples/stdlib_crypto_aead/axiom.toml", "stage1/examples/stdlib_crypto_signature/axiom.toml"],
-      "validatingCommand": "make stage1-direct-native-runtime-abi && make stage1-stdlib-test",
+      "evidence": ["docs/runtime-crypto-provider-policy-v1.md", "stage1/compiler-contracts/schemas/axiom.runtime_crypto_provider_policy.v1.schema.json", "stage1/compiler-contracts/snapshots/runtime-crypto-provider-policy-v1.json", "stage1/compiler-contracts/fixtures/runtime-crypto-provider-policy-v1/algorithm-vectors.json", "stage1/compiler-contracts/fixtures/runtime-crypto-provider-policy-v1/failure-matrix.json", "stage1/compiler-contracts/fixtures/runtime-crypto-provider-policy-v1/inspection-redaction.json", "stage1/compiler-contracts/fixtures/runtime-crypto-provider-policy-v1/provider-matrix.json", "stage1/runtime-abi/direct-native-v0.json", "stage1/examples/stdlib_crypto_hash/axiom.toml", "stage1/examples/stdlib_crypto_aead/axiom.toml", "stage1/examples/stdlib_crypto_signature/axiom.toml"],
+      "validatingCommand": "make stage1-runtime-crypto-provider-policy-v1",
       "rustCaptureRisk": "critical",
-      "agentInspectionImpact": "Expose operation, algorithm, provider/version, capability, redacted key identity, buffer provenance, target, and evidence."
+      "agentInspectionImpact": "Expose only the closed operation, algorithm, provider/version, capability, key-identity state, target, outcome-code, length, and qualification metadata contract; secret values remain forbidden."
     },
     {
       "id": "compatibility_v1",
@@ -490,12 +490,12 @@
       "currentTier": "static_spike",
       "status": "partial",
       "governingIssue": 1459,
-      "blockerIssues": [1459],
+      "blockerIssues": [1457, 1459],
       "dependencies": [1458, 1457],
-      "evidence": ["docs/package.md", "docs/compiler-package-graph.md", "docs/supply-chain.md", "stage1/crates/axiomc/src/manifest.rs", "stage1/crates/axiomc/src/lockfile.rs", "stage1/crates/axiomc/src/package_version.rs", "stage1/crates/axiomc/src/package_resolver.rs", "stage1/crates/axiomc/src/registry_client.rs", "stage1/crates/axiomc/src/package_trust.rs", "stage1/package-resolver/fixtures/lockfile-v2.json", "stage1/package-resolver/fixtures/resolution-v1.json", "stage1/schemas/axiom.toml.schema.json", "stage1/schemas/axiom-lockfile-v2.schema.json", "stage1/schemas/axiom-package-resolution-v1.schema.json"],
+      "evidence": ["docs/package.md", "docs/compiler-package-graph.md", "docs/supply-chain.md", "stage1/crates/axiomc/src/manifest.rs", "stage1/crates/axiomc/src/lockfile.rs", "stage1/crates/axiomc/src/package_version.rs", "stage1/crates/axiomc/src/package_resolver.rs", "stage1/crates/axiomc/src/registry_client.rs", "stage1/crates/axiomc/src/package_trust.rs", "stage1/crates/axiomc/src/package_archive.rs", "stage1/crates/axiomc/src/package_store.rs", "stage1/crates/axiomc/src/package_manager.rs", "stage1/crates/axiomc/tests/package_resolver_cli.rs", "stage1/package-resolver/fixtures/lockfile-v2.json", "stage1/package-resolver/fixtures/resolution-v1.json", "stage1/schemas/axiom.toml.schema.json", "stage1/schemas/axiom-lockfile-v2.schema.json", "stage1/schemas/axiom-package-resolution-v1.schema.json", "scripts/ci/run-toolchain-supply-chain.sh"],
       "validatingCommand": "make stage1-package-resolver && make stage1-package-graph-boundary && make supply-chain",
       "rustCaptureRisk": "high",
-      "agentInspectionImpact": "Explain canonical coordinates, requested and selected versions, candidate/yank decisions, trust pins, cache/vendor disposition, conflicts, and bounded resolution decisions. Current evidence is a local static/loopback registry spike; public hosted transport and edition selection remain out of scope."
+      "agentInspectionImpact": "Explain canonical coordinates, requested and selected versions, candidate/yank decisions, trust pins, cache/vendor disposition, conflicts, and bounded resolution decisions. The executable v1 spike is deliberately limited to signed static metadata, regular local files, and numeric-loopback fixtures. Runtime-complete promotion remains blocked until an immutable exact-head supported-host, load, recovery, release-artifact, and operational receipt exists and Compatibility v1 is qualified; public hosted transport and edition selection remain out of scope."
     },
     {
       "id": "formatter_v1",
@@ -644,9 +644,9 @@
       "status": "blocked",
       "governingIssue": 1427,
       "blockerIssues": [1427],
-      "dependencies": [1434, 1436, 1438, 1439, 1440, 1425, 1426, 1476, 1477],
-      "evidence": ["docs/axiom-compiler-source-layout.md", "docs/self-hosting-language-readiness.json"],
-      "validatingCommand": "make self-hosting-language-readiness",
+      "dependencies": [1425, 1426, 1434, 1436, 1437, 1438, 1439, 1440, 1476, 1477],
+      "evidence": ["docs/axiom-compiler-source-layout.md", "docs/compiler-scale-proof-v1.md", "docs/self-hosting-language-readiness.json", "stage1/compiler-contracts/snapshots/compiler-scale-proof-v1.json"],
+      "validatingCommand": "make stage1-compiler-scale-proof-v1-test && make stage1-compiler-scale-proof-v1 && make self-hosting-language-readiness && make stage1-diagnostics-syntax-boundary && make stage1-package-graph-boundary && make stage1-hir-boundary && make stage1-mir-backend-boundary && make stage1-command-lsp-boundary",
       "rustCaptureRisk": "high",
       "agentInspectionImpact": "Link runtime source, compiler packages, MIR, lowering, capabilities, outputs, and artifact."
     },
@@ -692,9 +692,9 @@
       "status": "blocked",
       "governingIssue": 1471,
       "blockerIssues": [1471],
-      "dependencies": [1473],
-      "evidence": ["docs/axiom-compiler-source-layout.md", "stage1/crates/axiomc/src/syntax.rs"],
-      "validatingCommand": "make stage1-diagnostics-syntax-boundary && make stage1-conformance",
+      "dependencies": [1427, 1468, 1473],
+      "evidence": ["docs/axiom-compiler-source-layout.md", "docs/compiler-syntax-migration-v1.md", "stage1/compiler-contracts/snapshots/syntax-migration-v1.json", "stage1/crates/axiomc/src/syntax.rs"],
+      "validatingCommand": "make stage1-syntax-migration-v1-test && make stage1-syntax-migration-v1 && cargo test --manifest-path stage1/Cargo.toml -p axiomc --test syntax_migration_v1 && make stage1-diagnostics-syntax-boundary && make stage1-conformance",
       "rustCaptureRisk": "high",
       "agentInspectionImpact": "Expose tokens, parse/recovery nodes, macros, spans, parity, and Rust-disable state."
     },
@@ -752,15 +752,15 @@
       "requirement": "The compiler stdlib catalog, modules, capability/effect declarations, and intrinsic/provider bindings are AxiOM-owned.",
       "requiredForProduction": false,
       "targetTier": "runtime_complete",
-      "currentTier": "syntax_only",
-      "status": "blocked",
+      "currentTier": "static_spike",
+      "status": "partial",
       "governingIssue": 1478,
       "blockerIssues": [1478],
       "dependencies": [1472, 1476, 1477, 1441, 1443, 1444, 1445, 1448, 1449, 1450, 1451, 1452, 1453, 1481],
-      "evidence": ["docs/axiom-compiler-source-layout.md", "stage1/crates/axiomc/src/stdlib.rs", "stage1/stdlib/std"],
-      "validatingCommand": "make stage1-stdlib-test && make stage1-conformance",
+      "evidence": ["docs/compiler-stdlib-catalog.md", "docs/axiom-compiler-source-layout.md", "stage1/compiler-contracts/sources/stdlib-catalog-authority-v1.json", "stage1/compiler-contracts/schemas/axiom.compiler.stdlib_catalog.v1.schema.json", "stage1/compiler-contracts/snapshots/stdlib-catalog.json", "scripts/ci/check-stdlib-catalog.py", "stage1/crates/axiomc/src/stdlib.rs", "stage1/stdlib/std"],
+      "validatingCommand": "python3 scripts/ci/check-stdlib-catalog.py --json && python3 scripts/ci/test-check-stdlib-catalog.py && make stage1-stdlib-test && make stage1-conformance",
       "rustCaptureRisk": "high",
-      "agentInspectionImpact": "Expose module/symbol catalog, capabilities, effects, bindings, digests, parity, and Rust-disable state."
+      "agentInspectionImpact": "Expose the versioned module capability/provider authority, symbol catalog, effects, bindings, authority and release digests, ledger parity, and Rust-disable state. Rust remains only the bootstrap loader; runtime qualification and source externalization are still blocked on #1478 and its dependencies."
     },
     {
       "id": "compiler_backend_contract_source",
@@ -789,8 +789,8 @@
       "governingIssue": 1474,
       "blockerIssues": [1474],
       "dependencies": [1472, 1478, 1479, 1455, 1453],
-      "evidence": ["docs/axiom-compiler-source-layout.md", "stage1/crates/axiomc/src/cranelift_backend.rs"],
-      "validatingCommand": "make stage1-mir-backend-boundary && make stage1-direct-native-runtime-abi-test",
+      "evidence": ["docs/axiom-compiler-source-layout.md", "docs/compiler-native-backend-runtime-v1.md", "stage1/compiler-contracts/snapshots/compiler-native-backend-runtime-v1.json", "stage1/crates/axiomc/src/cranelift_backend.rs"],
+      "validatingCommand": "make stage1-compiler-native-backend-runtime-v1-test && make stage1-compiler-native-backend-runtime-v1 && make stage1-mir-backend-boundary && make stage1-direct-native-runtime-abi-test",
       "rustCaptureRisk": "critical",
       "agentInspectionImpact": "Expose native provider/target selection, runtime lowering, artifacts, parity, and Rust-disable state."
     },

@@ -1,0 +1,123 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://omt-global.github.io/axiom/schemas/axiom.compiler_native_backend_runtime.v1.schema.json",
+  "title": "AxiOM Compiler Native Backend and Runtime v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "contract", "issue", "dependency_issues", "target_contract", "current_floor", "qualification", "fixtures"],
+  "properties": {
+    "schema_version": {"const": "axiom.compiler_native_backend_runtime.v1"},
+    "contract": {"const": "self_hosting.compiler_native_backend_runtime"},
+    "issue": {"const": 1474},
+    "dependency_issues": {"type": "array", "minItems": 16, "items": {"type": "integer", "minimum": 1}},
+    "target_contract": {"$ref": "#/$defs/targetContract"},
+    "current_floor": {"$ref": "#/$defs/currentFloor"},
+    "qualification": {"$ref": "#/$defs/qualification"},
+    "fixtures": {"type": "array", "minItems": 18, "items": {"$ref": "#/$defs/fixture"}}
+  },
+  "$defs": {
+    "stringArray": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+    "runtimeSensitivity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artifact_reuse", "runtime_input_sets", "output_relation", "rebuilds_between_inputs", "runtime_origin_required"],
+      "properties": {
+        "artifact_reuse": {"const": "same_artifact_digest"},
+        "runtime_input_sets": {"const": 2},
+        "output_relation": {"const": "distinct_semantic_outputs_for_distinct_inputs"},
+        "rebuilds_between_inputs": {"const": 0},
+        "runtime_origin_required": {"const": true}
+      }
+    },
+    "buildPurity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["forbidden_runtime_authority", "runtime_effect_boundary", "execution_mode", "lowering_mode", "generated_host_projection_required"],
+      "properties": {
+        "forbidden_runtime_authority": {"$ref": "#/$defs/stringArray"},
+        "runtime_effect_boundary": {"const": "effects_execute_only_after_artifact_start"},
+        "execution_mode": {"const": "native_runtime"},
+        "lowering_mode": {"const": "runtime_lowered"},
+        "generated_host_projection_required": {"const": false}
+      }
+    },
+    "targetContract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["semantic_inputs", "backend_stages", "artifact_outputs", "unsupported_dimensions", "runtime_sensitivity", "build_purity", "lifecycle_exits", "evidence_graph_fields", "diagnostics", "prohibited_shortcuts"],
+      "properties": {
+        "semantic_inputs": {"$ref": "#/$defs/stringArray"},
+        "backend_stages": {"$ref": "#/$defs/stringArray"},
+        "artifact_outputs": {"$ref": "#/$defs/stringArray"},
+        "unsupported_dimensions": {"$ref": "#/$defs/stringArray"},
+        "runtime_sensitivity": {"$ref": "#/$defs/runtimeSensitivity"},
+        "build_purity": {"$ref": "#/$defs/buildPurity"},
+        "lifecycle_exits": {"$ref": "#/$defs/stringArray"},
+        "evidence_graph_fields": {"$ref": "#/$defs/stringArray"},
+        "diagnostics": {"$ref": "#/$defs/stringArray"},
+        "prohibited_shortcuts": {"$ref": "#/$defs/stringArray"}
+      }
+    },
+    "currentFloor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tier", "status", "implementation_owner", "mir_backend_contract_present", "direct_native_subset_present", "runtime_abi_contract_present", "lifecycle_contract_present", "provider_contract_present", "artifact_plan_present", "axiom_owned_native_package_present", "executable_mir_complete", "runtime_abi_complete", "lifecycle_ownership_complete", "build_purity_proven", "runtime_input_sensitivity_proven", "unsupported_fail_closed_proven", "native_object_link_proven", "debug_provenance_proven", "provider_parity_proven", "all_supported_targets_proven", "legacy_independence_proven", "bootstrap_evidence", "target_gaps"],
+      "properties": {
+        "tier": {"const": "syntax_only"},
+        "status": {"const": "blocked"},
+        "implementation_owner": {"const": "legacy_bootstrap"},
+        "mir_backend_contract_present": {"const": true},
+        "direct_native_subset_present": {"const": true},
+        "runtime_abi_contract_present": {"const": true},
+        "lifecycle_contract_present": {"const": true},
+        "provider_contract_present": {"const": true},
+        "artifact_plan_present": {"const": true},
+        "axiom_owned_native_package_present": {"const": false},
+        "executable_mir_complete": {"const": false},
+        "runtime_abi_complete": {"const": false},
+        "lifecycle_ownership_complete": {"const": false},
+        "build_purity_proven": {"const": false},
+        "runtime_input_sensitivity_proven": {"const": false},
+        "unsupported_fail_closed_proven": {"const": false},
+        "native_object_link_proven": {"const": false},
+        "debug_provenance_proven": {"const": false},
+        "provider_parity_proven": {"const": false},
+        "all_supported_targets_proven": {"const": false},
+        "legacy_independence_proven": {"const": false},
+        "bootstrap_evidence": {"$ref": "#/$defs/stringArray"},
+        "target_gaps": {"$ref": "#/$defs/stringArray"}
+      }
+    },
+    "qualification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fixture_scaffolding_only", "backend_dispatch_authorized", "semantic_cutover_authorized", "legacy_retirement_authorized", "dependencies_must_be_runtime_complete", "human_cutover_issue", "required_proofs", "readiness_promotable", "review_policy", "fail_closed_diagnostic"],
+      "properties": {
+        "fixture_scaffolding_only": {"const": true},
+        "backend_dispatch_authorized": {"const": false},
+        "semantic_cutover_authorized": {"const": false},
+        "legacy_retirement_authorized": {"const": false},
+        "dependencies_must_be_runtime_complete": {"const": true},
+        "human_cutover_issue": {"const": 1479},
+        "required_proofs": {"$ref": "#/$defs/stringArray"},
+        "readiness_promotable": {"const": false},
+        "review_policy": {"const": "independent_acceptance_and_human_cutover_review_required"},
+        "fail_closed_diagnostic": {"const": "self_host.native_backend_runtime_not_qualified"}
+      }
+    },
+    "fixture": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "category", "status", "runtime_origin", "blocks_readiness", "scenario", "evidence"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^compiler-native-backend-runtime-v1/[a-z0-9-]+$"},
+        "category": {"enum": ["artifact", "boundary", "debug", "dependency", "lifecycle", "parity", "provider", "purity", "runtime", "target"]},
+        "status": {"enum": ["bootstrap_pass", "target_gap"]},
+        "runtime_origin": {"type": "boolean"},
+        "blocks_readiness": {"type": "boolean"},
+        "scenario": {"type": "string", "minLength": 1},
+        "evidence": {"$ref": "#/$defs/stringArray"}
+      }
+    }
+  }
+}

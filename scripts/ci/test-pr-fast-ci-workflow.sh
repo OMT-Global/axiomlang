@@ -53,8 +53,8 @@ ci_gate_head_ref=$(printf '%s\n' "$ci_gate_section" | grep -F 'github.event.pull
 # The fast-checks job legitimately checks out the PR head as *data*, so a
 # blanket head.sha search would false-positive here. Instead resolve the `ref:`
 # that belongs to the step declaring `path: .trusted-ci` and require it to be
-# the base SHA. That step's script is executed on a persistent self-hosted
-# runner, so it must never come from the PR head (#1543).
+# the base SHA. That step's script is executed from the trusted checkout while
+# the PR head is data, so it must never come from the PR head (#1543).
 fast_checks_trusted_base_ref=$(awk '
   /^  fast-checks:$/ { in_job=1; next }
   in_job && /^  [A-Za-z0-9_-]+:$/ { exit }
@@ -64,10 +64,25 @@ fast_checks_trusted_base_ref=$(awk '
     exit
   }
 ' "$workflow")
+fast_checks_checkout_root=$(grep -nF 'AXIOM_CHECKOUT_PATH="$GITHUB_WORKSPACE" bash .trusted-ci/scripts/ci/run-fast-checks.sh' "$workflow" || true)
+crypto_policy_self_test_root=$(awk '
+  /test-check-runtime-crypto-provider-policy-v1\.py"/ {
+    if (getline > 0 && $0 ~ /--root "\$repo_root"/) print "yes"
+  }
+' "$fast_checks_script")
+crypto_policy_check_root=$(awk '
+  /\/check-runtime-crypto-provider-policy-v1\.py"/ {
+    if (getline > 0 && $0 ~ /--root "\$repo_root"/) print "yes"
+  }
+' "$fast_checks_script")
 benchmark_gate_reference=$(grep -nE 'check-stage1-benchmarks\.py|stage1-comparison-report\.json' "$workflow" || true)
 runtime_abi_status_check=$(grep -nF 'scripts/ci/render-direct-native-runtime-abi-status.py' "$fast_checks_script" || true)
 runtime_abi_coverage_check=$(grep -nF -- '--coverage-matrix' "$fast_checks_script" || true)
+schema_metadata_bin_check=$(grep -nA1 -E '^cargo test --manifest-path "\$repo_root/stage1/Cargo[.]toml" -p axiomc \\$' "$fast_checks_script" | grep -E '^[0-9]+-[[:space:]]+--bin axiomc --test schema_metadata --locked$' || true)
 full_lib_triage_check=$(grep -nF 'scripts/ci/check-stage1-full-lib-triage.py' "$fast_checks_script" || true)
+syntax_migration_self_test=$(grep -nF 'scripts/ci/test-check-syntax-migration-v1.py' "$fast_checks_script" || true)
+syntax_migration_head_check=$(grep -nF 'scripts/ci/check-syntax-migration-v1.py" --root "$repo_root"' "$fast_checks_script" || true)
+syntax_migration_fixture_test=$(grep -nF -- '--test syntax_migration_v1' "$fast_checks_script" || true)
 full_lib_suite_job=$(grep -nF 'full-lib-suite:' "$workflow" || true)
 full_lib_suite_run=$(grep -nF 'cargo test --manifest-path stage1/Cargo.toml -p axiomc --lib --features run-native-tests' "$workflow" || true)
 full_lib_suite_gate=$(grep -nF 'full-lib-suite=${{ needs.full-lib-suite.result }}' "$workflow" || true)
@@ -80,11 +95,23 @@ full_lib_suite_section="$(
 )"
 full_lib_suite_linker=$(printf '%s\n' "$full_lib_suite_section" | grep -F 'Ensure Rust linker availability' || true)
 axiomc_bin_suite=$(printf '%s\n' "$full_lib_suite_section" | grep -F -- 'cargo test --manifest-path stage1/Cargo.toml -p axiomc --bin axiomc --features run-native-tests' || true)
+axiomc_cranelift_suite=$(printf '%s\n' "$full_lib_suite_section" | grep -F -- 'cargo test --manifest-path stage1/Cargo.toml -p axiomc --test cranelift_backend --features run-native-tests' || true)
+axiomc_manifest_schema_parity_suite=$(printf '%s\n' "$full_lib_suite_section" | grep -E -- '^[[:space:]]*run: RUST_MIN_STACK=8388608 cargo test --manifest-path stage1/Cargo\.toml -p axiomc --test manifest_schema_parity --locked -- --test-threads=1[[:space:]]*$' || true)
+axiomc_syntax_migration_suite=$(printf '%s\n' "$full_lib_suite_section" | grep -E -- '^[[:space:]]*run: RUST_MIN_STACK=8388608 cargo test --manifest-path stage1/Cargo\.toml -p axiomc --test syntax_migration_v1 --locked -- --test-threads=1[[:space:]]*$' || true)
+axiomc_json_contract_suite=$(printf '%s\n' "$full_lib_suite_section" | grep -E -- '^[[:space:]]*run: RUST_MIN_STACK=8388608 cargo test --manifest-path stage1/Cargo\.toml -p axiomc --test json_contract_snapshots --locked -- --test-threads=1[[:space:]]*$' || true)
+axiomc_numeric_overflow_suite=$(printf '%s\n' "$full_lib_suite_section" | grep -F -- 'cargo test --manifest-path stage1/Cargo.toml -p axiomc --test cranelift_numeric_overflow --features run-native-tests' || true)
+# Keep the intentional schema-rejection test byte-pinned; reject legacy tables elsewhere.
+python3 "$repo_root/scripts/ci/check-cranelift-manifest-fixtures.py"
 proof_workload_test=$(grep -nF 'bash scripts/ci/run-stage1-proof-test.sh' "$fast_checks_script" || true)
 stdlib_catalog_check=$(grep -nF 'scripts/ci/check-stdlib-catalog.py' "$fast_checks_script" || true)
 stdlib_catalog_regression=$(grep -nF 'scripts/ci/test-check-stdlib-catalog.py' "$fast_checks_script" || true)
-http_server_check=$(grep -A1 -F 'check-http-server-v1.py' "$fast_checks_script" | grep -F -- '--root "$repo_root" --json' || true)
-http_server_regression=$(grep -nF 'python3 "$script_repo_root/scripts/ci/test-check-http-server-v1.py"' "$fast_checks_script" || true)
+filesystem_check=$(grep -nF 'python3 "$script_repo_root/scripts/ci/check-filesystem-v1.py" --root "$repo_root"' "$fast_checks_script" || true)
+filesystem_regression=$(grep -nF 'python3 "$script_repo_root/scripts/ci/test-check-filesystem-v1.py"' "$fast_checks_script" || true)
+filesystem_behavior=$(grep -nF 'bash "$script_repo_root/scripts/ci/run-filesystem-v1-behavioral-tests.sh" "$repo_root"' "$fast_checks_script" || true)
+iteration_checker_count=$(grep -cF 'python3 "$script_repo_root/scripts/ci/check-iteration-control-v1.py" --root "$repo_root" --json' "$fast_checks_script" || true)
+iteration_self_test_count=$(grep -cF 'python3 "$script_repo_root/scripts/ci/test-check-iteration-control-v1.py" --root "$repo_root"' "$fast_checks_script" || true)
+iteration_head_code_reference=$(grep -nE '\$repo_root/scripts/ci/(test-)?check-iteration-control-v1\.py' "$fast_checks_script" || true)
+fast_checks_head_as_data=$(grep -nF 'AXIOM_CHECKOUT_PATH="$GITHUB_WORKSPACE" bash .trusted-ci/scripts/ci/run-fast-checks.sh' "$workflow" || true)
 makefile_route_count=$(grep -cF "              - 'Makefile'" "$workflow" || true)
 
 if [[ -n "$checkout_line" ]]; then
@@ -148,12 +175,22 @@ if (( ci_gate_checkout_line >= ci_gate_fork_validate_line || ci_gate_fork_valida
 fi
 
 if [[ -z "$ci_gate_base_ref_line" || -n "$ci_gate_head_ref" ]]; then
-  echo "ci-gate must checkout the trusted base SHA before running repository scripts on self-hosted runners" >&2
+  echo "ci-gate must checkout the trusted base SHA before running repository scripts" >&2
   exit 1
 fi
 
 if [[ -z "$fast_checks_trusted_base_ref" ]]; then
   echo "fast-checks must pin the .trusted-ci checkout to github.event.pull_request.base.sha; pinning it to head.sha runs PR-authored scripts under a trusted label (#1543 regression of #1211)" >&2
+  exit 1
+fi
+
+if [[ -z "$fast_checks_checkout_root" ]]; then
+  echo "fast-checks must pass the PR-head checkout only as AXIOM_CHECKOUT_PATH data to the base-pinned trusted script" >&2
+  exit 1
+fi
+
+if [[ "$crypto_policy_self_test_root" != "yes" || "$crypto_policy_check_root" != "yes" ]]; then
+  echo "the base-pinned runtime crypto policy checker and self-test must receive PR-head data only through explicit --root \"\$repo_root\"" >&2
   exit 1
 fi
 
@@ -193,10 +230,47 @@ if [[ -z "$runtime_abi_coverage_check" ]]; then
   exit 1
 fi
 
+if ! grep -Fxq 'python3 "$script_repo_root/scripts/ci/test-fast-check-target-isolation.py"' "$fast_checks_script"; then
+  echo "run-fast-checks must exercise commit-bound target isolation (#1195)" >&2
+  exit 1
+fi
+
+if [[ -z "$schema_metadata_bin_check" ]]; then
+  echo "run-fast-checks must select the axiomc binary for schema metadata CLI tests (#1195)" >&2
+  exit 1
+fi
+
 if [[ -z "$axiomc_bin_suite" ]]; then
   echo "fast-checks must execute the axiomc bin target so CLI/help tests cannot disappear from PR CI (#1542)" >&2
   exit 1
 fi
+
+if [[ -z "$axiomc_cranelift_suite" ]]; then
+  echo "pr-fast-ci must execute the axiomc Cranelift integration target so manifest/ABI regressions cannot disappear from PR CI (#1562)" >&2
+  exit 1
+fi
+
+if [[ -z "$axiomc_json_contract_suite" ]]; then
+  echo "full-lib-suite must run json_contract_snapshots; actual CLI envelopes must satisfy their schemas" >&2
+  exit 1
+fi
+
+if [[ -z "$axiomc_syntax_migration_suite" ]]; then
+  echo "full-lib-suite must run syntax_migration_v1; bootstrap fixtures require real parser validation at PR head" >&2
+  exit 1
+fi
+
+if [[ -z "$axiomc_manifest_schema_parity_suite" ]]; then
+  echo "full-lib-suite must run manifest_schema_parity; schema metadata must be checked against the real parser" >&2
+  exit 1
+fi
+
+if [[ -z "$axiomc_numeric_overflow_suite" ]]; then
+  echo "pr-fast-ci must execute the native numeric overflow matrix in required native mode (#1659)" >&2
+  exit 1
+fi
+
+
 
 if [[ -z "$full_lib_suite_job" || -z "$full_lib_suite_run" || -z "$full_lib_suite_gate" ]]; then
   echo "pr-fast-ci must run the full axiomc lib suite as a CI Gate dependency (#1255 blocking lane)" >&2
@@ -213,6 +287,11 @@ if [[ -z "$full_lib_triage_check" ]]; then
   exit 1
 fi
 
+if [[ -z "$syntax_migration_self_test" || -z "$syntax_migration_head_check" || -z "$syntax_migration_fixture_test" ]]; then
+  echo "run-fast-checks must retain trusted syntax checker self-tests, validate the PR-head root as data, and execute structured parser fixtures" >&2
+  exit 1
+fi
+
 if [[ -z "$proof_workload_test" ]]; then
   echo "run-fast-checks must run the stage1 proof workload smoke" >&2
   exit 1
@@ -223,18 +302,36 @@ if [[ -z "$stdlib_catalog_check" || -z "$stdlib_catalog_regression" ]]; then
   exit 1
 fi
 
-if [[ -z "$http_server_check" ]]; then
-  echo "trusted fast checks must validate HTTP Server v1 from the PR-head checkout root" >&2
+if [[ -z "$filesystem_check" || -z "$filesystem_regression" || -z "$filesystem_behavior" ]]; then
+  echo "run-fast-checks must validate PR-head Filesystem v1 data, retain checker self-tests, and execute current-backend behavior" >&2
   exit 1
 fi
 
-if [[ -z "$http_server_regression" ]]; then
-  echo "trusted fast checks must retain the trusted HTTP Server v1 checker self-tests" >&2
+if [[ "$iteration_checker_count" != "1" || "$iteration_self_test_count" != "1" ]]; then
+  echo "run-fast-checks must execute the base-pinned iteration checker and root-selectable self-test exactly once with explicit --root \"\$repo_root\"" >&2
+  exit 1
+fi
+
+if [[ -n "$iteration_head_code_reference" ]]; then
+  echo "run-fast-checks must not execute iteration checker code from the PR-head checkout" >&2
+  printf '%s\n' "$iteration_head_code_reference" >&2
+  exit 1
+fi
+
+if [[ -z "$fast_checks_head_as_data" ]]; then
+  echo "fast-checks must pass the PR head as AXIOM_CHECKOUT_PATH data to the base-pinned trusted runner" >&2
   exit 1
 fi
 
 if (( makefile_route_count < 2 )); then
   echo "pr-fast-ci must route Makefile changes through both app and CI filters" >&2
+  exit 1
+fi
+
+native_backend_checker_count=$(grep -cF 'python3 "$script_repo_root/scripts/ci/check-compiler-native-backend-runtime-v1.py" --root "$repo_root"' "$fast_checks_script" || true)
+native_backend_self_test_count=$(grep -cF 'python3 "$script_repo_root/scripts/ci/test-check-compiler-native-backend-runtime-v1.py"' "$fast_checks_script" || true)
+if [[ "$native_backend_checker_count" != 1 || "$native_backend_self_test_count" != 1 ]]; then
+  echo "run-fast-checks must execute the trusted native-backend contract checker exactly once against explicit PR-head data and retain its self-test" >&2
   exit 1
 fi
 
@@ -269,3 +366,59 @@ if [[ -z "$provider_abi_check" || -z "$provider_abi_self_test" || -z "$provider_
 fi
 
 echo "pr-fast-ci workflow validation passed"
+
+# The shared environment contract must include non-check-* readers and the shell
+# compatibility wrapper, not just Python checker naming patterns (#1560).
+for reader in check-provider-abi-v1.py check-stdlib-catalog.py check-semantic-mir-v1.py check-runtime-lifecycle-v1.py check-http-client-v1.py check-runtime-observability-v1.py run-agent-autonomy-benchmark.py test-check-compatibility-v1.sh; do
+  grep -qF "scripts/ci/$reader" "$fast_checks_script" || { echo "missing isolated reader: $reader" >&2; exit 1; }
+done
+grep -qF 'export AXIOM_CHECKOUT_PATH="$repo_root"' "$fast_checks_script"
+grep -qF 'test-fast-checkout-isolation.py' "$fast_checks_script"
+grep -qF 'CARGO_TARGET_DIR: ${{ runner.temp }}/axiom-fast-${{ github.run_id }}-${{ github.run_attempt }}' "$workflow"
+
+# The trusted base checker may only treat PR head as data, never run its evidence.
+abi_checker_count=$(grep -cxF 'python3 "$script_repo_root/scripts/ci/check-dynamic-aggregate-abi-v1.py" --root "$repo_root"' "$fast_checks_script" || true)
+abi_self_test_count=$(grep -cxF 'python3 "$script_repo_root/scripts/ci/test-check-dynamic-aggregate-abi-v1.py"' "$fast_checks_script" || true)
+abi_native_test_count=$(printf '%s\n' "$full_lib_suite_section" | grep -cF 'cargo test --manifest-path stage1/Cargo.toml -p axiomc --test schema_metadata dynamic_aggregate_abi_schema_requires_deterministic_layout_metadata --locked -- --test-threads=1' || true)
+if [[ "$abi_checker_count" != 1 || "$abi_self_test_count" != 1 || "$abi_native_test_count" != 1 ]]; then
+  echo "Dynamic Aggregate ABI requires exactly one trusted root-data checker, self-test and PR-head metadata test" >&2
+  exit 1
+fi
+if grep -F 'check-dynamic-aggregate-abi-v1.py' "$fast_checks_script" | grep -qF -- '--execute'; then
+  echo "Dynamic Aggregate ABI trusted fast lane cannot execute PR-head evidence" >&2
+  exit 1
+fi
+
+abi_execution_count=$(printf '%s\n' "$full_lib_suite_section" | grep -cF 'python3 scripts/ci/check-dynamic-aggregate-abi-v1.py --root "$GITHUB_WORKSPACE" --execute --cargo-target-dir "$GITHUB_WORKSPACE/stage1/target" --json' || true)
+if [[ "$abi_execution_count" != 1 ]]; then
+  echo "Dynamic Aggregate ABI executable fixtures must run exactly once in the PR-head Full Lib Suite" >&2
+  exit 1
+fi
+
+stdlib_transition_fast=$(grep -cxF 'python3 "$script_repo_root/scripts/ci/test-check-stdlib-catalog-transition.py"' "$fast_checks_script" || true)
+stdlib_transition_head=$(printf '%s\n' "$full_lib_suite_section" | grep -cxF '        run: python3 scripts/ci/test-check-stdlib-catalog-transition.py' || true)
+if [[ "$stdlib_transition_fast" != 1 || "$stdlib_transition_head" != 1 ]]; then
+  echo "Stdlib catalog transition controls require trusted-main and exact PR-head execution" >&2
+  exit 1
+fi
+
+# New scaffold checks run on PR head while trusted main consumes only explicit head data.
+scale_checker_count=$(grep -cF 'python3 "$script_repo_root/scripts/ci/check-compiler-scale-proof-v1.py" --root "$repo_root"' "$fast_checks_script" || true)
+scale_selftest_count=$(grep -cF 'python3 "$script_repo_root/scripts/ci/test-check-compiler-scale-proof-v1.py"' "$fast_checks_script" || true)
+scale_head_count=$(printf '%s\n' "$full_lib_suite_section" | grep -cF 'python3 scripts/ci/check-compiler-scale-proof-v1.py --root "$GITHUB_WORKSPACE" --json' || true)
+scale_head_selftest_count=$(printf '%s\n' "$full_lib_suite_section" | grep -cF 'python3 scripts/ci/test-check-compiler-scale-proof-v1.py' || true)
+if [[ "$scale_checker_count" != 1 || "$scale_selftest_count" != 1 || "$scale_head_count" != 1 || "$scale_head_selftest_count" != 1 ]]; then
+  echo "Compiler scale proof requires exactly one trusted explicit-root check/selftest and PR-head check/selftest" >&2
+  exit 1
+fi
+
+# HTTP target contracts run on exact head; trusted checks consume head data only.
+http_check_count=$(grep -cF 'python3 "$script_repo_root/scripts/ci/check-http-server-v1.py" --root "$repo_root" --json' "$fast_checks_script" || true)
+http_selftest_count=$(grep -cF 'python3 "$script_repo_root/scripts/ci/test-check-http-server-v1.py"' "$fast_checks_script" || true)
+http_head_check_count=$(printf '%s\n' "$full_lib_suite_section" | grep -cF 'python3 scripts/ci/check-http-server-v1.py --root "$GITHUB_WORKSPACE" --json' || true)
+http_head_selftest_count=$(printf '%s\n' "$full_lib_suite_section" | grep -cF 'python3 scripts/ci/test-check-http-server-v1.py' || true)
+http_native_count=$(printf '%s\n' "$full_lib_suite_section" | grep -cF 'cargo test --manifest-path stage1/Cargo.toml -p axiomc --test schema_metadata http_server_v1_schema_enforces_promotion_limits_and_overload_boundaries --locked -- --test-threads=1' || true)
+if [[ "$http_check_count" != 1 || "$http_selftest_count" != 1 || "$http_head_check_count" != 1 || "$http_head_selftest_count" != 1 || "$http_native_count" != 1 ]]; then
+  echo "HTTP server requires exactly one trusted explicit-root check/selftest and PR-head check/selftest/native schema metadata test" >&2
+  exit 1
+fi

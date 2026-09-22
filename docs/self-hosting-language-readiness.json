@@ -235,11 +235,13 @@
       "directNativeStatus": "partial",
       "blockerIssues": [1427],
       "evidence": [
+        "docs/compiler-scale-proof-v1.md",
+        "stage1/compiler-contracts/snapshots/compiler-scale-proof-v1.json",
         "stage1/examples/stdlib_doc/axiom.toml",
         "stage1/examples/stdlib_lsp/axiom.toml",
         "stage1/compiler-contracts/snapshots/command-lsp.json"
       ],
-      "validatingCommand": "make stage1-command-lsp-boundary && make rust-exit-readiness",
+      "validatingCommand": "make stage1-compiler-scale-proof-v1-test && make stage1-compiler-scale-proof-v1 && make stage1-command-lsp-boundary && make rust-exit-readiness",
       "notes": "Language helpers exist, but the final bootstrap track still needs AxiOM-owned command-package proof before the compiler rewrite can start."
     },
     {
@@ -252,9 +254,11 @@
       "blockerIssues": [1427],
       "evidence": [
         "docs/axiom-compiler-source-layout.md",
-        "docs/compiler-source-decomposition-plan.md"
+        "docs/compiler-scale-proof-v1.md",
+        "docs/compiler-source-decomposition-plan.md",
+        "stage1/compiler-contracts/snapshots/compiler-scale-proof-v1.json"
       ],
-      "validatingCommand": "make self-hosting-language-readiness && make rust-exit-readiness",
+      "validatingCommand": "make stage1-compiler-scale-proof-v1-test && make stage1-compiler-scale-proof-v1 && make self-hosting-language-readiness && make rust-exit-readiness",
       "notes": "This row prevents language-readiness from being inferred from small examples alone."
     }
   ]

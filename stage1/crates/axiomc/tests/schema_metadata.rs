@@ -9,6 +9,7 @@ use jsonschema::Validator;
 use serde_json::Value;
 use std::fs;
 use std::path::Path;
+use std::process::Command;
 
 fn schema_dir() -> std::path::PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -22,74 +23,105 @@ fn compile_validator(schema: &Value) -> Validator {
 }
 
 #[test]
-fn http_server_v1_schema_enforces_promotion_limits_and_overload_boundaries() {
+fn dynamic_aggregate_abi_schema_requires_deterministic_layout_metadata() {
     let stage1 = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let schema: Value = serde_json::from_str(
         &fs::read_to_string(
-            stage1.join("compiler-contracts/schemas/axiom.runtime_http_server.v1.schema.json"),
+            stage1.join("compiler-contracts/schemas/axiom.dynamic_aggregate_abi.v1.schema.json"),
         )
-        .expect("read HTTP Server v1 schema"),
+        .expect("read Dynamic Aggregate ABI schema"),
     )
-    .expect("HTTP Server v1 schema is valid JSON");
+    .expect("Dynamic Aggregate ABI schema is valid JSON");
     let snapshot: Value = serde_json::from_str(
-        &fs::read_to_string(stage1.join("compiler-contracts/snapshots/http-server-v1.json"))
-            .expect("read HTTP Server v1 snapshot"),
+        &fs::read_to_string(
+            stage1.join("compiler-contracts/snapshots/dynamic-aggregate-abi-v1.json"),
+        )
+        .expect("read Dynamic Aggregate ABI snapshot"),
     )
-    .expect("HTTP Server v1 snapshot is valid JSON");
+    .expect("Dynamic Aggregate ABI snapshot is valid JSON");
     let validator = compile_validator(&schema);
 
     validator
         .validate(&snapshot)
-        .expect("checked HTTP Server v1 snapshot matches its schema");
+        .expect("Dynamic Aggregate ABI snapshot matches its schema");
 
-    let mut missing_keep_alive_bound = snapshot.clone();
-    missing_keep_alive_bound["limits"]
+    let mut missing_passing_rule = snapshot.clone();
+    missing_passing_rule["logical_layout"]["passing"]
         .as_object_mut()
-        .expect("limits")
-        .remove("max_requests_per_connection");
+        .expect("passing rule object")
+        .remove("selection");
     assert!(
-        !validator.is_valid(&missing_keep_alive_bound),
-        "HTTP Server v1 requires a keep-alive request bound"
+        !validator.is_valid(&missing_passing_rule),
+        "passing selection is required"
     );
 
-    let mut invalid_listener_response = snapshot.clone();
-    invalid_listener_response["limits"]["backpressure"]["listener_capacity"]
-        ["http_response_possible"] = serde_json::json!(true);
+    let mut duplicate_inspection_field = snapshot;
+    let fields = duplicate_inspection_field["inspection_fields"]
+        .as_array_mut()
+        .expect("inspection fields array");
+    fields.push(fields[0].clone());
     assert!(
-        !validator.is_valid(&invalid_listener_response),
-        "an unaccepted connection cannot receive an HTTP overload response"
+        !validator.is_valid(&duplicate_inspection_field),
+        "inspection fields remain unique"
     );
+}
+
+#[test]
+fn filesystem_v1_schema_enforces_promotion_boundaries() {
+    let stage1 = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let schema: Value = serde_json::from_str(
+        &fs::read_to_string(
+            stage1.join("compiler-contracts/schemas/axiom.filesystem.v1.schema.json"),
+        )
+        .expect("read Filesystem v1 schema"),
+    )
+    .expect("Filesystem v1 schema is valid JSON");
+    let snapshot: Value = serde_json::from_str(
+        &fs::read_to_string(stage1.join("compiler-contracts/snapshots/filesystem-v1.json"))
+            .expect("read Filesystem v1 snapshot"),
+    )
+    .expect("Filesystem v1 snapshot is valid JSON");
+    let validator = compile_validator(&schema);
+
+    validator
+        .validate(&snapshot)
+        .expect("checked Filesystem v1 snapshot matches its schema");
 
     let mut incomplete_promotion = snapshot.clone();
     incomplete_promotion["implementation"]["tier"] = serde_json::json!("runtime_complete");
     assert!(
         !validator.is_valid(&incomplete_promotion),
-        "runtime_complete requires complete HTTP server evidence"
+        "runtime_complete requires complete executable evidence"
     );
 
     let mut complete_promotion = snapshot;
     complete_promotion["implementation"]["tier"] = serde_json::json!("runtime_complete");
-    complete_promotion["implementation"]["status"] = serde_json::json!("complete");
-    complete_promotion["implementation"]["loopback_only"] = serde_json::json!(false);
-    for feature in [
-        "dynamic_handler",
-        "external_bind",
-        "structured_concurrency",
-        "http_1_1_proxy",
-        "graceful_drain",
-        "observability_flush",
+    complete_promotion["implementation"]["status"] = serde_json::json!("qualified");
+    complete_promotion["implementation"]["blockers"] = serde_json::json!([]);
+    for field in [
+        "scoped_text_io",
+        "root_scoped_metadata",
+        "root_scoped_write",
+        "typed_paths",
+        "binary_handles",
+        "deterministic_traversal",
+        "atomic_replace",
+        "secure_temporary_resources",
+        "runtime_effects_only",
+        "descriptor_anchored_replace",
+        "pathname_operations_toctou_safe",
     ] {
-        complete_promotion["implementation"][feature] = serde_json::json!(true);
+        complete_promotion["implementation"][field] = serde_json::json!(true);
     }
     for fixture in complete_promotion["fixtures"]
         .as_array_mut()
-        .expect("HTTP Server v1 fixtures are an array")
+        .expect("Filesystem v1 fixtures are an array")
     {
-        fixture["evidence_tier"] = serde_json::json!("runtime");
+        fixture["evidence"] = serde_json::json!("runtime");
     }
     validator
         .validate(&complete_promotion)
-        .expect("fully evidenced HTTP Server v1 is promotion-capable");
+        .expect("fully evidenced runtime_complete contract is promotion-capable");
 }
 
 #[test]
@@ -136,7 +168,7 @@ fn quality_v1_schemas_reject_contradictory_reports() {
             "targets": ["lib", "bin:axiomc"],
             "locked": true,
             "testThreads": 1,
-            "skippedTests": ["tests::check_properties_runs_property_only_tests"],
+            "skippedTests": ["tests::check_properties_runs_only_property_tests_and_fails_closed_without_runtime_lowering"],
             "budgetSeconds": 600
         },
         "status": "passed",
@@ -169,6 +201,14 @@ fn quality_v1_schemas_reject_contradictory_reports() {
     report_validator
         .validate(&report)
         .expect("minimal passing quality report matches its schema");
+
+    let mut stale_profile = report.clone();
+    stale_profile["profile"]["skippedTests"] =
+        serde_json::json!(["tests::check_properties_runs_property_only_tests"]);
+    assert!(
+        !report_validator.is_valid(&stale_profile),
+        "quality reports reject the superseded skipped-test profile"
+    );
 
     let finding = serde_json::json!({
         "code": "global_coverage_regression",
@@ -1090,6 +1130,112 @@ fn editor_metadata_schemas_are_parseable_and_current() {
 }
 
 #[test]
+fn inspect_evidence_cli_is_wired_for_text_and_json_output() {
+    let temp = tempfile::tempdir().expect("create inspect evidence tempdir");
+    let project = temp.path().join("inspect-evidence-app");
+    let project_arg = project.to_str().expect("project path");
+    let created = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args(["new", project_arg, "--name", "inspect-evidence-app"])
+        .output()
+        .expect("run axiomc new");
+    assert!(created.status.success(), "new failed: {:?}", created);
+
+    let inspect_schema: Value = serde_json::from_str(
+        &fs::read_to_string(schema_dir().join("axiom-inspect-v0.schema.json"))
+            .expect("read inspect schema"),
+    )
+    .expect("inspect schema JSON");
+    let public_schema: Value = serde_json::from_str(
+        &fs::read_to_string(schema_dir().join("axiom.stage1.v1.schema.json"))
+            .expect("read public schema"),
+    )
+    .expect("public schema JSON");
+    let effects_schema: Value = serde_json::from_str(
+        &fs::read_to_string(schema_dir().join("axiom-effects-v0.schema.json"))
+            .expect("read effects schema"),
+    )
+    .expect("effects schema JSON");
+    let effects_validator = compile_validator(&effects_schema);
+    let inspect_validator = compile_validator(&inspect_schema);
+    let public_validator = compile_validator(&public_schema);
+    let commands = inspect_schema["properties"]["command"]["enum"]
+        .as_array()
+        .expect("advertised inspect commands");
+    assert!(
+        commands.iter().any(|v| v == "inspect evidence"),
+        "evidence must remain advertised"
+    );
+    for command in commands {
+        let command = command.as_str().expect("inspect command name");
+        assert!(command.starts_with("inspect "));
+        let mut args: Vec<&str> = command.split_whitespace().collect();
+        args.extend([project_arg, "--json"]);
+        let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+            .args(args)
+            .output()
+            .expect("invoke advertised inspect command");
+        assert!(
+            output.status.success(),
+            "advertised {command} failed: {output:?}"
+        );
+        assert!(
+            output.stderr.is_empty(),
+            "{command} emitted stderr: {output:?}"
+        );
+        let payload: Value = serde_json::from_slice(&output.stdout).expect("inspect JSON");
+        assert_eq!(payload["command"], command);
+        if command == "inspect effects" {
+            assert_eq!(payload["schema_version"], "axiom.effects.v0");
+            effects_validator
+                .validate(&payload)
+                .expect("effects validates its dedicated schema");
+        } else {
+            assert_eq!(payload["schema_version"], "axiom.stage1.v1");
+            inspect_validator
+                .validate(&payload)
+                .expect("advertised output validates inspect schema");
+        }
+        if command == "inspect evidence" {
+            assert!(payload["evidence"].is_array());
+            public_validator
+                .validate(&payload)
+                .expect("evidence validates public envelope");
+        }
+    }
+
+    let text_output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args(["inspect", "evidence", project_arg])
+        .output()
+        .expect("inspect evidence text");
+    assert!(text_output.status.success(), "text failed: {text_output:?}");
+    assert!(text_output.stderr.is_empty());
+    let text = String::from_utf8(text_output.stdout).expect("evidence text UTF-8");
+    assert!(text.contains("lockfile axiom.lock"), "text output: {text}");
+
+    let missing = temp.path().join("missing-project");
+    let error_output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "inspect",
+            "evidence",
+            missing.to_str().expect("missing path"),
+            "--json",
+        ])
+        .output()
+        .expect("inspect evidence missing input");
+    assert!(!error_output.status.success(), "missing project must fail");
+    assert!(
+        error_output.stderr.is_empty(),
+        "JSON errors must not leak to stderr"
+    );
+    let error: Value = serde_json::from_slice(&error_output.stdout).expect("JSON error");
+    assert_eq!(error["ok"], false);
+    assert_eq!(error["command"], "inspect evidence");
+    public_validator
+        .validate(&error)
+        .expect("missing-input error validates public envelope");
+}
+
+#[test]
 fn backend_target_v0_schema_and_fixture_are_well_formed() {
     let schema: Value = serde_json::from_str(
         &fs::read_to_string(schema_dir().join("axiom-target-v0.schema.json"))
@@ -1689,4 +1835,75 @@ fn package_trust_v1_schemas_compile_and_validate_contract_sections() {
         !validator.is_valid(&rejected_unknown),
         "partial rejected evidence remains closed to unknown fields"
     );
+}
+
+#[test]
+fn http_server_v1_schema_enforces_promotion_limits_and_overload_boundaries() {
+    let stage1 = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let schema: Value = serde_json::from_str(
+        &fs::read_to_string(
+            stage1.join("compiler-contracts/schemas/axiom.runtime_http_server.v1.schema.json"),
+        )
+        .expect("read HTTP Server v1 schema"),
+    )
+    .expect("HTTP Server v1 schema is valid JSON");
+    let snapshot: Value = serde_json::from_str(
+        &fs::read_to_string(stage1.join("compiler-contracts/snapshots/http-server-v1.json"))
+            .expect("read HTTP Server v1 snapshot"),
+    )
+    .expect("HTTP Server v1 snapshot is valid JSON");
+    let validator = compile_validator(&schema);
+
+    validator
+        .validate(&snapshot)
+        .expect("checked HTTP Server v1 snapshot matches its schema");
+
+    let mut missing_keep_alive_bound = snapshot.clone();
+    missing_keep_alive_bound["limits"]
+        .as_object_mut()
+        .expect("limits")
+        .remove("max_requests_per_connection");
+    assert!(
+        !validator.is_valid(&missing_keep_alive_bound),
+        "HTTP Server v1 requires a keep-alive request bound"
+    );
+
+    let mut invalid_listener_response = snapshot.clone();
+    invalid_listener_response["limits"]["backpressure"]["listener_capacity"]
+        ["http_response_possible"] = serde_json::json!(true);
+    assert!(
+        !validator.is_valid(&invalid_listener_response),
+        "an unaccepted connection cannot receive an HTTP overload response"
+    );
+
+    let mut incomplete_promotion = snapshot.clone();
+    incomplete_promotion["implementation"]["tier"] = serde_json::json!("runtime_complete");
+    assert!(
+        !validator.is_valid(&incomplete_promotion),
+        "runtime_complete requires complete HTTP server evidence"
+    );
+
+    let mut complete_promotion = snapshot;
+    complete_promotion["implementation"]["tier"] = serde_json::json!("runtime_complete");
+    complete_promotion["implementation"]["status"] = serde_json::json!("complete");
+    complete_promotion["implementation"]["loopback_only"] = serde_json::json!(false);
+    for feature in [
+        "dynamic_handler",
+        "external_bind",
+        "structured_concurrency",
+        "http_1_1_proxy",
+        "graceful_drain",
+        "observability_flush",
+    ] {
+        complete_promotion["implementation"][feature] = serde_json::json!(true);
+    }
+    for fixture in complete_promotion["fixtures"]
+        .as_array_mut()
+        .expect("HTTP Server v1 fixtures are an array")
+    {
+        fixture["evidence_tier"] = serde_json::json!("runtime");
+    }
+    validator
+        .validate(&complete_promotion)
+        .expect("fully evidenced HTTP Server v1 is promotion-capable");
 }

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -10,8 +11,14 @@ ROOT = Path(__file__).resolve().parents[2]
 CHECKER = ROOT / "scripts/ci/check-semantic-mir-v1.py"
 SNAPSHOT = ROOT / "stage1/compiler-contracts/snapshots/semantic-mir-v1.json"
 
+def checker_env(root):
+    env = os.environ.copy()
+    env["AXIOM_CHECKOUT_PATH"] = str(root)
+    return env
+
+
 def run(root):
-    return subprocess.run([sys.executable, str(root / "scripts/ci/check-semantic-mir-v1.py")], cwd=root, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    return subprocess.run([sys.executable, str(root / "scripts/ci/check-semantic-mir-v1.py")], cwd=root, env=checker_env(root), text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
 def main():
     with tempfile.TemporaryDirectory() as directory:

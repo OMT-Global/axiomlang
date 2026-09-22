@@ -1,0 +1,187 @@
+{
+  "schema_version": "axiom.compiler.syntax_migration.v1",
+  "contract": "compiler.syntax",
+  "issue": 1471,
+  "parent_issue": 1468,
+  "dependency_issues": [1427, 1468, 1473],
+  "entry_gates": [
+    {
+      "id": "compiler_scale_runtime_proof",
+      "issue": 1427,
+      "status": "blocked",
+      "required_proof": "one reviewed compiler binary processes two post-build runtime source inputs with distinct exact outputs and no compiler-side replay"
+    },
+    {
+      "id": "diagnostics_contract_qualification",
+      "issue": 1473,
+      "status": "blocked",
+      "required_proof": "the compiler.diagnostics v1 contract and exact structured diagnostic parity gate pass before syntax cutover"
+    },
+    {
+      "id": "maintainer_cutover_approval",
+      "issue": 1468,
+      "status": "blocked",
+      "required_proof": "a maintainer records cutover approval bound to the exact qualified artifact sha256 after all parent prerequisites pass"
+    },
+    {
+      "id": "parent_runtime_prerequisites",
+      "issue": 1468,
+      "status": "blocked",
+      "required_proof": "the parent migration gate records every runtime prerequisite as satisfied rather than inferring readiness from syntax fixtures"
+    }
+  ],
+  "target_contract": {
+    "input_origin": "runtime",
+    "encoding": "utf-8",
+    "entrypoints": ["expand_macros", "lex_source", "parse_macro_definitions", "parse_program", "parse_program_with_recovery"],
+    "syntax_kinds": ["block", "declaration", "expression", "import", "item", "macro", "pattern", "program", "statement", "type"],
+    "trivia": ["doc_comment", "line_comment"],
+    "spans": {
+      "offset_unit": "utf8_byte",
+      "line_base": 1,
+      "column_base": 1,
+      "column_unit": "unicode_scalar",
+      "tab_policy": "one_unicode_scalar_no_display_expansion",
+      "line_endings": "lf_and_crlf_each_count_as_one_line_break",
+      "malformed_utf8": "reject_before_lexing:source.invalid_utf8",
+      "start_inclusive": true,
+      "end_exclusive": true,
+      "source_identity_required": true
+    },
+    "node_identity": {
+      "scheme": "axiom://syntax/sha256/{source_digest}/{origin}/{kind}/{ordinal}",
+      "source_identity": "sha256_of_exact_input_bytes_lower_hex",
+      "kind_encoding": "lower_snake_case_ascii",
+      "ordinal_encoding": "base10_no_leading_zero",
+      "ordinal_scope": "per_source_origin",
+      "traversal_order": "source_order_depth_first_preorder",
+      "origin_rules": [
+        "macro_generated=macro-{call_site_source_ordinal} with expansion preorder ordinal",
+        "recovered=recovered at the first skipped token and occupies the source preorder slot",
+        "source=source with one global source preorder ordinal",
+        "synthetic=synthetic-{owning_origin}-{owning_kind}-{owning_ordinal} with per-owner deterministic construction ordinal"
+      ],
+      "stable_across_repeated_parse": true,
+      "collision_rule": "source_digest_origin_kind_ordinal_tuple_unique",
+      "prohibited_inputs": ["host_address", "host_hash_seed", "rust_module_path", "rust_type_name"]
+    },
+    "recovery": {
+      "multiple_diagnostics": true,
+      "ordering": "source_span_then_emitter_order",
+      "diagnostic_contract": "compiler.diagnostics",
+      "recovered_node_required": true,
+      "recovered_node_fields": ["diagnostic_ids", "node_id", "node_kind", "skipped_end_byte", "skipped_start_byte", "span"],
+      "resynchronization_points": ["block_boundary", "declaration_start", "item_start", "statement_start"]
+    },
+    "macros": {
+      "hygiene": "definition_and_call_site_scoped",
+      "provenance": "source_and_expansion_spans",
+      "limit_precedence": "configuration_then_invocations_then_expanded_bytes_then_recursion",
+      "recursion": {
+        "default": 64,
+        "ceiling": 1024,
+        "unit": "expansion_depth",
+        "scope": "per_root_invocation",
+        "boundary": "inclusive",
+        "failure_code": "parse.macro_recursion_limit"
+      },
+      "expanded_bytes": {
+        "default": 16777216,
+        "ceiling": 67108864,
+        "unit": "utf8_bytes",
+        "scope": "per_source_parse",
+        "boundary": "inclusive",
+        "failure_code": "parse.macro_expanded_bytes_limit"
+      },
+      "invocations": {
+        "default": 8192,
+        "ceiling": 65536,
+        "unit": "expanded_invocations",
+        "scope": "per_source_parse",
+        "boundary": "inclusive",
+        "failure_code": "parse.macro_invocation_limit"
+      }
+    },
+    "fuzzing": {
+      "seed_manifest": "stage1/compiler-contracts/fixtures/syntax-migration-v1/fuzz-corpus.json",
+      "seed_digest": "sha256",
+      "deterministic_mutation_seed": 1471,
+      "per_case_byte_limit": 1048576,
+      "per_case_time_ms": 1000,
+      "oracles": ["deterministic_diagnostics", "no_crash", "no_nontermination", "no_out_of_checkout_read"],
+      "promotion_criteria": ["axiom_and_rust_seed_parity", "zero_crashes_or_timeouts", "zero_nondeterministic_diagnostic_envelopes"]
+    },
+    "inspection_fields": ["comments", "diagnostics", "macro_expansions", "node_id", "node_kind", "recovered", "source_identity", "span", "syntax_owner"]
+  },
+  "current_floor": {
+    "tier": "syntax_only",
+    "status": "blocked",
+    "implementation_owner": "rust_bootstrap",
+    "axiom_package_present": false,
+    "runtime_origin_source_proven": false,
+    "rust_path_disable_proven": false,
+    "differential_parity_present": false,
+    "canonical_axiom_node_ids": false,
+    "bootstrap_evidence": [
+      "docs/compiler-diagnostics-syntax.md",
+      "stage1/conformance/fail/macro_missing_argument/expected-error.json",
+      "stage1/conformance/pass/line_comments/axiom.toml",
+      "stage1/crates/axiomc/src/syntax.rs",
+      "stage1/crates/axiomc/tests/support/lib_unit.rs",
+      "stage1/crates/axiomc/tests/syntax_migration_v1.rs"
+    ],
+    "target_gaps": [
+      "axiom_owned_package",
+      "canonical_axiom_node_identity",
+      "differential_coexistence",
+      "doc_comment_trivia_ownership",
+      "fuzz_corpus_execution",
+      "line_comment_trivia_ownership",
+      "macro_limit_ceiling_enforcement",
+      "macro_stable_failure_codes",
+      "recovered_node_emission",
+      "runtime_same_binary_ab",
+      "rust_path_disable",
+      "unicode_span_semantics"
+    ]
+  },
+  "cutover": {
+    "permitted": false,
+    "required_entry_gates": ["compiler_scale_runtime_proof", "diagnostics_contract_qualification", "maintainer_cutover_approval", "parent_runtime_prerequisites"],
+    "required_proofs": [
+      "axiom_owned_syntax_package_qualified",
+      "axiom_package_executes_same_binary_runtime_ab",
+      "canonical_node_identity_collision_vectors_pass",
+      "differential_corpus_matches",
+      "doc_comment_trivia_parity_passes",
+      "fuzz_corpus_qualification_passes",
+      "line_comment_trivia_parity_passes",
+      "macro_failure_codes_match",
+      "macro_limit_ceiling_vectors_pass",
+      "recovered_nodes_and_diagnostics_match",
+      "rust_syntax_path_disabled",
+      "unicode_span_vectors_match"
+    ],
+    "approval_binding": "maintainer_identity_plus_exact_artifact_sha256",
+    "fail_closed_diagnostic": "self_host.syntax_cutover_not_qualified"
+  },
+  "fixtures": [
+    {"id": "syntax-migration-v1/bootstrap-conformance", "category": "conformance", "status": "bootstrap_pass", "runtime_origin": false, "blocks_cutover": false, "fixture_file": "stage1/compiler-contracts/fixtures/syntax-migration-v1/bootstrap-conformance.json"},
+    {"id": "syntax-migration-v1/bootstrap-line-comment-coordinates", "category": "comment", "status": "bootstrap_pass", "runtime_origin": false, "blocks_cutover": false, "fixture_file": "stage1/compiler-contracts/fixtures/syntax-migration-v1/bootstrap-line-comment-coordinates.json"},
+    {"id": "syntax-migration-v1/bootstrap-macro-byte-limit", "category": "macro", "status": "bootstrap_pass", "runtime_origin": false, "blocks_cutover": false, "fixture_file": "stage1/compiler-contracts/fixtures/syntax-migration-v1/bootstrap-macro-byte-limit.json"},
+    {"id": "syntax-migration-v1/bootstrap-macro-invocation-limit", "category": "macro", "status": "bootstrap_pass", "runtime_origin": false, "blocks_cutover": false, "fixture_file": "stage1/compiler-contracts/fixtures/syntax-migration-v1/bootstrap-macro-invocation-limit.json"},
+    {"id": "syntax-migration-v1/bootstrap-macro-provenance", "category": "macro", "status": "bootstrap_pass", "runtime_origin": false, "blocks_cutover": false, "fixture_file": "stage1/compiler-contracts/fixtures/syntax-migration-v1/bootstrap-macro-provenance.json"},
+    {"id": "syntax-migration-v1/bootstrap-macro-recursion-limit", "category": "macro", "status": "bootstrap_pass", "runtime_origin": false, "blocks_cutover": false, "fixture_file": "stage1/compiler-contracts/fixtures/syntax-migration-v1/bootstrap-macro-recursion-limit.json"},
+    {"id": "syntax-migration-v1/bootstrap-node-identity", "category": "node_identity", "status": "bootstrap_pass", "runtime_origin": false, "blocks_cutover": false, "fixture_file": "stage1/compiler-contracts/fixtures/syntax-migration-v1/bootstrap-node-identity.json"},
+    {"id": "syntax-migration-v1/bootstrap-recovery-diagnostics", "category": "recovery", "status": "bootstrap_pass", "runtime_origin": false, "blocks_cutover": false, "fixture_file": "stage1/compiler-contracts/fixtures/syntax-migration-v1/bootstrap-recovery-diagnostics.json"},
+    {"id": "syntax-migration-v1/differential-coexistence", "category": "differential", "status": "target_gap", "runtime_origin": true, "blocks_cutover": true, "fixture_file": "stage1/compiler-contracts/fixtures/syntax-migration-v1/differential-coexistence.json"},
+    {"id": "syntax-migration-v1/doc-comment-trivia-ownership", "category": "comment", "status": "target_gap", "runtime_origin": true, "blocks_cutover": true, "fixture_file": "stage1/compiler-contracts/fixtures/syntax-migration-v1/doc-comment-trivia-ownership.json"},
+    {"id": "syntax-migration-v1/fuzz-corpus", "category": "fuzz", "status": "target_gap", "runtime_origin": true, "blocks_cutover": true, "fixture_file": "stage1/compiler-contracts/fixtures/syntax-migration-v1/fuzz-corpus.json"},
+    {"id": "syntax-migration-v1/line-comment-trivia-ownership", "category": "comment", "status": "target_gap", "runtime_origin": true, "blocks_cutover": true, "fixture_file": "stage1/compiler-contracts/fixtures/syntax-migration-v1/line-comment-trivia-ownership.json"},
+    {"id": "syntax-migration-v1/node-identity-parity", "category": "node_identity", "status": "target_gap", "runtime_origin": true, "blocks_cutover": true, "fixture_file": "stage1/compiler-contracts/fixtures/syntax-migration-v1/node-identity-parity.json"},
+    {"id": "syntax-migration-v1/recovered-node-emission", "category": "recovery", "status": "target_gap", "runtime_origin": true, "blocks_cutover": true, "fixture_file": "stage1/compiler-contracts/fixtures/syntax-migration-v1/recovered-node-emission.json"},
+    {"id": "syntax-migration-v1/runtime-same-binary-ab", "category": "runtime_input", "status": "target_gap", "runtime_origin": true, "blocks_cutover": true, "fixture_file": "stage1/compiler-contracts/fixtures/syntax-migration-v1/runtime-same-binary-ab.json"},
+    {"id": "syntax-migration-v1/rust-path-disable", "category": "ownership", "status": "target_gap", "runtime_origin": true, "blocks_cutover": true, "fixture_file": "stage1/compiler-contracts/fixtures/syntax-migration-v1/rust-path-disable.json"},
+    {"id": "syntax-migration-v1/unicode-span-semantics", "category": "span", "status": "target_gap", "runtime_origin": true, "blocks_cutover": true, "fixture_file": "stage1/compiler-contracts/fixtures/syntax-migration-v1/unicode-span-semantics.json"}
+  ]
+}
