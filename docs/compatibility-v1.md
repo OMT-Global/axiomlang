@@ -84,9 +84,9 @@ historical main commit `b3149c5e9bf10a4a244b0d89c6e6cd804b47ae3f`, blob
 `e5ad22e48e4504d62de8ea343e58fd4c1e262cb4`. Its metadata freezes the SHA-256,
 `0.4.0` version, and 68-surface count; it is not release history.
 
-The current source contract is version `0.15.0` with 78 surfaces. Its changes
+The current source contract is version `0.16.0` with 79 surfaces. Its changes
 from the byte-frozen 52-surface `0.1.0` accepted baseline include the five
-Package Trust v1 schemas, fifteen additive base-contract schemas (Compiler Scale Proof v1, Dynamic Aggregate ABI v1, Compiler Native Backend Runtime v1, Compiler Syntax Migration v1, Iteration Control v1, Filesystem v1,
+Package Trust v1 schemas, sixteen additive base-contract schemas (HTTP Server v1, Compiler Scale Proof v1, Dynamic Aggregate ABI v1, Compiler Native Backend Runtime v1, Compiler Syntax Migration v1, Iteration Control v1, Filesystem v1,
 Provider ABI, Structured Concurrency v1, runtime crypto provider policy, HTTP
 client, runtime observability, Semantic MIR, runtime lifecycle, target support,
 and persistent LSP), two quality
@@ -223,3 +223,5 @@ frozen contracts and independent ratchets remain unchanged; this snapshot is
 source evidence, not a qualified previous compiler or stdlib consumer.
 
 The before-compiler-scale-proof-v1 snapshot freezes the 0.14.0/77-surface source contract. The 0.15.0 transition adds only Compiler Scale Proof v1. Earlier stdlib authority and all previous frozen ratchets remain unchanged. This is a blocked scaffold contract, not runtime-complete compiler evidence.
+
+The before-http-server-v1 snapshot freezes the 0.15.0/78-surface source contract. The 0.16.0 transition adds only HTTP Server v1. All previous frozen ratchets remain intact. Its richer server fixtures remain target-only evidence, not production runtime qualification.

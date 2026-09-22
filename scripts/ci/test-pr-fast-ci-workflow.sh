@@ -411,3 +411,14 @@ if [[ "$scale_checker_count" != 1 || "$scale_selftest_count" != 1 || "$scale_hea
   echo "Compiler scale proof requires exactly one trusted explicit-root check/selftest and PR-head check/selftest" >&2
   exit 1
 fi
+
+# HTTP target contracts run on exact head; trusted checks consume head data only.
+http_check_count=$(grep -cF 'python3 "$script_repo_root/scripts/ci/check-http-server-v1.py" --root "$repo_root" --json' "$fast_checks_script" || true)
+http_selftest_count=$(grep -cF 'python3 "$script_repo_root/scripts/ci/test-check-http-server-v1.py"' "$fast_checks_script" || true)
+http_head_check_count=$(printf '%s\n' "$full_lib_suite_section" | grep -cF 'python3 scripts/ci/check-http-server-v1.py --root "$GITHUB_WORKSPACE" --json' || true)
+http_head_selftest_count=$(printf '%s\n' "$full_lib_suite_section" | grep -cF 'python3 scripts/ci/test-check-http-server-v1.py' || true)
+http_native_count=$(printf '%s\n' "$full_lib_suite_section" | grep -cF 'cargo test --manifest-path stage1/Cargo.toml -p axiomc --test schema_metadata http_server_v1_schema_enforces_promotion_limits_and_overload_boundaries --locked -- --test-threads=1' || true)
+if [[ "$http_check_count" != 1 || "$http_selftest_count" != 1 || "$http_head_check_count" != 1 || "$http_head_selftest_count" != 1 || "$http_native_count" != 1 ]]; then
+  echo "HTTP server requires exactly one trusted explicit-root check/selftest and PR-head check/selftest/native schema metadata test" >&2
+  exit 1
+fi

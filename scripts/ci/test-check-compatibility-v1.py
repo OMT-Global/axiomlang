@@ -35,6 +35,8 @@ BEFORE_NATIVE = ROOT / "stage1/compatibility/fixtures/before-native-backend-runt
 BEFORE_DYNAMIC = ROOT / "stage1/compatibility/fixtures/before-dynamic-aggregate-abi-v1/contract.json"
 BEFORE_STDLIB = ROOT / "stage1/compatibility/fixtures/before-stdlib-authority-v1/contract.json"
 BEFORE_SCALE = ROOT / "stage1/compatibility/fixtures/before-compiler-scale-proof-v1/contract.json"
+BEFORE_HTTP = ROOT / "stage1/compatibility/fixtures/before-http-server-v1/contract.json"
+BEFORE_HTTP_SHA256 = "8af3d5bb7bc003378b98b6aadc07001bcb3ce7b528f50d4f178d7d01be710023"
 BEFORE_SCALE_SHA256 = "0763376420a551383dc23dd603b3b08c508aa4f8bee751b33005632ef924de88"
 BEFORE_STDLIB_SHA256 = "5839a838719b18d50a94f83b1998a65ab4de8641590a0f8025806de6a8691c1e"
 BEFORE_DYNAMIC_SHA256 = "d2f501fce8566e37cdeaedd32ca52bbff640d998bea16081c0f8a979ed96c341"
@@ -234,6 +236,7 @@ def main() -> int:
         "axiom://schema/axiom.compiler_native_backend_runtime.v1",
         "axiom://schema/axiom.dynamic_aggregate_abi.v1",
         "axiom://schema/axiom.compiler_scale_proof.v1",
+        "axiom://schema/axiom.runtime_http_server.v1",
         "axiom://schema/axiom.iteration_control.v1",
         "axiom://schema/axiom.filesystem.v1",
         "axiom://schema/axiom.lsp.v1",
@@ -280,10 +283,10 @@ def main() -> int:
         "axiom://schema/axiom.stage1.v1",
     }
     assert len(baseline_ids) == 52, "accepted baseline must remain the frozen 52-surface ratchet"
-    assert len(current_ids) == 78, "current contract must include package trust, quality, parser fuzz, Compiler Syntax Migration v1, Iteration Control v1, Filesystem v1, Provider ABI, Structured Concurrency v1, runtime crypto policy, HTTP client, runtime observability, Semantic MIR, runtime lifecycle, target support, persistent LSP, and package resolver schemas"
+    assert len(current_ids) == 79, "current contract must include package trust, quality, parser fuzz, Compiler Syntax Migration v1, Iteration Control v1, Filesystem v1, Provider ABI, Structured Concurrency v1, runtime crypto policy, HTTP client, runtime observability, Semantic MIR, runtime lifecycle, target support, persistent LSP, and package resolver schemas"
     assert set(baseline_ids) < set(current_ids)
     assert set(current_ids) - set(baseline_ids) == new_public_schema_ids | new_package_resolver_ids
-    assert current_payload["contract_version"] == "0.15.0"
+    assert current_payload["contract_version"] == "0.16.0"
     assert surface(current_payload, "axiom://schema/axiom-quality-report-v1")["version"] == "0.2.0"
     assert surface(current_payload, "axiom://stdlib/catalog")["version"] == "2.0.0"
     assert surface(current_payload, "axiom://schema/axiom.compiler.stdlib_catalog.v1")["version"] == "0.4.0"
@@ -407,16 +410,30 @@ def main() -> int:
     assert hashlib.sha256(BEFORE_SCALE.read_bytes()).hexdigest() == BEFORE_SCALE_SHA256
     before_scale = load(BEFORE_SCALE)
     assert before_scale["contract_version"] == "0.14.0" and len(before_scale["surfaces"]) == 77
-    scale_ratchet = run(BEFORE_SCALE, CURRENT, policy=CURRENT_POLICY)
+    scale_ratchet = run(BEFORE_SCALE, BEFORE_HTTP, policy=CURRENT_POLICY)
     assert scale_ratchet.returncode == 0, scale_ratchet.stdout + scale_ratchet.stderr
     scale_report = json.loads(scale_ratchet.stdout)
     assert scale_report["contracts"] == {"old": "0.14.0", "new": "0.15.0"}
     assert scale_report["summary"] == {"additive": 1, "breaking": 0, "compatible": 0, "deprecated": 0}
     assert [(i["surface_id"], i["change"], i["severity"]) for i in scale_report["changes"]] == [("axiom://schema/axiom.compiler_scale_proof.v1", "added", "additive")]
     with tempfile.TemporaryDirectory() as scale_temporary:
-        no_bump = copy.deepcopy(current_payload)
+        no_bump = copy.deepcopy(load(BEFORE_HTTP))
         no_bump["contract_version"] = before_scale["contract_version"]
         expect_failure(Path(scale_temporary), before_scale, no_bump,
+                       "semantic drift requires an increased new.contract_version", policy=CURRENT_POLICY)
+    assert hashlib.sha256(BEFORE_HTTP.read_bytes()).hexdigest() == BEFORE_HTTP_SHA256
+    before_http = load(BEFORE_HTTP)
+    assert before_http["contract_version"] == "0.15.0" and len(before_http["surfaces"]) == 78
+    http_ratchet = run(BEFORE_HTTP, CURRENT, policy=CURRENT_POLICY)
+    assert http_ratchet.returncode == 0, http_ratchet.stdout + http_ratchet.stderr
+    http_report = json.loads(http_ratchet.stdout)
+    assert http_report["contracts"] == {"old": "0.15.0", "new": "0.16.0"}
+    assert http_report["summary"] == {"additive": 1, "breaking": 0, "compatible": 0, "deprecated": 0}
+    assert [(i["surface_id"], i["change"], i["severity"]) for i in http_report["changes"]] == [("axiom://schema/axiom.runtime_http_server.v1", "added", "additive")]
+    with tempfile.TemporaryDirectory() as http_temporary:
+        no_bump = copy.deepcopy(current_payload)
+        no_bump["contract_version"] = before_http["contract_version"]
+        expect_failure(Path(http_temporary), before_http, no_bump,
                        "semantic drift requires an increased new.contract_version", policy=CURRENT_POLICY)
     canonical = run(
         BASELINE,
@@ -428,7 +445,7 @@ def main() -> int:
     assert canonical.returncode == 0, canonical.stdout + canonical.stderr
     canonical_report = json.loads(canonical.stdout)
     assert canonical_report["summary"] == {
-        "additive": 26,
+        "additive": 27,
         "breaking": 10,
         "compatible": 0,
         "deprecated": 0,
