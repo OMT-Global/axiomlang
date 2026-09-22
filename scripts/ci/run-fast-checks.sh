@@ -120,6 +120,8 @@ python3 "$script_repo_root/scripts/ci/test-check-dynamic-aggregate-abi-v1.py"
 python3 "$script_repo_root/scripts/ci/check-dynamic-aggregate-abi-v1.py" --root "$repo_root"
 python3 "$script_repo_root/scripts/ci/test-check-compiler-scale-proof-v1.py"
 python3 "$script_repo_root/scripts/ci/check-compiler-scale-proof-v1.py" --root "$repo_root"
+python3 "$script_repo_root/scripts/ci/test-check-http-server-v1.py"
+python3 "$script_repo_root/scripts/ci/check-http-server-v1.py" --root "$repo_root" --json
 cargo test --manifest-path "$repo_root/stage1/Cargo.toml" -p axiomc --test syntax_migration_v1
 bash "$script_repo_root/scripts/ci/test-check-command-lsp-boundary.sh"
 bash "$script_repo_root/scripts/ci/test-check-hir-boundary.sh"

@@ -316,10 +316,10 @@
       "governingIssue": 1449,
       "blockerIssues": [1449],
       "dependencies": [1441, 1425, 1426, 1445, 1446, 1447],
-      "evidence": ["stage1/examples/proof_http_service/axiom.toml", "stage1/examples/stdlib_http/axiom.toml"],
-      "validatingCommand": "make stage1-proof-test && make stage1-stdlib-test",
+      "evidence": ["docs/http-server-v1.md", "stage1/compiler-contracts/snapshots/http-server-v1.json", "stage1/examples/proof_http_service/axiom.toml", "stage1/examples/stdlib_http/axiom.toml"],
+      "validatingCommand": "make stage1-http-server-v1 && make stage1-http-server-v1-test && make stage1-proof-test && make stage1-stdlib-test",
       "rustCaptureRisk": "high",
-      "agentInspectionImpact": "Expose bind authority, handler node, limits, in-flight work, shutdown, and responses."
+      "agentInspectionImpact": "Expose listen authority and endpoint, handler semantic node, limits and queue depth, in-flight work, runtime request origin, shutdown state and deadline, overload counts, and response evidence."
     },
     {
       "id": "serialization_v1",
