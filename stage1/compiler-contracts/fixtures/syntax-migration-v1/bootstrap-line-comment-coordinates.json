@@ -1,0 +1,10 @@
+{
+  "schema_version": "axiom.compiler.syntax_fixture.v1",
+  "id": "syntax-migration-v1/bootstrap-line-comment-coordinates",
+  "category": "comment",
+  "status": "bootstrap_pass",
+  "input": {"path": "comments.ax", "source": "// coordinate-only comment\nlet answer: int = 1\nprint answer\n", "supplied_after_build": false},
+  "expected": {"exit_outcome": "success", "compiler_diagnostics": [], "recovered_nodes": [], "spans": [{"kind": "let", "line": 2, "column": 1}, {"kind": "print", "line": 3, "column": 1}], "macro_provenance": [], "node_identities": []},
+  "evidence": ["stage1/crates/axiomc/src/syntax.rs::line_comments_are_blanked_and_preserve_line_numbers", "stage1/crates/axiomc/tests/syntax_migration_v1.rs::bootstrap_line_comment_coordinates_match_fixture"],
+  "qualification": {"comments_retained_as_trivia": false, "proves": "coordinates survive bootstrap comment stripping"}
+}

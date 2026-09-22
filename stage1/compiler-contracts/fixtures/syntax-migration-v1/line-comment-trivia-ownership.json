@@ -1,0 +1,10 @@
+{
+  "schema_version": "axiom.compiler.syntax_fixture.v1",
+  "id": "syntax-migration-v1/line-comment-trivia-ownership",
+  "category": "comment",
+  "status": "target_gap",
+  "input": {"path": "runtime/line-comment.ax", "source": "let answer: int = 42 // retained trivia\n", "supplied_after_build": true},
+  "expected": {"exit_outcome": "not_executed_target_gap", "compiler_diagnostics": [], "recovered_nodes": [], "spans": [{"kind": "line_comment", "line": 1, "column": 22}], "macro_provenance": [], "node_identities": []},
+  "evidence": ["docs/compiler-syntax-migration-v1.md::Trivia ownership", "stage1/crates/axiomc/src/syntax.rs::fn strip_line_comments"],
+  "qualification": {"owner": "compiler.syntax", "retained_text": "// retained trivia", "bootstrap_behavior": "text stripped while line coordinates survive"}
+}

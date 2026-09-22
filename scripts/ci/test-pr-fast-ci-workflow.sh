@@ -80,6 +80,9 @@ runtime_abi_status_check=$(grep -nF 'scripts/ci/render-direct-native-runtime-abi
 runtime_abi_coverage_check=$(grep -nF -- '--coverage-matrix' "$fast_checks_script" || true)
 schema_metadata_bin_check=$(grep -nA1 -E '^cargo test --manifest-path "\$repo_root/stage1/Cargo[.]toml" -p axiomc \\$' "$fast_checks_script" | grep -E '^[0-9]+-[[:space:]]+--bin axiomc --test schema_metadata --locked$' || true)
 full_lib_triage_check=$(grep -nF 'scripts/ci/check-stage1-full-lib-triage.py' "$fast_checks_script" || true)
+syntax_migration_self_test=$(grep -nF 'scripts/ci/test-check-syntax-migration-v1.py' "$fast_checks_script" || true)
+syntax_migration_head_check=$(grep -nF 'scripts/ci/check-syntax-migration-v1.py" --root "$repo_root"' "$fast_checks_script" || true)
+syntax_migration_fixture_test=$(grep -nF -- '--test syntax_migration_v1' "$fast_checks_script" || true)
 full_lib_suite_job=$(grep -nF 'full-lib-suite:' "$workflow" || true)
 full_lib_suite_run=$(grep -nF 'cargo test --manifest-path stage1/Cargo.toml -p axiomc --lib --features run-native-tests' "$workflow" || true)
 full_lib_suite_gate=$(grep -nF 'full-lib-suite=${{ needs.full-lib-suite.result }}' "$workflow" || true)
@@ -94,6 +97,7 @@ full_lib_suite_linker=$(printf '%s\n' "$full_lib_suite_section" | grep -F 'Ensur
 axiomc_bin_suite=$(printf '%s\n' "$full_lib_suite_section" | grep -F -- 'cargo test --manifest-path stage1/Cargo.toml -p axiomc --bin axiomc --features run-native-tests' || true)
 axiomc_cranelift_suite=$(printf '%s\n' "$full_lib_suite_section" | grep -F -- 'cargo test --manifest-path stage1/Cargo.toml -p axiomc --test cranelift_backend --features run-native-tests' || true)
 axiomc_manifest_schema_parity_suite=$(printf '%s\n' "$full_lib_suite_section" | grep -E -- '^[[:space:]]*run: RUST_MIN_STACK=8388608 cargo test --manifest-path stage1/Cargo\.toml -p axiomc --test manifest_schema_parity --locked -- --test-threads=1[[:space:]]*$' || true)
+axiomc_syntax_migration_suite=$(printf '%s\n' "$full_lib_suite_section" | grep -E -- '^[[:space:]]*run: RUST_MIN_STACK=8388608 cargo test --manifest-path stage1/Cargo\.toml -p axiomc --test syntax_migration_v1 --locked -- --test-threads=1[[:space:]]*$' || true)
 axiomc_json_contract_suite=$(printf '%s\n' "$full_lib_suite_section" | grep -E -- '^[[:space:]]*run: RUST_MIN_STACK=8388608 cargo test --manifest-path stage1/Cargo\.toml -p axiomc --test json_contract_snapshots --locked -- --test-threads=1[[:space:]]*$' || true)
 axiomc_numeric_overflow_suite=$(printf '%s\n' "$full_lib_suite_section" | grep -F -- 'cargo test --manifest-path stage1/Cargo.toml -p axiomc --test cranelift_numeric_overflow --features run-native-tests' || true)
 # Keep the intentional schema-rejection test byte-pinned; reject legacy tables elsewhere.
@@ -251,6 +255,11 @@ if [[ -z "$axiomc_json_contract_suite" ]]; then
   exit 1
 fi
 
+if [[ -z "$axiomc_syntax_migration_suite" ]]; then
+  echo "full-lib-suite must run syntax_migration_v1; bootstrap fixtures require real parser validation at PR head" >&2
+  exit 1
+fi
+
 if [[ -z "$axiomc_manifest_schema_parity_suite" ]]; then
   echo "full-lib-suite must run manifest_schema_parity; schema metadata must be checked against the real parser" >&2
   exit 1
@@ -275,6 +284,11 @@ fi
 
 if [[ -z "$full_lib_triage_check" ]]; then
   echo "run-fast-checks must validate the stage1 full lib triage manifest" >&2
+  exit 1
+fi
+
+if [[ -z "$syntax_migration_self_test" || -z "$syntax_migration_head_check" || -z "$syntax_migration_fixture_test" ]]; then
+  echo "run-fast-checks must retain trusted syntax checker self-tests, validate the PR-head root as data, and execute structured parser fixtures" >&2
   exit 1
 fi
 

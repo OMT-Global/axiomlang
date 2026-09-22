@@ -1,0 +1,10 @@
+{
+  "schema_version": "axiom.compiler.syntax_fixture.v1",
+  "id": "syntax-migration-v1/fuzz-corpus",
+  "category": "fuzz",
+  "status": "target_gap",
+  "input": {"seed_manifest": [], "seed_digest_algorithm": "sha256", "deterministic_mutation_seed": 1471, "supplied_after_build": true},
+  "expected": {"exit_outcome": "not_executed_target_gap", "compiler_diagnostics": [], "recovered_nodes": [], "spans": [], "macro_provenance": [], "node_identities": []},
+  "evidence": ["docs/compiler-syntax-migration-v1.md::Fuzz qualification"],
+  "qualification": {"per_case_byte_limit": 1048576, "per_case_time_ms": 1000, "oracles": ["deterministic_diagnostics", "no_crash", "no_nontermination", "no_out_of_checkout_read"], "promotion_criteria": ["axiom_and_rust_seed_parity", "zero_crashes_or_timeouts", "zero_nondeterministic_diagnostic_envelopes"]}
+}

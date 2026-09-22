@@ -257,6 +257,10 @@ jobs:
         # Real success and failure payloads must be tested on the PR head, not only schemas.
         run: RUST_MIN_STACK=8388608 cargo test --manifest-path stage1/Cargo.toml -p axiomc --test json_contract_snapshots --locked -- --test-threads=1
 
+      - name: Run syntax migration bootstrap fixtures
+        # New fixtures must run on the PR head before trusted main adopts their checker.
+        run: RUST_MIN_STACK=8388608 cargo test --manifest-path stage1/Cargo.toml -p axiomc --test syntax_migration_v1 --locked -- --test-threads=1
+
       - name: Run native signed-add overflow matrix
         # #1659: this separate integration target is not covered by --lib or
         # cranelift_backend. Explicit native mode requires cc rather than skipping.

@@ -84,9 +84,9 @@ historical main commit `b3149c5e9bf10a4a244b0d89c6e6cd804b47ae3f`, blob
 `e5ad22e48e4504d62de8ea343e58fd4c1e262cb4`. Its metadata freezes the SHA-256,
 `0.4.0` version, and 68-surface count; it is not release history.
 
-The current source contract is version `0.10.0` with 74 surfaces. Its changes
+The current source contract is version `0.11.0` with 75 surfaces. Its changes
 from the byte-frozen 52-surface `0.1.0` accepted baseline include the five
-Package Trust v1 schemas, eleven additive base-contract schemas (Iteration Control v1, Filesystem v1,
+Package Trust v1 schemas, twelve additive base-contract schemas (Compiler Syntax Migration v1, Iteration Control v1, Filesystem v1,
 Provider ABI, Structured Concurrency v1, runtime crypto provider policy, HTTP
 client, runtime observability, Semantic MIR, runtime lifecycle, target support,
 and persistent LSP), two quality
@@ -107,6 +107,12 @@ contract from main commit `351493a02a59cd8f9f970ff6513fdfc18be5032b`. The
 `0.10.0` one-step ratchet adds only `axiom://schema/axiom.iteration_control.v1`
 at surface version `0.1.0`; all earlier source contracts and release evidence
 remain unchanged. This is source evidence, not a qualified previous compiler.
+
+`before-syntax-migration-v1/contract.json` freezes the 74-surface `0.10.0`
+iteration contract (tree `4ab4464e3888509bc5620fb010c331efd31afe5d`). The
+`0.11.0` one-step ratchet adds only the compiler syntax migration schema at
+`0.1.0`. The earlier iteration ratchet remains checked against this frozen
+snapshot. These are source snapshots, not qualified previous compilers.
 
 Existing command invocations require no changes. Operators adopting registry
 dependencies run `axiomc pkg fetch` to create the v2 lockfile and verified

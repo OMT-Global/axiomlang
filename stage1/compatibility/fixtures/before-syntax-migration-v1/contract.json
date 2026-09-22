@@ -10,7 +10,7 @@
       "sha256": "30e92d85d0e0cc6cf14a32477e5b45afbc44d3d36803a8e456d55ef93860767a"
     }
   },
-  "contract_version": "0.11.0",
+  "contract_version": "0.10.0",
   "edition": {
     "id": "2026",
     "source": {
@@ -95,7 +95,7 @@
           "path": "stage1/compiler-contracts/snapshots/capability-ledger.json",
           "role": "cli_top_level_parity",
           "selector": "commands[*].name",
-          "sha256": "033fa0e8567aa9779e7b93a3ca6d350ddb43d2fcc1f2f691b889fd479b25dcde"
+          "sha256": "50864b0cb08440d0af5f0973a43d18e95005a8c29dfd20661d2e2a535fc7673f"
         },
         {
           "path": "stage1/crates/axiomc/src/main.rs",
@@ -1000,21 +1000,6 @@
       ],
       "stability": "experimental",
       "version": "0.3.0"
-    },
-    {
-      "id": "axiom://schema/axiom.compiler.syntax_migration.v1",
-      "kind": "schema",
-      "signature": "published schema id=https://omt-global.github.io/axiom/schemas/axiom.compiler.syntax_migration.v1.schema.json; semantic_digest=5ce93ec14a662cfd7356e21ed6099fc65da0cf7b7051b6c7b9b7c554a5347838; envelope=axiom.compiler.syntax_migration.v1",
-      "sources": [
-        {
-          "path": "stage1/compiler-contracts/schemas/axiom.compiler.syntax_migration.v1.schema.json",
-          "role": "published_schema",
-          "selector": "$id,properties.schema_version.const",
-          "sha256": "cd9a1c26af9a30ec15f4bf67742d56ccc5b807cf6689e059a4e1a03f661c281c"
-        }
-      ],
-      "stability": "experimental",
-      "version": "0.1.0"
     },
     {
       "id": "axiom://schema/axiom.docs.v1",
