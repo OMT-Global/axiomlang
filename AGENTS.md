@@ -3,7 +3,7 @@
 - Always work on a feature branch. Hooks block commits to `main` and `master`; enable them with `git config core.hooksPath .githooks`.
 - Stack baseline: Generic polyglot.
 - CI baseline: fast PR checks stay cheap and shell-safe; extended validation runs on `main`, nightly, or manual dispatch.
-- Self-hosted runner policy: shell-safe jobs must use `[self-hosted, linux, shell-only, public]`; native repos must use self-hosted runners for required automation, with Docker, service-container, browser, or `container:` workloads routed to dedicated self-hosted capability pools.
+- Runner policy: ordinary shell-safe public CI uses standard free `ubuntu-24.04` GitHub-hosted runners. Docker, service-container, browser, or `container:` workloads require an explicitly reviewed specialized runner class with matching capabilities; do not add one merely to bypass hosted CI.
 - Add or update tests for every interactive, branching, or operator-facing behavior change.
 - PRs must use the generated pull request template. The required PR gate validates summary, issue linkage, validation evidence, and risk notes.
 - Never commit real secrets, runtime auth, or machine-local env files. Use templates and GitHub environments instead.

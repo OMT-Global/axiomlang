@@ -27,6 +27,19 @@ SPEC.loader.exec_module(toolchain_qualification)
 
 
 class QualificationTests(unittest.TestCase):
+    def test_default_plan_runs_complete_cranelift_integration_target(self):
+        lanes = [
+            shlex.split(check["command"])
+            for check in toolchain_qualification.DEFAULT_CHECKS
+            if "--test cranelift_backend" in check["command"]
+        ]
+        self.assertEqual(len(lanes), 1)
+        tokens = lanes[0]
+        self.assertIn("--locked", tokens)
+        self.assertEqual(tokens[tokens.index("--test") + 1], "cranelift_backend")
+        # Any positional test-name filter after -- would silently narrow coverage.
+        self.assertEqual(tokens[tokens.index("--") + 1:], ["--test-threads=1"])
+
     def run_plan(self, checks, repo_root=ROOT, base_sha=None):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
@@ -117,6 +130,22 @@ class QualificationTests(unittest.TestCase):
             if check["id"] == "benchmark_comparison"
         )
         self.assertEqual(["go"], benchmark["requiredTools"])
+
+        parser_fuzz = next(
+            check
+            for check in toolchain_qualification.DEFAULT_CHECKS
+            if check["id"] == "parser_fuzz_smoke"
+        )
+        self.assertIn("--cases 64", parser_fuzz["command"])
+        self.assertIn("--timeout-ms 2000", parser_fuzz["command"])
+        self.assertIn(
+            '--expected-head "$AXIOM_QUALIFICATION_HEAD_SHA"',
+            parser_fuzz["command"],
+        )
+        self.assertEqual(
+            [".axiom-build/reports/stage1-parser-fuzz.json"],
+            parser_fuzz["artifactPaths"],
+        )
 
     def test_default_plan_exercises_all_cargo_targets_without_include_only_helpers(self):
         full_suite = next(

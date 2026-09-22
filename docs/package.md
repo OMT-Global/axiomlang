@@ -203,6 +203,15 @@ separate `axiomc publish` operation.
 
 ## Package Resolver v1
 
+The bounded Package Resolver v1 contract is an executable static spike under
+`make stage1-package-resolver`, `make stage1-package-graph-boundary`, and the
+toolchain supply-chain gate. Those checks cover signed static registry
+metadata, regular local files, and numeric-loopback fixtures; they do not
+constitute the immutable exact-head supported-host receipt required for
+runtime-complete promotion or the load, recovery, release-artifact, and
+operational receipt required for production qualification. Public hosted
+transport and edition selection also remain out of scope.
+
 Package Resolver v1 preserves local path dependencies and adds one explicitly
 configured static registry source. A root manifest names the registry and the
 project-relative Package Trust policy files that authenticate it:
@@ -370,6 +379,16 @@ identity, and tree-manifest digest. A vendor tree is not a trust bypass:
 locked and offline consumers reverify it exactly as they reverify the shared
 cache. Local path dependencies remain paths and are never copied into the
 registry store or vendor tree.
+
+Vendor lifecycle is crash-safe and reader-aware. The lifecycle uses a persistent, non-symlink regular lock file and an OS-managed exclusive lock; process exit releases ownership automatically. The lock file is never removed or reclaimed based on a missing owner marker. Contention is bounded and reports `vendor_lifecycle_busy`; legacy lock directories and invalid lock paths fail closed. The store retains the current
+snapshot and any snapshot with an active reader lease; completed, unleased
+older snapshots are reclaimed after publication. Reader leases are acquired
+under the same lifecycle lock as `CURRENT` replacement and garbage collection,
+so an in-flight locked/offline operation cannot lose its tree. A failure after
+immutable snapshot publication but before `CURRENT` replacement leaves a
+verified orphan that the next matching vendor operation adopts without
+rewriting content. Vendor JSON reports include stable lifecycle counters and
+reason maps for reused, created, reclaimed, and deferred snapshots.
 
 The stable operator surface is:
 

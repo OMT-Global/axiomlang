@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import importlib.util
+import copy
+import os
 import json
 import shutil
 import subprocess
@@ -68,6 +70,25 @@ class CompilerNativeBackendRuntimeTests(unittest.TestCase):
         first = subprocess.run(command, check=True, capture_output=True, text=True)
         second = subprocess.run(command, check=True, capture_output=True, text=True)
         self.assertEqual(first.stdout, second.stdout)
+
+    def test_cli_reads_selected_checkout_without_executing_it(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            snapshot = self.copy_contract(root)
+            planted = root / "scripts/ci/check-compiler-native-backend-runtime-v1.py"
+            planted.parent.mkdir(parents=True, exist_ok=True)
+            planted.write_text("raise RuntimeError('HEAD_CODE_EXECUTED')")
+            command = [sys.executable, str(CHECKER), "--root", str(root), "--json"]
+            good = subprocess.run(command, capture_output=True, text=True)
+            self.assertEqual(good.returncode, 0, good.stdout + good.stderr)
+            snapshot["schema_version"] = "bad-head-only-schema"
+            (root / checker.SNAPSHOT).write_text(json.dumps(snapshot))
+            bad = subprocess.run(command, capture_output=True, text=True)
+            self.assertEqual(bad.returncode, 1)
+            self.assertIn('"ok": false', bad.stdout)
+            self.assertNotIn("HEAD_CODE_EXECUTED", bad.stdout + bad.stderr)
+            trusted = subprocess.run([sys.executable, str(CHECKER), "--root", str(ROOT), "--json"], capture_output=True, text=True)
+            self.assertEqual(trusted.returncode, 0, trusted.stdout + trusted.stderr)
 
     def test_rejects_each_completion_claim(self) -> None:
         for field in checker.COMPLETION_FIELDS:
@@ -155,6 +176,78 @@ class CompilerNativeBackendRuntimeTests(unittest.TestCase):
             (root / checker.SNAPSHOT).write_text(json.dumps(snapshot), encoding="utf-8")
             with self.assertRaises(checker.ContractError):
                 checker.validate_contract(root)
+
+    def test_schema_independent_semantic_pins(self) -> None:
+        cases = [
+            ("boolean as integer", lambda d: d["target_contract"]["runtime_sensitivity"].update(runtime_origin_required=1)),
+            ("zero as boolean", lambda d: d["target_contract"]["runtime_sensitivity"].update(rebuilds_between_inputs=False)),
+            ("integer as float", lambda d: d["target_contract"]["runtime_sensitivity"].update(runtime_input_sets=2.0)),
+            ("purity boolean as integer", lambda d: d["target_contract"]["build_purity"].update(generated_host_projection_required=0)),
+            ("review policy", lambda d: d["qualification"].update(review_policy="none")),
+            ("missing review policy", lambda d: d["qualification"].pop("review_policy")),
+            ("diagnostic", lambda d: d["qualification"].update(fail_closed_diagnostic="unchecked")),
+            ("missing diagnostic", lambda d: d["qualification"].pop("fail_closed_diagnostic")),
+            ("identity integer as float", lambda d: d.update(issue=1474.0)),
+            ("dependency integer as float", lambda d: d["dependency_issues"].__setitem__(0, 1254.0)),
+            ("extra target semantics", lambda d: d["target_contract"].update(unchecked_authority=True)),
+        ]
+        for name, mutate in cases:
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                snapshot = self.copy_contract(root)
+                # Remove schema constraints, then prove trusted semantics still bind.
+                (root / checker.SCHEMA).write_text(json.dumps({"$id": "https://omt-global.github.io/axiom/schemas/axiom.compiler_native_backend_runtime.v1.schema.json"}))
+                self.assertTrue(checker.validate_contract(root)["ok"])
+                mutate(snapshot)
+                (root / checker.SNAPSHOT).write_text(json.dumps(snapshot))
+                try:
+                    checker.validate_contract(root)
+                except Exception as error:
+                    self.assertIsInstance(error, checker.ContractError)
+                else:
+                    self.fail("weakened schema accepted " + name)
+
+    def test_schema_independent_fixture_bindings(self) -> None:
+        for index in range(18):
+            for field, value in [("evidence", []), ("evidence", ["docs/artifact-plan-v0.md"]), ("category", "unchecked"), ("scenario", ""), ("id", "wrong-prefix/")]:
+                with self.subTest(index=index, field=field, value=value), tempfile.TemporaryDirectory() as temporary:
+                    root = Path(temporary)
+                    snapshot = self.copy_contract(root)
+                    if field == "id":
+                        value = "wrong-prefix/" + snapshot["fixtures"][index]["id"].rsplit("/", 1)[-1]
+                    snapshot["fixtures"][index][field] = value
+                    (root / checker.SCHEMA).write_text(json.dumps({"$id": "https://omt-global.github.io/axiom/schemas/axiom.compiler_native_backend_runtime.v1.schema.json"}))
+                    (root / checker.SNAPSHOT).write_text(json.dumps(snapshot))
+                    with self.assertRaises(checker.ContractError):
+                        checker.validate_contract(root)
+
+    def test_checkout_readers_fail_closed(self) -> None:
+        for relative in [checker.SCHEMA, checker.SNAPSHOT, checker.PRODUCTION_READINESS, *checker.SOURCE_MARKERS]:
+            for mode in ["symlink", "invalid_utf8", "oversize", "fifo"]:
+                with self.subTest(path=str(relative), mode=mode), tempfile.TemporaryDirectory() as temporary:
+                    root = Path(temporary) / "repo"
+                    root.mkdir()
+                    self.copy_contract(root)
+                    path = root / relative
+                    if mode == "symlink":
+                        outside = Path(temporary) / "outside"
+                        outside.write_bytes(path.read_bytes())
+                        path.unlink()
+                        path.symlink_to(outside)
+                    elif mode == "invalid_utf8":
+                        path.write_bytes(b"\xff")
+                    elif mode == "oversize":
+                        # Existing JSON remains valid, and source markers remain present.
+                        path.write_bytes(path.read_bytes() + b" " * (1024 * 1024))
+                    else:
+                        path.unlink()
+                        os.mkfifo(path)
+                    try:
+                        result = subprocess.run([sys.executable, str(CHECKER), "--root", str(root), "--json"], capture_output=True, text=True, timeout=3)
+                    except subprocess.TimeoutExpired:
+                        self.fail("non-regular checkout input blocked the reader")
+                    self.assertEqual(result.returncode, 1)
+                    self.assertIn('"ok": false', result.stdout)
 
     def test_rejects_host_capture(self) -> None:
         self.reject_snapshot(lambda value: value["target_contract"]["semantic_inputs"].append("rust_backend_state"))

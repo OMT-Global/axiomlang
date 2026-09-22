@@ -21,7 +21,7 @@ for entry in $RESULTS; do
   fi
 
   if [[ "$is_fork_pr" == "true" && "$fork_skippable_jobs" == *" $job "* && "$status" == "skipped" ]]; then
-    echo "OK   $job => $status (fork PR branch validation intentionally skipped on self-hosted runners)"
+    echo "OK   $job => $status (fork PR branch validation intentionally skipped)"
     continue
   fi
 

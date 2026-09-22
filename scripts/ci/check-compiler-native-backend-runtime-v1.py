@@ -5,13 +5,16 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import stat
 import re
 import sys
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any
 
 
 ROOT = Path(__file__).resolve().parents[2]
+MAX_READ_BYTES = 1024 * 1024
 SCHEMA = Path("stage1/compiler-contracts/schemas/axiom.compiler_native_backend_runtime.v1.schema.json")
 SNAPSHOT = Path("stage1/compiler-contracts/snapshots/compiler-native-backend-runtime-v1.json")
 PRODUCTION_READINESS = Path("docs/production-language-readiness.json")
@@ -51,6 +54,86 @@ SOURCE_MARKERS = {
 }
 HOST_CAPTURE_TERMS = ("cargo", "cranelift", "rust", "rustc", "std::", "vec<")
 
+# Trusted semantic pins remain authoritative when checkout schemas are weakened.
+QUALIFICATION = {'fixture_scaffolding_only': True,
+ 'backend_dispatch_authorized': False,
+ 'semantic_cutover_authorized': False,
+ 'legacy_retirement_authorized': False,
+ 'dependencies_must_be_runtime_complete': True,
+ 'human_cutover_issue': 1479,
+ 'required_proofs': ['all_supported_targets',
+                     'axiom_owned_native_package',
+                     'build_purity',
+                     'debug_provenance',
+                     'executable_mir_runtime',
+                     'legacy_human_cutover_approval',
+                     'legacy_independence',
+                     'lifecycle_ownership',
+                     'native_object_link',
+                     'provider_parity',
+                     'runtime_abi_completeness',
+                     'runtime_input_sensitivity',
+                     'unsupported_fail_closed'],
+ 'readiness_promotable': False,
+ 'review_policy': 'independent_acceptance_and_human_cutover_review_required',
+ 'fail_closed_diagnostic': 'self_host.native_backend_runtime_not_qualified'}
+BOOTSTRAP_EVIDENCE = ['docs/artifact-plan-v0.md',
+ 'docs/backend-target-interface-v0.md',
+ 'docs/compiler-mir-backend-packages.md',
+ 'docs/direct-native-runtime-abi-v0.md',
+ 'docs/provider-abi-v1.md',
+ 'docs/runtime-lifecycle-abi-v1.md',
+ 'stage1/compiler-contracts/snapshots/mir-backend.json',
+ 'stage1/compiler-contracts/snapshots/provider-abi-v1.json',
+ 'stage1/compiler-contracts/snapshots/runtime-lifecycle-v1.json']
+FIXTURE_EVIDENCE = {'all-supported-targets': {'category': 'target',
+                           'evidence': ['docs/compiler-native-backend-runtime-v1.md::Target and '
+                                        'provider parity']},
+ 'axiom-owned-native-package': {'category': 'boundary',
+                                'evidence': ['docs/production-language-readiness.json::compiler_native_backend_source']},
+ 'bootstrap-artifact-plan': {'category': 'artifact',
+                             'evidence': ['docs/artifact-plan-v0.md::# Artifact Plan v0']},
+ 'bootstrap-direct-native-subset': {'category': 'runtime',
+                                    'evidence': ['stage1/compiler-contracts/snapshots/mir-backend.json::axiom://target/stage1-direct-native']},
+ 'bootstrap-lifecycle-contract': {'category': 'lifecycle',
+                                  'evidence': ['stage1/compiler-contracts/snapshots/runtime-lifecycle-v1.json::axiom.runtime_lifecycle.v1']},
+ 'bootstrap-mir-backend-contract': {'category': 'boundary',
+                                    'evidence': ['stage1/compiler-contracts/snapshots/mir-backend.json::compiler.backend.native']},
+ 'bootstrap-provider-contract': {'category': 'provider',
+                                 'evidence': ['stage1/compiler-contracts/snapshots/provider-abi-v1.json::axiom.provider-abi.v1']},
+ 'bootstrap-runtime-abi-contract': {'category': 'runtime',
+                                    'evidence': ['docs/direct-native-runtime-abi-v0.md::# Direct '
+                                                 'Native Runtime ABI v0']},
+ 'build-purity': {'category': 'purity',
+                  'evidence': ['docs/compiler-native-backend-runtime-v1.md::Build purity and '
+                               'runtime sensitivity']},
+ 'debug-provenance': {'category': 'debug',
+                      'evidence': ['docs/compiler-native-backend-runtime-v1.md::Lifecycle, '
+                                   'debugging, and provenance']},
+ 'executable-mir': {'category': 'runtime',
+                    'evidence': ['docs/production-language-readiness.json::executable_mir']},
+ 'legacy-independence': {'category': 'dependency',
+                         'evidence': ['docs/compiler-native-backend-runtime-v1.md::Dispatch and '
+                                      'human cutover gate']},
+ 'lifecycle-ownership': {'category': 'lifecycle',
+                         'evidence': ['docs/compiler-native-backend-runtime-v1.md::Lifecycle, '
+                                      'debugging, and provenance']},
+ 'native-object-link': {'category': 'artifact',
+                        'evidence': ['docs/compiler-native-backend-runtime-v1.md::Input and output '
+                                     'contract']},
+ 'provider-parity': {'category': 'parity',
+                     'evidence': ['docs/compiler-native-backend-runtime-v1.md::Target and provider '
+                                  'parity']},
+ 'runtime-abi-completeness': {'category': 'runtime',
+                              'evidence': ['docs/direct-native-runtime-abi-v0.md::# Direct Native '
+                                           'Runtime ABI v0']},
+ 'runtime-input-sensitivity': {'category': 'runtime',
+                               'evidence': ['docs/compiler-native-backend-runtime-v1.md::Build '
+                                            'purity and runtime sensitivity']},
+ 'unsupported-fail-closed': {'category': 'target',
+                             'evidence': ['docs/compiler-native-backend-runtime-v1.md::Fail-closed '
+                                          'unsupported behavior']}}
+
 
 class ContractError(ValueError):
     pass
@@ -61,11 +144,84 @@ def require(condition: bool, message: str) -> None:
         raise ContractError(message)
 
 
-def load(path: Path) -> Any:
+def relative_components(relative: os.PathLike[str] | str) -> tuple[str, list[str]]:
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as error:
-        raise ContractError(f"unable to load {path}: {error}") from error
+        text = os.fspath(relative)
+    except TypeError as error:
+        raise ContractError(f"checkout path is not path-like: {relative!r}") from error
+    require(isinstance(text, str), "checkout paths must be text")
+    require("\x00" not in text, f"unsafe checkout path contains NUL: {text!r}")
+    windows = PureWindowsPath(text)
+    require(not PurePosixPath(text).is_absolute(), f"absolute checkout path is forbidden: {text!r}")
+    require(not windows.is_absolute() and not windows.drive and not windows.root, f"Windows absolute checkout path is forbidden: {text!r}")
+    require("\\" not in text, f"Windows checkout path separators are forbidden: {text!r}")
+    components = text.split("/")
+    require(all(component not in {"", ".", ".."} for component in components), f"unsafe checkout path component: {text!r}")
+    return text, components
+
+
+def safe_read_bytes(root: Path, relative: os.PathLike[str] | str) -> bytes:
+    text, components = relative_components(relative)
+    nofollow = getattr(os, "O_NOFOLLOW", None)
+    nonblock = getattr(os, "O_NONBLOCK", None)
+    directory = getattr(os, "O_DIRECTORY", None)
+    require(nofollow is not None and nonblock is not None and directory is not None, "secure descriptor-relative reads are unsupported on this platform")
+    common = os.O_RDONLY | nofollow | nonblock | getattr(os, "O_CLOEXEC", 0)
+    dir_fd = -1
+    file_fd = -1
+    try:
+        dir_fd = os.open(os.fspath(root), common | directory)
+        require(stat.S_ISDIR(os.fstat(dir_fd).st_mode), f"checkout root is not a directory: {root}")
+        for component in components[:-1]:
+            next_fd = os.open(component, common | directory, dir_fd=dir_fd)
+            require(stat.S_ISDIR(os.fstat(next_fd).st_mode), f"checkout path component is not a directory: {text!r}")
+            os.close(dir_fd)
+            dir_fd = next_fd
+        file_fd = os.open(components[-1], common, dir_fd=dir_fd)
+        metadata = os.fstat(file_fd)
+        require(stat.S_ISREG(metadata.st_mode), f"checkout path is not a regular file: {text!r}")
+        require(metadata.st_size <= MAX_READ_BYTES, f"checkout file exceeds {MAX_READ_BYTES} bytes: {text!r}")
+        chunks: list[bytes] = []
+        remaining = MAX_READ_BYTES + 1
+        while remaining:
+            chunk = os.read(file_fd, min(65536, remaining))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        payload = b"".join(chunks)
+        require(len(payload) <= MAX_READ_BYTES, f"checkout file exceeds {MAX_READ_BYTES} bytes while reading: {text!r}")
+        return payload
+    except ContractError:
+        raise
+    except (OSError, ValueError) as error:
+        raise ContractError(f"unable to read checkout file {text!r}: {error}") from error
+    finally:
+        if file_fd >= 0:
+            try:
+                os.close(file_fd)
+            except OSError:
+                pass
+        if dir_fd >= 0:
+            try:
+                os.close(dir_fd)
+            except OSError:
+                pass
+
+
+def safe_read_text(root: Path, relative: os.PathLike[str] | str) -> str:
+    payload = safe_read_bytes(root, relative)
+    try:
+        return payload.decode("utf-8", errors="strict")
+    except UnicodeDecodeError as error:
+        raise ContractError(f"checkout file is not valid UTF-8: {os.fspath(relative)!r}") from error
+
+
+def load(root: Path, relative: os.PathLike[str] | str) -> Any:
+    try:
+        return json.loads(safe_read_text(root, relative))
+    except json.JSONDecodeError as error:
+        raise ContractError(f"unable to parse checkout JSON {os.fspath(relative)!r}: {error}") from error
 
 
 def value_kind(value: Any) -> str:
@@ -75,6 +231,8 @@ def value_kind(value: Any) -> str:
         return "boolean"
     if isinstance(value, int):
         return "integer"
+    if isinstance(value, float):
+        return "number"
     if isinstance(value, str):
         return "string"
     if isinstance(value, list):
@@ -137,24 +295,12 @@ def evidence_path(value: str) -> Path:
 
 
 def validate_evidence(root: Path, value: str, label: str) -> None:
+    require(isinstance(value, str), f"{label} evidence must be text")
     path_text, separator, anchor = value.partition("::")
-    relative = Path(path_text)
-    require(path_text != "" and not relative.is_absolute(), f"{label} evidence path must be repository-relative: {value}")
-    require(".." not in relative.parts, f"{label} evidence path cannot traverse outside the repository: {value}")
-    resolved_root = root.resolve()
-    path = resolved_root / relative
-    cursor = resolved_root
-    for part in relative.parts:
-        cursor /= part
-        require(not cursor.is_symlink(), f"{label} evidence path cannot contain symlinks: {value}")
-    try:
-        path.resolve().relative_to(resolved_root)
-    except ValueError as error:
-        raise ContractError(f"{label} evidence path escapes the repository: {value}") from error
-    require(path.is_file(), f"{label} evidence is missing: {value}")
+    text = safe_read_text(root, path_text)
     if separator:
-        require(anchor != "", f"{label} evidence anchor must not be empty: {value}")
-        require(anchor in path.read_text(encoding="utf-8"), f"{label} evidence anchor is missing: {value}")
+        require(bool(anchor), f"{label} evidence anchor must not be empty: {value}")
+        require(anchor in text, f"{label} evidence anchor is missing: {value}")
 
 
 def strings(value: Any) -> list[str]:
@@ -182,22 +328,23 @@ def readiness_row(payload: dict[str, Any], row_id: str) -> dict[str, Any]:
 
 def validate_readiness(root: Path) -> None:
     required_evidence = {"docs/compiler-native-backend-runtime-v1.md", "stage1/compiler-contracts/snapshots/compiler-native-backend-runtime-v1.json"}
-    row = readiness_row(load(root / PRODUCTION_READINESS), "compiler_native_backend_source")
-    require(row["governingIssue"] == 1474, "production governing issue drifted")
+    row = readiness_row(load(root, PRODUCTION_READINESS), "compiler_native_backend_source")
+    require(json_equal(row["governingIssue"], 1474), "production governing issue drifted")
     require(row["currentTier"] == "syntax_only" and row["status"] == "blocked", "production readiness overclaims native backend")
-    require(row["blockerIssues"] == [1474], "production blocker drifted")
-    require(row["dependencies"] == READINESS_DEPENDENCIES, "production direct dependencies drifted")
+    require(json_equal(row["blockerIssues"], [1474]), "production blocker drifted")
+    require(json_equal(row["dependencies"], READINESS_DEPENDENCIES), "production direct dependencies drifted")
     require(required_evidence <= set(row["evidence"]), "production native backend evidence missing")
     require("make stage1-compiler-native-backend-runtime-v1-test" in row["validatingCommand"], "production mutation gate missing")
     require("make stage1-compiler-native-backend-runtime-v1" in row["validatingCommand"], "production contract gate missing")
 
 
 def validate_contract(root: Path) -> dict[str, Any]:
-    schema, snapshot = load(root / SCHEMA), load(root / SNAPSHOT)
+    schema, snapshot = load(root, SCHEMA), load(root, SNAPSHOT)
     require(schema.get("$id", "").endswith("axiom.compiler_native_backend_runtime.v1.schema.json"), "schema id drifted")
+    require(isinstance(snapshot, dict) and set(snapshot) == {'qualification', 'current_floor', 'target_contract', 'contract', 'fixtures', 'issue', 'dependency_issues', 'schema_version'}, "snapshot fields drifted")
     validate_schema(snapshot, schema, "$", schema)
-    require((snapshot["schema_version"], snapshot["contract"], snapshot["issue"]) == ("axiom.compiler_native_backend_runtime.v1", "self_hosting.compiler_native_backend_runtime", 1474), "contract identity drifted")
-    require(snapshot["dependency_issues"] == DEPENDENCIES, "dependency inventory drifted")
+    require(json_equal([snapshot["schema_version"], snapshot["contract"], snapshot["issue"]], ["axiom.compiler_native_backend_runtime.v1", "self_hosting.compiler_native_backend_runtime", 1474]), "contract identity drifted")
+    require(json_equal(snapshot["dependency_issues"], DEPENDENCIES), "dependency inventory drifted")
     target = snapshot["target_contract"]
     exact = {
         "semantic_inputs": SEMANTIC_INPUTS,
@@ -209,15 +356,18 @@ def validate_contract(root: Path) -> dict[str, Any]:
         "diagnostics": DIAGNOSTICS,
         "prohibited_shortcuts": PROHIBITED_SHORTCUTS,
     }
+    require(isinstance(target, dict) and set(target) == set(exact) | {"runtime_sensitivity", "build_purity"}, "target fields drifted")
     for label, expected in exact.items():
-        require(target[label] == expected, f"target {label} drifted")
+        require(json_equal(target[label], expected), f"target {label} drifted")
         require_sorted_unique(target[label], f"target {label}")
-    require(target["runtime_sensitivity"] == RUNTIME_SENSITIVITY, "runtime sensitivity drifted")
-    require(target["build_purity"] == BUILD_PURITY, "build purity contract drifted")
+    require(json_equal(target["runtime_sensitivity"], RUNTIME_SENSITIVITY), "runtime sensitivity drifted")
+    require(json_equal(target["build_purity"], BUILD_PURITY), "build purity contract drifted")
     require_sorted_unique(target["build_purity"]["forbidden_runtime_authority"], "build purity denials")
     reject_host_capture(schema)
     reject_host_capture({"target_contract": target, "implementation_owner": snapshot["current_floor"]["implementation_owner"], "qualification": snapshot["qualification"]})
     floor = snapshot["current_floor"]
+    require(isinstance(floor, dict) and set(floor) == {'status', 'direct_native_subset_present', 'tier', 'mir_backend_contract_present', 'debug_provenance_proven', 'all_supported_targets_proven', 'axiom_owned_native_package_present', 'lifecycle_contract_present', 'native_object_link_proven', 'runtime_abi_complete', 'unsupported_fail_closed_proven', 'target_gaps', 'runtime_input_sensitivity_proven', 'implementation_owner', 'legacy_independence_proven', 'build_purity_proven', 'lifecycle_ownership_complete', 'runtime_abi_contract_present', 'bootstrap_evidence', 'artifact_plan_present', 'executable_mir_complete', 'provider_contract_present', 'provider_parity_proven'}, "current floor fields drifted")
+    require(json_equal(floor["bootstrap_evidence"], BOOTSTRAP_EVIDENCE), "bootstrap evidence inventory drifted")
     require((floor["tier"], floor["status"], floor["implementation_owner"]) == ("syntax_only", "blocked", "legacy_bootstrap"), "current floor identity drifted")
     positive = ["mir_backend_contract_present", "direct_native_subset_present", "runtime_abi_contract_present", "lifecycle_contract_present", "provider_contract_present", "artifact_plan_present"]
     require(all(floor[field] is True for field in positive), "bootstrap native backend evidence disappeared")
@@ -227,6 +377,7 @@ def validate_contract(root: Path) -> dict[str, Any]:
     for value in floor["bootstrap_evidence"]:
         validate_evidence(root, value, "bootstrap floor")
     qualification = snapshot["qualification"]
+    require(json_equal(qualification, QUALIFICATION), "qualification semantics drifted")
     require(qualification["fixture_scaffolding_only"] is True, "scaffold boundary drifted")
     require(qualification["backend_dispatch_authorized"] is False, "backend dispatch cannot be authorized by this slice")
     require(qualification["semantic_cutover_authorized"] is False, "semantic cutover cannot be authorized by this slice")
@@ -236,9 +387,13 @@ def validate_contract(root: Path) -> dict[str, Any]:
     require(qualification["required_proofs"] == REQUIRED_PROOFS, "qualification proofs drifted")
     require(qualification["readiness_promotable"] is False, "scaffold slice cannot promote readiness")
     fixtures = snapshot["fixtures"]
+    require(isinstance(fixtures, list) and all(isinstance(f, dict) and set(f) == {"id", "category", "status", "runtime_origin", "blocks_readiness", "scenario", "evidence"} for f in fixtures), "fixture fields drifted")
     names = [fixture["id"].rsplit("/", 1)[-1] for fixture in fixtures]
     require(names == FIXTURE_NAMES, "fixture inventory must be complete and sorted")
     for fixture, name in zip(fixtures, names, strict=True):
+        require(fixture["id"] == "compiler-native-backend-runtime-v1/" + name, "fixture identity drifted")
+        require(isinstance(fixture["scenario"], str) and bool(fixture["scenario"].strip()), f"fixture scenario missing: {name}")
+        require(json_equal({key: fixture[key] for key in ("category", "evidence")}, FIXTURE_EVIDENCE[name]), f"fixture evidence binding drifted: {name}")
         bootstrap = name in BOOTSTRAP_FIXTURES
         require(fixture["status"] == ("bootstrap_pass" if bootstrap else "target_gap"), f"fixture status drifted for {name}")
         require(fixture["runtime_origin"] is (name in RUNTIME_FIXTURES), f"fixture runtime origin drifted for {name}")
@@ -246,7 +401,7 @@ def validate_contract(root: Path) -> dict[str, Any]:
         for value in fixture["evidence"]:
             validate_evidence(root, value, f"fixture {name}")
     for path, markers in SOURCE_MARKERS.items():
-        source = (root / path).read_text(encoding="utf-8")
+        source = safe_read_text(root, path)
         for marker in markers:
             require(marker in source, f"bootstrap native backend marker missing in {path}: {marker}")
     validate_readiness(root)
