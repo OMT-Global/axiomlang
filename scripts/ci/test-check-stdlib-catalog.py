@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Regression coverage for typed stdlib catalog parity and schema guards."""
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -12,8 +13,14 @@ CHECKER = ROOT / "scripts/ci/check-stdlib-catalog.py"
 SNAPSHOT = ROOT / "stage1/compiler-contracts/snapshots/stdlib-catalog.json"
 
 
+def checker_env(root):
+    env = os.environ.copy()
+    env["AXIOM_CHECKOUT_PATH"] = str(root)
+    return env
+
+
 def run(root):
-    return subprocess.run([sys.executable, str(root / "scripts/ci/check-stdlib-catalog.py")], cwd=root, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    return subprocess.run([sys.executable, str(root / "scripts/ci/check-stdlib-catalog.py")], cwd=root, env=checker_env(root), text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
 
 def require_rejected(root, value, message):

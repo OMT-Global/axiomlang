@@ -8,6 +8,8 @@ project:
   defaultBranch: main
 repo:
   class: tooling
+  classMigration:
+    target: cli
   managedPaths:
     - project.bootstrap.yaml
     - AGENTS.md
@@ -19,6 +21,7 @@ repo:
     - .github/workflows/pr-fast-ci.yml
     - .github/workflows/extended-validation.yml
     - .github/workflows/claude.yml
+    - .github/workflows/toolchain-supply-chain.yml
     - .github/dependabot.yml
     - .github/ISSUE_TEMPLATE/implementation.yml
     - .github/ISSUE_TEMPLATE/flow_blocker.yml
@@ -28,10 +31,12 @@ repo:
     - scripts/claude-cloud/**
     - scripts/claude/**
     - docs/bootstrap/**
+    - SECURITY.md
+    - .github/workflows/security.yml
   docs:
     readme: true
     contributing: false
-    security: false
+    security: true
   templates:
     pullRequest: standard
     issueTemplates: []
@@ -296,7 +301,10 @@ github:
     hasWiki: false
     hasDiscussions: false
 ci:
-  runnerPolicy: hybrid-safe
+  codeqlLanguages:
+    - python
+    - rust
+  runnerPolicy: github-hosted-public
   nodeVersion: "20"
   pythonVersion: "3.12"
   fastChecks:

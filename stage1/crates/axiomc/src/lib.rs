@@ -6,6 +6,7 @@ pub mod build_contract;
 pub mod codegen;
 pub(crate) mod cranelift_backend;
 pub mod dap;
+pub(crate) mod framed_protocol;
 pub mod diagnostic_catalog;
 pub mod diagnostics;
 pub mod doctor;
@@ -27,6 +28,7 @@ pub mod package_version;
 pub mod project;
 pub mod registry;
 pub mod registry_client;
+pub mod runtime_lifecycle;
 pub mod stdlib;
 pub mod syntax;
 #[cfg(test)]

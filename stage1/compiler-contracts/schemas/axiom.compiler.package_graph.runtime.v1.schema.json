@@ -222,6 +222,10 @@
           "type": "string",
           "minLength": 1
         },
+        "selected_version": {
+          "type": "string",
+          "minLength": 1
+        },
         "reason": {
           "type": "string",
           "minLength": 1
@@ -244,6 +248,7 @@
               "package_id",
               "source_kind",
               "requested",
+              "selected_version",
               "reason"
             ],
             "properties": {
@@ -271,6 +276,7 @@
               "package_id",
               "source_kind",
               "requested",
+              "selected_version",
               "reason"
             ],
             "properties": {

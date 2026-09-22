@@ -27,8 +27,8 @@ Use this checklist after the first bootstrap render or whenever `project.bootstr
 
 ## Runner Policy
 
-- Shell-safe jobs must use `[self-hosted, linux, shell-only, public]`.
-- Native repos must use self-hosted runners for required automation; Docker, service-container, browser, and `container:` workloads require a dedicated self-hosted runner pool with matching capability labels.
+- Ordinary shell-safe public jobs, including native Rust checks, use standard free `ubuntu-24.04` GitHub-hosted runners with the workflow's pinned language actions and C-compiler availability check.
+- Docker, service-container, browser, or `container:` workloads require an explicitly reviewed specialized runner class with matching capabilities. Do not create or select that class as part of ordinary public CI.
 - Keep PR checks cheap. Add heavy validation to `scripts/ci/run-extended-validation.sh` instead of the PR lane.
 
 - Consume shared security, release, and AI attestation workflows from the control-plane repo once those contracts are pinned for production use.
