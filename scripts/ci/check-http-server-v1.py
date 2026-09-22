@@ -764,7 +764,7 @@ def validate_fixture(root: Path, relative: Path, reference: dict[str, Any]) -> N
     }
     if "details" in semantics:
         expected["details"] = semantics["details"]
-    require(fixture == expected, f"{relative.name}: exact fixture semantics drifted")
+    require(json_equal(fixture, expected), f"{relative.name}: exact fixture semantics drifted")
     require(reference["kind"] == semantics["kind"], f"{relative.name}: kind disagrees with snapshot")
     require(
         reference["evidence_tier"] == semantics["evidence_tier"],

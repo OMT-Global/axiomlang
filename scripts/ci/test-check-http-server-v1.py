@@ -252,6 +252,26 @@ def main() -> None:
             ROOT / "stage1/compiler-contracts/fixtures/http-server-v1/untrusted-forwarded-headers.json",
             proxy_denial,
         )
+        # Python equality aliases booleans with 0/1; exact JSON fixtures must not.
+        for filename, field, replacement in (
+            ("untrusted-forwarded-headers.json", "proxy_authority_match", 0),
+            ("authorized-proxy-forged-forwarded-input.json", "proxy_authority_match", 1),
+            ("authorized-proxy-forged-forwarded-input.json", "forwarded_field_count", True),
+            ("status-304-response-body-suppressed.json", "transmitted_body_bytes", False),
+        ):
+            typed_fixture = root / "stage1/compiler-contracts/fixtures/http-server-v1" / filename
+            pristine = typed_fixture.read_bytes()
+            fixture = json.loads(pristine)
+            fixture["details"][field] = replacement
+            try:
+                write(typed_fixture, fixture)
+                expect_failure(root, f"{filename}: boolean/number substitution for {field} was accepted")
+            finally:
+                typed_fixture.write_bytes(pristine)
+            restored = run(root)
+            if restored.returncode != 0:
+                raise SystemExit(f"restored {filename} was rejected: {restored.stdout}{restored.stderr}")
+
         sigterm.unlink()
         expect_failure(root, "missing SIGTERM fixture was accepted")
 
