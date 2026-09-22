@@ -187,9 +187,9 @@
       "status": "blocked",
       "governingIssue": 1442,
       "blockerIssues": [1442],
-      "dependencies": [1425, 1437, 1440],
-      "evidence": ["docs/grammar.md", "stage1/conformance/fail/for_loop_requires_iteration_protocol/axiom.toml"],
-      "validatingCommand": "make stage1-conformance",
+      "dependencies": [1425, 1437, 1440, 1441, 1476],
+      "evidence": ["docs/grammar.md", "docs/iteration-control-v1.md", "stage1/compiler-contracts/snapshots/iteration-control-v1.json", "stage1/conformance/fail/for_loop_requires_iteration_protocol/axiom.toml", "stage1/conformance/pass/runtime_loop_bodies/axiom.toml"],
+      "validatingCommand": "make stage1-iteration-control-v1-test && make stage1-iteration-control-v1 && make stage1-diagnostics-syntax-boundary && make stage1-hir-boundary && make stage1-mir-backend-boundary && make stage1-conformance",
       "rustCaptureRisk": "medium",
       "agentInspectionImpact": "Expose iteration collection, mode, element ownership, and loop evidence."
     },
