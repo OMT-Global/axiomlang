@@ -97,6 +97,7 @@ full_lib_suite_linker=$(printf '%s\n' "$full_lib_suite_section" | grep -F 'Ensur
 axiomc_bin_suite=$(printf '%s\n' "$full_lib_suite_section" | grep -F -- 'cargo test --manifest-path stage1/Cargo.toml -p axiomc --bin axiomc --features run-native-tests' || true)
 axiomc_cranelift_suite=$(printf '%s\n' "$full_lib_suite_section" | grep -F -- 'cargo test --manifest-path stage1/Cargo.toml -p axiomc --test cranelift_backend --features run-native-tests' || true)
 axiomc_manifest_schema_parity_suite=$(printf '%s\n' "$full_lib_suite_section" | grep -E -- '^[[:space:]]*run: RUST_MIN_STACK=8388608 cargo test --manifest-path stage1/Cargo\.toml -p axiomc --test manifest_schema_parity --locked -- --test-threads=1[[:space:]]*$' || true)
+axiomc_syntax_migration_suite=$(printf '%s\n' "$full_lib_suite_section" | grep -E -- '^[[:space:]]*run: RUST_MIN_STACK=8388608 cargo test --manifest-path stage1/Cargo\.toml -p axiomc --test syntax_migration_v1 --locked -- --test-threads=1[[:space:]]*$' || true)
 axiomc_json_contract_suite=$(printf '%s\n' "$full_lib_suite_section" | grep -E -- '^[[:space:]]*run: RUST_MIN_STACK=8388608 cargo test --manifest-path stage1/Cargo\.toml -p axiomc --test json_contract_snapshots --locked -- --test-threads=1[[:space:]]*$' || true)
 axiomc_numeric_overflow_suite=$(printf '%s\n' "$full_lib_suite_section" | grep -F -- 'cargo test --manifest-path stage1/Cargo.toml -p axiomc --test cranelift_numeric_overflow --features run-native-tests' || true)
 # Keep the intentional schema-rejection test byte-pinned; reject legacy tables elsewhere.
@@ -107,6 +108,10 @@ stdlib_catalog_regression=$(grep -nF 'scripts/ci/test-check-stdlib-catalog.py' "
 filesystem_check=$(grep -nF 'python3 "$script_repo_root/scripts/ci/check-filesystem-v1.py" --root "$repo_root"' "$fast_checks_script" || true)
 filesystem_regression=$(grep -nF 'python3 "$script_repo_root/scripts/ci/test-check-filesystem-v1.py"' "$fast_checks_script" || true)
 filesystem_behavior=$(grep -nF 'bash "$script_repo_root/scripts/ci/run-filesystem-v1-behavioral-tests.sh" "$repo_root"' "$fast_checks_script" || true)
+iteration_checker_count=$(grep -cF 'python3 "$script_repo_root/scripts/ci/check-iteration-control-v1.py" --root "$repo_root" --json' "$fast_checks_script" || true)
+iteration_self_test_count=$(grep -cF 'python3 "$script_repo_root/scripts/ci/test-check-iteration-control-v1.py" --root "$repo_root"' "$fast_checks_script" || true)
+iteration_head_code_reference=$(grep -nE '\$repo_root/scripts/ci/(test-)?check-iteration-control-v1\.py' "$fast_checks_script" || true)
+fast_checks_head_as_data=$(grep -nF 'AXIOM_CHECKOUT_PATH="$GITHUB_WORKSPACE" bash .trusted-ci/scripts/ci/run-fast-checks.sh' "$workflow" || true)
 makefile_route_count=$(grep -cF "              - 'Makefile'" "$workflow" || true)
 
 if [[ -n "$checkout_line" ]]; then
@@ -250,6 +255,11 @@ if [[ -z "$axiomc_json_contract_suite" ]]; then
   exit 1
 fi
 
+if [[ -z "$axiomc_syntax_migration_suite" ]]; then
+  echo "full-lib-suite must run syntax_migration_v1; bootstrap fixtures require real parser validation at PR head" >&2
+  exit 1
+fi
+
 if [[ -z "$axiomc_manifest_schema_parity_suite" ]]; then
   echo "full-lib-suite must run manifest_schema_parity; schema metadata must be checked against the real parser" >&2
   exit 1
@@ -294,6 +304,22 @@ fi
 
 if [[ -z "$filesystem_check" || -z "$filesystem_regression" || -z "$filesystem_behavior" ]]; then
   echo "run-fast-checks must validate PR-head Filesystem v1 data, retain checker self-tests, and execute current-backend behavior" >&2
+  exit 1
+fi
+
+if [[ "$iteration_checker_count" != "1" || "$iteration_self_test_count" != "1" ]]; then
+  echo "run-fast-checks must execute the base-pinned iteration checker and root-selectable self-test exactly once with explicit --root \"\$repo_root\"" >&2
+  exit 1
+fi
+
+if [[ -n "$iteration_head_code_reference" ]]; then
+  echo "run-fast-checks must not execute iteration checker code from the PR-head checkout" >&2
+  printf '%s\n' "$iteration_head_code_reference" >&2
+  exit 1
+fi
+
+if [[ -z "$fast_checks_head_as_data" ]]; then
+  echo "fast-checks must pass the PR head as AXIOM_CHECKOUT_PATH data to the base-pinned trusted runner" >&2
   exit 1
 fi
 

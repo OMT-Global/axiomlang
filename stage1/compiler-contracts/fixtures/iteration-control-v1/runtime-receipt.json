@@ -1,0 +1,23 @@
+{
+  "schema_version": "axiom.iteration_control.target_gap_fixture.v1",
+  "id": "iteration-control-v1/runtime-receipt",
+  "category": "runtime_receipt",
+  "status": "required_unimplemented",
+  "executable_proof": false,
+  "requirements": [
+    {"id": "artifact_identity", "contract": "Record artifact identity, path, target, compiler identity, source digest, and SHA-256 of the exact built bytes."},
+    {"id": "build_count", "contract": "Record exactly one successful build event whose artifact SHA-256 matches every later run."},
+    {"id": "no_rebuild", "contract": "Record no build event after the first run begins and require rebuild_observed=false on every run."},
+    {"id": "post_build_runs", "contract": "Record at least two strictly ordered post-build runs of the same artifact with differing runtime inputs."},
+    {"id": "run_observation", "contract": "Each run records runtime origin, concrete inputs and input digest, stdout and stderr digests, exit status, and start and finish times."},
+    {"id": "runtime_origin_matrix", "contract": "Observe environment, file, HTTP, prior-function-result, and stdin values after build using the same artifact hash."}
+  ],
+  "negative_cases": [
+    {"id": "compiler_known_value_substitution", "expected": "language.iteration_control_not_qualified because a compiler-known value is not runtime-origin proof"},
+    {"id": "declaration_only_evidence", "expected": "language.iteration_control_not_qualified because a declared receipt contract is not an executed receipt"},
+    {"id": "marker_only_evidence", "expected": "language.iteration_control_not_qualified because source or test markers are not direct-native execution"},
+    {"id": "per_run_rebuild", "expected": "language.iteration_control_not_qualified because build-once/run-many forbids rebuild between runs"},
+    {"id": "static_fixture_substitution", "expected": "language.iteration_control_not_qualified because static fixture output is not runtime-origin proof"},
+    {"id": "static_projection_of_runtime_collection", "expected": "language.iteration_control_not_qualified because compiler projection cannot replace runtime iteration"}
+  ]
+}

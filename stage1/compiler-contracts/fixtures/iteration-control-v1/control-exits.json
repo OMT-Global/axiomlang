@@ -1,0 +1,22 @@
+{
+  "schema_version": "axiom.iteration_control.target_gap_fixture.v1",
+  "id": "iteration-control-v1/control-exits",
+  "category": "control_exits",
+  "status": "required_unimplemented",
+  "executable_proof": false,
+  "requirements": [
+    {"id": "break", "contract": "Drop the current item binding, then drop the iterator exactly once, then exit the nearest loop; a cleanup failure replaces the break with an error."},
+    {"id": "cancellation", "contract": "Run current-binding and iterator cleanup exactly once; cancellation remains primary and cleanup failures are attached as ordered secondary failures."},
+    {"id": "cleanup_failure", "contract": "A cleanup failure replaces normal end, break, continue, or function return; an existing propagated error or cancellation remains primary with cleanup failures attached in observation order."},
+    {"id": "continue", "contract": "Drop the current item binding before requesting the next item from the same iterator; a cleanup failure exits with an error instead of advancing."},
+    {"id": "function_return", "contract": "Drop the current item binding and iterator exactly once before the return value leaves lexical scope; a cleanup failure replaces the return with an error."},
+    {"id": "normal_end", "contract": "Drop each completed item binding and then the exhausted iterator exactly once; a cleanup failure becomes the loop result error."},
+    {"id": "propagated_error", "contract": "Drop the current item binding and iterator exactly once; preserve the propagated error as primary and attach cleanup failures in observation order."}
+  ],
+  "negative_cases": [
+    {"id": "cleanup_failure_during_break", "expected": "iteration.cleanup_failure replaces break and no later iterator step executes"},
+    {"id": "cleanup_failure_during_error", "expected": "the original error remains primary and iteration.cleanup_failure is attached once as secondary"},
+    {"id": "duplicate_cleanup", "expected": "reject proof containing more than one cleanup event for the same item binding or iterator"},
+    {"id": "skipped_cleanup", "expected": "reject proof missing cleanup on normal end, break, continue, function return, propagated error, or cancellation"}
+  ]
+}

@@ -26,9 +26,13 @@ BASELINE = ROOT / "stage1/compatibility/fixtures/accepted-baseline/contract.json
 BASELINE_POLICY = ROOT / "stage1/compatibility/fixtures/accepted-baseline/policy.json"
 CURRENT = ROOT / "stage1/compatibility/fixtures/current/contract.json"
 PREVIOUS_CURRENT = ROOT / "stage1/compatibility/fixtures/previous-current/contract.json"
-BEFORE_SYNTAX = ROOT / "stage1/compatibility/fixtures/before-syntax-migration-v1/contract.json"
-BEFORE_SYNTAX_SHA256 = "99ebfacf460a7634b2b3b448b9657504f6d5d7ed0c031ba3a7ce1a8281f7d7fc"
+BEFORE_ITERATION = ROOT / "stage1/compatibility/fixtures/before-iteration-v1/contract.json"
+BEFORE_ITERATION_SHA256 = "99ebfacf460a7634b2b3b448b9657504f6d5d7ed0c031ba3a7ce1a8281f7d7fc"
+BEFORE_ITERATION_BLOB = "85af50f3b40caaf642b0ae9bf451e556cf4e56c9"
 # Frozen source commit: 351493a02a59cd8f9f970ff6513fdfc18be5032b
+BEFORE_SYNTAX = ROOT / "stage1/compatibility/fixtures/before-syntax-migration-v1/contract.json"
+BEFORE_SYNTAX_SHA256 = "b34e18bd43e8ab9492f41e463d5b86f9573680da790b8d93af07ee23176b96a4"
+# Frozen iteration contract tree: 4ab4464e3888509bc5620fb010c331efd31afe5d
 PREVIOUS_CURRENT_METADATA = ROOT / "stage1/compatibility/fixtures/previous-current/metadata.json"
 
 
@@ -219,6 +223,7 @@ def main() -> int:
     }
     new_main_schema_ids = {
         "axiom://schema/axiom.compiler.syntax_migration.v1",
+        "axiom://schema/axiom.iteration_control.v1",
         "axiom://schema/axiom.filesystem.v1",
         "axiom://schema/axiom.lsp.v1",
         "axiom://schema/axiom.provider-abi.v1",
@@ -264,10 +269,10 @@ def main() -> int:
         "axiom://schema/axiom.stage1.v1",
     }
     assert len(baseline_ids) == 52, "accepted baseline must remain the frozen 52-surface ratchet"
-    assert len(current_ids) == 74, "current contract must include package trust, quality, parser fuzz, Compiler Syntax Migration v1, Filesystem v1, Provider ABI, Structured Concurrency v1, runtime crypto policy, HTTP client, runtime observability, Semantic MIR, runtime lifecycle, target support, persistent LSP, and package resolver schemas"
+    assert len(current_ids) == 75, "current contract must include package trust, quality, parser fuzz, Compiler Syntax Migration v1, Iteration Control v1, Filesystem v1, Provider ABI, Structured Concurrency v1, runtime crypto policy, HTTP client, runtime observability, Semantic MIR, runtime lifecycle, target support, persistent LSP, and package resolver schemas"
     assert set(baseline_ids) < set(current_ids)
     assert set(current_ids) - set(baseline_ids) == new_public_schema_ids | new_package_resolver_ids
-    assert current_payload["contract_version"] == "0.10.0"
+    assert current_payload["contract_version"] == "0.11.0"
     assert surface(current_payload, "axiom://schema/axiom-quality-report-v1")["version"] == "0.2.0"
     assert surface(current_payload, "axiom://stdlib/catalog")["version"] == "1.2.0"
     assert surface(current_payload, "axiom://schema/axiom.compiler.stdlib_catalog.v1")["version"] == "0.3.0"
@@ -311,14 +316,31 @@ def main() -> int:
             policy=CURRENT_POLICY,
             old_policy=BASELINE_POLICY,
         )
+    before_iteration_bytes = BEFORE_ITERATION.read_bytes()
+    assert hashlib.sha256(before_iteration_bytes).hexdigest() == BEFORE_ITERATION_SHA256
+    assert git_blob_oid(before_iteration_bytes) == BEFORE_ITERATION_BLOB
+    before_iteration = load(BEFORE_ITERATION)
+    assert before_iteration["contract_version"] == "0.9.0"
+    assert len(before_iteration["surfaces"]) == 73
+    iteration_ratchet = run(BEFORE_ITERATION, BEFORE_SYNTAX, policy=CURRENT_POLICY)
+    assert iteration_ratchet.returncode == 0, iteration_ratchet.stdout + iteration_ratchet.stderr
+    iteration_report = json.loads(iteration_ratchet.stdout)
+    assert iteration_report["contracts"] == {"old": "0.9.0", "new": "0.10.0"}
+    assert iteration_report["summary"] == {"additive": 1, "breaking": 0, "compatible": 0, "deprecated": 0}
+    assert [(item["surface_id"], item["change"], item["severity"]) for item in iteration_report["changes"]] == [("axiom://schema/axiom.iteration_control.v1", "added", "additive")]
+    with tempfile.TemporaryDirectory() as iteration_temporary:
+        no_bump = copy.deepcopy(load(BEFORE_SYNTAX))
+        no_bump["contract_version"] = before_iteration["contract_version"]
+        expect_failure(Path(iteration_temporary), before_iteration, no_bump,
+                       "semantic drift requires an increased new.contract_version", policy=CURRENT_POLICY)
     assert hashlib.sha256(BEFORE_SYNTAX.read_bytes()).hexdigest() == BEFORE_SYNTAX_SHA256
     before_syntax = load(BEFORE_SYNTAX)
-    assert before_syntax["contract_version"] == "0.9.0"
-    assert len(before_syntax["surfaces"]) == 73
+    assert before_syntax["contract_version"] == "0.10.0"
+    assert len(before_syntax["surfaces"]) == 74
     syntax_ratchet = run(BEFORE_SYNTAX, CURRENT, policy=CURRENT_POLICY)
     assert syntax_ratchet.returncode == 0, syntax_ratchet.stdout + syntax_ratchet.stderr
     syntax_report = json.loads(syntax_ratchet.stdout)
-    assert syntax_report["contracts"] == {"old": "0.9.0", "new": "0.10.0"}
+    assert syntax_report["contracts"] == {"old": "0.10.0", "new": "0.11.0"}
     assert syntax_report["summary"] == {"additive": 1, "breaking": 0, "compatible": 0, "deprecated": 0}
     assert [(item["surface_id"], item["change"], item["severity"]) for item in syntax_report["changes"]] == [("axiom://schema/axiom.compiler.syntax_migration.v1", "added", "additive")]
     with tempfile.TemporaryDirectory() as syntax_temporary:
@@ -336,7 +358,7 @@ def main() -> int:
     assert canonical.returncode == 0, canonical.stdout + canonical.stderr
     canonical_report = json.loads(canonical.stdout)
     assert canonical_report["summary"] == {
-        "additive": 22,
+        "additive": 23,
         "breaking": 10,
         "compatible": 0,
         "deprecated": 0,
