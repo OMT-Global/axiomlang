@@ -1047,8 +1047,14 @@ fn lower_stmt(
                 span: SourceSpan::point(*line, *column),
             })
         }
-        syntax::Stmt::While { cond, body, line, column } =>
-            loop_ownership::lower_while(cond, body, *line, *column, env, ctx),
+        syntax::Stmt::While { cond, body, line, column } => {
+            // Loop-depth bookkeeping stays with the HIR statement driver so
+            // break/continue validation inside the body sees the incremented
+            // depth; edge-ownership recovery stays in loop_ownership.
+            let mut loop_ctx = ctx.clone();
+            loop_ctx.loop_depth += 1;
+            loop_ownership::lower_while(cond, body, *line, *column, env, ctx, &loop_ctx)
+        }
         syntax::Stmt::IfLet {
             variant,
             bindings,

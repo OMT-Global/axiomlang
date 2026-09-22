@@ -84,6 +84,7 @@ pub(super) fn lower_while(
     column: usize,
     env: &mut Environment,
     ctx: &LowerContext<'_>,
+    depth_ctx: &LowerContext<'_>,
 ) -> Result<Stmt, Diagnostic> {
     let header = env.clone();
     let lowered_cond = lower_expr(cond, env, ctx)?;
@@ -104,8 +105,8 @@ pub(super) fn lower_while(
     // must preserve availability from before that condition was evaluated.
     let body_entry = env.clone();
     let edges = Rc::new(RefCell::new(Vec::new()));
-    let mut loop_ctx = ctx.clone();
-    loop_ctx.loop_depth += 1;
+    // The caller (hir driver) already incremented loop_depth on depth_ctx.
+    let mut loop_ctx = depth_ctx.clone();
     loop_ctx.loop_edges = Some(Rc::clone(&edges));
     let mut body_env = body_entry.clone();
     let (body, body_after, body_terminates) = lower_block(body, &mut body_env, &loop_ctx)?;
