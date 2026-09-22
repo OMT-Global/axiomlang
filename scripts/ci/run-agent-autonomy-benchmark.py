@@ -9,11 +9,12 @@ import json
 import subprocess
 import sys
 import time
+import os
 from pathlib import Path
 from typing import Any
 
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+REPO_ROOT = Path(os.environ.get("AXIOM_CHECKOUT_PATH") or Path(__file__).resolve().parents[2]).resolve()
 DEFAULT_FIXTURE = REPO_ROOT / "stage1/agent-autonomy/benchmark-v0.json"
 DEFAULT_BASELINE = REPO_ROOT / "stage1/agent-autonomy/readiness-baseline-v0.json"
 CATEGORIES = {
