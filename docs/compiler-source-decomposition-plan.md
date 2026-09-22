@@ -285,8 +285,8 @@ matching ceiling in this table in the same PR.
 
 | Tracked item | Ceiling |
 | --- | ---: |
-| `summary.top_file_line_share` | 0.5767 |
-| `summary.top_file_lines` | 71227 |
+| `summary.top_file_line_share` | 0.530297381138 |
+| `summary.top_file_lines` | 71115 |
 | `stage1/crates/axiomc/src/cranelift_backend.rs` | 20179 |
 | `stage1/crates/axiomc/src/cranelift_backend/static_output_purity.rs` | 282 |
 | `stage1/crates/axiomc/src/cranelift_backend/host_env_proc_clock.rs` | 620 |
@@ -296,7 +296,8 @@ matching ceiling in this table in the same PR.
 | `stage1/crates/axiomc/src/cranelift_backend/host_fs.rs` | 984 |
 | `stage1/crates/axiomc/src/cranelift_backend/host_crypto.rs` | 783 |
 | `stage1/crates/axiomc/src/cranelift_backend/host_net_http.rs` | 1121 |
-| `stage1/crates/axiomc/src/hir.rs` | 5934 |
+| `stage1/crates/axiomc/src/hir.rs` | 5836 |
+| `stage1/crates/axiomc/src/hir/loop_ownership.rs` | 180 |
 | `stage1/crates/axiomc/src/project.rs` | 13619 |
 | `stage1/crates/axiomc/src/project/build_contract.rs` | 118 |
 | `stage1/crates/axiomc/src/main.rs` | 11934 |
@@ -318,7 +319,7 @@ matching ceiling in this table in the same PR.
 | `stage1/crates/axiomc/src/hir/expressions.rs` | 205 |
 | `stage1/crates/axiomc/src/hir/generics.rs` | 4233 |
 | `stage1/crates/axiomc/src/hir/maps.rs` | 124 |
-| `stage1/crates/axiomc/src/hir/matches.rs` | 737 |
+| `stage1/crates/axiomc/src/hir/matches.rs` | 733 |
 | `stage1/crates/axiomc/src/hir/model.rs` | 613 |
 | `stage1/crates/axiomc/src/hir/ownership.rs` | 995 |
 | `stage1/crates/axiomc/src/hir/properties.rs` | 167 |
@@ -513,3 +514,7 @@ The #1195 inspect-evidence recovery exposes the existing report implementation i
 production and adds readable CLI parsing/dispatch and help text. Its `main.rs`
 ceiling records the exact measured 11,934 lines; no unused slack, blank-line
 compression, checker changes, or global ceiling increase is used.
+
+## Loop-edge ownership residual recovery
+
+`hir/loop_ownership.rs` owns nearest-loop break/continue snapshots, condition-aware backedge validation, and conservative exit joins. Match-edge cleanup releases block locals and match temporary acquisitions separately; payload aliases do not acquire a second borrow. Function return states never enter loop continuation. This fresh current-main recovery preserves assignment semantics and the landed native/backend/defer behavior. The extraction lowers `hir.rs`, `hir/matches.rs`, and both top-seven ceilings to the measured bounds above.

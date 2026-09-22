@@ -277,6 +277,10 @@ jobs:
         # PR-head execution belongs to Full Lib Suite, never the trusted base data lane.
         run: python3 scripts/ci/check-dynamic-aggregate-abi-v1.py --root "$GITHUB_WORKSPACE" --execute --cargo-target-dir "$GITHUB_WORKSPACE/stage1/target" --json
 
+      - name: Run loop ownership edge regressions
+        # Exact PR-head native HIR and public default-backend edge evidence.
+        run: RUST_MIN_STACK=8388608 cargo test --manifest-path stage1/Cargo.toml -p axiomc --test loop_ownership_edges --locked -- --test-threads=1
+
       - name: Run native signed-add overflow matrix
         # #1659: this separate integration target is not covered by --lib or
         # cranelift_backend. Explicit native mode requires cc rather than skipping.
