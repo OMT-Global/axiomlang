@@ -104,26 +104,89 @@ FROZEN_SEMANTICS = {
     'target_contract': {
         'input_origin': 'runtime',
         'encoding': 'utf-8',
-    },
-    'target_contract.node_identity': {
-        'kind_encoding': 'lower_snake_case_ascii',
-        'ordinal_encoding': 'base10_no_leading_zero',
-        'ordinal_scope': 'per_source_origin',
-        'traversal_order': 'source_order_depth_first_preorder',
-        'stable_across_repeated_parse': True,
-        'collision_rule': 'source_digest_origin_kind_ordinal_tuple_unique',
-    },
-    'target_contract.recovery': {
-        'multiple_diagnostics': True,
-        'ordering': 'source_span_then_emitter_order',
-        'diagnostic_contract': 'compiler.diagnostics',
-    },
-    'target_contract.macros': {
-        'hygiene': 'definition_and_call_site_scoped',
-        'provenance': 'source_and_expansion_spans',
-    },
-    'target_contract.fuzzing': {
-        'seed_digest': 'sha256',
+        'entrypoints': ENTRYPOINTS,
+        'syntax_kinds': KINDS,
+        'trivia': ['doc_comment', 'line_comment'],
+        'spans': {
+            'offset_unit': 'utf8_byte',
+            'line_base': 1,
+            'column_base': 1,
+            'column_unit': 'unicode_scalar',
+            'tab_policy': 'one_unicode_scalar_no_display_expansion',
+            'line_endings': 'lf_and_crlf_each_count_as_one_line_break',
+            'malformed_utf8': 'reject_before_lexing:source.invalid_utf8',
+            'start_inclusive': True,
+            'end_exclusive': True,
+            'source_identity_required': True,
+        },
+        'node_identity': {
+            'scheme': 'axiom://syntax/sha256/{source_digest}/{origin}/{kind}/{ordinal}',
+            'source_identity': 'sha256_of_exact_input_bytes_lower_hex',
+            'kind_encoding': 'lower_snake_case_ascii',
+            'ordinal_encoding': 'base10_no_leading_zero',
+            'ordinal_scope': 'per_source_origin',
+            'traversal_order': 'source_order_depth_first_preorder',
+            'origin_rules': [
+                'macro_generated=macro-{call_site_source_ordinal} with expansion preorder ordinal',
+                'recovered=recovered at the first skipped token and occupies the source preorder slot',
+                'source=source with one global source preorder ordinal',
+                'synthetic=synthetic-{owning_origin}-{owning_kind}-{owning_ordinal} with per-owner deterministic construction ordinal',
+            ],
+            'stable_across_repeated_parse': True,
+            'collision_rule': 'source_digest_origin_kind_ordinal_tuple_unique',
+            'prohibited_inputs': ['host_address', 'host_hash_seed', 'rust_module_path', 'rust_type_name'],
+        },
+        'recovery': {
+            'multiple_diagnostics': True,
+            'ordering': 'source_span_then_emitter_order',
+            'diagnostic_contract': 'compiler.diagnostics',
+            'recovered_node_required': True,
+            'recovered_node_fields': ['diagnostic_ids', 'node_id', 'node_kind', 'skipped_end_byte', 'skipped_start_byte', 'span'],
+            'resynchronization_points': ['block_boundary', 'declaration_start', 'item_start', 'statement_start'],
+        },
+        'macros': {
+            'hygiene': 'definition_and_call_site_scoped',
+            'provenance': 'source_and_expansion_spans',
+            'limit_precedence': 'configuration_then_invocations_then_expanded_bytes_then_recursion',
+            'recursion': {
+                'default': 64,
+                'ceiling': 1024,
+                'unit': 'expansion_depth',
+                'scope': 'per_root_invocation',
+                'boundary': 'inclusive',
+                'failure_code': 'parse.macro_recursion_limit',
+            },
+            'expanded_bytes': {
+                'default': 16777216,
+                'ceiling': 67108864,
+                'unit': 'utf8_bytes',
+                'scope': 'per_source_parse',
+                'boundary': 'inclusive',
+                'failure_code': 'parse.macro_expanded_bytes_limit',
+            },
+            'invocations': {
+                'default': 8192,
+                'ceiling': 65536,
+                'unit': 'expanded_invocations',
+                'scope': 'per_source_parse',
+                'boundary': 'inclusive',
+                'failure_code': 'parse.macro_invocation_limit',
+            },
+        },
+        'fuzzing': {
+            'seed_manifest': 'stage1/compiler-contracts/fixtures/syntax-migration-v1/fuzz-corpus.json',
+            'seed_digest': 'sha256',
+            'deterministic_mutation_seed': 1471,
+            'per_case_byte_limit': 1048576,
+            'per_case_time_ms': 1000,
+            'oracles': ['deterministic_diagnostics', 'no_crash', 'no_nontermination', 'no_out_of_checkout_read'],
+            'promotion_criteria': [
+                'axiom_and_rust_seed_parity',
+                'zero_crashes_or_timeouts',
+                'zero_nondeterministic_diagnostic_envelopes',
+            ],
+        },
+        'inspection_fields': INSPECTION_FIELDS,
     },
     'current_floor': {
         'tier': 'syntax_only',
@@ -140,6 +203,7 @@ FROZEN_SEMANTICS = {
         'fail_closed_diagnostic': 'self_host.syntax_cutover_not_qualified',
     },
 }
+
 
 class ContractError(ValueError):
     pass
@@ -230,6 +294,8 @@ def value_kind(value: Any) -> str:
         return "boolean"
     if isinstance(value, int):
         return "integer"
+    if isinstance(value, float):
+        return "number"
     if isinstance(value, str):
         return "string"
     if isinstance(value, list):
@@ -238,10 +304,10 @@ def value_kind(value: Any) -> str:
 
 
 def json_equal(left: Any, right: Any) -> bool:
-    if isinstance(left, list) or isinstance(right, list):
+    if isinstance(left, (list, tuple)) or isinstance(right, (list, tuple)):
         return (
-            isinstance(left, list)
-            and isinstance(right, list)
+            type(left) is type(right)
+            and isinstance(left, (list, tuple))
             and len(left) == len(right)
             and all(json_equal(left_item, right_item) for left_item, right_item in zip(left, right))
         )
@@ -344,33 +410,31 @@ def validate_fixture_document(root: Path, name: str, metadata: dict[str, Any]) -
 def validate_fixture_semantics(documents: dict[str, dict[str, Any]]) -> None:
     conformance = documents["bootstrap-conformance"]
     require(
-        conformance["input"]
-        == {
+        json_equal(conformance["input"], {
             "pass_root": "stage1/conformance/pass",
             "fail_root": "stage1/conformance/fail",
             "supplied_after_build": False,
-        }
-        and conformance["expected"]["exit_outcome"] == "corpus_passes",
+        })
+        and json_equal(conformance["expected"]["exit_outcome"], "corpus_passes"),
         "bootstrap conformance fixture drifted",
     )
     recovery = documents["bootstrap-recovery-diagnostics"]["expected"]
     require(
-        [(item["code"], item["line"], item["column"]) for item in recovery["compiler_diagnostics"]]
-        == [("parse.invalid_syntax", 1, 1), ("parse.missing_token", 2, 1), ("parse.unexpected_token", 4, 1)],
+        json_equal([(item["code"], item["line"], item["column"]) for item in recovery["compiler_diagnostics"]], [("parse.invalid_syntax", 1, 1), ("parse.missing_token", 2, 1), ("parse.unexpected_token", 4, 1)]),
         "bootstrap recovery diagnostic order drifted",
     )
-    require(recovery["recovered_nodes"] == [], "bootstrap must not claim recovered-node emission")
+    require(json_equal(recovery["recovered_nodes"], []), "bootstrap must not claim recovered-node emission")
 
     provenance = documents["bootstrap-macro-provenance"]["expected"]["macro_provenance"]
-    require(provenance == [{"macro_name": "ping", "depth": 1, "definition_span": {"path": "main.ax", "line": 1, "column": 7}, "call_span": {"path": "main.ax", "line": 5, "column": 1}}], "bootstrap macro provenance drifted")
+    require(json_equal(provenance, [{"macro_name": "ping", "depth": 1, "definition_span": {"path": "main.ax", "line": 1, "column": 7}, "call_span": {"path": "main.ax", "line": 5, "column": 1}}]), "bootstrap macro provenance drifted")
 
     identity = documents["bootstrap-node-identity"]["expected"]["node_identities"]
-    require(identity and identity[0]["id"] == "modules/nested.ax:1:1:enum:ResultKind", "bootstrap node identity drifted")
+    require(identity and json_equal(identity[0]["id"], "modules/nested.ax:1:1:enum:ResultKind"), "bootstrap node identity drifted")
     require(identity[0]["canonical_axiom_id"] is False, "bootstrap identity must not be called canonical")
 
     line_comment = documents["bootstrap-line-comment-coordinates"]
     require(line_comment["qualification"]["comments_retained_as_trivia"] is False, "bootstrap line comments are stripped, not retained")
-    require([(span["line"], span["column"]) for span in line_comment["expected"]["spans"]] == [(2, 1), (3, 1)], "line-comment coordinate proof drifted")
+    require(json_equal([(span["line"], span["column"]) for span in line_comment["expected"]["spans"]], [(2, 1), (3, 1)]), "line-comment coordinate proof drifted")
 
     limits = {
         "bootstrap-macro-byte-limit": ("macro_expansion_byte_limit", 96, "expanded source budget of 96 bytes"),
@@ -379,20 +443,19 @@ def validate_fixture_semantics(documents: dict[str, dict[str, Any]]) -> None:
     }
     for name, (option, value, message) in limits.items():
         document = documents[name]
-        require(document["qualification"]["option"] == option and document["qualification"]["value"] == value, f"macro option drifted for {name}")
+        require(json_equal(document["qualification"]["option"], option) and json_equal(document["qualification"]["value"], value), f"macro option drifted for {name}")
         diagnostic = document["expected"]["compiler_diagnostics"]
-        require(len(diagnostic) == 1 and diagnostic[0]["code"] == "parse.invalid_syntax" and message in diagnostic[0]["message"], f"macro diagnostic drifted for {name}")
+        require(json_equal(len(diagnostic), 1) and json_equal(diagnostic[0]["code"], "parse.invalid_syntax") and message in diagnostic[0]["message"], f"macro diagnostic drifted for {name}")
 
     runtime = documents["runtime-same-binary-ab"]
     runtime_input = runtime["input"]
     runs = runtime_input["inputs_supplied_after_build"]
     require(runtime_input["artifact_sha256"] is None and runtime_input["built_before_inputs_exist"] is True, "runtime A/B must remain an unproved target gap")
-    require([run["id"] for run in runs] == ["A", "B"] and runs[0]["source"] != runs[1]["source"], "runtime A/B inputs drifted")
-    require(runtime["qualification"]["artifact_identity"] == "one exact sha256 for A and B", "runtime A/B artifact binding drifted")
-    require(len(runtime["qualification"]["anti_static_replay"]) == 4, "runtime A/B anti-replay proof is incomplete")
+    require(json_equal([run["id"] for run in runs], ["A", "B"]) and runs[0]["source"] != runs[1]["source"], "runtime A/B inputs drifted")
+    require(json_equal(runtime["qualification"]["artifact_identity"], "one exact sha256 for A and B"), "runtime A/B artifact binding drifted")
+    require(json_equal(len(runtime["qualification"]["anti_static_replay"]), 4), "runtime A/B anti-replay proof is incomplete")
     require(
-        runtime["expected"]["compiler_diagnostics"]
-        == [
+        json_equal(runtime["expected"]["compiler_diagnostics"], [
             {"input": "A", "records": []},
             {
                 "input": "B",
@@ -405,51 +468,62 @@ def validate_fixture_semantics(documents: dict[str, dict[str, Any]]) -> None:
                     }
                 ],
             },
-        ],
+        ]),
         "runtime A/B expected envelopes drifted",
     )
 
     fuzz = documents["fuzz-corpus"]
-    require(fuzz["input"]["seed_manifest"] == [], "fuzz corpus must remain a gap until deterministic seeds exist")
-    require(fuzz["input"]["deterministic_mutation_seed"] == 1471, "fuzz mutation seed drifted")
-    require(fuzz["qualification"]["per_case_byte_limit"] == 1048576 and fuzz["qualification"]["per_case_time_ms"] == 1000, "fuzz resource bounds drifted")
-    require(fuzz["qualification"]["oracles"] == ["deterministic_diagnostics", "no_crash", "no_nontermination", "no_out_of_checkout_read"], "fuzz oracles drifted")
+    require(json_equal(fuzz["input"]["seed_manifest"], []), "fuzz corpus must remain a gap until deterministic seeds exist")
+    require(json_equal(fuzz["input"]["deterministic_mutation_seed"], 1471), "fuzz mutation seed drifted")
+    require(json_equal(fuzz["qualification"]["per_case_byte_limit"], 1048576) and json_equal(fuzz["qualification"]["per_case_time_ms"], 1000), "fuzz resource bounds drifted")
+    require(json_equal(fuzz["qualification"]["oracles"], ["deterministic_diagnostics", "no_crash", "no_nontermination", "no_out_of_checkout_read"]), "fuzz oracles drifted")
+
+    # Fixtures must agree with the trusted target, not merely with a mutable schema.
+    target = FROZEN_SEMANTICS["target_contract"]
+    fuzz_contract = target["fuzzing"]
+    require(json_equal(fuzz["input"]["seed_digest_algorithm"], fuzz_contract["seed_digest"]), "fuzz seed digest drifted")
+    require(fuzz["input"]["supplied_after_build"] is True, "fuzz seeds must be supplied after build")
+    for field in ("per_case_byte_limit", "per_case_time_ms", "oracles", "promotion_criteria"):
+        require(json_equal(fuzz["qualification"][field], fuzz_contract[field]), f"fuzz {field} drifted")
+    recovered_fixture = documents["recovered-node-emission"]
+    require(json_equal(recovered_fixture["qualification"], {
+        "ordered_diagnostics": True,
+        "resumes_at": "statement_start",
+        "bootstrap_emits_recovered_nodes": False,
+    }), "recovered-node qualification drifted")
+    for node in recovered_fixture["expected"]["recovered_nodes"]:
+        require(sorted(node) == target["recovery"]["recovered_node_fields"], "recovered-node required fields drifted")
 
     unicode_fixture = documents["unicode-span-semantics"]
-    require([vector["id"] for vector in unicode_fixture["input"]["vectors"]] == ["unicode-scalar", "tab", "crlf", "malformed"], "Unicode vector inventory drifted")
-    require(unicode_fixture["qualification"] == {"offset_unit": "utf8_byte", "column_unit": "unicode_scalar", "tabs": "one scalar", "crlf": "one line break", "malformed_utf8": "reject before lexing"}, "Unicode span semantics drifted")
+    require(json_equal([vector["id"] for vector in unicode_fixture["input"]["vectors"]], ["unicode-scalar", "tab", "crlf", "malformed"]), "Unicode vector inventory drifted")
+    require(json_equal(unicode_fixture["qualification"], {"offset_unit": "utf8_byte", "column_unit": "unicode_scalar", "tabs": "one scalar", "crlf": "one line break", "malformed_utf8": "reject before lexing"}), "Unicode span semantics drifted")
     require(
-        unicode_fixture["expected"]["compiler_diagnostics"]
-        == [{"vector": "malformed", "kind": "source", "code": "source.invalid_utf8", "byte_offset": 6}],
+        json_equal(unicode_fixture["expected"]["compiler_diagnostics"], [{"vector": "malformed", "kind": "source", "code": "source.invalid_utf8", "byte_offset": 6}]),
         "malformed UTF-8 vector drifted",
     )
     require(
-        unicode_fixture["expected"]["spans"]
-        == [
+        json_equal(unicode_fixture["expected"]["spans"], [
             {"vector": "unicode-scalar", "token": "café", "start_byte": 4, "end_byte": 9, "line": 1, "column": 5, "end_column": 9},
             {"vector": "unicode-scalar", "token": "🙂", "start_byte": 21, "end_byte": 25, "line": 1, "column": 21, "end_column": 22},
             {"vector": "tab", "token": "print", "start_byte": 1, "end_byte": 6, "line": 1, "column": 2, "end_column": 7},
             {"vector": "crlf", "token": "print", "occurrence": 2, "start_byte": 9, "end_byte": 14, "line": 2, "column": 1, "end_column": 6},
-        ],
+        ]),
         "Unicode span vectors drifted",
     )
 
     require(
-        documents["node-identity-parity"]["expected"]["node_identities"]
-        == [
+        json_equal(documents["node-identity-parity"]["expected"]["node_identities"], [
             {"origin": "source", "kind": "program", "ordinal": 0},
             {"origin": "macro-2", "kind": "expression", "ordinal": 0},
             {"origin": "recovered", "kind": "declaration", "ordinal": 4},
             {"origin": "synthetic-source-program-0", "kind": "eof", "ordinal": 0},
-        ],
+        ]),
         "node identity origin vectors drifted",
     )
     recovered = documents["recovered-node-emission"]["expected"]
     require(
-        recovered["compiler_diagnostics"]
-        == [{"kind": "parse", "code": "parse.missing_token", "message": "let binding is missing ':'", "path": "runtime/recovery.ax", "line": 1, "column": 1}]
-        and recovered["recovered_nodes"]
-        == [
+        json_equal(recovered["compiler_diagnostics"], [{"kind": "parse", "code": "parse.missing_token", "message": "let binding is missing ':'", "path": "runtime/recovery.ax", "line": 1, "column": 1}])
+        and json_equal(recovered["recovered_nodes"], [
             {
                 "node_id": "axiom://syntax/sha256/a251f5bacc41ef22fe5b41b8158dba7638614346d380ebb677252349e01237b8/recovered/declaration/1",
                 "node_kind": "declaration",
@@ -458,20 +532,19 @@ def validate_fixture_semantics(documents: dict[str, dict[str, Any]]) -> None:
                 "diagnostic_ids": [0],
                 "span": {"path": "runtime/recovery.ax", "start_byte": 0, "end_byte": 18, "line": 1, "column": 1},
             }
-        ]
-        and recovered["spans"] == [{"kind": "recovered_declaration", "line": 1, "column": 1}]
-        and recovered["node_identities"]
-        == [
+        ])
+        and json_equal(recovered["spans"], [{"kind": "recovered_declaration", "line": 1, "column": 1}])
+        and json_equal(recovered["node_identities"], [
             {
                 "id": "axiom://syntax/sha256/a251f5bacc41ef22fe5b41b8158dba7638614346d380ebb677252349e01237b8/recovered/declaration/1",
                 "origin": "recovered",
                 "kind": "declaration",
                 "ordinal": 1,
             }
-        ],
+        ]),
         "target recovered-node fixture drifted",
     )
-    require(documents["line-comment-trivia-ownership"]["qualification"]["bootstrap_behavior"] == "text stripped while line coordinates survive", "line-comment ownership gap drifted")
+    require(json_equal(documents["line-comment-trivia-ownership"]["qualification"]["bootstrap_behavior"], "text stripped while line coordinates survive"), "line-comment ownership gap drifted")
     require(documents["differential-coexistence"]["qualification"]["artifact_identity_required"] is True, "differential proof must bind an artifact")
 
 
@@ -491,68 +564,33 @@ def validate_contract(root: Path) -> dict[str, Any]:
             value = value[part]
         for field, expected in fields.items():
             require(json_equal(value.get(field), expected), f"{section}.{field} semantic invariant drifted")
-    require((snapshot["schema_version"], snapshot["contract"], snapshot["issue"], snapshot["parent_issue"]) == ("axiom.compiler.syntax_migration.v1", "compiler.syntax", 1471, 1468), "contract identity drifted")
-    require(snapshot["dependency_issues"] == [1427, 1468, 1473], "syntax migration dependencies must include #1427, #1468, and #1473")
+    require(json_equal((snapshot["schema_version"], snapshot["contract"], snapshot["issue"], snapshot["parent_issue"]), ("axiom.compiler.syntax_migration.v1", "compiler.syntax", 1471, 1468)), "contract identity drifted")
+    require(json_equal(snapshot["dependency_issues"], [1427, 1468, 1473]), "syntax migration dependencies must include #1427, #1468, and #1473")
     gates = snapshot["entry_gates"]
-    require([(gate["id"], gate["issue"]) for gate in gates] == ENTRY_GATES, "syntax migration entry gates drifted")
-    require(all(gate["status"] == "blocked" and gate["required_proof"] for gate in gates), "entry gates must fail closed")
-
-    target = snapshot["target_contract"]
-    require(target["entrypoints"] == ENTRYPOINTS, "syntax entrypoints drifted")
-    require(target["syntax_kinds"] == KINDS, "syntax kinds drifted")
-    require(target["trivia"] == ["doc_comment", "line_comment"], "syntax trivia contract drifted")
-    require(target["spans"] == {
-        "offset_unit": "utf8_byte", "line_base": 1, "column_base": 1,
-        "column_unit": "unicode_scalar", "tab_policy": "one_unicode_scalar_no_display_expansion",
-        "line_endings": "lf_and_crlf_each_count_as_one_line_break",
-        "malformed_utf8": "reject_before_lexing:source.invalid_utf8",
-        "start_inclusive": True, "end_exclusive": True, "source_identity_required": True,
-    }, "span semantics drifted")
-    identity = target["node_identity"]
-    require(identity["scheme"] == "axiom://syntax/sha256/{source_digest}/{origin}/{kind}/{ordinal}", "canonical node identity scheme drifted")
-    require(identity["source_identity"] == "sha256_of_exact_input_bytes_lower_hex", "node source identity drifted")
-    require(
-        identity["origin_rules"]
-        == [
-            "macro_generated=macro-{call_site_source_ordinal} with expansion preorder ordinal",
-            "recovered=recovered at the first skipped token and occupies the source preorder slot",
-            "source=source with one global source preorder ordinal",
-            "synthetic=synthetic-{owning_origin}-{owning_kind}-{owning_ordinal} with per-owner deterministic construction ordinal",
-        ],
-        "node origin rules drifted",
-    )
-    require_sorted_unique(identity["prohibited_inputs"], "node identity prohibited inputs")
-    require(target["recovery"]["recovered_node_required"] is True, "target recovery must emit recovered nodes")
-    require_sorted_unique(target["recovery"]["recovered_node_fields"], "recovered node fields")
-    require_sorted_unique(target["recovery"]["resynchronization_points"], "recovery points")
-    require(target["macros"]["limit_precedence"] == "configuration_then_invocations_then_expanded_bytes_then_recursion", "macro limit precedence drifted")
-    for key, expected in {"recursion": (64, 1024, "parse.macro_recursion_limit"), "expanded_bytes": (16777216, 67108864, "parse.macro_expanded_bytes_limit"), "invocations": (8192, 65536, "parse.macro_invocation_limit")}.items():
-        limit = target["macros"][key]
-        require((limit["default"], limit["ceiling"], limit["failure_code"]) == expected, f"macro {key} limit drifted")
-        require(limit["default"] <= limit["ceiling"] and limit["boundary"] == "inclusive", f"macro {key} boundary drifted")
-    require(target["inspection_fields"] == INSPECTION_FIELDS, "syntax inspection fields drifted")
+    require(json_equal([(gate["id"], gate["issue"]) for gate in gates], ENTRY_GATES), "syntax migration entry gates drifted")
+    require(all(json_equal(gate["status"], "blocked") and gate["required_proof"] for gate in gates), "entry gates must fail closed")
 
     floor = snapshot["current_floor"]
     require_sorted_unique(floor["bootstrap_evidence"], "bootstrap evidence")
     for evidence in floor["bootstrap_evidence"]:
         validate_evidence_reference(root, evidence, "bootstrap floor")
-    require(floor["target_gaps"] == TARGET_GAPS, "syntax target gaps drifted")
+    require(json_equal(floor["target_gaps"], TARGET_GAPS), "syntax target gaps drifted")
     require(not any([floor["axiom_package_present"], floor["runtime_origin_source_proven"], floor["rust_path_disable_proven"], floor["differential_parity_present"], floor["canonical_axiom_node_ids"]]), "current floor overclaims AxiOM syntax migration")
     require(not list(root.glob("stage1/selfhost/compiler-syntax*/axiom.toml")), "AxiOM syntax package appeared; update the migration floor")
 
     cutover = snapshot["cutover"]
     require(cutover["permitted"] is False, "syntax cutover cannot be permitted by this planning slice")
-    require(cutover["required_entry_gates"] == [gate[0] for gate in ENTRY_GATES], "cutover omits an entry gate")
+    require(json_equal(cutover["required_entry_gates"], [gate[0] for gate in ENTRY_GATES]), "cutover omits an entry gate")
     require_sorted_unique(cutover["required_proofs"], "cutover proofs")
-    require(set(CUTOVER_PROOFS) == set(TARGET_GAPS), "cutover proof mapping omits a target gap")
+    require(json_equal(set(CUTOVER_PROOFS), set(TARGET_GAPS)), "cutover proof mapping omits a target gap")
     require(
-        cutover["required_proofs"] == sorted(CUTOVER_PROOFS.values()),
+        json_equal(cutover["required_proofs"], sorted(CUTOVER_PROOFS.values())),
         "cutover omits proof for a blocking target gap",
     )
 
     fixtures = snapshot["fixtures"]
     names = [fixture["id"].rsplit("/", 1)[-1] for fixture in fixtures]
-    require(names == sorted(FIXTURES), "fixture inventory must be complete and sorted")
+    require(json_equal(names, sorted(FIXTURES)), "fixture inventory must be complete and sorted")
     documents = {name: validate_fixture_document(root, name, fixture) for name, fixture in zip(names, fixtures, strict=True)}
     validate_fixture_semantics(documents)
 
@@ -567,7 +605,7 @@ def validate_contract(root: Path) -> dict[str, Any]:
         require(marker in fixture_tests, f"structured fixture test marker missing: {marker}")
     require("axiom://syntax/sha256/" not in source, "bootstrap source now exposes canonical AxiOM node IDs; update the floor")
 
-    bootstrap_count = sum(status == "bootstrap_pass" for _, status in FIXTURES.values())
+    bootstrap_count = sum(json_equal(status, "bootstrap_pass") for _, status in FIXTURES.values())
     return {
         "schema": snapshot["schema_version"],
         "ok": True,

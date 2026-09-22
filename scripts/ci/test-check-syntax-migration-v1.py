@@ -136,6 +136,105 @@ class SyntaxMigrationContractTests(unittest.TestCase):
             with self.assertRaises(checker.ContractError):
                 checker.validate_contract(root)
 
+    def test_rejects_incomplete_target_semantics_without_schema(self) -> None:
+        original = checker.load(ROOT, checker.SNAPSHOT, "snapshot")["target_contract"]
+        mutations = []
+        for section, field in [
+            ("node_identity", "prohibited_inputs"),
+            ("recovery", "recovered_node_fields"),
+            ("recovery", "resynchronization_points"),
+            ("fuzzing", "oracles"),
+            ("fuzzing", "promotion_criteria"),
+        ]:
+            for item in original[section][field]:
+                mutations.append(((section,), field, [value for value in original[section][field] if value != item]))
+        for limit in ("recursion", "expanded_bytes", "invocations"):
+            mutations.extend([
+                (("macros", limit), "unit", "gigabytes"),
+                (("macros", limit), "scope", "per_token"),
+            ])
+        mutations.extend([
+            (("fuzzing",), "seed_manifest", "unrelated.json"),
+            (("fuzzing",), "seed_digest", "none"),
+            (("fuzzing",), "deterministic_mutation_seed", 0),
+            (("fuzzing",), "per_case_byte_limit", 2147483647),
+            (("fuzzing",), "per_case_time_ms", 2147483647),
+        ])
+        for section, field, replacement in mutations:
+            for remove_schema in (False, True):
+                with self.subTest(section=section, field=field, replacement=replacement, remove_schema=remove_schema), tempfile.TemporaryDirectory() as temporary:
+                    root = Path(temporary)
+                    snapshot = self.copy_contract(root)
+                    value = snapshot["target_contract"]
+                    for part in section:
+                        value = value[part]
+                    value[field] = replacement
+                    if remove_schema:
+                        schema = checker.load(root, checker.SCHEMA, "schema")
+                        schema["$defs"]["targetContract"] = {}
+                        checker.validate_schema(snapshot, schema, "$", schema)
+                        (root / checker.SCHEMA).write_text(json.dumps(schema), encoding="utf-8")
+                    (root / checker.SNAPSHOT).write_text(json.dumps(snapshot), encoding="utf-8")
+                    with self.assertRaises(checker.ContractError):
+                        checker.validate_contract(root)
+
+    def test_rejects_json_type_substitutions_without_schema(self) -> None:
+        mutations = [
+            (("target_contract", "spans"), "start_inclusive", 1),
+            (("target_contract", "spans"), "end_exclusive", 1),
+            (("target_contract", "spans"), "source_identity_required", 1),
+            (("target_contract", "spans"), "line_base", True),
+            (("target_contract", "spans"), "column_base", True),
+            (("target_contract", "recovery"), "multiple_diagnostics", 1),
+            (("target_contract", "recovery"), "recovered_node_required", 1),
+            (("target_contract", "node_identity"), "stable_across_repeated_parse", 1),
+            (("target_contract", "macros", "recursion"), "default", 64.0),
+            (("target_contract", "fuzzing"), "deterministic_mutation_seed", 1471.0),
+            (("current_floor",), "axiom_package_present", 0),
+        ]
+        for section, field, replacement in mutations:
+            with self.subTest(section=section, field=field), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                snapshot = self.copy_contract(root)
+                value = snapshot
+                for part in section:
+                    value = value[part]
+                value[field] = replacement
+                schema = {"$id": "axiom.compiler.syntax_migration.v1.schema.json"}
+                checker.validate_schema(snapshot, schema, "$", schema)
+                (root / checker.SCHEMA).write_text(json.dumps(schema), encoding="utf-8")
+                (root / checker.SNAPSHOT).write_text(json.dumps(snapshot), encoding="utf-8")
+                with self.assertRaises(checker.ContractError):
+                    checker.validate_contract(root)
+
+    def test_rejects_fixture_semantic_and_type_drift(self) -> None:
+        mutations = [
+            ("fuzz-corpus", ("input",), "seed_digest_algorithm", "none"),
+            ("fuzz-corpus", ("input",), "supplied_after_build", 1),
+            ("fuzz-corpus", ("qualification",), "promotion_criteria", ["always_promote"]),
+            ("recovered-node-emission", ("qualification",), "ordered_diagnostics", 1),
+            ("recovered-node-emission", ("qualification",), "resumes_at", "any_token"),
+            ("recovered-node-emission", ("qualification",), "bootstrap_emits_recovered_nodes", 0),
+            ("bootstrap-conformance", ("input",), "supplied_after_build", 0),
+            ("bootstrap-recovery-diagnostics", ("expected", "compiler_diagnostics", 0), "line", True),
+            ("bootstrap-macro-provenance", ("expected", "macro_provenance", 0), "depth", True),
+            ("bootstrap-macro-invocation-limit", ("qualification",), "value", True),
+            ("node-identity-parity", ("expected", "node_identities", 0), "ordinal", False),
+        ]
+        for name, section, field, replacement in mutations:
+            with self.subTest(name=name, field=field), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                self.copy_contract(root)
+                path = root / checker.FIXTURE_ROOT / f"{name}.json"
+                document = json.loads(path.read_text(encoding="utf-8"))
+                value = document
+                for part in section:
+                    value = value[part]
+                value[field] = replacement
+                path.write_text(json.dumps(document), encoding="utf-8")
+                with self.assertRaises(checker.ContractError):
+                    checker.validate_contract(root)
+
     def test_rejects_omitted_issue_gates(self) -> None:
         self.reject_snapshot(lambda value: value["dependency_issues"].remove(1427))
         self.reject_snapshot(lambda value: value["dependency_issues"].remove(1468))
