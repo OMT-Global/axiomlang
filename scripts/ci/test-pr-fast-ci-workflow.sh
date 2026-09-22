@@ -401,3 +401,13 @@ if [[ "$stdlib_transition_fast" != 1 || "$stdlib_transition_head" != 1 ]]; then
   echo "Stdlib catalog transition controls require trusted-main and exact PR-head execution" >&2
   exit 1
 fi
+
+# New scaffold checks run on PR head while trusted main consumes only explicit head data.
+scale_checker_count=$(grep -cF 'python3 "$script_repo_root/scripts/ci/check-compiler-scale-proof-v1.py" --root "$repo_root"' "$fast_checks_script" || true)
+scale_selftest_count=$(grep -cF 'python3 "$script_repo_root/scripts/ci/test-check-compiler-scale-proof-v1.py"' "$fast_checks_script" || true)
+scale_head_count=$(printf '%s\n' "$full_lib_suite_section" | grep -cF 'python3 scripts/ci/check-compiler-scale-proof-v1.py --root "$GITHUB_WORKSPACE" --json' || true)
+scale_head_selftest_count=$(printf '%s\n' "$full_lib_suite_section" | grep -cF 'python3 scripts/ci/test-check-compiler-scale-proof-v1.py' || true)
+if [[ "$scale_checker_count" != 1 || "$scale_selftest_count" != 1 || "$scale_head_count" != 1 || "$scale_head_selftest_count" != 1 ]]; then
+  echo "Compiler scale proof requires exactly one trusted explicit-root check/selftest and PR-head check/selftest" >&2
+  exit 1
+fi

@@ -644,9 +644,9 @@
       "status": "blocked",
       "governingIssue": 1427,
       "blockerIssues": [1427],
-      "dependencies": [1434, 1436, 1438, 1439, 1440, 1425, 1426, 1476, 1477],
-      "evidence": ["docs/axiom-compiler-source-layout.md", "docs/self-hosting-language-readiness.json"],
-      "validatingCommand": "make self-hosting-language-readiness",
+      "dependencies": [1425, 1426, 1434, 1436, 1437, 1438, 1439, 1440, 1476, 1477],
+      "evidence": ["docs/axiom-compiler-source-layout.md", "docs/compiler-scale-proof-v1.md", "docs/self-hosting-language-readiness.json", "stage1/compiler-contracts/snapshots/compiler-scale-proof-v1.json"],
+      "validatingCommand": "make stage1-compiler-scale-proof-v1-test && make stage1-compiler-scale-proof-v1 && make self-hosting-language-readiness && make stage1-diagnostics-syntax-boundary && make stage1-package-graph-boundary && make stage1-hir-boundary && make stage1-mir-backend-boundary && make stage1-command-lsp-boundary",
       "rustCaptureRisk": "high",
       "agentInspectionImpact": "Link runtime source, compiler packages, MIR, lowering, capabilities, outputs, and artifact."
     },

@@ -10,7 +10,7 @@
       "sha256": "30e92d85d0e0cc6cf14a32477e5b45afbc44d3d36803a8e456d55ef93860767a"
     }
   },
-  "contract_version": "0.15.0",
+  "contract_version": "0.14.0",
   "edition": {
     "id": "2026",
     "source": {
@@ -95,7 +95,7 @@
           "path": "stage1/compiler-contracts/snapshots/capability-ledger.json",
           "role": "cli_top_level_parity",
           "selector": "commands[*].name",
-          "sha256": "2371b0ca9e395cd6df6dbc5da221fe93fd6fbe17cf1ce48ff458f85142fbe8f1"
+          "sha256": "db236b92a93e046a7879229ade5a5a855b237fa1a98afdfca37459136af1379c"
         },
         {
           "path": "stage1/crates/axiomc/src/main.rs",
@@ -1026,21 +1026,6 @@
           "role": "published_schema",
           "selector": "$id,properties.schema_version.const",
           "sha256": "25a53220efcad7a3c66abbcb8c5beb8d97b922fe772538ede381dc1d954cb222"
-        }
-      ],
-      "stability": "experimental",
-      "version": "0.1.0"
-    },
-    {
-      "id": "axiom://schema/axiom.compiler_scale_proof.v1",
-      "kind": "schema",
-      "signature": "published schema id=https://omt-global.github.io/axiom/schemas/axiom.compiler_scale_proof.v1.schema.json; semantic_digest=59eede03945942a5360cfe577e0f8af9d8a600ffcb6c4293dc2c3760861926d4; envelope=axiom.compiler_scale_proof.v1",
-      "sources": [
-        {
-          "path": "stage1/compiler-contracts/schemas/axiom.compiler_scale_proof.v1.schema.json",
-          "role": "published_schema",
-          "selector": "$id,properties.schema_version.const",
-          "sha256": "cc8e0e7fff4d5631489e02c38df830a4d49aa8a0a73d05e009cb8fa239928028"
         }
       ],
       "stability": "experimental",

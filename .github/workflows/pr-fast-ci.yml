@@ -261,6 +261,11 @@ jobs:
         # New fixtures must run on the PR head before trusted main adopts their checker.
         run: RUST_MIN_STACK=8388608 cargo test --manifest-path stage1/Cargo.toml -p axiomc --test syntax_migration_v1 --locked -- --test-threads=1
 
+      - name: Run compiler scale proof controls
+        run: |
+          python3 scripts/ci/test-check-compiler-scale-proof-v1.py
+          python3 scripts/ci/check-compiler-scale-proof-v1.py --root "$GITHUB_WORKSPACE" --json
+
       - name: Run stdlib catalog transition controls
         # Test new trusted-code capability on the exact head before base adoption.
         run: python3 scripts/ci/test-check-stdlib-catalog-transition.py
