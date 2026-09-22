@@ -15,6 +15,7 @@ clap.workspace = true
 curve25519-dalek.workspace = true
 ed25519-dalek.workspace = true
 getrandom.workspace = true
+hmac.workspace = true
 jsonschema.workspace = true
 libc.workspace = true
 serde.workspace = true

@@ -9,15 +9,17 @@ import json
 import subprocess
 import sys
 import tomllib
+import os
 from pathlib import Path
 from typing import Any
 
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(os.environ.get("AXIOM_CHECKOUT_PATH") or Path(__file__).resolve().parents[2]).resolve()
 FIXTURES = ROOT / "stage1/compatibility/fixtures"
 POLICY = ROOT / "stage1/compatibility/policy-v1.json"
-CHECKER = ROOT / "scripts/ci/check-compatibility-v1.py"
-EXTRACTOR = ROOT / "scripts/ci/extract-public-contract-v1.py"
+SCRIPT_ROOT = Path(__file__).resolve().parents[2]
+CHECKER = SCRIPT_ROOT / "scripts/ci/check-compatibility-v1.py"
+EXTRACTOR = SCRIPT_ROOT / "scripts/ci/extract-public-contract-v1.py"
 CORPORA = {
     "current": ("current_source_snapshot", "workspace_source"),
     "accepted-baseline": ("accepted_source_baseline", "source_contract_only"),

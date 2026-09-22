@@ -1,0 +1,14 @@
+{
+  "schema_version": "axiom.dynamic_aggregate_abi.fixture.v1",
+  "id": "dynamic-aggregate-abi-v1/early-return-owned-cleanup",
+  "kind": "target_gap",
+  "scenario": "runtime-origin owned children leave scope through an early return",
+  "shape": ["result", "struct"],
+  "runtime_origin": true,
+  "function_boundaries": 2,
+  "evidence": {
+    "mode": "target_gap",
+    "gap": "early_return_owned_cleanup",
+    "reason": "the abstract transition model covers early exit, but the current direct-native owned aggregate runtime path is not executable"
+  }
+}

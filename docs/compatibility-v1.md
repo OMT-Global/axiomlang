@@ -79,19 +79,40 @@ used by canonical CI, including its historical policy snapshot; it is not
 release history or a previous compiler.
 `previous-contract-fixture/` remains sparse synthetic checker input and is not
 used as the canonical ratchet.
+`previous-current/contract.json` is separate byte-exact one-step evidence from
+historical main commit `b3149c5e9bf10a4a244b0d89c6e6cd804b47ae3f`, blob
+`e5ad22e48e4504d62de8ea343e58fd4c1e262cb4`. Its metadata freezes the SHA-256,
+`0.4.0` version, and 68-surface count; it is not release history.
 
-The current source contract is version `0.5.0` with 69 surfaces. Its changes
+The current source contract is version `0.17.0` with 80 surfaces. Its changes
 from the byte-frozen 52-surface `0.1.0` accepted baseline include the five
-Package Trust v1 schemas, seven additive base-contract schemas (Provider ABI,
-runtime observability, runtime observability evidence, Semantic MIR, runtime
-lifecycle, target support, and persistent LSP), two quality schemas (quality
-policy and quality report), and three package-resolver schemas.
+Package Trust v1 schemas, seventeen additive base-contract schemas (Runtime Observability Evidence v1, HTTP Server v1, Compiler Scale Proof v1, Dynamic Aggregate ABI v1, Compiler Native Backend Runtime v1, Compiler Syntax Migration v1, Iteration Control v1, Filesystem v1,
+Provider ABI, Structured Concurrency v1, runtime crypto provider policy, HTTP
+client, runtime observability, Semantic MIR, runtime lifecycle, target support,
+and persistent LSP), two quality
+schemas (quality policy and quality report), and three package-resolver schemas.
 The existing CLI, manifest, lockfile, `axiom.toml` schema, and stage1
 JSON-envelope schema surfaces also carry their governed package-resolver
-changes. Per-surface versions follow the checked inventory: the new
-observability evidence schema starts at `0.1.0`, selected migrated surfaces
-are `0.2.0`, and the contract-level version bump does not fabricate semantic
-drift across the existing inventory. The CLI surface is version `0.3.0`.
+changes. Per-surface versions remain `0.1.0` for unchanged surfaces and are
+`0.2.0` for the schema additions and the CLI surface, so a contract-level
+version bump does not fabricate semantic drift across the existing inventory.
+The CLI surface is version `0.3.0`.
+The runtime crypto provider policy schema is additive, while the direct-native
+ABI surface is version `0.2.0`: Ed25519 signing accepts exactly the canonical
+32-byte private seed and rejects the former 64-byte seed-plus-public-key input.
+Existing callers must retain or recover the 32-byte seed before upgrading.
+
+`before-iteration-v1/contract.json` freezes the 73-surface `0.9.0` source
+contract from main commit `351493a02a59cd8f9f970ff6513fdfc18be5032b`. The
+`0.10.0` one-step ratchet adds only `axiom://schema/axiom.iteration_control.v1`
+at surface version `0.1.0`; all earlier source contracts and release evidence
+remain unchanged. This is source evidence, not a qualified previous compiler.
+
+`before-syntax-migration-v1/contract.json` freezes the 74-surface `0.10.0`
+iteration contract (tree `4ab4464e3888509bc5620fb010c331efd31afe5d`). The
+`0.11.0` one-step ratchet adds only the compiler syntax migration schema at
+`0.1.0`. The earlier iteration ratchet remains checked against this frozen
+snapshot. These are source snapshots, not qualified previous compilers.
 
 Existing command invocations require no changes. Operators adopting registry
 dependencies run `axiomc pkg fetch` to create the v2 lockfile and verified
@@ -109,15 +130,22 @@ python3 scripts/ci/check-compatibility-corpus-v1.py --json
 
 ## Compatibility reports
 
-Run the checker against the corpus contracts:
+Run the checker against the frozen accepted baseline and current corpus:
 
 ```bash
 python3 scripts/ci/check-compatibility-v1.py \
   --old stage1/compatibility/fixtures/accepted-baseline/contract.json \
   --old-policy stage1/compatibility/fixtures/accepted-baseline/policy.json \
   --new stage1/compatibility/fixtures/current/contract.json \
+  --historical-baseline \
   --json
 ```
+
+`--historical-baseline` permits stored migration history on surfaces added since
+the frozen baseline; their additive report entries have no migration. Use this
+mode only for that historical ratchet. Omit it for live-base comparisons, which
+remain strict about migration metadata for newly added surfaces. Existing
+surfaces still require version increases for semantic changes in either mode.
 
 The success report records exact old and new policy and contract versions plus
 exact old and new compiler current/minimum/maximum versions. Its changes are
@@ -169,3 +197,33 @@ issue `#1457`. A later qualification lane must build or obtain two immutable
 compiler versions, run both against the same corpus, publish exact old/new
 compiler and contract identities, and validate forward/backward outcomes. Until
 that evidence exists, readiness remains `partial`.
+
+### Structured JSON error migration
+
+The experimental stdlib catalog is version `1.2.0`; its schema surface is
+`0.3.0`. `std/serdes.ParseError` carries `message`, `offset`, and `path`.
+Use `parse_error_offset` for UTF-8 byte positions and `parse_error_path` for
+nested field/index context. Direct constructors must initialize all three
+fields; `parse_error_message` remains available for text consumers. Parser
+size, depth, item, and number limits remain enforced. This is a structured-error
+slice, not completion of the broader Serialization v1 acceptance matrix.
+
+The before-native-backend-runtime-v1 snapshot freezes the prior 0.11.0/75-surface contract. The 0.12.0 transition adds only the native-backend runtime schema; previous iteration and syntax ratchets remain checked against frozen historical snapshots.
+
+The before-dynamic-aggregate-abi-v1 snapshot freezes the 0.12.0/76-surface contract. The 0.13.0 transition adds only Dynamic Aggregate ABI v1; prior iteration, syntax and native-backend ratchets remain bound to frozen historical snapshots.
+
+
+`before-stdlib-authority-v1/contract.json` freezes the 77-surface `0.13.0`
+source contract. The `0.14.0` one-step ratchet changes only the existing stdlib
+catalog and its schema, adding no surfaces. Catalog version `2.0.0` adopts the
+pinned AxiOM-owned per-symbol authority; schema surface version `0.4.0` changes
+the authority source. Consumers must migrate from module-union effects to
+per-symbol effects and retain the earlier serdes offset/path migration. Prior
+frozen contracts and independent ratchets remain unchanged; this snapshot is
+source evidence, not a qualified previous compiler or stdlib consumer.
+
+The before-compiler-scale-proof-v1 snapshot freezes the 0.14.0/77-surface source contract. The 0.15.0 transition adds only Compiler Scale Proof v1. Earlier stdlib authority and all previous frozen ratchets remain unchanged. This is a blocked scaffold contract, not runtime-complete compiler evidence.
+
+The before-http-server-v1 snapshot freezes the 0.15.0/78-surface source contract. The 0.16.0 transition adds only HTTP Server v1. All previous frozen ratchets remain intact. Its richer server fixtures remain target-only evidence, not production runtime qualification.
+
+The before-runtime-observability-evidence-v1 snapshot freezes 0.16.0/79 surfaces. Version0.17.0 adds only the runtime observability evidence schema; prior frozen ratchets remain byte-identical. Executable runtime-core evidence does not complete std/log integration or production readiness.

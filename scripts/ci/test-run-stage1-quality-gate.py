@@ -44,6 +44,22 @@ def command(root: Path, *arguments: str) -> str:
     return completed.stdout.strip()
 
 
+def process_has_exited(pid: int) -> bool:
+    """A Linux zombie is dead even when container PID 1 has not reaped it."""
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return True
+    if sys.platform == "linux":
+        try:
+            status = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8")
+        except FileNotFoundError:
+            return True
+        # comm may contain spaces and parentheses; state follows its final ')'.
+        return status.rsplit(")", 1)[1].split()[0] == "Z"
+    return False
+
+
 def lcov_for(root: Path, hits: dict[int, int], *, absolute: bool = True) -> str:
     source = root / "stage1/crates/axiomc/src/lib.rs"
     display = str(source) if absolute else "stage1/crates/axiomc/src/lib.rs"
@@ -637,8 +653,14 @@ class QualityGateTest(unittest.TestCase):
             )
             self.assertEqual(outcome.status, "timeout")
             descendant = int(pid_file.read_text().strip())
-            with self.assertRaises(ProcessLookupError):
-                os.kill(descendant, 0)
+            deadline = time.monotonic() + 1.0
+            while not process_has_exited(descendant):
+                if time.monotonic() >= deadline:
+                    self.fail("timed-out descendant is still alive")
+                time.sleep(0.01)
+
+    def test_process_exit_probe_rejects_live_process(self) -> None:
+        self.assertFalse(process_has_exited(os.getpid()))
 
     def test_report_schema_and_producer_reject_contradictory_states(self) -> None:
         self.write_policy()

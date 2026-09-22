@@ -992,10 +992,14 @@
         "properties": {
           "command": {
             "const": "caps"
+          },
+          "ok": {
+            "const": true
           }
         },
         "required": [
-          "command"
+          "command",
+          "ok"
         ]
       },
       "then": {
@@ -1311,6 +1315,46 @@
           },
           "command": {
             "const": "doc"
+          },
+          "error": {
+            "$ref": "#/$defs/diagnostic"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "command": {
+            "const": "caps"
+          },
+          "ok": {
+            "const": false
+          }
+        },
+        "required": [
+          "command",
+          "ok"
+        ]
+      },
+      "then": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "schema_version",
+          "ok",
+          "command",
+          "error"
+        ],
+        "properties": {
+          "schema_version": {
+            "$ref": "#/$defs/schemaVersion"
+          },
+          "ok": {
+            "const": false
+          },
+          "command": {
+            "const": "caps"
           },
           "error": {
             "$ref": "#/$defs/diagnostic"
