@@ -14,6 +14,7 @@ mod diagnostics;
 mod expressions;
 mod generics;
 mod maps;
+mod loop_ownership;
 mod matches;
 mod model;
 mod ownership;
@@ -120,6 +121,7 @@ struct LowerContext<'a> {
     current_property: bool,
     current_borrow_return_params: HashSet<String>,
     loop_depth: usize,
+    loop_edges: Option<loop_ownership::LoopEdges>,
 }
 
 const OWNERSHIP_CLOSURE_MOVE_CAPTURED_NON_COPY: &str = "closure_move_captured_non_copy";
@@ -254,6 +256,7 @@ fn lower_with_capabilities_impl(
         current_property: false,
         current_borrow_return_params: HashSet::new(),
         loop_depth: 0,
+        loop_edges: None,
     };
     let statics = match lower_static_decls(&program.consts, &structs, &enums, &aliases, &ctx) {
         Ok(statics) => statics,
@@ -567,15 +570,17 @@ fn lower_function(
             .filter_map(|index| params.get(*index).map(|param| param.name.clone()))
             .collect(),
         loop_depth: 0,
+        loop_edges: None,
     };
     let (body, _, guaranteed_return) = if function.is_extern {
         (Vec::new(), env.clone(), true)
     } else {
-        let (body, diagnostics, guaranteed_return) =
+        let (body, diagnostics, _) =
             lower_block_recovering(&function.body, &mut env, &ctx);
         if !diagnostics.is_empty() {
             return Err(primary_diagnostic(diagnostics));
         }
+        let guaranteed_return = body.last().is_some_and(Stmt::always_returns);
         (body, env.clone(), guaranteed_return)
     };
     if !guaranteed_return {
@@ -617,11 +622,12 @@ fn lower_block(
     env: &mut HashMap<String, Binding>,
     ctx: &LowerContext<'_>,
 ) -> Result<(Vec<Stmt>, HashMap<String, Binding>, bool), Diagnostic> {
+    let edge_start = loop_ownership::edge_mark(ctx);
     let scope_names = env.keys().cloned().collect::<HashSet<_>>();
     let mut lowered = Vec::new();
-    let mut guaranteed_return = false;
+    let mut terminated = false;
     for stmt in block {
-        if guaranteed_return {
+        if terminated {
             return Err(Diagnostic::new(
                 "control",
                 "unreachable statements after a terminating control-flow statement are not yet supported in stage1",
@@ -629,12 +635,13 @@ fn lower_block(
             .with_span(stmt.line(), stmt.column()));
         }
         let lowered_stmt = lower_stmt(stmt, env, ctx)?;
-        guaranteed_return = lowered_stmt.always_returns();
+        terminated = lowered_stmt.always_terminates();
         lowered.push(lowered_stmt);
     }
     let mut after = env.clone();
     release_scope_borrows(&mut after, &scope_names);
-    Ok((lowered, after, guaranteed_return))
+    loop_ownership::release_block_edges(ctx, edge_start, &scope_names);
+    Ok((lowered, after, terminated))
 }
 
 fn lower_block_recovering(
@@ -645,9 +652,9 @@ fn lower_block_recovering(
     let scope_names = env.keys().cloned().collect::<HashSet<_>>();
     let mut lowered = Vec::new();
     let mut diagnostics = Vec::new();
-    let mut guaranteed_return = false;
+    let mut terminated = false;
     for stmt in block {
-        if guaranteed_return {
+        if terminated {
             diagnostics.push(
                 Diagnostic::new(
                     "control",
@@ -660,7 +667,7 @@ fn lower_block_recovering(
         let mut candidate_env = env.clone();
         match lower_stmt(stmt, &mut candidate_env, ctx) {
             Ok(lowered_stmt) => {
-                guaranteed_return = lowered_stmt.always_returns();
+                terminated = lowered_stmt.always_terminates();
                 *env = candidate_env;
                 lowered.push(lowered_stmt);
             }
@@ -671,7 +678,7 @@ fn lower_block_recovering(
         }
     }
     release_scope_borrows(env, &scope_names);
-    (lowered, diagnostics, guaranteed_return)
+    (lowered, diagnostics, terminated)
 }
 
 fn insert_type_error_binding_for_failed_stmt(
@@ -1040,65 +1047,13 @@ fn lower_stmt(
                 span: SourceSpan::point(*line, *column),
             })
         }
-        syntax::Stmt::While {
-            cond,
-            body,
-            line,
-            column,
-        } => {
-            let lowered_cond = lower_expr(cond, env, ctx)?;
-            if lowered_cond.ty() != &Type::Bool {
-                return Err(Diagnostic::new(
-                    "type",
-                    format!("while condition expects bool, got {}", lowered_cond.ty()),
-                )
-                .with_span(*line, *column));
-            }
-            if static_bool_value(&lowered_cond) == Some(false) {
-                return Ok(Stmt::While {
-                    cond: lowered_cond,
-                    body: Vec::new(),
-                    span: SourceSpan::point(*line, *column),
-                });
-            }
-            let before = env.clone();
-            let mut body_env = before.clone();
+        syntax::Stmt::While { cond, body, line, column } => {
+            // Loop-depth bookkeeping stays with the HIR statement driver so
+            // break/continue validation inside the body sees the incremented
+            // depth; edge-ownership recovery stays in loop_ownership.
             let mut loop_ctx = ctx.clone();
             loop_ctx.loop_depth += 1;
-            let (body, body_after, body_returns) =
-                lower_block(body, &mut body_env, &loop_ctx)?;
-            // AG1.1: reject moves of outer non-Copy variables inside the loop
-            // body — on subsequent iterations the value would not be available.
-            if !body_returns {
-                for (name, pre_binding) in &before {
-                    if pre_binding.moved || pre_binding.ty.is_copy() {
-                        continue;
-                    }
-                    if let Some(post_binding) = body_after.get(name) {
-                        let moved_projection_in_body = post_binding
-                            .moved_projections
-                            .iter()
-                            .any(|projection| !pre_binding.moved_projections.contains(projection));
-                        if post_binding.moved || moved_projection_in_body {
-                            return Err(ownership_error(
-                                OWNERSHIP_LOOP_MOVE_OUTER_NON_COPY,
-                                format!(
-                                    "cannot move non-copy value `{}` inside loop body — \
-                                     value would not be available on subsequent iterations",
-                                    name
-                                ),
-                            )
-                            .with_span(*line, *column));
-                        }
-                    }
-                }
-            }
-            merge_loop_state(env, &before, &body_after, body_returns);
-            Ok(Stmt::While {
-                cond: lowered_cond,
-                body,
-                span: SourceSpan::point(*line, *column),
-            })
+            loop_ownership::lower_while(cond, body, *line, *column, env, ctx, &loop_ctx)
         }
         syntax::Stmt::IfLet {
             variant,
@@ -1225,6 +1180,7 @@ fn lower_stmt(
                         .with_span(*line, *column),
                 );
             }
+            loop_ownership::capture_edge(ctx, env, loop_ownership::EdgeKind::Break);
             Ok(Stmt::Break {
                 span: SourceSpan::point(*line, *column),
             })
@@ -1236,6 +1192,7 @@ fn lower_stmt(
                         .with_span(*line, *column),
                 );
             }
+            loop_ownership::capture_edge(ctx, env, loop_ownership::EdgeKind::Continue);
             Ok(Stmt::Continue {
                 span: SourceSpan::point(*line, *column),
             })
@@ -1375,54 +1332,6 @@ fn merge_projection_sets(
         }
     }
     moved
-}
-
-fn merge_loop_state(
-    env: &mut HashMap<String, Binding>,
-    before: &HashMap<String, Binding>,
-    body_after: &HashMap<String, Binding>,
-    body_returns: bool,
-) {
-    // AG1.1: the loop body may execute zero times, so post-loop ownership
-    // state preserves the pre-loop moved flags.  Moves of outer non-Copy
-    // values inside the body are rejected earlier (before this function is
-    // called), so the only moved-state change that can reach here is for
-    // values that were already moved before the loop.  Borrow counts still
-    // take the max of pre-loop and body-after to stay conservative.
-    env.clear();
-    for (name, binding) in before {
-        env.insert(
-            name.clone(),
-            Binding {
-                ty: binding.ty.clone(),
-                moved: binding.moved,
-                moved_projections: binding.moved_projections.clone(),
-                borrow_kind: binding.borrow_kind,
-                borrow_origin: binding.borrow_origin.clone(),
-                net_origin: binding.net_origin.clone(),
-                borrowed_owners: binding.borrowed_owners.clone(),
-                active_borrow_count: if body_returns {
-                    binding.active_borrow_count
-                } else {
-                    let body_count = body_after
-                        .get(name)
-                        .map(|entry| entry.active_borrow_count)
-                        .unwrap_or(binding.active_borrow_count);
-                    binding.active_borrow_count.max(body_count)
-                },
-                active_mut_borrow_count: if body_returns {
-                    binding.active_mut_borrow_count
-                } else {
-                    let body_count = body_after
-                        .get(name)
-                        .map(|entry| entry.active_mut_borrow_count)
-                        .unwrap_or(binding.active_mut_borrow_count);
-                    binding.active_mut_borrow_count.max(body_count)
-                },
-                active_borrows: binding.active_borrows.clone(),
-            },
-        );
-    }
 }
 
 fn merge_match_state(
@@ -1963,6 +1872,35 @@ fn lower_expr_with_expected_inner(
                         "type",
                         format!(
                             "io_eprintln expects a string argument, got {}",
+                            lowered.ty()
+                        ),
+                    )
+                    .with_span(args[0].line(), args[0].column()));
+                }
+                move_lowered_value(&lowered, env)?;
+                return Ok(Expr::Call {
+                    span: SourceSpan::point(*line, *column),
+                    name: name.clone(),
+                    args: vec![lowered],
+                    ty: Type::Int,
+                });
+            }
+            if name == "io_println" {
+                // Ungated: stdout output is ambient, matching `print`'s
+                // ungated statement form. No capability check.
+                if args.len() != 1 {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!("io_println expects 1 argument, got {}", args.len()),
+                    )
+                    .with_span(*line, *column));
+                }
+                let lowered = lower_expr_with_expected(&args[0], Some(&Type::String), env, ctx)?;
+                if lowered.ty() != &Type::String {
+                    return Err(Diagnostic::new(
+                        "type",
+                        format!(
+                            "io_println expects a string argument, got {}",
                             lowered.ty()
                         ),
                     )

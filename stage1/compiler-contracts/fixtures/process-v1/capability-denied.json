@@ -1,0 +1,77 @@
+{
+  "checks": [
+    {
+      "dimension": "argv",
+      "phase": "spawn_preflight",
+      "operation": "set_arguments",
+      "allow": {"decision": "allowed", "protected_action_performed": true},
+      "deny": {"decision": "denied", "diagnostic": "process.capability_denied", "protected_action_performed": false}
+    },
+    {
+      "dimension": "cwd",
+      "phase": "spawn_preflight",
+      "operation": "set_working_directory",
+      "allow": {"decision": "allowed", "protected_action_performed": true},
+      "deny": {"decision": "denied", "diagnostic": "process.capability_denied", "protected_action_performed": false}
+    },
+    {
+      "dimension": "environment",
+      "phase": "spawn_preflight",
+      "operation": "set_environment",
+      "allow": {"decision": "allowed", "protected_action_performed": true},
+      "deny": {"decision": "denied", "diagnostic": "process.capability_denied", "protected_action_performed": false}
+    },
+    {
+      "dimension": "executable",
+      "phase": "spawn_preflight",
+      "operation": "select_executable",
+      "allow": {"decision": "allowed", "protected_action_performed": true},
+      "deny": {"decision": "denied", "diagnostic": "process.capability_denied", "protected_action_performed": false}
+    },
+    {
+      "dimension": "process_control",
+      "phase": "runtime_control",
+      "operation": "wait_or_terminate",
+      "allow": {"decision": "allowed", "protected_action_performed": true},
+      "deny": {"decision": "denied", "diagnostic": "process.capability_denied", "protected_action_performed": false}
+    },
+    {
+      "dimension": "signals",
+      "phase": "runtime_control",
+      "operation": "subscribe_or_send_signal",
+      "allow": {"decision": "allowed", "protected_action_performed": true},
+      "deny": {"decision": "denied", "diagnostic": "process.capability_denied", "protected_action_performed": false}
+    },
+    {
+      "dimension": "stdio",
+      "phase": "spawn_preflight",
+      "operation": "configure_stdio",
+      "allow": {"decision": "allowed", "protected_action_performed": true},
+      "deny": {"decision": "denied", "diagnostic": "process.capability_denied", "protected_action_performed": false}
+    },
+    {
+      "dimension": "terminal",
+      "phase": "spawn_preflight",
+      "operation": "request_terminal_access",
+      "allow": {"decision": "allowed", "protected_action_performed": true},
+      "deny": {"decision": "denied", "diagnostic": "process.capability_denied", "protected_action_performed": false}
+    }
+  ],
+  "pre_spawn_denial": {"child_started": false},
+  "runtime_denial": {
+    "control_effect_applied": false,
+    "runtime_supervision": {
+      "authority": "runtime_owned",
+      "child_observed_until_terminal": true,
+      "pipes_closed": true,
+      "child_reaped": true
+    }
+  },
+  "handle_abandonment": {
+    "grace_ms": 10,
+    "graceful_termination_requested": true,
+    "force_termination_if_running": true,
+    "pipes_closed": true,
+    "child_reaped": true
+  }
+}

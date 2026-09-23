@@ -1,0 +1,10 @@
+{
+  "schema_version": "axiom.compiler.syntax_fixture.v1",
+  "id": "syntax-migration-v1/bootstrap-macro-byte-limit",
+  "category": "macro",
+  "status": "bootstrap_pass",
+  "input": {"path": "main.ax", "source": "macro_rules! boom {\n() => {\nboom!()\nboom!()\n}\n}\n\nboom!()\n", "supplied_after_build": false},
+  "expected": {"exit_outcome": "compiler_diagnostics", "compiler_diagnostics": [{"kind": "parse", "code": "parse.invalid_syntax", "message": "declarative macro expansion exceeded expanded source budget of 96 bytes", "path": "main.ax", "line": 8, "column": 1}], "recovered_nodes": [], "spans": [], "macro_provenance": [], "node_identities": []},
+  "evidence": ["stage1/crates/axiomc/tests/support/lib_unit.rs::parser_bounds_total_declarative_macro_expansion_size", "stage1/crates/axiomc/tests/syntax_migration_v1.rs::bootstrap_macro_limits_match_fixtures"],
+  "qualification": {"option": "macro_expansion_byte_limit", "value": 96, "boundary_proof": "parser_allows_declarative_macro_expansion_at_exact_byte_limit"}
+}

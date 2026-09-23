@@ -1,0 +1,25 @@
+struct Label {
+value: string
+}
+
+fn make_label(): Label {
+print "runtime-side-effect"
+return Label { value: "dynamic" }
+}
+
+fn forward_one(): Label {
+return make_label()
+}
+
+fn forward_two(): Label {
+return forward_one()
+}
+
+fn forward_three(): Label {
+return forward_two()
+}
+
+fn main(): int {
+let label: Label = forward_three()
+return len(label.value)
+}

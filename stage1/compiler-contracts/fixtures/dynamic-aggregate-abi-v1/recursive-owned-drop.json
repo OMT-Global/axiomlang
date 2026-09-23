@@ -1,0 +1,14 @@
+{
+  "schema_version": "axiom.dynamic_aggregate_abi.fixture.v1",
+  "id": "dynamic-aggregate-abi-v1/recursive-owned-drop",
+  "kind": "target_gap",
+  "scenario": "nested runtime-origin owned children require recursive reverse-order destruction",
+  "shape": ["array", "option", "struct"],
+  "runtime_origin": true,
+  "function_boundaries": 1,
+  "evidence": {
+    "mode": "target_gap",
+    "gap": "recursive_owned_cleanup",
+    "reason": "the current direct-native path has no executable recursive owned aggregate destructor"
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "schema_version": "axiom.dynamic_aggregate_abi.fixture.v1",
+  "id": "dynamic-aggregate-abi-v1/alignment-overflow",
+  "kind": "negative",
+  "scenario": "array layout multiplication exceeds the declared target address range",
+  "shape": ["array"],
+  "runtime_origin": false,
+  "function_boundaries": 0,
+  "evidence": {
+    "mode": "layout_model",
+    "case": {
+      "layout_id": "overflowing-u64-array",
+      "target": {"abi_profile": "sysv64-v1", "byte_order": "little", "pointer_width_bits": 64, "target_triple": "x86_64-unknown-linux-gnu"},
+      "type_model": {"kind": "array", "count": 2305843009213693952, "element": {"kind": "scalar", "name": "u64"}}
+    },
+    "expected": {"outcome": "rejected", "diagnostic": "backend.runtime_lowering_required"}
+  }
+}

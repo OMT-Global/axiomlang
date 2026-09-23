@@ -1,0 +1,21 @@
+{
+  "schema_version": "axiom.dynamic_aggregate_abi.fixture.v1",
+  "id": "dynamic-aggregate-abi-v1/struct-layout-inspection",
+  "kind": "positive",
+  "scenario": "struct declaration order deterministically produces padding offsets size and indirect passing",
+  "shape": ["struct"],
+  "runtime_origin": false,
+  "function_boundaries": 0,
+  "evidence": {
+    "mode": "layout_model",
+    "case": {
+      "layout_id": "header-v1",
+      "target": {"abi_profile": "sysv64-v1", "byte_order": "little", "pointer_width_bits": 64, "target_triple": "x86_64-unknown-linux-gnu"},
+      "type_model": {"kind": "struct", "fields": [{"kind": "scalar", "name": "u8"}, {"kind": "scalar", "name": "i64"}, {"kind": "scalar", "name": "bool"}]}
+    },
+    "expected": {
+      "outcome": "accepted",
+      "record": {"abi_profile": "sysv64-v1", "alignment_bytes": 8, "argument_passing": "indirect_pointer", "byte_order": "little", "discriminant_offset_bytes": null, "discriminant_width_bytes": null, "field_offsets_bytes": [0, 8, 16], "layout_id": "header-v1", "payload_offset_bytes": null, "pointer_width_bits": 64, "return_passing": "caller_provided_storage", "size_bytes": 24, "target_triple": "x86_64-unknown-linux-gnu"}
+    }
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "request": {
+    "argv": ["axiom://fixture/process/env", "argument-value"],
+    "environment": {
+      "SAFE_FLAG": "enabled",
+      "TOKEN": "example"
+    },
+    "stdin": "input-value"
+  },
+  "audit": {
+    "argv_count": 2,
+    "argv_origins": ["executable", "literal"],
+    "environment_keys": ["SAFE_FLAG", "TOKEN"],
+    "redacted_fields": ["argv_values", "environment_values", "stdin_bytes"],
+    "values_present": false
+  }
+}

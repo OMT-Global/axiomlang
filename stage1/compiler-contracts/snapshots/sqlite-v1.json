@@ -1,0 +1,152 @@
+{
+  "schema_version": "axiom.sqlite-v1",
+  "contract": "runtime.sqlite",
+  "issue": 1452,
+  "scope": {
+    "database": "sqlite",
+    "provider_boundary": "provider_abi_v1_or_builtin_equivalent",
+    "qualification": "contract_only",
+    "raw_surface": "forbidden"
+  },
+  "authority": {
+    "capability": "database.sqlite",
+    "identity": "sha256_of_canonical_authority_and_database_file_identity",
+    "path_policy": "project_relative_anchored_no_symlink_escape",
+    "uri_policy": {
+      "allowed": ["file"],
+      "path": "canonical_path_only",
+      "query": "forbidden",
+      "authority": "forbidden",
+      "fragment": "forbidden",
+      "percent_decoding": "decode_once_before_normalize_and_anchor",
+      "mode_source": "explicit_open_argument_only",
+      "ambient": "denied",
+      "network": "denied"
+    },
+    "modes": ["read_only", "read_write", "create"],
+    "mode_authority": {
+      "read_only": "requires_explicit_read_authority",
+      "read_write": "requires_explicit_read_and_write_authority",
+      "create": "requires_explicit_read_write_and_create_authority"
+    },
+    "open_strategy": {
+      "existing": "handle_relative_or_revalidate_opened_file_identity_against_pre_authorized_identity",
+      "create": "handle_relative_prevalidated_parent_no_follow_exclusive_leaf_create"
+    },
+    "checks": ["decode_uri_path", "normalize", "anchor", "no_symlink_escape", "regular_file_or_new", "mode", "mode_specific_open_strategy"]
+  },
+  "statements": {
+    "lifecycle": ["prepare", "bind", "step", "reset", "finalize"],
+    "sql_source": "prepared_statement_text_only",
+    "batching": "one_statement_per_prepare",
+    "parameters": {
+      "addressing": ["index", "name"],
+      "types": ["null", "bool", "int64", "float64", "text_utf8", "bytes"],
+      "limits": "validated_before_copy_or_provider_dispatch",
+      "unknown": "reject_before_dispatch_with_bind_address",
+      "missing_binding": "reject_step_with_bind_missing_unless_every_placeholder_is_bound_including_explicit_null",
+      "reset_binding": "clear_all_bindings_and_row_state"
+    },
+    "rows": {
+      "iteration": "forward_cursor_bounded",
+      "lifetime": "valid_until_next_step_reset_or_finalize",
+      "column_lookup": ["index", "name"],
+      "types": ["null", "bool", "int64", "float64", "text_utf8", "bytes"],
+      "coercion": "explicit_only",
+      "limits": "validated_before_allocation_or_copy"
+    },
+    "injection": "bound_values_never_reparsed_as_sql"
+  },
+  "transactions": {
+    "top_level": ["begin", "commit", "rollback"],
+    "begin_modes": ["deferred", "immediate", "exclusive"],
+    "nested": "savepoint_only",
+    "savepoint_names": "generated_or_validated_identifier_never_sql",
+    "savepoints": {
+      "create": "opens_active_child_scope",
+      "release": "terminal_commit_child_into_parent_only_when_unpoisoned",
+      "rollback_to": "rollback_child_changes_clear_poison_keep_child_active",
+      "rollback_to_and_release": "terminal_rollback_child",
+      "drop": "terminal_rollback_child"
+    },
+    "drop": "rollback_active_scope",
+    "failure": "poison_current_scope_until_rollback",
+    "parent_failure": "child_failure_does_not_poison_parent_after_terminal_child_rollback"
+  },
+  "migrations": {
+    "artifact": "sql_migration",
+    "dialect": "sqlite",
+    "identity": "artifact_digest_plus_provenance_digest",
+    "ordering": "strict_monotonic_sequence",
+    "apply": "exclusive_transaction_all_or_rollback",
+    "history": "immutable_id_digest_and_applied_version",
+    "divergence": "fail_closed_before_new_migration"
+  },
+  "concurrency": {
+    "busy": "bounded_retry_with_stable_busy_timeout",
+    "timeout": "monotonic_operation_deadline",
+    "cancellation": "interrupt_then_drain_before_reuse",
+    "writer_policy": "explicit_single_writer_contention",
+    "crash_reopen": "committed_state_or_recovery_error_never_partial_success",
+    "corruption": "stable_corruption_error_without_automatic_repair"
+  },
+  "lifecycle": {
+    "handles": ["database", "statement", "row_cursor", "transaction", "savepoint"],
+    "representation": "nonzero_provider_scoped_generation_tagged_u64",
+    "close": "idempotent_invalidates_children",
+    "drop": "finalize_children_rollback_active_then_close",
+    "validation": ["provider", "kind", "generation", "open", "parent"],
+    "leaks": "fail_qualification_on_live_handle_or_unfinalized_statement"
+  },
+  "errors": {
+    "shape": ["kind", "operation", "request_identity", "authority_identity", "database_identity", "message", "retryable"],
+    "identity_policy": {
+      "request_identity": "opaque_runtime_issued_before_authority_resolution",
+      "authority_identity": "opaque_runtime_issued_after_authority_resolution",
+      "database_identity": "nullable_until_file_identity_established_required_after_establishment",
+      "null_authority_identity_kinds": ["capability_denied", "invalid_authority"],
+      "nullable_database_identity_kinds": ["capability_denied", "invalid_authority", "open_failed"]
+    },
+    "kinds": [
+      "capability_denied",
+      "invalid_authority",
+      "open_failed",
+      "prepare_failed",
+      "bind_address",
+      "bind_missing",
+      "bind_type",
+      "execute_failed",
+      "busy_timeout",
+      "cancelled",
+      "row_type",
+      "transaction_state",
+      "migration_diverged",
+      "corruption",
+      "closed_handle",
+      "provider_fault"
+    ],
+    "message_policy": "redacted_bounded_and_stable_kind_authoritative"
+  },
+  "audit": {
+    "fields": ["request_identity", "authority_identity", "database_identity", "operation_class", "decision", "transaction_depth", "migration_id", "error_kind"],
+    "operation_classes": ["open", "prepare", "read", "write", "transaction", "migration", "close", "recovery"],
+    "forbidden": ["sql_text", "parameter_names", "parameter_values", "row_values", "credentials", "raw_path", "raw_uri", "raw_handle"]
+  },
+  "fixtures": [
+    { "id": "prepared-bind-round-trip", "kind": "positive" },
+    { "id": "unknown-bind-address", "kind": "negative" },
+    { "id": "missing-parameter-binding", "kind": "negative" },
+    { "id": "unsupported-bind-type", "kind": "negative" },
+    { "id": "reset-clears-bindings", "kind": "negative" },
+    { "id": "capability-path-uri-denial", "kind": "negative" },
+    { "id": "bound-value-injection", "kind": "negative" },
+    { "id": "typed-row-mismatch", "kind": "negative" },
+    { "id": "rollback-and-savepoint", "kind": "positive" },
+    { "id": "savepoint-state-transitions", "kind": "positive" },
+    { "id": "crash-reopen-committed-state", "kind": "recovery" },
+    { "id": "concurrent-busy-cancel", "kind": "concurrency" },
+    { "id": "corrupt-database", "kind": "negative" },
+    { "id": "migration-divergence", "kind": "negative" },
+    { "id": "statement-transaction-handle-leak", "kind": "leak" }
+  ]
+}

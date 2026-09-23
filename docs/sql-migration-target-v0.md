@@ -89,4 +89,7 @@ bytes and reports `"changed": false`.
 
 SQL Migration Target v0 does not execute migrations, connect to a live
 database, generate ORM/query code, or claim a dialect matrix. PostgreSQL is the
-initial SQL rendering target.
+initial SQL rendering target. [SQLite v1](sqlite-v1.md) reuses the governed
+`sql_migration` artifact class and provenance boundary, but accepts only an
+artifact that explicitly declares the SQLite dialect; this PostgreSQL v0
+output is not executable SQLite migration input.

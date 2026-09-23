@@ -1,0 +1,138 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://omt-global.github.io/axiom/schemas/axiom.runtime_concurrency.v1.schema.json",
+  "title": "Axiom Structured Concurrency v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "contract",
+    "issue",
+    "semantic_mir_version",
+    "features",
+    "operations",
+    "task_model",
+    "channel_model",
+    "select",
+    "cleanup",
+    "diagnostics",
+    "inspection_fields",
+    "fixtures",
+    "migration"
+  ],
+  "properties": {
+    "schema_version": {"const": "axiom.runtime_concurrency.v1"},
+    "contract": {"const": "runtime.concurrency"},
+    "issue": {"const": 1445},
+    "semantic_mir_version": {"const": "axiom.semantic_mir.v1"},
+    "features": {"type": "array", "minItems": 10, "items": {"type": "string", "minLength": 1}},
+    "operations": {"type": "array", "minItems": 10, "items": {"$ref": "#/$defs/operation"}},
+    "task_model": {"$ref": "#/$defs/task_model"},
+    "channel_model": {"$ref": "#/$defs/channel_model"},
+    "select": {"$ref": "#/$defs/select"},
+    "cleanup": {"$ref": "#/$defs/cleanup"},
+    "diagnostics": {"$ref": "#/$defs/diagnostics"},
+    "inspection_fields": {"type": "array", "minItems": 8, "items": {"type": "string", "minLength": 1}},
+    "fixtures": {"type": "array", "minItems": 12, "items": {"$ref": "#/$defs/fixture"}},
+    "migration": {"$ref": "#/$defs/migration"}
+  },
+  "$defs": {
+    "axiom_id": {
+      "type": "string",
+      "pattern": "^axiom://[A-Za-z0-9._~:/#@!$&'()*+,;=%-]+$"
+    },
+    "operation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "ownership", "effects", "source"],
+      "properties": {
+        "id": {"$ref": "#/$defs/axiom_id"},
+        "kind": {"enum": ["spawn", "join", "cancel", "timeout", "channel_create", "send", "receive", "close", "select", "task_scope"]},
+        "ownership": {"enum": ["creates_task", "consumes_join_handle", "propagates_cancellation", "bounds_wait", "creates_channel", "transfers_value", "receives_value", "wakes_waiters", "selects_ready_arm", "owns_children"]},
+        "effects": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+        "source": {"$ref": "#/$defs/axiom_id"}
+      }
+    },
+    "task_model": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["hierarchy", "join", "cancellation", "timeout", "scheduler", "budgets"],
+      "properties": {
+        "hierarchy": {"const": "structured_children_do_not_outlive_parent_scope"},
+        "join": {"const": "explicit_join_or_scope_exit_join"},
+        "cancellation": {"const": "cooperative_and_propagated_to_descendants"},
+        "timeout": {"const": "deadline_cancels_then_joins_children"},
+        "scheduler": {"const": "fair_bounded_ready_queue"},
+        "budgets": {"type": "array", "minItems": 4, "items": {"enum": ["child_tasks", "in_flight_work", "task_depth", "wait_duration", "channel_capacity"]}}
+      }
+    },
+    "channel_model": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "capacity", "ordering", "send_full", "receive_closed", "close", "fairness"],
+      "properties": {
+        "kind": {"const": "bounded_mpmc"},
+        "capacity": {"const": "explicit_positive_capacity"},
+        "ordering": {"const": "fifo_enqueue_order"},
+        "send_full": {"const": "backpressure_or_cancellation"},
+        "receive_closed": {"const": "drain_then_closed"},
+        "close": {"const": "single_discharge_wakes_waiters"},
+        "fairness": {"const": "round_robin_waiters"}
+      }
+    },
+    "select": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fairness", "cancellation", "empty", "max_arms"],
+      "properties": {
+        "fairness": {"const": "rotating_ready_arm"},
+        "cancellation": {"const": "cancellation_is_ready_arm"},
+        "empty": {"const": "wait_or_timeout"},
+        "max_arms": {"type": "integer", "minimum": 2}
+      }
+    },
+    "cleanup": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["exit_reasons", "defer_order", "child_order", "cancellation_order", "exactly_once"],
+      "properties": {
+        "exit_reasons": {"type": "array", "minItems": 5, "items": {"enum": ["normal_return", "early_return", "error_return", "panic_unwind", "cancellation"]}},
+        "defer_order": {"const": "last_in_first_out_before_child_join"},
+        "child_order": {"const": "join_children_before_parent_scope_release"},
+        "cancellation_order": {"const": "signal_descendants_then_join"},
+        "exactly_once": {"const": true}
+      }
+    },
+    "diagnostics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["required_codes", "source_fields", "redacted_fields"],
+      "properties": {
+        "required_codes": {"type": "array", "minItems": 8, "items": {"type": "string", "minLength": 1}},
+        "source_fields": {"type": "array", "minItems": 3, "items": {"enum": ["path", "line", "column"]}},
+        "redacted_fields": {"type": "array", "minItems": 3, "items": {"enum": ["host_handle", "capability_secret", "raw_thread_identity", "scheduler_address"]}}
+      }
+    },
+    "fixture": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "scenario", "expected"],
+      "properties": {
+        "id": {"$ref": "#/$defs/axiom_id"},
+        "kind": {"enum": ["positive", "negative"]},
+        "scenario": {"type": "string", "minLength": 1},
+        "expected": {"type": "string", "minLength": 1}
+      }
+    },
+    "migration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["semantic_input", "out_of_scope", "forbidden_terms"],
+      "properties": {
+        "semantic_input": {"type": "string", "minLength": 1},
+        "out_of_scope": {"type": "array", "minItems": 4, "items": {"type": "string", "minLength": 1}},
+        "forbidden_terms": {"type": "array", "minItems": 5, "items": {"type": "string", "minLength": 1}}
+      }
+    }
+  }
+}
