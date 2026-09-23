@@ -20,7 +20,7 @@ where
     }
     Ok(())
 }
-fn first_executable_line(lines: &[String]) -> Option<i64> {
+pub(super) fn first_executable_line(lines: &[String]) -> Option<i64> {
     lines
         .iter()
         .position(|line| {
@@ -30,7 +30,7 @@ fn first_executable_line(lines: &[String]) -> Option<i64> {
         .map(|index| index as i64 + 1)
 }
 
-fn collect_static_locals(source: &str) -> Vec<Variable> {
+pub(super) fn collect_static_locals(source: &str) -> Vec<Variable> {
     source
         .lines()
         .filter_map(|line| {
