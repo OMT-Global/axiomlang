@@ -1703,6 +1703,9 @@ fn render_rust_uses_trusted_crypto_symbol_loading() {
     assert!(!rendered.contains("std::mem::transmute_copy"));
     assert!(!rendered.contains("std::mem::transmute(value)"));
     assert!(rendered.contains("std::mem::MaybeUninit::<T>::uninit()"));
+    assert!(!rendered.contains("private_key.extend_from_slice(&public_key)"));
+    assert!(rendered.contains("if secret_key.len() == 32"));
+    assert!(!rendered.contains("64 => Some(&secret_key[..32])"));
 }
 
 #[test]
@@ -2382,6 +2385,136 @@ fn build_project_supports_break_and_continue_in_while_loops() {
 }
 
 #[test]
+fn build_project_cranelift_supports_break_and_continue_in_while_loops() {
+    let dir = tempdir().expect("tempdir");
+    let project = dir.path().join("while-control-cranelift");
+    create_project(&project, Some("while-control-cranelift-app")).expect("create project");
+    fs::write(
+        project.join("src/main.ax"),
+        "let outer: int = 0\nwhile outer < 2 {\nouter = outer + 1\nlet inner: int = 0\nwhile inner < 4 {\ninner = inner + 1\nif inner == 2 {\ncontinue\n}\nprint inner\nif inner == 4 {\nbreak\n}\n}\nif outer == 2 {\nbreak\n}\n}\n",
+    )
+    .expect("write source");
+
+    let built = build_project_cranelift(&project).expect("build project with Cranelift");
+    let output = compiled_binary_command(&built.binary)
+        .output()
+        .expect("run compiled Cranelift binary");
+    assert!(output.status.success(), "binary failed: {output:?}");
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        "1\n3\n4\n1\n3\n4\n"
+    );
+}
+
+#[test]
+fn generated_rust_unwinds_only_loop_local_defers_on_break() {
+    let dir = tempdir().expect("tempdir");
+    let project = dir.path().join("loop-defer-break");
+    create_project(&project, Some("loop-defer-break-app")).expect("create project");
+    fs::write(
+        project.join("src/main.ax"),
+        "fn trace(label: string): int {\nprint label\nreturn 0\n}\n\nfn run(): int {\ndefer trace(\"outer\")\nwhile true {\ndefer trace(\"loop\")\nbreak\n}\nreturn 0\n}\n\nprint run()\n",
+    )
+    .expect("write source");
+
+    let built = build_project(&project).expect("build project");
+    let output = compiled_binary_command(&built.binary)
+        .output()
+        .expect("run generated Rust binary");
+    assert!(output.status.success(), "binary failed: {output:?}");
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "loop\nouter\n0\n");
+}
+
+#[test]
+fn generated_rust_unwinds_loop_defers_through_nested_if_and_match() {
+    for nested_control in [
+        "if true {\ndefer trace(\"inner\")\nif iteration == 1 {\ncontinue\n}\nbreak\n}\n",
+        "match Some(iteration) {\nSome(value) {\ndefer trace(\"inner\")\nif value == 1 {\ncontinue\n}\nbreak\n}\nNone {\nbreak\n}\n}\n",
+    ] {
+        let dir = tempdir().expect("tempdir");
+        let project = dir.path().join("nested-loop-defer");
+        create_project(&project, Some("nested-loop-defer-app")).expect("create project");
+        let source = format!(
+            "fn trace(label: string): int {{\nprint label\nreturn 0\n}}\n\nfn run(): int {{\ndefer trace(\"outer\")\nlet iteration: int = 0\nwhile iteration < 2 {{\niteration = iteration + 1\ndefer trace(\"loop-first\")\ndefer trace(\"loop-last\")\n{nested_control}}}\nprint \"after-loop\"\nreturn 0\n}}\n\nprint run()\n"
+        );
+        fs::write(project.join("src/main.ax"), source).expect("write source");
+        let built = build_project(&project).expect("build project");
+        let output = compiled_binary_command(&built.binary)
+            .output()
+            .expect("run generated Rust binary");
+        assert!(output.status.success(), "binary failed: {output:?}");
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "inner\nloop-last\nloop-first\ninner\nloop-last\nloop-first\nafter-loop\nouter\n0\n",
+            "nested control: {nested_control}"
+        );
+    }
+}
+
+#[test]
+fn generated_rust_preserves_outer_loop_defers_when_inner_loop_breaks() {
+    let dir = tempdir().expect("tempdir");
+    let project = dir.path().join("nested-loop-boundary");
+    create_project(&project, Some("nested-loop-boundary-app")).expect("create project");
+    fs::write(
+        project.join("src/main.ax"),
+        r#"fn trace(label: string): int {
+print label
+return 0
+}
+
+fn run(): int {
+defer trace("function")
+let iteration: int = 0
+while iteration < 2 {
+defer trace("outer-loop")
+while true {
+defer trace("inner-loop")
+if true {
+break
+}
+}
+print "after-inner"
+iteration = iteration + 1
+continue
+}
+return 0
+}
+
+print run()
+"#,
+    )
+    .expect("write source");
+    let built = build_project(&project).expect("build project");
+    let output = compiled_binary_command(&built.binary)
+        .output()
+        .expect("run generated Rust binary");
+    assert!(output.status.success(), "binary failed: {output:?}");
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        "inner-loop\nafter-inner\nouter-loop\ninner-loop\nafter-inner\nouter-loop\nfunction\n0\n"
+    );
+}
+
+#[test]
+fn build_project_cranelift_supports_both_branches_terminating_loop_iteration() {
+    let dir = tempdir().expect("tempdir");
+    let project = dir.path().join("both-loop-branches");
+    create_project(&project, Some("both-loop-branches-app")).expect("create project");
+    fs::write(
+        project.join("src/main.ax"),
+        "let iteration: int = 0\nwhile iteration < 3 {\niteration = iteration + 1\nif iteration == 2 {\nbreak\n} else {\ncontinue\n}\n}\nprint iteration\n",
+    )
+    .expect("write source");
+    let built = build_project_cranelift(&project).expect("build project with Cranelift");
+    let output = compiled_binary_command(&built.binary)
+        .output()
+        .expect("run compiled Cranelift binary");
+    assert!(output.status.success(), "binary failed: {output:?}");
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "2\n");
+}
+
+#[test]
 fn check_project_rejects_loop_control_outside_while() {
     let dir = tempdir().expect("tempdir");
     let project = dir.path().join("invalid-loop-control");
@@ -2389,7 +2522,11 @@ fn check_project_rejects_loop_control_outside_while() {
     fs::write(project.join("src/main.ax"), "break\n").expect("write source");
 
     let error = check_project(&project).expect_err("top-level break must be rejected");
-    assert!(error.message.contains("break is only valid inside a while loop"));
+    assert!(
+        error
+            .message
+            .contains("break is only valid inside a while loop")
+    );
 }
 
 #[test]
@@ -7452,6 +7589,23 @@ fn stage1_project_imports_synthetic_stdlib_io_module() {
     let tests = run_project_tests(&project).expect("run tests");
     assert_eq!(tests.passed, 1);
     assert_eq!(tests.failed, 0);
+}
+
+#[test]
+fn stage1_project_writes_stdout_from_stdlib_io_module() {
+    let dir = tempdir().expect("tempdir");
+    let project = dir.path().join("stdlib-io-stdout-app");
+    create_project(&project, Some("stdlib-io-stdout-app")).expect("create project");
+    let source = "import \"std/io.ax\"\nlet n: int = println(\"hello stdout\")\nprint n > 0\n";
+    fs::write(project.join("src/main.ax"), source).expect("write source");
+
+    let built = build_project(&project).expect("build project");
+    let output = compiled_binary_command(&built.binary)
+        .output()
+        .expect("run compiled binary");
+    assert!(output.status.success());
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "hello stdout\ntrue\n");
+    assert!(output.stderr.is_empty());
 }
 
 #[test]

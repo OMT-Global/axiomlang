@@ -3,16 +3,30 @@ set -euo pipefail
 
 script_repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 repo_root="${AXIOM_CHECKOUT_PATH:-$script_repo_root}"
+if [[ ! -f "$repo_root/stage1/Cargo.toml" ]]; then
+  echo "error: AXIOM_CHECKOUT_PATH must identify an Axiom checkout" >&2
+  exit 1
+fi
+repo_root="$(cd "$repo_root" && pwd)"
+export AXIOM_CHECKOUT_PATH="$repo_root"
 cd "$repo_root"
 
-target_dir="${CARGO_TARGET_DIR:-${RUNNER_TEMP:-/tmp}/axiom-fast-ci-target}"
+if [[ -n "${CARGO_TARGET_DIR:-}" ]]; then
+  target_dir="$CARGO_TARGET_DIR"
+else
+  checkout_head="$(git rev-parse --verify HEAD)"
+  target_dir="${RUNNER_TEMP:-/tmp}/axiom-fast-ci-target-${checkout_head:0:12}"
+fi
 mkdir -p "$target_dir"
-export CARGO_TARGET_DIR="$target_dir"
+export CARGO_TARGET_DIR="$(cd "$target_dir" && pwd)"
 
 bash "$script_repo_root/scripts/ci/check-python-exit-docs.sh"
+python3 "$script_repo_root/scripts/ci/test-fast-check-target-isolation.py"
 bash "$script_repo_root/scripts/ci/validate-capability-manifests.sh"
 bash "$script_repo_root/scripts/ci/test-validate-capability-manifests.sh"
 bash "$script_repo_root/scripts/ci/test-pr-fast-ci-workflow.sh"
+python3 "$script_repo_root/scripts/ci/test-fast-checkout-isolation.py"
+python3 "$script_repo_root/scripts/ci/test-check-cranelift-manifest-fixtures.py"
 bash "$script_repo_root/scripts/ci/test-extended-validation-workflow.sh"
 bash "$script_repo_root/scripts/ci/test-run-stage1-basic-smoke.sh"
 bash "$script_repo_root/scripts/ci/test-run-stage1-stdlib-smoke.sh"
@@ -58,23 +72,29 @@ python3 "$script_repo_root/scripts/ci/test-pr-queue-remediation.py"
 python3 "$script_repo_root/scripts/ci/test-remote-branch-prune-plan.py"
 python3 "$script_repo_root/scripts/ci/test-report-delivery-signals.py"
 python3 "$script_repo_root/scripts/ci/test-issue-pr-traceability.py"
+python3 "$script_repo_root/scripts/ci/test-cross-model-review-gate.py"
 # Checker self-tests must run in a CI lane so their harnesses cannot rot
 # silently (#1364, #1369). test-pr-fast-ci-workflow.sh enforces that every
 # scripts/ci/test-check-*.sh stays wired here.
 bash "$script_repo_root/scripts/ci/test-check-python-exit-docs.sh"
 python3 "$script_repo_root/scripts/ci/check-provider-abi-v1.py" --target "${AXIOM_PROVIDER_ABI_TARGET:-linux-host}"
 python3 "$script_repo_root/scripts/ci/test-check-provider-abi-v1.py"
+python3 "$script_repo_root/scripts/ci/check-sqlite-v1.py" --json >/dev/null
+python3 "$script_repo_root/scripts/ci/test-check-sqlite-v1.py"
 bash "$script_repo_root/scripts/ci/test-check-python-exit-readiness.sh"
 bash "$script_repo_root/scripts/ci/test-check-rust-exit-readiness.sh"
 bash "$script_repo_root/scripts/ci/test-check-self-hosting-language-readiness.sh"
+python3 "$script_repo_root/scripts/ci/test-compatibility-checkout-routing.py"
 bash "$script_repo_root/scripts/ci/test-check-compatibility-v1.sh"
 bash "$script_repo_root/scripts/ci/test-check-package-trust-contract.sh"
+bash "$script_repo_root/scripts/ci/test-check-cargo-audit-policy.sh"
 python3 "$script_repo_root/scripts/ci/test-run-stage1-quality-gate.py"
+python3 "$script_repo_root/scripts/ci/test-run-stage1-parser-fuzz.py"
 bash "$script_repo_root/scripts/ci/test-propose-stage1-crap-thresholds.sh"
 python3 "$script_repo_root/scripts/ci/test-run-toolchain-qualification.py"
 python3 "$script_repo_root/scripts/ci/test-report-toolchain-qualification.py"
 cargo test --manifest-path "$repo_root/stage1/Cargo.toml" -p axiomc \
-  --test schema_metadata --locked
+  --bin axiomc --test schema_metadata --locked
 cargo test --manifest-path "$repo_root/stage1/Cargo.toml" -p axiomc \
   --test migration_plan_cli --locked
 python3 "$script_repo_root/scripts/ci/check-capability-ledger.py" \
@@ -82,6 +102,7 @@ python3 "$script_repo_root/scripts/ci/check-capability-ledger.py" \
 bash "$script_repo_root/scripts/ci/test-check-capability-ledger.sh"
 python3 "$script_repo_root/scripts/ci/check-stdlib-catalog.py" --json >/dev/null
 python3 "$script_repo_root/scripts/ci/test-check-stdlib-catalog.py"
+python3 "$script_repo_root/scripts/ci/test-check-stdlib-catalog-transition.py"
 cargo test --manifest-path "$repo_root/stage1/Cargo.toml" -p axiomc --test capability_ledger
 python3 "$script_repo_root/scripts/ci/check-production-language-readiness.py" \
   --manifest "$repo_root/docs/production-language-readiness.json" \
@@ -93,17 +114,42 @@ bash "$script_repo_root/scripts/ci/test-check-direct-native-runtime-abi.sh"
 python3 "$script_repo_root/scripts/ci/check-package-graph-boundary.py" --json >/dev/null
 bash "$script_repo_root/scripts/ci/test-check-package-graph-boundary.sh"
 bash "$script_repo_root/scripts/ci/test-check-diagnostics-syntax-boundary.sh"
+python3 "$script_repo_root/scripts/ci/test-check-syntax-migration-v1.py"
+python3 "$script_repo_root/scripts/ci/check-syntax-migration-v1.py" --root "$repo_root"
+python3 "$script_repo_root/scripts/ci/test-check-compiler-native-backend-runtime-v1.py"
+python3 "$script_repo_root/scripts/ci/check-compiler-native-backend-runtime-v1.py" --root "$repo_root"
+python3 "$script_repo_root/scripts/ci/test-check-dynamic-aggregate-abi-v1.py"
+python3 "$script_repo_root/scripts/ci/check-dynamic-aggregate-abi-v1.py" --root "$repo_root"
+python3 "$script_repo_root/scripts/ci/test-check-compiler-scale-proof-v1.py"
+python3 "$script_repo_root/scripts/ci/check-compiler-scale-proof-v1.py" --root "$repo_root"
+python3 "$script_repo_root/scripts/ci/test-check-http-server-v1.py"
+python3 "$script_repo_root/scripts/ci/check-http-server-v1.py" --root "$repo_root" --json
+cargo test --manifest-path "$repo_root/stage1/Cargo.toml" -p axiomc --test syntax_migration_v1
 bash "$script_repo_root/scripts/ci/test-check-command-lsp-boundary.sh"
 bash "$script_repo_root/scripts/ci/test-check-hir-boundary.sh"
 bash "$script_repo_root/scripts/ci/test-check-mir-backend-boundary.sh"
+python3 "$script_repo_root/scripts/ci/test-check-iteration-control-v1.py" --root "$repo_root"
+python3 "$script_repo_root/scripts/ci/check-iteration-control-v1.py" --root "$repo_root" --json
 python3 "$script_repo_root/scripts/ci/test-check-io-reactor-v1.py"
 python3 "$script_repo_root/scripts/ci/check-io-reactor-v1.py" --root "$repo_root"
 python3 "$script_repo_root/scripts/ci/test-check-semantic-mir-v1.py"
 python3 "$script_repo_root/scripts/ci/check-semantic-mir-v1.py"
 python3 "$script_repo_root/scripts/ci/test-check-runtime-lifecycle-v1.py"
 python3 "$script_repo_root/scripts/ci/check-runtime-lifecycle-v1.py"
+python3 "$script_repo_root/scripts/ci/test-check-runtime-crypto-provider-policy-v1.py" \
+  --root "$repo_root"
+python3 "$script_repo_root/scripts/ci/check-runtime-crypto-provider-policy-v1.py" \
+  --root "$repo_root"
+python3 "$script_repo_root/scripts/ci/test-check-filesystem-v1.py"
+python3 "$script_repo_root/scripts/ci/check-filesystem-v1.py" --root "$repo_root"
+bash "$script_repo_root/scripts/ci/run-filesystem-v1-behavioral-tests.sh" "$repo_root"
 python3 "$script_repo_root/scripts/ci/test-check-runtime-observability-v1.py"
-python3 "$script_repo_root/scripts/ci/check-runtime-observability-v1.py"
+python3 "$script_repo_root/scripts/ci/check-runtime-observability-v1.py" --root "$repo_root" --json
+bash "$script_repo_root/scripts/ci/run-runtime-observability-proof.sh" --root "$repo_root"
+python3 "$script_repo_root/scripts/ci/test-check-http-client-v1.py"
+python3 "$script_repo_root/scripts/ci/check-http-client-v1.py"
+python3 "$script_repo_root/scripts/ci/test-check-structured-concurrency-v1.py"
+python3 "$script_repo_root/scripts/ci/check-structured-concurrency-v1.py"
 bash "$script_repo_root/scripts/ci/test-check-snapshot-bootstrap-readiness.sh"
 python3 "$script_repo_root/scripts/ci/test-run-agent-autonomy-benchmark.py"
 python3 "$script_repo_root/scripts/ci/run-agent-autonomy-benchmark.py" --subset ci --check >/dev/null
@@ -147,4 +193,8 @@ if [[ -z "$rust_linker" ]]; then
   exit 1
 fi
 
+# Exercise the declared example modes with the real compiler; fake-runner tests
+# alone cannot detect a compiler change that makes an expectation stale (#1656).
+bash scripts/ci/run-stage1-basic-smoke.sh
+bash scripts/ci/run-stage1-stdlib-smoke.sh
 bash scripts/ci/run-stage1-proof-test.sh

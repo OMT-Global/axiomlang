@@ -1,0 +1,151 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://omt-global.github.io/axiom/schemas/axiom.compiler_scale_proof.v1.schema.json",
+  "title": "AxiOM Compiler-Scale Runtime Proof v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "contract", "issue", "dependency_issues", "target_contract", "current_floor", "qualification", "fixtures"],
+  "properties": {
+    "schema_version": {"const": "axiom.compiler_scale_proof.v1"},
+    "contract": {"const": "self_hosting.compiler_scale_runtime_proof"},
+    "issue": {"const": 1427},
+    "dependency_issues": {"type": "array", "minItems": 10, "items": {"type": "integer", "minimum": 1}},
+    "target_contract": {"$ref": "#/$defs/targetContract"},
+    "current_floor": {"$ref": "#/$defs/currentFloor"},
+    "qualification": {"$ref": "#/$defs/qualification"},
+    "fixtures": {"type": "array", "minItems": 19, "items": {"$ref": "#/$defs/fixture"}}
+  },
+  "$defs": {
+    "stringArray": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+    "scaleFloor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["minimum_packages", "minimum_source_files", "minimum_axiom_lines", "minimum_functions", "minimum_semantic_nodes", "minimum_dependency_edges", "minimum_command_surfaces", "minimum_runtime_inputs", "fixture_only_shortcut_forbidden"],
+      "properties": {
+        "minimum_packages": {"const": 8},
+        "minimum_source_files": {"const": 20},
+        "minimum_axiom_lines": {"const": 2000},
+        "minimum_functions": {"const": 80},
+        "minimum_semantic_nodes": {"const": 1000},
+        "minimum_dependency_edges": {"const": 12},
+        "minimum_command_surfaces": {"const": 6},
+        "minimum_runtime_inputs": {"const": 2},
+        "fixture_only_shortcut_forbidden": {"const": true}
+      }
+    },
+    "runtimeSensitivity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artifact_reuse", "input_pair", "output_relation", "rebuilds_between_inputs", "runtime_origin_required"],
+      "properties": {
+        "artifact_reuse": {"const": "same_artifact_digest"},
+        "input_pair": {"const": "two_post_build_source_trees"},
+        "output_relation": {"const": "distinct_semantic_outputs_for_distinct_inputs"},
+        "rebuilds_between_inputs": {"const": 0},
+        "runtime_origin_required": {"const": true}
+      }
+    },
+    "buildPurity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["forbidden_build_effects", "runtime_effect_boundary", "execution_mode", "lowering_mode", "generated_host_source"],
+      "properties": {
+        "forbidden_build_effects": {"$ref": "#/$defs/stringArray"},
+        "runtime_effect_boundary": {"const": "effects_execute_only_after_artifact_start"},
+        "execution_mode": {"const": "native_runtime"},
+        "lowering_mode": {"const": "runtime_lowered"},
+        "generated_host_source": {"const": "absent"}
+      }
+    },
+    "associativeState": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["table_kinds", "runtime_allocated", "fixed_literal_tables_allowed", "deterministic_iteration_required"],
+      "properties": {
+        "table_kinds": {"$ref": "#/$defs/stringArray"},
+        "runtime_allocated": {"const": true},
+        "fixed_literal_tables_allowed": {"const": false},
+        "deterministic_iteration_required": {"const": true}
+      }
+    },
+    "targetContract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["package_roles", "command_surfaces", "pipeline_stages", "runtime_origins", "scale_floor", "runtime_sensitivity", "build_purity", "associative_state", "parity_policy", "evidence_graph_fields", "diagnostics", "prohibited_fallbacks"],
+      "properties": {
+        "package_roles": {"$ref": "#/$defs/stringArray"},
+        "command_surfaces": {"$ref": "#/$defs/stringArray"},
+        "pipeline_stages": {"$ref": "#/$defs/stringArray"},
+        "runtime_origins": {"$ref": "#/$defs/stringArray"},
+        "scale_floor": {"$ref": "#/$defs/scaleFloor"},
+        "runtime_sensitivity": {"$ref": "#/$defs/runtimeSensitivity"},
+        "build_purity": {"$ref": "#/$defs/buildPurity"},
+        "associative_state": {"$ref": "#/$defs/associativeState"},
+        "parity_policy": {"const": "current_compiler_or_versioned_semantic_contract"},
+        "evidence_graph_fields": {"$ref": "#/$defs/stringArray"},
+        "diagnostics": {"$ref": "#/$defs/stringArray"},
+        "prohibited_fallbacks": {"$ref": "#/$defs/stringArray"}
+      }
+    },
+    "currentFloor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tier", "status", "implementation_owner", "source_layout_contract_present", "diagnostics_spike_present", "direct_native_subset_present", "boundary_contracts_present", "command_contract_present", "compiler_scale_package_present", "scale_floor_met", "six_command_surfaces_proven", "runtime_source_ab_proven", "same_artifact_reuse_proven", "runtime_maps_sets_proven", "program_host_abi_proven", "build_effect_purity_proven", "executable_mir_runtime_proven", "lifecycle_ownership_proven", "generated_host_source_absent_proven", "parity_proven", "evidence_graph_proven", "all_supported_targets_proven", "all_boundary_gates_proven", "bootstrap_evidence", "target_gaps"],
+      "properties": {
+        "tier": {"const": "syntax_only"},
+        "status": {"const": "blocked"},
+        "implementation_owner": {"const": "legacy_bootstrap"},
+        "source_layout_contract_present": {"const": true},
+        "diagnostics_spike_present": {"const": true},
+        "direct_native_subset_present": {"const": true},
+        "boundary_contracts_present": {"const": true},
+        "command_contract_present": {"const": true},
+        "compiler_scale_package_present": {"const": false},
+        "scale_floor_met": {"const": false},
+        "six_command_surfaces_proven": {"const": false},
+        "runtime_source_ab_proven": {"const": false},
+        "same_artifact_reuse_proven": {"const": false},
+        "runtime_maps_sets_proven": {"const": false},
+        "program_host_abi_proven": {"const": false},
+        "build_effect_purity_proven": {"const": false},
+        "executable_mir_runtime_proven": {"const": false},
+        "lifecycle_ownership_proven": {"const": false},
+        "generated_host_source_absent_proven": {"const": false},
+        "parity_proven": {"const": false},
+        "evidence_graph_proven": {"const": false},
+        "all_supported_targets_proven": {"const": false},
+        "all_boundary_gates_proven": {"const": false},
+        "bootstrap_evidence": {"$ref": "#/$defs/stringArray"},
+        "target_gaps": {"$ref": "#/$defs/stringArray"}
+      }
+    },
+    "qualification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fixture_scaffolding_only", "workload_dispatch_authorized", "dependencies_must_be_runtime_complete", "required_proofs", "readiness_promotable", "review_policy", "fail_closed_diagnostic"],
+      "properties": {
+        "fixture_scaffolding_only": {"const": true},
+        "workload_dispatch_authorized": {"const": false},
+        "dependencies_must_be_runtime_complete": {"const": true},
+        "required_proofs": {"$ref": "#/$defs/stringArray"},
+        "readiness_promotable": {"const": false},
+        "review_policy": {"const": "independent_acceptance_review_required"},
+        "fail_closed_diagnostic": {"const": "self_host.compiler_scale_proof_not_qualified"}
+      }
+    },
+    "fixture": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "category", "status", "runtime_origin", "blocks_readiness", "scenario", "evidence"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^compiler-scale-proof-v1/[a-z0-9-]+$"},
+        "category": {"enum": ["boundary", "command", "dependency", "evidence", "lifecycle", "package", "parity", "purity", "runtime", "scale", "state", "target"]},
+        "status": {"enum": ["bootstrap_pass", "target_gap"]},
+        "runtime_origin": {"type": "boolean"},
+        "blocks_readiness": {"type": "boolean"},
+        "scenario": {"type": "string", "minLength": 1},
+        "evidence": {"$ref": "#/$defs/stringArray"}
+      }
+    }
+  }
+}
