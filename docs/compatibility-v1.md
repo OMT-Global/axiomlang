@@ -84,7 +84,7 @@ historical main commit `b3149c5e9bf10a4a244b0d89c6e6cd804b47ae3f`, blob
 `e5ad22e48e4504d62de8ea343e58fd4c1e262cb4`. Its metadata freezes the SHA-256,
 `0.4.0` version, and 68-surface count; it is not release history.
 
-The current source contract is version `0.19.0` with 82 surfaces. Its changes
+The current source contract is version `0.19.0` with 83 surfaces. Its changes
 from the byte-frozen 52-surface `0.1.0` accepted baseline include the five
 Package Trust v1 schemas, eighteen additive base-contract schemas (Runtime Observability Evidence v1, HTTP Server v1, Compiler Scale Proof v1, Dynamic Aggregate ABI v1, Compiler Native Backend Runtime v1, Compiler Syntax Migration v1, Iteration Control v1, Filesystem v1, SQLite v1,
 Provider ABI, Structured Concurrency v1, I/O Reactor v1, runtime crypto provider policy, HTTP
