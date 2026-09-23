@@ -1,0 +1,348 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://axiom-lang.org/schemas/axiom.runtime_http_server.v1.schema.json",
+  "title": "AxiOM HTTP server runtime contract v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "contract", "issue", "implementation", "authority", "request", "response", "handler", "limits", "protocol", "shutdown", "inspection_fields", "outcomes", "fixtures", "migration"],
+  "properties": {
+    "schema_version": {"const": "axiom.runtime_http_server.v1"},
+    "contract": {"const": "runtime.http_server"},
+    "issue": {"const": 1449},
+    "implementation": {"$ref": "#/$defs/implementation"},
+    "authority": {"$ref": "#/$defs/authority"},
+    "request": {"$ref": "#/$defs/request"},
+    "response": {"$ref": "#/$defs/response"},
+    "handler": {"$ref": "#/$defs/handler"},
+    "limits": {"$ref": "#/$defs/limits"},
+    "protocol": {"$ref": "#/$defs/protocol"},
+    "shutdown": {"$ref": "#/$defs/shutdown"},
+    "inspection_fields": {"type": "array", "minItems": 13, "maxItems": 13, "uniqueItems": true, "items": {"enum": ["accept_queue_depth", "bind_authority", "handler_semantic_node", "in_flight", "limits", "listen_endpoint", "overload_count", "request_id", "response_evidence", "runtime_request_origin", "server_id", "shutdown_deadline", "shutdown_state"]}},
+    "outcomes": {"type": "array", "minItems": 10, "maxItems": 10, "uniqueItems": true, "items": {"enum": ["accepted", "authority_denied", "cancelled", "deadline_exceeded", "io_error", "malformed_request", "overloaded", "response_sent", "server_stopped", "unsupported"]}},
+    "fixtures": {
+      "type": "array",
+      "minItems": 33,
+      "maxItems": 33,
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/fixture_ref"},
+      "allOf": [
+        {"contains": {"properties": {"id": {"const": "axiom://http-server/fixture/authorized-proxy-forged-forwarded-input"}}}, "minContains": 1, "maxContains": 1},
+        {"contains": {"properties": {"id": {"const": "axiom://http-server/fixture/cancellation-shutdown"}}}, "minContains": 1, "maxContains": 1},
+        {"contains": {"properties": {"id": {"const": "axiom://http-server/fixture/conflicting-content-length"}}}, "minContains": 1, "maxContains": 1},
+        {"contains": {"properties": {"id": {"const": "axiom://http-server/fixture/current-loopback-floor"}}}, "minContains": 1, "maxContains": 1},
+        {"contains": {"properties": {"id": {"const": "axiom://http-server/fixture/current-loopback-policy-denial"}}}, "minContains": 1, "maxContains": 1},
+        {"contains": {"properties": {"id": {"const": "axiom://http-server/fixture/double-response"}}}, "minContains": 1, "maxContains": 1},
+        {"contains": {"properties": {"id": {"const": "axiom://http-server/fixture/dynamic-request-response"}}}, "minContains": 1, "maxContains": 1},
+        {"contains": {"properties": {"id": {"const": "axiom://http-server/fixture/external-authorized-bind"}}}, "minContains": 1, "maxContains": 1},
+        {"contains": {"properties": {"id": {"const": "axiom://http-server/fixture/graceful-drain"}}}, "minContains": 1, "maxContains": 1},
+        {"contains": {"properties": {"id": {"const": "axiom://http-server/fixture/head-response-body-suppressed"}}}, "minContains": 1, "maxContains": 1},
+        {"contains": {"properties": {"id": {"const": "axiom://http-server/fixture/incomplete-content-length"}}}, "minContains": 1, "maxContains": 1},
+        {"contains": {"properties": {"id": {"const": "axiom://http-server/fixture/handler-content-length"}}}, "minContains": 1, "maxContains": 1},
+        {"contains": {"properties": {"id": {"const": "axiom://http-server/fixture/handler-queue-overload"}}}, "minContains": 1, "maxContains": 1},
+        {"contains": {"properties": {"id": {"const": "axiom://http-server/fixture/handler-transfer-encoding"}}}, "minContains": 1, "maxContains": 1},
+        {"contains": {"properties": {"id": {"const": "axiom://http-server/fixture/invalid-response-header-name"}}}, "minContains": 1, "maxContains": 1},
+        {"contains": {"properties": {"id": {"const": "axiom://http-server/fixture/listener-saturation"}}}, "minContains": 1, "maxContains": 1},
+        {"contains": {"properties": {"id": {"const": "axiom://http-server/fixture/malformed-request"}}}, "minContains": 1, "maxContains": 1},
+        {"contains": {"properties": {"id": {"const": "axiom://http-server/fixture/oversize-body"}}}, "minContains": 1, "maxContains": 1},
+        {"contains": {"properties": {"id": {"const": "axiom://http-server/fixture/oversize-header-bytes"}}}, "minContains": 1, "maxContains": 1},
+        {"contains": {"properties": {"id": {"const": "axiom://http-server/fixture/oversize-start-line"}}}, "minContains": 1, "maxContains": 1},
+        {"contains": {"properties": {"id": {"const": "axiom://http-server/fixture/proxy-http11"}}}, "minContains": 1, "maxContains": 1},
+        {"contains": {"properties": {"id": {"const": "axiom://http-server/fixture/response-header-injection"}}}, "minContains": 1, "maxContains": 1},
+        {"contains": {"properties": {"id": {"const": "axiom://http-server/fixture/sigterm-shutdown"}}}, "minContains": 1, "maxContains": 1},
+        {"contains": {"properties": {"id": {"const": "axiom://http-server/fixture/slow-client"}}}, "minContains": 1, "maxContains": 1},
+        {"contains": {"properties": {"id": {"const": "axiom://http-server/fixture/status-204-body-rejected"}}}, "minContains": 1, "maxContains": 1},
+        {"contains": {"properties": {"id": {"const": "axiom://http-server/fixture/status-205-body-rejected"}}}, "minContains": 1, "maxContains": 1},
+        {"contains": {"properties": {"id": {"const": "axiom://http-server/fixture/status-304-response-body-suppressed"}}}, "minContains": 1, "maxContains": 1},
+        {"contains": {"properties": {"id": {"const": "axiom://http-server/fixture/thread-per-connection"}}}, "minContains": 1, "maxContains": 1},
+        {"contains": {"properties": {"id": {"const": "axiom://http-server/fixture/too-many-headers"}}}, "minContains": 1, "maxContains": 1},
+        {"contains": {"properties": {"id": {"const": "axiom://http-server/fixture/transfer-encoding-content-length"}}}, "minContains": 1, "maxContains": 1},
+        {"contains": {"properties": {"id": {"const": "axiom://http-server/fixture/unauthorized-bind"}}}, "minContains": 1, "maxContains": 1},
+        {"contains": {"properties": {"id": {"const": "axiom://http-server/fixture/unsupported-chunked-transfer"}}}, "minContains": 1, "maxContains": 1},
+        {"contains": {"properties": {"id": {"const": "axiom://http-server/fixture/untrusted-forwarded-headers"}}}, "minContains": 1, "maxContains": 1}
+      ]
+    },
+    "migration": {"$ref": "#/$defs/migration"}
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "implementation": {
+            "required": ["tier"],
+            "properties": {"tier": {"const": "runtime_complete"}}
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "fixtures": {
+            "items": {
+              "allOf": [
+                {"$ref": "#/$defs/fixture_ref"},
+                {"properties": {"evidence_tier": {"const": "runtime"}}}
+              ]
+            }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "implementation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tier", "status", "runtime_backed_subset", "build_once_run_many", "loopback_only", "bounded_fixed_route", "dynamic_handler", "external_bind", "structured_concurrency", "http_1_1_proxy", "graceful_drain", "observability_flush"],
+      "properties": {
+        "tier": {"enum": ["static_spike", "runtime_complete"]},
+        "status": {"enum": ["partial", "complete"]},
+        "runtime_backed_subset": {"type": "boolean"},
+        "build_once_run_many": {"type": "boolean"},
+        "loopback_only": {"type": "boolean"},
+        "bounded_fixed_route": {"type": "boolean"},
+        "dynamic_handler": {"type": "boolean"},
+        "external_bind": {"type": "boolean"},
+        "structured_concurrency": {"type": "boolean"},
+        "http_1_1_proxy": {"type": "boolean"},
+        "graceful_drain": {"type": "boolean"},
+        "observability_flush": {"type": "boolean"}
+      },
+      "allOf": [
+        {
+          "if": {"required": ["tier"], "properties": {"tier": {"const": "static_spike"}}},
+          "then": {
+            "properties": {
+              "status": {"const": "partial"},
+              "runtime_backed_subset": {"const": true},
+              "build_once_run_many": {"const": true},
+              "loopback_only": {"const": true},
+              "bounded_fixed_route": {"const": true},
+              "dynamic_handler": {"const": false},
+              "external_bind": {"const": false},
+              "structured_concurrency": {"const": false},
+              "http_1_1_proxy": {"const": false},
+              "graceful_drain": {"const": false},
+              "observability_flush": {"const": false}
+            }
+          }
+        },
+        {
+          "if": {"required": ["tier"], "properties": {"tier": {"const": "runtime_complete"}}},
+          "then": {
+            "properties": {
+              "status": {"const": "complete"},
+              "runtime_backed_subset": {"const": true},
+              "build_once_run_many": {"const": true},
+              "loopback_only": {"const": false},
+              "bounded_fixed_route": {"const": true},
+              "dynamic_handler": {"const": true},
+              "external_bind": {"const": true},
+              "structured_concurrency": {"const": true},
+              "http_1_1_proxy": {"const": true},
+              "graceful_drain": {"const": true},
+              "observability_flush": {"const": true}
+            }
+          }
+        }
+      ]
+    },
+    "authority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["required_kind", "current_grant", "separate_listen_grant_required", "default_deny", "endpoint_fields", "wildcard_policy", "runtime_resolution", "runtime_revalidation", "fallback", "proxy_authority"],
+      "properties": {
+        "required_kind": {"const": "listen"},
+        "current_grant": {"const": "net"},
+        "separate_listen_grant_required": {"const": true},
+        "default_deny": {"const": true},
+        "endpoint_fields": {"type": "array", "minItems": 4, "maxItems": 4, "uniqueItems": true, "items": {"enum": ["host", "ip", "port", "transport"]}},
+        "wildcard_policy": {"const": "explicit_exact_authority_only"},
+        "runtime_resolution": {"const": "required"},
+        "runtime_revalidation": {"const": true},
+        "fallback": {"const": "deny_without_rebind"},
+        "proxy_authority": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["required_kind", "selector_fields", "match_rule", "forwarded_header", "proxy_rewrite_rule", "duplicate_or_chain_policy", "effective_client_identity", "handler_peer", "missing_or_mismatch"],
+          "properties": {
+            "required_kind": {"const": "proxy"},
+            "selector_fields": {"const": ["peer_network", "peer_port", "prefix_length", "transport"]},
+            "match_rule": {"const": "transport peer must match an explicit network prefix port and transport before forwarded metadata is trusted"},
+            "forwarded_header": {"const": "Forwarded"},
+            "proxy_rewrite_rule": {"const": "matching proxy must remove every client-supplied Forwarded field and emit exactly one field with exactly one canonical for parameter"},
+            "duplicate_or_chain_policy": {"const": "reject duplicate Forwarded fields comma-separated chains unknown identifiers obfuscated identifiers and noncanonical for parameters"},
+            "effective_client_identity": {"const": "canonical for parameter from the single proxy-rewritten Forwarded field"},
+            "handler_peer": {"const": "transport_observed_proxy_peer_remains_request_peer"},
+            "missing_or_mismatch": {"const": "deny forwarded metadata and retain the transport-observed peer"}
+          }
+        }
+      }
+    },
+    "request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fields", "body_representations", "header_policy", "framing_policy", "peer_policy"],
+      "properties": {
+        "fields": {"type": "array", "minItems": 7, "maxItems": 7, "uniqueItems": true, "items": {"enum": ["body_bytes", "body_text", "headers", "method", "path", "peer", "query"]}},
+        "body_representations": {"type": "array", "minItems": 2, "maxItems": 2, "uniqueItems": true, "items": {"enum": ["bytes", "text"]}},
+        "header_policy": {"const": "ordered_case_insensitive_names_preserve_duplicates"},
+        "framing_policy": {"const": "validate_before_body_allocation"},
+        "peer_policy": {"const": "transport_observed_not_forwarded_header"}
+      }
+    },
+    "response": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fields", "status_minimum", "status_maximum", "body_representations", "header_policy", "framing_policy", "bodyless_policy", "terminal_rule", "injection_policy"],
+      "properties": {
+        "fields": {"type": "array", "minItems": 3, "maxItems": 3, "uniqueItems": true, "items": {"enum": ["body", "headers", "status"]}},
+        "status_minimum": {"const": 200},
+        "status_maximum": {"const": 599},
+        "body_representations": {"type": "array", "minItems": 2, "maxItems": 2, "uniqueItems": true, "items": {"enum": ["bytes", "text"]}},
+        "header_policy": {"const": "transmit_non_framing_headers_in_declared_order_and_values"},
+        "framing_policy": {"const": "reject_handler_content_length_and_transfer_encoding_then_emit_exact_content_length"},
+        "bodyless_policy": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["head", "status_204", "status_205", "status_304"],
+          "properties": {
+            "head": {"const": "suppress_body_content_length_may_describe_selected_representation"},
+            "status_204": {"const": "reject_handler_body_and_omit_content_length"},
+            "status_205": {"const": "reject_handler_body_and_emit_zero_content_length"},
+            "status_304": {"const": "suppress_body_content_length_may_describe_selected_representation"}
+          }
+        },
+        "terminal_rule": {"const": "exactly_one_response_or_explicit_abort"},
+        "injection_policy": {"const": "require_rfc9110_field_name_token_and_reject_control_characters_in_values"}
+      }
+    },
+    "handler": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["semantic_node", "input", "output", "task_scope", "resource_scope", "panic_policy", "cancellation_policy", "fallback"],
+      "properties": {
+        "semantic_node": {"const": "axiom://runtime/http-server/handler"},
+        "input": {"const": "request"},
+        "output": {"const": "response"},
+        "task_scope": {"const": "request_child_of_server"},
+        "resource_scope": {"const": "connection_child_of_server_requests_borrow_connection"},
+        "panic_policy": {"const": "bounded_500_then_close_when_uncommitted"},
+        "cancellation_policy": {"const": "cooperative_until_deadline_then_force_close"},
+        "fallback": {"const": "no_thread_per_connection"}
+      }
+    },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["max_connections", "max_in_flight", "max_requests_per_connection", "accept_queue", "handler_queue", "start_line_bytes", "header_count", "header_bytes", "body_bytes", "read_timeout_ms", "write_timeout_ms", "idle_timeout_ms", "handler_timeout_ms", "shutdown_timeout_ms", "backpressure"],
+      "properties": {
+        "max_connections": {"type": "integer", "minimum": 1, "maximum": 4096},
+        "max_in_flight": {"type": "integer", "minimum": 1, "maximum": 1024},
+        "max_requests_per_connection": {"type": "integer", "minimum": 1, "maximum": 1024},
+        "accept_queue": {"type": "integer", "minimum": 1, "maximum": 1024},
+        "handler_queue": {"type": "integer", "minimum": 1, "maximum": 1024},
+        "start_line_bytes": {"type": "integer", "minimum": 1, "maximum": 8192},
+        "header_count": {"type": "integer", "minimum": 1, "maximum": 64},
+        "header_bytes": {"type": "integer", "minimum": 1, "maximum": 65536},
+        "body_bytes": {"type": "integer", "minimum": 1, "maximum": 1048576},
+        "read_timeout_ms": {"type": "integer", "minimum": 1, "maximum": 60000},
+        "write_timeout_ms": {"type": "integer", "minimum": 1, "maximum": 60000},
+        "idle_timeout_ms": {"type": "integer", "minimum": 1, "maximum": 60000},
+        "handler_timeout_ms": {"type": "integer", "minimum": 1, "maximum": 60000},
+        "shutdown_timeout_ms": {"type": "integer", "minimum": 1, "maximum": 120000},
+        "backpressure": {"$ref": "#/$defs/backpressure"}
+      }
+    },
+    "backpressure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["bounded_queues", "listener_capacity", "handler_queue_capacity", "partial_write_progress", "zero_progress_rule"],
+      "properties": {
+        "bounded_queues": {"const": true},
+        "listener_capacity": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["action", "connection_state", "http_response_possible"],
+          "properties": {
+            "action": {"const": "pause_accept_until_capacity"},
+            "connection_state": {"const": "not_accepted"},
+            "http_response_possible": {"const": false}
+          }
+        },
+        "handler_queue_capacity": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["action", "connection_state", "overload_status", "preserve_in_flight"],
+          "properties": {
+            "action": {"const": "reject_accepted_request"},
+            "connection_state": {"const": "accepted"},
+            "overload_status": {"const": 503},
+            "preserve_in_flight": {"const": true}
+          }
+        },
+        "partial_write_progress": {"const": true},
+        "zero_progress_rule": {"const": "wait_for_writable_or_deadline"}
+      }
+    },
+    "protocol": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["versions", "reverse_proxy", "keep_alive", "malformed_client", "content_length", "transfer_encoding", "forwarded_headers", "later_work"],
+      "properties": {
+        "versions": {"type": "array", "minItems": 1, "maxItems": 1, "uniqueItems": true, "items": {"const": "HTTP/1.1"}},
+        "reverse_proxy": {"const": "supported_with_explicit_proxy_authority"},
+        "keep_alive": {"const": "bounded_requests_and_idle_deadline"},
+        "malformed_client": {"const": "bounded_error_then_close"},
+        "content_length": {"const": "reject_conflicting_or_incomplete"},
+        "transfer_encoding": {"const": "reject_ambiguous_or_unsupported"},
+        "forwarded_headers": {"const": "single_proxy_rewritten_Forwarded_for_value_only_with_matching_proxy_authority"},
+        "later_work": {"type": "array", "minItems": 2, "maxItems": 2, "uniqueItems": true, "items": {"enum": ["http_2", "websocket"]}}
+      }
+    },
+    "shutdown": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["states", "triggers", "transition_order", "stop_accepts_first", "drain_to_deadline", "cancel_remaining", "flush_observability", "close_resources", "terminal_state"],
+      "properties": {
+        "states": {"type": "array", "minItems": 4, "maxItems": 4, "uniqueItems": true, "items": {"enum": ["accepting", "draining", "starting", "stopped"]}},
+        "triggers": {"type": "array", "minItems": 2, "maxItems": 2, "uniqueItems": true, "items": {"enum": ["controlled", "sigterm"]}},
+        "transition_order": {"const": "starting_accepting_draining_stopped"},
+        "stop_accepts_first": {"const": true},
+        "drain_to_deadline": {"const": true},
+        "cancel_remaining": {"const": true},
+        "flush_observability": {"const": true},
+        "close_resources": {"const": true},
+        "terminal_state": {"const": "stopped"}
+      }
+    },
+    "fixture_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "evidence_tier", "file"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^axiom://http-server/fixture/[a-z0-9-]+$"},
+        "kind": {"enum": ["positive", "negative"]},
+        "evidence_tier": {"enum": ["runtime", "target"]},
+        "file": {"type": "string", "pattern": "^[a-z0-9-]+\\.json$"}
+      }
+    },
+    "migration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["blocker_issues", "current_evidence", "out_of_scope"],
+      "properties": {
+        "blocker_issues": {"type": "array", "minItems": 6, "maxItems": 6, "uniqueItems": true, "items": {"enum": [1425, 1426, 1441, 1445, 1446, 1447]}},
+        "current_evidence": {"type": "array", "minItems": 4, "uniqueItems": true, "items": {"$ref": "#/$defs/evidence_ref"}},
+        "out_of_scope": {"type": "array", "minItems": 2, "maxItems": 2, "uniqueItems": true, "items": {"enum": ["http_2", "websocket"]}}
+      }
+    },
+    "evidence_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "anchors"],
+      "properties": {
+        "path": {"type": "string", "pattern": "^[a-zA-Z0-9_./-]+$"},
+        "anchors": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}}
+      }
+    }
+  }
+}

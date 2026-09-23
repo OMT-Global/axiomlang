@@ -27,3 +27,9 @@ Opening malformed or unauthentic ciphertext returns `None`; plaintext is
 returned only after the backend library verifies the authentication tag. The
 generated-Rust compatibility backend loads OpenSSL/libcrypto EVP AEAD routines
 at runtime. Nonce-reuse-misuse-resistant modes are intentionally out of scope.
+
+That ambient-loading description is the current compatibility behavior, not a
+production provider qualification. The review-gated
+[Runtime Crypto Provider Policy v1](runtime-crypto-provider-policy-v1.md)
+requires a bundled, pinned, attested OpenSSL 3.5 artifact and forbids ambient
+host-provider loading before this surface can be promoted.

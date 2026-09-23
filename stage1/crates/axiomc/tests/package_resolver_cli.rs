@@ -1537,6 +1537,12 @@ fn fetch_cache_vendor_and_offline_build_fail_closed_round_trip() {
     assert_eq!(vendor["operation"], "vendor");
     assert_eq!(vendor["transport_used"], false);
     assert_eq!(
+        vendor["vendor_lifecycle"]["schema_version"],
+        "axiom.vendor_lifecycle_evidence.v1"
+    );
+    assert_eq!(vendor["vendor_lifecycle"]["created"], 1);
+    assert_eq!(vendor["vendor_lifecycle"]["reused"], 0);
+    assert_eq!(
         server.request_count(),
         requests_before_vendor,
         "pkg vendor has no transport handle and must not use network"

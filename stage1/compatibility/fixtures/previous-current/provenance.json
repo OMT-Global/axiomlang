@@ -1,0 +1,11 @@
+{
+  "schema_version": "axiom.compatibility_previous_current.v1",
+  "repository": "OMT-Global/axiomlang",
+  "ref": "origin/main",
+  "commit_sha": "b3149c5e9bf10a4a244b0d89c6e6cd804b47ae3f",
+  "path": "stage1/compatibility/fixtures/current/contract.json",
+  "git_blob_sha1": "e5ad22e48e4504d62de8ea343e58fd4c1e262cb4",
+  "contract_version": "0.4.0",
+  "surface_count": 68,
+  "qualification": "Exact source-contract evidence from origin/main; not a released or qualified previous compiler."
+}

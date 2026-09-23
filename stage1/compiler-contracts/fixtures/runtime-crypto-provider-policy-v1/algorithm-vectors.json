@@ -1,0 +1,90 @@
+{
+  "schema_version": "axiom.runtime_crypto_vector_source_catalog.v1",
+  "vectors": [
+    {
+      "id": "aes-128-gcm/nist-empty-plaintext",
+      "algorithm": "aes-128-gcm@1",
+      "source": "https://csrc.nist.gov/projects/cryptographic-algorithm-validation-program/block-ciphers",
+      "source_case": "GCM authenticated-encryption validation vectors",
+      "material": "not_embedded",
+      "required_outcomes": [
+        "exact_ciphertext_and_tag",
+        "tampered_tag_returns_no_plaintext"
+      ],
+      "execution_status": "not_executed"
+    },
+    {
+      "id": "aes-256-gcm/nist-empty-plaintext",
+      "algorithm": "aes-256-gcm@1",
+      "source": "https://csrc.nist.gov/projects/cryptographic-algorithm-validation-program/block-ciphers",
+      "source_case": "GCM authenticated-encryption validation vectors",
+      "material": "not_embedded",
+      "required_outcomes": [
+        "exact_ciphertext_and_tag",
+        "tampered_tag_returns_no_plaintext"
+      ],
+      "execution_status": "not_executed"
+    },
+    {
+      "id": "chacha20-poly1305/rfc8439-section-2.8.2",
+      "algorithm": "chacha20-poly1305@1",
+      "source": "https://www.rfc-editor.org/rfc/rfc8439#section-2.8.2",
+      "source_case": "AEAD_CHACHA20_POLY1305 example and test vector",
+      "material": "not_embedded",
+      "required_outcomes": [
+        "exact_ciphertext_and_tag",
+        "tampered_tag_returns_no_plaintext"
+      ],
+      "execution_status": "not_executed"
+    },
+    {
+      "id": "ed25519/rfc8032-section-7.1-test-1",
+      "algorithm": "ed25519@1",
+      "source": "https://www.rfc-editor.org/rfc/rfc8032#section-7.1",
+      "source_case": "Ed25519 empty-message test vector 1",
+      "material": "not_embedded",
+      "required_outcomes": [
+        "exact_public_key_and_signature",
+        "changed_message_returns_false"
+      ],
+      "execution_status": "not_executed"
+    },
+    {
+      "id": "hmac-sha2-256/nist-cavp",
+      "algorithm": "hmac-sha2-256@1",
+      "source": "https://csrc.nist.gov/projects/cryptographic-algorithm-validation-program/message-authentication",
+      "source_case": "HMAC-SHA2-256 validation vectors",
+      "material": "not_embedded",
+      "required_outcomes": [
+        "exact_tag",
+        "changed_message_returns_false"
+      ],
+      "execution_status": "not_executed"
+    },
+    {
+      "id": "hmac-sha2-512/nist-cavp",
+      "algorithm": "hmac-sha2-512@1",
+      "source": "https://csrc.nist.gov/projects/cryptographic-algorithm-validation-program/message-authentication",
+      "source_case": "HMAC-SHA2-512 validation vectors",
+      "material": "not_embedded",
+      "required_outcomes": [
+        "exact_tag",
+        "changed_message_returns_false"
+      ],
+      "execution_status": "not_executed"
+    },
+    {
+      "id": "sha2-256/nist-abc",
+      "algorithm": "sha2-256@1",
+      "source": "https://csrc.nist.gov/projects/cryptographic-standards-and-guidelines/example-values",
+      "source_case": "SHA-256 abc example",
+      "material": "not_embedded",
+      "required_outcomes": [
+        "exact_digest",
+        "runtime_and_static_inputs_match"
+      ],
+      "execution_status": "not_executed"
+    }
+  ],
+  "catalog_kind": "authoritative_sources_only_not_executed"
+}

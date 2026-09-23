@@ -1,0 +1,102 @@
+{
+  "schema_version": "axiom.runtime_crypto_inspection.v1",
+  "report": {
+    "algorithm": "aes-256-gcm@1",
+    "capability": "crypto",
+    "input_lengths": {
+      "aad": 7,
+      "key": 32,
+      "nonce": 12,
+      "plaintext": 24
+    },
+    "key_identity": "opaque_runtime_handle",
+    "operation": "aead.seal",
+    "outcome": {
+      "status": "success",
+      "code": "ok"
+    },
+    "provider": "openssl-3.5-evp",
+    "provider_version": "3.5.7",
+    "runtime_origin": "native",
+    "target": "linux-x86_64"
+  },
+  "representative_reports": [
+    {
+      "algorithm": "sha2-256@1",
+      "capability": "crypto",
+      "input_lengths": {"input": 24},
+      "key_identity": "not_applicable",
+      "operation": "hash.digest",
+      "outcome": {"status": "success", "code": "ok"},
+      "provider": "openssl-3.5-evp",
+      "provider_version": "3.5.7",
+      "runtime_origin": "native",
+      "target": "linux-x86_64"
+    },
+    {
+      "algorithm": "system-entropy@1",
+      "capability": "crypto",
+      "input_lengths": {"requested": 32},
+      "key_identity": "not_applicable",
+      "operation": "entropy.fill",
+      "outcome": {"status": "success", "code": "ok"},
+      "provider": "apple-security-secrandom",
+      "provider_version": "system-api",
+      "runtime_origin": "native",
+      "target": "macos-arm64"
+    }
+  ],
+  "channels": {
+    "serialized_inspection": {
+      "algorithm": "aes-256-gcm@1",
+      "capability": "crypto",
+      "input_lengths": {
+        "aad": 7,
+        "key": 32,
+        "nonce": 12,
+        "plaintext": 24
+      },
+      "key_identity": "opaque_runtime_handle",
+      "operation": "aead.seal",
+      "outcome": {
+        "status": "success",
+        "code": "ok"
+      },
+      "provider": "openssl-3.5-evp",
+      "provider_version": "3.5.7",
+      "runtime_origin": "native",
+      "target": "linux-x86_64"
+    },
+    "logs": {
+      "algorithm": "aes-256-gcm@1",
+      "key_identity": "opaque_runtime_handle",
+      "operation": "aead.seal",
+      "outcome": {
+        "status": "success",
+        "code": "ok"
+      }
+    },
+    "traces": {
+      "algorithm": "aes-256-gcm@1",
+      "key_identity": "opaque_runtime_handle",
+      "operation": "aead.seal",
+      "outcome": {
+        "status": "success",
+        "code": "ok"
+      },
+      "provider": "openssl-3.5-evp",
+      "target": "linux-x86_64"
+    },
+    "errors": {
+      "code": "authentication_failed",
+      "key_identity": "opaque_runtime_handle",
+      "operation": "aead.open"
+    },
+    "evidence": {
+      "provider": "openssl-3.5-evp",
+      "provider_version": "3.5.7",
+      "qualification": "unqualified",
+      "target": "linux-x86_64"
+    }
+  }
+}

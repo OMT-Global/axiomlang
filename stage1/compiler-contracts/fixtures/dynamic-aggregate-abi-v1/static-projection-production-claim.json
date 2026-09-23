@@ -1,0 +1,10 @@
+{
+  "schema_version": "axiom.dynamic_aggregate_abi.fixture.v1",
+  "id": "dynamic-aggregate-abi-v1/static-projection-production-claim",
+  "kind": "negative",
+  "scenario": "projected compiler-known slots are presented as runtime-complete dynamic ABI evidence",
+  "shape": ["enum", "struct", "tuple"],
+  "runtime_origin": false,
+  "function_boundaries": 3,
+  "evidence": {"mode": "contract_rejection", "diagnostic": "evidence.tier_mismatch", "claim": "runtime_complete"}
+}

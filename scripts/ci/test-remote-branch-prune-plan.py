@@ -90,6 +90,48 @@ class RemoteBranchPrunePlanTests(unittest.TestCase):
             ["closed", "merged"],
         )
 
+    def test_review_manifest_retains_branch_sha_and_pr_evidence(self) -> None:
+        payload = report(
+            [
+                branch(
+                    "merged",
+                    prs=[
+                        pull_request(7),
+                        pull_request(8, state="CLOSED", head_sha=SHA_B),
+                    ],
+                )
+            ]
+        )
+        self.assertEqual(
+            payload["review_manifest"],
+            [
+                {
+                    "branch": "merged",
+                    "sha": SHA_A,
+                    "associated_pull_requests": [
+                        {
+                            "number": 7,
+                            "state": "MERGED",
+                            "head_sha": SHA_A,
+                            "merged_at": "2026-07-01T00:00:00Z",
+                            "closed_at": "2026-07-01T00:00:00Z",
+                            "title": "PR 7",
+                            "url": "https://github.com/OMT-Global/axiomlang/pull/7",
+                        },
+                        {
+                            "number": 8,
+                            "state": "CLOSED",
+                            "head_sha": SHA_B,
+                            "merged_at": None,
+                            "closed_at": "2026-07-01T00:00:00Z",
+                            "title": "PR 8",
+                            "url": "https://github.com/OMT-Global/axiomlang/pull/8",
+                        },
+                    ],
+                }
+            ],
+        )
+
     def test_default_protected_and_preserved_prefixes_are_preserved(self) -> None:
         payload = report(
             [
@@ -246,6 +288,11 @@ class RemoteBranchPrunePlanTests(unittest.TestCase):
         payload = json.loads(result.stdout)
         self.assertEqual(payload["schema_version"], planner.SCHEMA_VERSION)
         self.assertEqual(payload["candidates"], [{"name": "merged", "sha": SHA_A}])
+        self.assertEqual(payload["review_manifest"][0]["branch"], "merged")
+        self.assertEqual(
+            payload["review_manifest"][0]["associated_pull_requests"][0]["number"],
+            7,
+        )
 
 
 if __name__ == "__main__":

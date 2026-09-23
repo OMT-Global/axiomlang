@@ -31,6 +31,7 @@ BOUNDARY_MAP: dict[str, list[str]] = {
     "expressions.rs": ["compiler.hir"],
     "generics.rs": ["compiler.hir"],
     "hir.rs": ["compiler.hir"],
+    "loop_ownership.rs": ["compiler.hir"],
     "json_contract.rs": ["compiler.commands"],
     "lib.rs": ["compiler package facade"],
     "lockfile.rs": ["compiler.package_graph"],
