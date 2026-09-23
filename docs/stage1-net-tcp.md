@@ -39,3 +39,9 @@ low-level API for caller-owned buffers. `std/async_net.ax` exposes
 connection-per-task services; the text helpers use owned strings so spawned
 tasks do not carry borrowed buffers across host-thread boundaries. See
 `stage1/examples/stdlib_net_tcp_async` for a two-client loopback echo fixture.
+
+These task-shaped wrappers still invoke blocking socket operations. They do not
+establish readiness-based I/O, cancellation-safe partial operations, portable
+target adapters, or freedom from thread-per-connection execution. See
+[I/O Reactor v1](io-reactor-v1.md) for the fail-closed promotion contract and
+current dependency boundary.

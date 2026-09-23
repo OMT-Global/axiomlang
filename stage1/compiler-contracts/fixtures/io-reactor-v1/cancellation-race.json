@@ -1,0 +1,24 @@
+{
+  "operation_generation": 11,
+  "buffer_bound": 16,
+  "inspection": {
+    "adapter": "kqueue",
+    "buffer_bound": 16,
+    "cancellation_owner": "axiom://task/fixture/cancel-read",
+    "deadline": "monotonic:200",
+    "operation_generation": 11,
+    "readiness": "readable",
+    "resource_id": "axiom://resource/fixture/tcp-stream-2",
+    "resource_kind": "tcp_stream",
+    "target": "aarch64-apple-darwin"
+  },
+  "events": [
+    {"sequence": 1, "operation_generation": 11, "event": "registered"},
+    {"sequence": 2, "operation_generation": 11, "event": "cancellation_requested"},
+    {"sequence": 3, "operation_generation": 11, "event": "terminal_canceled"},
+    {"sequence": 4, "operation_generation": 11, "event": "late_readiness_ignored"}
+  ],
+  "terminal_outcome": "canceled",
+  "late_readiness_delivered": false,
+  "decision": "accepted"
+}
