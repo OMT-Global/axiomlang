@@ -1,0 +1,6 @@
+{
+  "operation": "read",
+  "buffer_bound": null,
+  "decision": "rejected",
+  "diagnostic": "io_reactor.buffer_bound_required"
+}

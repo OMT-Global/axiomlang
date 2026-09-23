@@ -107,6 +107,8 @@ python3 "$repo_root/scripts/ci/check-cranelift-manifest-fixtures.py"
 proof_workload_test=$(grep -nF 'bash scripts/ci/run-stage1-proof-test.sh' "$fast_checks_script" || true)
 stdlib_catalog_check=$(grep -nF 'scripts/ci/check-stdlib-catalog.py' "$fast_checks_script" || true)
 stdlib_catalog_regression=$(grep -nF 'scripts/ci/test-check-stdlib-catalog.py' "$fast_checks_script" || true)
+io_reactor_check=$(grep -nF 'python3 "$script_repo_root/scripts/ci/check-io-reactor-v1.py" --root "$repo_root"' "$fast_checks_script" || true)
+io_reactor_regression=$(grep -nF 'python3 "$script_repo_root/scripts/ci/test-check-io-reactor-v1.py"' "$fast_checks_script" || true)
 filesystem_check=$(grep -nF 'python3 "$script_repo_root/scripts/ci/check-filesystem-v1.py" --root "$repo_root"' "$fast_checks_script" || true)
 filesystem_regression=$(grep -nF 'python3 "$script_repo_root/scripts/ci/test-check-filesystem-v1.py"' "$fast_checks_script" || true)
 filesystem_behavior=$(grep -nF 'bash "$script_repo_root/scripts/ci/run-filesystem-v1-behavioral-tests.sh" "$repo_root"' "$fast_checks_script" || true)
@@ -308,6 +310,11 @@ fi
 
 if [[ -z "$stdlib_catalog_check" || -z "$stdlib_catalog_regression" ]]; then
   echo "run-fast-checks must validate and regression-test the typed stdlib catalog" >&2
+  exit 1
+fi
+
+if [[ -z "$io_reactor_check" || -z "$io_reactor_regression" ]]; then
+  echo "run-fast-checks must validate PR-head I/O Reactor v1 data and retain checker self-tests" >&2
   exit 1
 fi
 

@@ -1,0 +1,192 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://axiom-lang.org/schemas/axiom.io_reactor.v1.schema.json",
+  "title": "AxiOM I/O Reactor v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "contract", "issue", "implementation", "readiness_model", "operations", "backpressure", "cancellation", "adapters", "inspection", "fixtures", "migration"],
+  "properties": {
+    "schema_version": {"const": "axiom.io_reactor.v1"},
+    "contract": {"const": "runtime.io_reactor"},
+    "issue": {"const": 1446},
+    "implementation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tier", "runtime_backed", "nonblocking_io", "portable_adapters", "thread_per_connection_free", "blockers"],
+      "properties": {
+        "tier": {"enum": ["syntax_only", "static_spike", "runtime_complete"]},
+        "runtime_backed": {"type": "boolean"},
+        "nonblocking_io": {"type": "boolean"},
+        "portable_adapters": {"type": "boolean"},
+        "thread_per_connection_free": {"type": "boolean"},
+        "blockers": {"type": "array", "items": {"type": "integer"}}
+      },
+      "allOf": [
+        {
+          "if": {"required": ["tier"], "properties": {"tier": {"const": "syntax_only"}}},
+          "then": {
+            "properties": {
+              "runtime_backed": {"const": false},
+              "nonblocking_io": {"const": false},
+              "portable_adapters": {"const": false},
+              "thread_per_connection_free": {"const": false},
+              "blockers": {"minItems": 1}
+            }
+          }
+        },
+        {
+          "if": {"required": ["tier"], "properties": {"tier": {"const": "static_spike"}}},
+          "then": {"properties": {"blockers": {"minItems": 1}}}
+        },
+        {
+          "if": {"required": ["tier"], "properties": {"tier": {"const": "runtime_complete"}}},
+          "then": {
+            "properties": {
+              "runtime_backed": {"const": true},
+              "nonblocking_io": {"const": true},
+              "portable_adapters": {"const": true},
+              "thread_per_connection_free": {"const": true},
+              "blockers": {"maxItems": 0}
+            }
+          }
+        }
+      ]
+    },
+    "readiness_model": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["resources", "interests", "outcomes", "registration_generation_required"],
+      "properties": {
+        "resources": {"type": "array", "minItems": 6, "items": {"type": "string", "minLength": 1}},
+        "interests": {"type": "array", "minItems": 4, "items": {"type": "string", "minLength": 1}},
+        "outcomes": {"type": "array", "minItems": 6, "items": {"type": "string", "minLength": 1}},
+        "registration_generation_required": {"const": true}
+      }
+    },
+    "operations": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["required_operations", "required_features", "partial_completion_reports_bytes", "zero_progress_requires_readiness_change", "deadline_clock", "close_idempotent", "readiness_after_close"],
+      "properties": {
+        "required_operations": {"type": "array", "minItems": 12, "items": {"type": "string", "minLength": 1}},
+        "required_features": {"type": "array", "minItems": 6, "items": {"type": "string", "minLength": 1}},
+        "partial_completion_reports_bytes": {"const": true},
+        "zero_progress_requires_readiness_change": {"const": true},
+        "deadline_clock": {"const": "monotonic"},
+        "close_idempotent": {"const": true},
+        "readiness_after_close": {"const": "ignored"}
+      }
+    },
+    "backpressure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["queue_capacity_required", "buffer_bound_required", "fairness_policy_required", "producer_actions"],
+      "properties": {
+        "queue_capacity_required": {"const": true},
+        "buffer_bound_required": {"const": true},
+        "fairness_policy_required": {"const": true},
+        "producer_actions": {"type": "array", "minItems": 3, "items": {"type": "string", "minLength": 1}}
+      }
+    },
+    "cancellation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["owner_required", "terminal_outcome", "readiness_after_terminal", "race_order"],
+      "properties": {
+        "owner_required": {"const": true},
+        "terminal_outcome": {"const": "canceled"},
+        "readiness_after_terminal": {"const": "ignored"},
+        "race_order": {"const": "monotonic_operation_generation"}
+      }
+    },
+    "adapters": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["implementation_detail_only", "adapter_names_not_language_semantics", "no_thread_per_connection", "targets"],
+      "properties": {
+        "implementation_detail_only": {"const": true},
+        "adapter_names_not_language_semantics": {"const": true},
+        "no_thread_per_connection": {"const": true},
+        "targets": {
+          "type": "array",
+          "minItems": 2,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["target", "adapter", "available"],
+            "properties": {
+              "target": {"type": "string", "minLength": 1},
+              "adapter": {"type": "string", "minLength": 1},
+              "available": {"type": "boolean"},
+              "reason": {"type": "string", "minLength": 1}
+            },
+            "allOf": [
+              {
+                "if": {"required": ["available"], "properties": {"available": {"const": false}}},
+                "then": {"required": ["reason"]}
+              }
+            ]
+          }
+        }
+      }
+    },
+    "inspection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fields", "unavailable_value"],
+      "properties": {
+        "fields": {"type": "array", "minItems": 9, "items": {"type": "string", "minLength": 1}},
+        "unavailable_value": {"const": "null_with_reason"}
+      }
+    },
+    "fixtures": {
+      "type": "array",
+      "minItems": 6,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "kind", "path", "asserts"],
+        "properties": {
+          "id": {"type": "string", "pattern": "^axiom://io-reactor/fixture/[a-z0-9-]+$"},
+          "kind": {"enum": ["negative", "positive"]},
+          "path": {"type": "string", "minLength": 1},
+          "asserts": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}}
+        }
+      }
+    },
+    "migration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["compatibility", "dependencies", "out_of_scope"],
+      "properties": {
+        "compatibility": {"type": "string", "minLength": 1},
+        "dependencies": {"type": "array", "minItems": 5, "items": {"type": "integer"}},
+        "out_of_scope": {"type": "array", "minItems": 2, "items": {"type": "string", "minLength": 1}}
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "required": ["implementation"],
+        "properties": {
+          "implementation": {
+            "required": ["tier"],
+            "properties": {"tier": {"const": "runtime_complete"}}
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "adapters": {
+            "properties": {
+              "targets": {
+                "items": {"properties": {"available": {"const": true}}}
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}
