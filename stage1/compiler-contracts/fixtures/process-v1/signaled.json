@@ -1,0 +1,9 @@
+{
+  "request": {"signal": "terminate", "authority": "allowed"},
+  "outcome": {
+    "exit_reason": "signal",
+    "portable_signal": "terminate",
+    "exit_code_available": false,
+    "cleanup_observed": true
+  }
+}

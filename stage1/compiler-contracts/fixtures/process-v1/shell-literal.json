@@ -1,0 +1,11 @@
+{
+  "command": {
+    "executable": "axiom://fixture/process/argv-echo",
+    "argv": ["axiom://fixture/process/argv-echo", "$(fixture-side-effect)", "a; b", "*.ax"]
+  },
+  "observed": {
+    "argv": ["axiom://fixture/process/argv-echo", "$(fixture-side-effect)", "a; b", "*.ax"],
+    "shell_evaluated": false,
+    "side_effects": []
+  }
+}

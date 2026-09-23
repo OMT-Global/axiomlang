@@ -1,0 +1,12 @@
+{
+  "command": {
+    "executable": "axiom://fixture/process/argv-echo",
+    "argv": ["axiom://fixture/process/argv-echo", "two words", "café", "🧪"]
+  },
+  "observed": {
+    "argv": ["axiom://fixture/process/argv-echo", "two words", "café", "🧪"],
+    "implicit_shell": false,
+    "ordering": "preserved",
+    "encoding": "utf-8"
+  }
+}

@@ -1,0 +1,5 @@
+{
+  "stdout": {"is_terminal": true, "columns": 120, "rows": 40},
+  "stderr": {"is_terminal": false, "size": "unavailable"},
+  "color": {"policy": "auto", "enabled": true, "source": "stdout terminal detection"}
+}
