@@ -101,9 +101,10 @@ fn format_code_line(line: &str) -> String {
     }
     let (code, comment) = split_comment(line);
     let lexemes = lex(code);
+    let tight = generic_tight_junctions(&lexemes);
     let mut rendered = String::new();
     for (index, current) in lexemes.iter().enumerate() {
-        if index > 0 && needs_space(&lexemes[index - 1], current) {
+        if index > 0 && !tight.contains(&index) && needs_space(&lexemes[index - 1], current) {
             rendered.push(' ');
         }
         rendered.push_str(current.text);
@@ -214,7 +215,11 @@ fn quoted_end(text: &str, delimiter: char) -> usize {
 
 fn needs_space(previous: &Lexeme<'_>, current: &Lexeme<'_>) -> bool {
     if current.kind == Kind::Operator || previous.kind == Kind::Operator {
-        return !matches!(current.text, "!" | "?") && previous.text != "!";
+        // `!` and `&` are prefix operators: never separate them from the
+        // lexeme that follows. The stage1 parser rejects a spaced borrow
+        // (`& [int]` -> parse.invalid_syntax `invalid identifier "& [int]"`),
+        // so canonical rendering must keep `&[int]` tight (#1662).
+        return !matches!(current.text, "!" | "?") && !matches!(previous.text, "!" | "&");
     }
     if matches!(current.text, ")" | "]" | "}" | "," | ";" | "." | ":")
         || matches!(previous.text, "(" | "[" | ".")
@@ -238,6 +243,72 @@ fn needs_space(previous: &Lexeme<'_>, current: &Lexeme<'_>) -> bool {
     }
     matches!(previous.kind, Kind::Word | Kind::Literal)
         && matches!(current.kind, Kind::Word | Kind::Literal)
+}
+
+/// Junctions (index `i` = the junction before `lexemes[i]`) that must render
+/// without an inserted space so balanced generic argument lists keep the tight
+/// canonical form (`Option<string>`, `once_with<string>(...)`). The stage1
+/// parser accepts only tight generics in type positions; the spaced rendering
+/// (`Option < string >`) fails typechecking with `type "Option" is not
+/// generic`, so a formatted file could stop compiling (#1662). Matching is
+/// lexical: only spans whose angle brackets enclose words, commas, and nested
+/// generics qualify, so comparisons keep their surrounding spaces.
+fn generic_tight_junctions(lexemes: &[Lexeme<'_>]) -> std::collections::HashSet<usize> {
+    let mut tight = std::collections::HashSet::new();
+    let mut index = 0;
+    while index + 1 < lexemes.len() {
+        if lexemes[index].kind == Kind::Word
+            && lexemes[index + 1].kind == Kind::Operator
+            && lexemes[index + 1].text == "<"
+        {
+            if let Some(close) = generic_argument_close(lexemes, index + 1) {
+                for junction in index + 1..=close {
+                    if lexemes[junction - 1].text != "," {
+                        tight.insert(junction);
+                    }
+                }
+                if lexemes
+                    .get(close + 1)
+                    .is_some_and(|next| matches!(next.text, "(" | "," | ")" | "]" | ";" | ">"))
+                {
+                    tight.insert(close + 1);
+                }
+                index = close + 1;
+                continue;
+            }
+        }
+        index += 1;
+    }
+    tight
+}
+
+/// Returns the index of the `>` closing the generic argument list whose `<` is
+/// at `open`, or `None` when the brackets enclose anything other than type
+/// arguments (operators, literals, other punctuation), which means the `<` is
+/// a comparison the formatter must leave alone.
+fn generic_argument_close(lexemes: &[Lexeme<'_>], open: usize) -> Option<usize> {
+    let mut depth = 0usize;
+    let mut saw_argument = false;
+    let mut index = open + 1;
+    while index < lexemes.len() {
+        let current = &lexemes[index];
+        if current.kind == Kind::Operator && current.text == "<" {
+            depth += 1;
+        } else if current.kind == Kind::Operator && current.text == ">" {
+            if depth == 0 {
+                return saw_argument.then_some(index);
+            }
+            depth -= 1;
+        } else if current.kind == Kind::Word {
+            saw_argument = true;
+        } else if current.kind == Kind::Punctuation && current.text == "," {
+            // separators between type arguments
+        } else {
+            return None;
+        }
+        index += 1;
+    }
+    None
 }
 
 fn sort_import_groups(lines: &mut [String]) {

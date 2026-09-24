@@ -120,3 +120,35 @@ fn missing_final_newline_is_an_exact_insertion() {
     assert_eq!(edits[0].replacement, "\n");
     assert_eq!(replay(original, &edits), formatted);
 }
+
+#[test]
+fn formatter_keeps_generic_arguments_tight() {
+    assert_eq!(
+        format_axiom_source("pub fn worker_name(raw: Option<string>): string {\nreturn raw\n}\n"),
+        "pub fn worker_name(raw: Option<string>): string {\n    return raw\n}\n"
+    );
+    assert_eq!(
+        format_axiom_source("fn main() {\nlet configured: Once < string > = once_with < string > (\"default\")\n}\n"),
+        "fn main() {\n    let configured: Once<string> = once_with<string>(\"default\")\n}\n"
+    );
+    assert_eq!(
+        format_axiom_source("fn main() {\nlet m: Map<string, Option<int>> = defaults()\n}\n"),
+        "fn main() {\n    let m: Map<string, Option<int>> = defaults()\n}\n"
+    );
+}
+
+#[test]
+fn formatter_preserves_spacing_of_comparison_operators() {
+    assert_eq!(
+        format_axiom_source("fn main() {\nlet ok: bool = count < limit && count >= 0\n}\n"),
+        "fn main() {\n    let ok: bool = count < limit && count >= 0\n}\n"
+    );
+}
+
+#[test]
+fn formatter_keeps_borrow_operator_tight() {
+    assert_eq!(
+        format_axiom_source("fn tail(values: & [int]): &[int] {\nreturn values[1:]\n}\n"),
+        "fn tail(values: &[int]): &[int] {\n    return values[1:]\n}\n"
+    );
+}
