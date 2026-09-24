@@ -86,27 +86,33 @@ rust-exit-readiness-test:
 	bash scripts/ci/test-check-rust-exit-readiness.sh
 MAKE
 
-# The live manifest must include every currently incomplete ABI row. Use the
-# contract itself to build a deterministic issue-state fixture so this test
-# catches omissions when a new blocker is added to the contract.
+# The live manifest must include every currently incomplete ABI row and the
+# required proof issues. Use the contract itself to build a deterministic
+# issue-state fixture (proofs CLOSED, blockers OPEN) so this test catches
+# omissions when a new blocker is added to the contract.
 python3 - "$case_dir/stage1/runtime-abi/direct-native-v0.json" "$case_dir/docs/rust-exit-readiness.json" "$temp_dir/manifest-issues.txt" <<'PY'
 import json
 import sys
 
 contract = json.load(open(sys.argv[1], encoding="utf-8"))
 manifest = json.load(open(sys.argv[2], encoding="utf-8"))
-issues = {731}
+blockers = set()
 for group in ("value_features", "capability_shims"):
     for row in contract.get(group, []):
         if row.get("status") != "implemented":
-            issues.update(row.get("blockers", []))
-manifest_issues = {entry["issue"] for entry in manifest["blockingIssues"]}
+            blockers.update(row.get("blockers", []))
+manifest_blockers = {entry["issue"] for entry in manifest["blockingIssues"]}
+manifest_proofs = {entry["issue"] for entry in manifest["proofIssues"]}
 with open(sys.argv[3], "w", encoding="utf-8") as handle:
-    for issue in sorted(manifest_issues):
+    for issue in sorted(manifest_proofs):
+        handle.write(f"{issue} CLOSED\n")
+    for issue in sorted(manifest_blockers):
         handle.write(f"{issue} OPEN\n")
-if not issues <= manifest_issues:
-    missing = ", ".join(f"#{issue}" for issue in sorted(issues - manifest_issues))
+if not blockers <= manifest_blockers:
+    missing = ", ".join(f"#{issue}" for issue in sorted(blockers - manifest_blockers))
     raise SystemExit(f"manifest is missing ABI blockers: {missing}")
+if 731 not in manifest_proofs:
+    raise SystemExit("manifest is missing required proof issue #731")
 PY
 
 (
@@ -128,25 +134,9 @@ if statuses.get("readiness_manifest_valid") != "pass":
 PY
 )
 
-# The remaining synthetic cases use a contract whose incomplete rows all point
-# at the independent tooling blocker, so keep their fixture manifest aligned
-# with that synthetic contract.
-python3 - "$case_dir/docs/rust-exit-readiness.json" <<'PY'
-import json
-import sys
-
-path = sys.argv[1]
-payload = json.load(open(path, encoding="utf-8"))
-payload["blockingIssues"] = [
-    entry for entry in payload["blockingIssues"] if entry["issue"] == 731
-]
-with open(path, "w", encoding="utf-8") as handle:
-    json.dump(payload, handle)
-    handle.write("\n")
-PY
-
 cat >"$temp_dir/partial-issues.txt" <<'ISSUES'
-731 OPEN
+731 CLOSED
+1438 OPEN
 ISSUES
 
 python3 - "$case_dir/stage1/runtime-abi/direct-native-v0.json" <<'PY'
@@ -160,7 +150,7 @@ with open(path, encoding="utf-8") as handle:
 contract["status"] = "partial"
 for row in contract["value_features"] + contract["capability_shims"]:
     row["status"] = "partial"
-    row["blockers"] = [731]
+    row["blockers"] = [1438]
 
 with open(path, "w", encoding="utf-8") as handle:
     json.dump(contract, handle)
@@ -173,6 +163,10 @@ import sys
 path = sys.argv[1]
 with open(path, encoding="utf-8") as handle:
     payload = json.load(handle)
+
+payload["blockingIssues"] = [
+    entry for entry in payload["blockingIssues"] if entry["issue"] == 1438
+]
 
 with open(path, "w", encoding="utf-8") as handle:
     json.dump(payload, handle)
@@ -203,26 +197,27 @@ if expected not in actual:
 PY
 )
 
-python3 - "$case_dir/stage1/runtime-abi/direct-native-v0.json" <<'PY'
+cp "$repo_root/docs/rust-exit-readiness.json" "$case_dir/docs/rust-exit-readiness.json"
+
+python3 - "$case_dir/docs/rust-exit-readiness.json" <<'PY'
 import json
 import sys
 
 path = sys.argv[1]
-with open(path, encoding="utf-8") as handle:
-    contract = json.load(handle)
-
-contract["status"] = "implemented"
-for row in contract["value_features"] + contract["capability_shims"]:
-    row["status"] = "implemented"
-    row.pop("blockers", None)
-    row.setdefault("runtime_evidence", ["stage1/crates/axiomc/tests/cranelift_backend.rs"])
-
-with open(path, "w", encoding="utf-8") as handle:
-    json.dump(contract, handle)
+payload = json.load(open(path, encoding="utf-8"))
+payload["blockingIssues"] = [
+    entry for entry in payload["blockingIssues"] if entry["issue"] == 1438
+]
+json.dump(payload, open(path, "w", encoding="utf-8"))
 PY
 
 cat >"$temp_dir/open-issues.txt" <<'ISSUES'
-731 OPEN
+731 CLOSED
+1438 OPEN
+1445 OPEN
+1447 OPEN
+1448 OPEN
+1449 OPEN
 ISSUES
 
 (
@@ -248,9 +243,9 @@ details = {check["name"]: check["detail"] for check in payload["checks"]}
 expected = {
     "readiness_doc_present": "pass",
     "readiness_manifest_valid": "pass",
-    "readiness_blockers_closed": "fail",
-    "readiness_blockers_live_when_not_ready": "pass",
-    "direct_native_runtime_abi_ready": "pass",
+    "readiness_blockers_live": "pass",
+    "readiness_proofs_closed": "pass",
+    "direct_native_runtime_abi_ready": "fail",
     "command_lsp_release_boundary": "pass",
     "lsp_stdio_harness_ready": "pass",
     "lsp_driver_axiom_owned": "pass",
@@ -269,6 +264,7 @@ PY
 
 cat >"$temp_dir/issues.txt" <<'ISSUES'
 731 CLOSED
+1438 OPEN
 ISSUES
 
 python3 - "$case_dir/stage1/crates/axiomc/src/main.rs" "$case_dir/stage1/crates/axiomc/src/lsp.rs" <<'PY'
@@ -310,10 +306,10 @@ if payload["ready"] is not False:
 statuses = {check["name"]: check["status"] for check in payload["checks"]}
 details = {check["name"]: check["detail"] for check in payload["checks"]}
 expected = {
-    "readiness_blockers_closed": "pass",
-    "readiness_blockers_live_when_not_ready": "pass",
-    "rust_exit_issue_731_closed": "pass",
-    "direct_native_runtime_abi_ready": "pass",
+    "readiness_blockers_live": "pass",
+    "readiness_proofs_closed": "pass",
+    "rust_exit_proof_731_closed": "pass",
+    "direct_native_runtime_abi_ready": "fail",
     "command_lsp_release_boundary": "pass",
     "lsp_stdio_harness_ready": "pass",
     "lsp_driver_axiom_owned": "fail",
@@ -331,6 +327,30 @@ if problems:
     )
 PY
 )
+
+python3 - "$case_dir/stage1/runtime-abi/direct-native-v0.json" <<'PY'
+import json
+import sys
+
+path = sys.argv[1]
+contract = json.load(open(path, encoding="utf-8"))
+contract["status"] = "implemented"
+for row in contract["value_features"] + contract["capability_shims"]:
+    row["status"] = "implemented"
+    row.pop("blockers", None)
+    row.setdefault("runtime_evidence", ["stage1/crates/axiomc/tests/cranelift_backend.rs"])
+json.dump(contract, open(path, "w", encoding="utf-8"))
+PY
+
+python3 - "$case_dir/docs/rust-exit-readiness.json" <<'PY'
+import json
+import sys
+
+path = sys.argv[1]
+payload = json.load(open(path, encoding="utf-8"))
+payload["blockingIssues"] = []
+json.dump(payload, open(path, "w", encoding="utf-8"))
+PY
 
 python3 - "$case_dir/stage1/crates/axiomc/src/main.rs" "$case_dir/stage1/crates/axiomc/src/lsp.rs" <<'PY'
 import sys
@@ -379,7 +399,9 @@ if payload["ready"] is not True:
 statuses = {check["name"]: check["status"] for check in payload["checks"]}
 details = {check["name"]: check["detail"] for check in payload["checks"]}
 expected = {
-    "readiness_blockers_closed": "pass",
+    "readiness_blockers_live": "pass",
+    "readiness_blockers_resolved": "pass",
+    "readiness_proofs_closed": "pass",
     "lsp_stdio_harness_ready": "pass",
     "lsp_driver_axiom_owned": "pass",
     "generated_rust_cli_gate": "pass",
@@ -502,7 +524,7 @@ PY
     echo "expected readiness check to fail when finalBootstrapIssue is also listed as a blocker" >&2
     exit 1
   fi
-  if ! grep -Fq "finalBootstrapIssue must not also be listed as a blocker" "$temp_dir/final-self-blocker.err"; then
+  if ! grep -Fq "finalBootstrapIssue must not also be listed as a proof or blocker" "$temp_dir/final-self-blocker.json"; then
     echo "expected finalBootstrapIssue self-blocker validation error" >&2
     cat "$temp_dir/final-self-blocker.err" >&2
     exit 1
@@ -535,7 +557,7 @@ PY
     echo "expected readiness check to fail when an ABI blocker is missing from the manifest" >&2
     exit 1
   fi
-  if ! grep -Fq "ABI blocker issues missing from readiness manifest: #1191" "$temp_dir/stale-closed-blocker.err"; then
+  if ! grep -Fq "ABI blocker issues missing from readiness manifest: #1191" "$temp_dir/stale-closed-blocker.json"; then
     echo "expected missing ABI blocker validation error" >&2
     cat "$temp_dir/stale-closed-blocker.err" >&2
     exit 1
@@ -560,15 +582,15 @@ with open(path, "w", encoding="utf-8") as handle:
     json.dump(contract, handle)
 PY
 
+# The remaining boundary cases run against an implemented contract, so clear
+# the fixture manifest blockers to keep the manifest aligned with it.
 python3 - "$case_dir/docs/rust-exit-readiness.json" <<'PY'
 import json
 import sys
 
 path = sys.argv[1]
 payload = json.load(open(path, encoding="utf-8"))
-payload["blockingIssues"] = [
-    entry for entry in payload["blockingIssues"] if entry["issue"] == 731
-]
+payload["blockingIssues"] = []
 with open(path, "w", encoding="utf-8") as handle:
     json.dump(payload, handle)
     handle.write("\n")

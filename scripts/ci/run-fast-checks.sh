@@ -155,6 +155,7 @@ python3 "$script_repo_root/scripts/ci/check-http-client-v1.py"
 python3 "$script_repo_root/scripts/ci/test-check-structured-concurrency-v1.py"
 python3 "$script_repo_root/scripts/ci/check-structured-concurrency-v1.py"
 bash "$script_repo_root/scripts/ci/test-check-snapshot-bootstrap-readiness.sh"
+python3 "$script_repo_root/scripts/ci/test-run-readiness-gates.py"
 python3 "$script_repo_root/scripts/ci/test-run-agent-autonomy-benchmark.py"
 python3 "$script_repo_root/scripts/ci/run-agent-autonomy-benchmark.py" --subset ci --check >/dev/null
 bash "$script_repo_root/scripts/ci/run-stdlib-property-checks.sh"

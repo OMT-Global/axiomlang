@@ -65,7 +65,10 @@ def check(name, status, detail):
 
 def load_json(path):
     with path.open(encoding="utf-8") as handle:
-        return json.load(handle)
+        payload = json.load(handle)
+    if not isinstance(payload, dict):
+        raise ValueError(f"{path} root must be an object")
+    return payload
 
 
 def validate_schema_node(value, schema, path, defs):
@@ -172,7 +175,7 @@ def validate_evidence_file(path, expected_digest, label):
         )
     try:
         payload = load_json(path)
-    except (OSError, json.JSONDecodeError) as error:
+    except (OSError, json.JSONDecodeError, ValueError) as error:
         return None, check(label, "fail", f"{path} is not valid JSON: {error}")
     return payload, check(label, "pass", f"{path} exists and matches its pinned digest")
 
@@ -197,7 +200,7 @@ def validate_snapshot_manifest(path, schema_path, provenance_schema_path):
     checks.append(check("snapshot_manifest_present", "pass", f"{path} exists"))
     try:
         payload = load_json(path)
-    except (OSError, json.JSONDecodeError) as error:
+    except (OSError, json.JSONDecodeError, ValueError) as error:
         return checks + [check("snapshot_manifest_json", "fail", str(error))], []
     checks.append(check("snapshot_manifest_json", "pass", "snapshot manifest is valid JSON"))
 
@@ -230,7 +233,7 @@ def validate_snapshot_manifest(path, schema_path, provenance_schema_path):
             validate_against_schema(payload, schema)
             schema_valid = True
             checks.append(check("snapshot_manifest_schema", "pass", f"{path} matches {schema_path}"))
-        except (OSError, json.JSONDecodeError, ValueError) as error:
+        except (OSError, json.JSONDecodeError, ValueError, TypeError) as error:
             checks.append(check("snapshot_manifest_schema", "fail", str(error)))
 
     if not isinstance(snapshots, list):
@@ -343,7 +346,7 @@ def validate_snapshot_manifest(path, schema_path, provenance_schema_path):
         try:
             provenance_schema = load_json(provenance_schema_path)
             checks.append(check("snapshot_provenance_schema", "pass", f"loaded {provenance_schema_path}"))
-        except (OSError, json.JSONDecodeError) as error:
+        except (OSError, json.JSONDecodeError, ValueError) as error:
             checks.append(check("snapshot_provenance_schema", "fail", str(error)))
 
     post_genesis_cargo_failures = []
@@ -560,7 +563,7 @@ def main():
         try:
             payload = load_json(manifest_path)
             checks.append(check("snapshot_readiness_manifest_json", "pass", "readiness manifest is valid JSON"))
-        except (OSError, json.JSONDecodeError) as error:
+        except (OSError, json.JSONDecodeError, ValueError) as error:
             payload = {}
             checks.append(check("snapshot_readiness_manifest_json", "fail", str(error)))
 

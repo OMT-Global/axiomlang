@@ -1,12 +1,14 @@
 {
   "schemaVersion": 1,
   "finalBootstrapIssue": 721,
-  "blockingIssues": [
+  "proofIssues": [
     {
       "issue": 731,
       "lane": "tooling",
       "check": "Documentation generator, LSP server, and protocol path are AxiOM-owned."
-    },
+    }
+  ],
+  "blockingIssues": [
     {
       "issue": 1438,
       "lane": "runtime",
