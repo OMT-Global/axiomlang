@@ -41,12 +41,12 @@ def load_json(path: Path) -> dict[str, Any]:
     return payload
 
 
-def readiness_blockers(manifest: dict[str, Any]) -> set[int]:
-    blockers: set[int] = set()
-    for item in manifest.get("blockingIssues", []):
+def readiness_proofs(manifest: dict[str, Any]) -> set[int]:
+    proofs: set[int] = set()
+    for item in manifest.get("proofIssues", []):
         if isinstance(item, dict) and isinstance(item.get("issue"), int):
-            blockers.add(item["issue"])
-    return blockers
+            proofs.add(item["issue"])
+    return proofs
 
 
 def fixture_paths_exist(fixtures: object, errors: list[str], surface: str) -> list[str]:
@@ -71,7 +71,7 @@ def fixture_paths_exist(fixtures: object, errors: list[str], surface: str) -> li
 
 def command_row(
     command: dict[str, Any],
-    blockers: set[int],
+    proofs: set[int],
     errors: list[str],
 ) -> dict[str, Any]:
     name = command.get("name")
@@ -88,7 +88,7 @@ def command_row(
             f"proof #{DOC_LSP_PROOF_ISSUE} is closed and its state is "
             "validated live by make rust-exit-readiness."
         )
-        if DOC_LSP_PROOF_ISSUE not in blockers:
+        if DOC_LSP_PROOF_ISSUE not in proofs:
             errors.append(
                 f"command doc ownership proof #{DOC_LSP_PROOF_ISSUE} is missing from "
                 "docs/rust-exit-readiness.json"
@@ -110,7 +110,7 @@ def command_row(
 
 def lsp_row(
     services: list[dict[str, Any]],
-    blockers: set[int],
+    proofs: set[int],
     errors: list[str],
 ) -> dict[str, Any]:
     service_map = {
@@ -121,7 +121,7 @@ def lsp_row(
     missing = sorted(set(REQUIRED_LSP_FLOWS) - set(service_map))
     if missing:
         errors.append("lsp service coverage missing flows: " + ", ".join(missing))
-    if DOC_LSP_PROOF_ISSUE not in blockers:
+    if DOC_LSP_PROOF_ISSUE not in proofs:
         errors.append(
             f"lsp ownership proof #{DOC_LSP_PROOF_ISSUE} is missing from "
             "docs/rust-exit-readiness.json"
@@ -150,7 +150,7 @@ def build_report(
     manifest: dict[str, Any],
 ) -> tuple[dict[str, Any], int]:
     errors: list[str] = []
-    blockers = readiness_blockers(manifest)
+    proofs = readiness_proofs(manifest)
 
     commands_value = snapshot.get("commands")
     if not isinstance(commands_value, list):
@@ -178,7 +178,7 @@ def build_report(
         errors.append("official release command behavior must not require rustc")
 
     rows = [
-        command_row(command_map[name], blockers, errors)
+        command_row(command_map[name], proofs, errors)
         for name in REQUIRED_COMMAND_SURFACES
         if name in command_map
     ]
@@ -189,7 +189,7 @@ def build_report(
         services: list[dict[str, Any]] = []
     else:
         services = [item for item in services_value if isinstance(item, dict)]
-    rows.append(lsp_row(services, blockers, errors))
+    rows.append(lsp_row(services, proofs, errors))
 
     status_counts: dict[str, int] = {}
     for row in rows:
