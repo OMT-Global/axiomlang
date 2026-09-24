@@ -1,10 +1,10 @@
 import "std/net.ax"
 
 match resolve("localhost") {
-Some(_address) {
-print true
-}
-None {
-print false
-}
+    Some(_address) {
+        print true
+    }
+    None {
+        print false
+    }
 }

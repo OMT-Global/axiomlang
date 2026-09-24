@@ -1,39 +1,39 @@
 import "models.ax"
 
 fn maybe_job(ready: bool): Option<Job> {
-if ready {
-return Some(Job { id: 7, label: "queued" })
-}
-return None
+    if ready {
+        return Some(Job {id: 7, label: "queued"})
+    }
+    return None
 }
 
 fn load_job(ready: bool): Result<Job, string> {
-if ready {
-return Ok(Job { id: 9, label: "built" })
-}
-return Err("boom")
+    if ready {
+        return Ok(Job {id: 9, label: "built"})
+    }
+    return Err("boom")
 }
 
 fn describe(job: Option<Job>): string {
-match job {
-Some(info) {
-return info.label
-}
-None {
-return "none"
-}
-}
+    match job {
+        Some(info) {
+            return info.label
+        }
+        None {
+            return "none"
+        }
+    }
 }
 
 fn render(result: Result<Job, string>): string {
-match result {
-Ok(info) {
-return info.label
-}
-Err(message) {
-return message
-}
-}
+    match result {
+        Ok(info) {
+            return info.label
+        }
+        Err(message) {
+            return message
+        }
+    }
 }
 
 print describe(maybe_job(true))

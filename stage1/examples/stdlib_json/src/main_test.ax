@@ -1,21 +1,21 @@
 import "std/json.ax"
 
 match parse_int("42") {
-Some(value) {
-print value
-}
-None {
-print "none"
-}
+    Some(value) {
+        print value
+    }
+    None {
+        print "none"
+    }
 }
 
 match parse_string("\"agent\"") {
-Some(value) {
-print value
-}
-None {
-print "none"
-}
+    Some(value) {
+        print value
+    }
+    None {
+        print "none"
+    }
 }
 
 print stringify_bool(true)
@@ -25,38 +25,38 @@ print object3(field_string("name", "agent"), field_int("retries", 3), field_bool
 
 let payload_name: string = object3(field_string("name", "agent"), field_int("retries", 3), field_bool("ready", true))
 match parse_field_string(payload_name, "name") {
-Some(value) {
-print value
-}
-None {
-print "missing"
-}
+    Some(value) {
+        print value
+    }
+    None {
+        print "missing"
+    }
 }
 let payload_retries: string = object3(field_string("name", "agent"), field_int("retries", 3), field_bool("ready", true))
 match parse_field_int(payload_retries, "retries") {
-Some(value) {
-print value
-}
-None {
-print 0
-}
+    Some(value) {
+        print value
+    }
+    None {
+        print 0
+    }
 }
 let payload_ready: string = object3(field_string("name", "agent"), field_int("retries", 3), field_bool("ready", true))
 match parse_field_bool(payload_ready, "ready") {
-Some(value) {
-print value
-}
-None {
-print false
-}
+    Some(value) {
+        print value
+    }
+    None {
+        print false
+    }
 }
 print schema_object3(schema_field_string("name"), schema_field_int("retries"), schema_field_bool("ready"))
 
 match parse_bool("123") {
-Some(_value) {
-print "bad"
-}
-None {
-print "none"
-}
+    Some(_value) {
+        print "bad"
+    }
+    None {
+        print "none"
+    }
 }

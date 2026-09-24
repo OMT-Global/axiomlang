@@ -1,5 +1,5 @@
 import "std/json.ax"
 
 pub fn render_command(name: string, code: int, mode: string): string {
-return "{" + field_string("workload", "proof-cli") + "," + field_string("command", name) + "," + field_int("code", code) + "," + field_string("mode", mode) + "}"
+    return "{" + field_string("workload", "proof-cli") + "," + field_string("command", name) + "," + field_int("code", code) + "," + field_string("mode", mode) + "}"
 }

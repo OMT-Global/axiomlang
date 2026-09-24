@@ -228,6 +228,15 @@ jobs:
           echo "::error::no usable Rust linker found; the full lib suite requires native build support"
           exit 1
 
+      - name: Run example formatter gate
+        # #1662: README quickstart, CONTRIBUTING, and docs/style.md document
+        # `axiomc fmt ... --check` as the canonical style gate for checked-in
+        # examples, but only the Makefile stage1-smoke aggregate ran it, so 97
+        # example files drifted from canonical style while every required
+        # check stayed green. Run the documented formatter, built from this
+        # head, over the whole examples tree; fails closed (exit 1) on drift.
+        run: cargo run -q --locked --manifest-path stage1/Cargo.toml -p axiomc -- fmt stage1/examples --check
+
       - name: Run full axiomc lib suite
         # The #1255 blocking lane: the full lib suite must be green. Tests
         # that require unavailable local capabilities self-skip so standard hosted

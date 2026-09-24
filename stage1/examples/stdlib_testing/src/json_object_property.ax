@@ -10,8 +10,8 @@ let parse_text: string = stringify_value(parse_payload)
 
 let render_ok: int = property("json object render", text == "{\"item\":{\"id\":\"worker\",\"attempts\":2},\"ready\":true}")
 let parse_ok: int = match parse_value(parse_text) {
-Some(parsed) => property("json object parse", stringify_value(parsed) == "{\"item\":{\"id\":\"worker\",\"attempts\":2},\"ready\":true}")
-None => property("json object parse", false)
+    Some(parsed) => property("json object parse", stringify_value(parsed) == "{\"item\":{\"id\":\"worker\",\"attempts\":2},\"ready\":true}")
+    None => property("json object parse", false)
 }
 
 print render_ok + parse_ok

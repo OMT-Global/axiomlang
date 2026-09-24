@@ -1,28 +1,28 @@
 enum Message {
-Pair(int, string)
-Job { id: int, label: string }
-Text(string)
+    Pair(int, string)
+    Job {id: int, label: string}
+    Text(string)
 }
 
 fn render(message: Message): string {
-match message {
-Pair(count, label) {
-print count
-return label
-}
-Job { id, label } {
-print id
-return label
-}
-Text(text) {
-return text
-}
-}
+    match message {
+        Pair(count, label) {
+            print count
+            return label
+        }
+        Job {id, label} {
+            print id
+            return label
+        }
+        Text(text) {
+            return text
+        }
+    }
 }
 
 let first: Message = Pair(7, "multi payload")
 print render(first)
-let second: Message = Job { id: 9, label: "named payload" }
+let second: Message = Job {id: 9, label: "named payload"}
 print render(second)
 let third: Message = Text("payload enums")
 print render(third)

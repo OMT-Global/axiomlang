@@ -11,21 +11,21 @@ print once_is_set<string>(ready)
 
 let empty: Once<int> = once<int>(None)
 match once_take<int>(empty) {
-Some(value) {
-print value
-}
-None {
-print "empty"
-}
+    Some(value) {
+        print value
+    }
+    None {
+        print "empty"
+    }
 }
 
 let channel: Channel<string> = channel<string>(None)
 let sent: Channel<string> = send<string>(channel, "message")
 match try_recv<string>(sent) {
-Some(message) {
-print message
-}
-None {
-print "missing"
-}
+    Some(message) {
+        print message
+    }
+    None {
+        print "missing"
+    }
 }

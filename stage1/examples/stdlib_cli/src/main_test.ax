@@ -6,10 +6,10 @@ print len(values)
 
 let first_arg: Option<string> = arg(0)
 match first_arg {
-Some(value) {
-print value
-}
-None {
-print "missing"
-}
+    Some(value) {
+        print value
+    }
+    None {
+        print "missing"
+    }
 }

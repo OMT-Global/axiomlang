@@ -1,10 +1,10 @@
 import "std/http.ax"
 
 match get("http://127.0.0.1:1/health%20check?q=hello%20world%2Fone") {
-Some(_body) {
-print true
-}
-None {
-print false
-}
+    Some(_body) {
+        print true
+    }
+    None {
+        print false
+    }
 }

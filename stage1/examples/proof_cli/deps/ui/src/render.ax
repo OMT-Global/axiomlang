@@ -1,7 +1,7 @@
 pub fn headline(name: string): string {
-return name + " cli"
+    return name + " cli"
 }
 
 pub fn describe(mode: string, profile: string, plan: string): string {
-return "mode=" + mode + " profile=" + profile + " plan=" + plan
+    return "mode=" + mode + " profile=" + profile + " plan=" + plan
 }

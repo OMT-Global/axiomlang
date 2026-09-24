@@ -1,10 +1,10 @@
 fn tail(values: &[int]): &[int] {
-return values[1:]
+    return values[1:]
 }
 
 fn string_tail_len(values: &[string]): int {
-let rest: &[string] = values[1:]
-return len(rest)
+    let rest: &[string] = values[1:]
+    return len(rest)
 }
 
 let values: [int] = [3, 7, 9, 11]

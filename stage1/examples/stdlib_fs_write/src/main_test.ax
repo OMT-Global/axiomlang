@@ -4,21 +4,21 @@ print mkdir_all("scratch/nested")
 print write_file("scratch/nested/data.txt", "one")
 print append_file("scratch/nested/data.txt", "\ntwo")
 match read_file("scratch/nested/data.txt") {
-Some(value) {
-print value
-}
-None {
-print "missing"
-}
+    Some(value) {
+        print value
+    }
+    None {
+        print "missing"
+    }
 }
 print replace_file("scratch/nested/data.txt", "final")
 match read_file("scratch/nested/data.txt") {
-Some(value) {
-print value
-}
-None {
-print "missing"
-}
+    Some(value) {
+        print value
+    }
+    None {
+        print "missing"
+    }
 }
 print create_file("scratch/empty.txt")
 print remove_file("scratch/empty.txt")

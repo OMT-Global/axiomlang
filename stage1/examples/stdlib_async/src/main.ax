@@ -1,7 +1,7 @@
 import "std/async.ax"
 
 async fn compute(value: int): int {
-return value + 1
+    return value + 1
 }
 
 let direct: Task<int> = compute(40)
@@ -15,24 +15,24 @@ print is_canceled<int>(canceled)
 
 let maybe: Option<int> = await timeout<int>(compute(5), 100)
 match maybe {
-Some(value) {
-print value
-}
-None {
-print 0
-}
+    Some(value) {
+        print value
+    }
+    None {
+        print 0
+    }
 }
 
 let messages: AsyncChannel<string> = channel<string>()
 let sent: AsyncChannel<string> = await send<string>(messages, "message")
 let received: Option<string> = await recv<string>(sent)
 match received {
-Some(message) {
-print message
-}
-None {
-print "missing"
-}
+    Some(message) {
+        print message
+    }
+    None {
+        print "missing"
+    }
 }
 
 let left_index: Task<Option<string>> = ready<Option<string>>(None)
@@ -44,10 +44,10 @@ let left_value: Task<Option<string>> = ready<Option<string>>(None)
 let right_value: Task<Option<string>> = ready<Option<string>>(Some("right"))
 let picked_value: SelectResult<string> = await select<string>(left_value, right_value)
 match selected_value<string>(picked_value) {
-Some(value) {
-print value
-}
-None {
-print "none"
-}
+    Some(value) {
+        print value
+    }
+    None {
+        print "none"
+    }
 }

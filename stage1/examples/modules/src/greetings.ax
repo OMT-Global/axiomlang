@@ -1,7 +1,7 @@
 pub fn banner(name: string): string {
-return prefix() + name
+    return prefix() + name
 }
 
 fn prefix(): string {
-return "hello "
+    return "hello "
 }

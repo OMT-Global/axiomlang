@@ -1,19 +1,19 @@
 match fs_read("src/fixture.txt") {
-Some(value) {
-print value
-}
-None {
-print "missing"
-}
+    Some(value) {
+        print value
+    }
+    None {
+        print "missing"
+    }
 }
 
 match net_resolve("localhost") {
-Some(_address) {
-print true
-}
-None {
-print false
-}
+    Some(_address) {
+        print true
+    }
+    None {
+        print false
+    }
 }
 
 print crypto_sha256("abc")
@@ -22,10 +22,10 @@ let now: int = clock_now_ms()
 print now > 0
 
 match env_get("__AXIOM_STAGE1_MISSING__") {
-Some(value) {
-print value
-}
-None {
-print "none"
-}
+    Some(value) {
+        print value
+    }
+    None {
+        print "none"
+    }
 }

@@ -3,111 +3,111 @@ import "std/serdes.ax"
 import "std/testing.ax"
 
 fn parses_request(): int {
-let expected_params: {string: Value} = {"rootUri": Text("file:///tmp/axiom")}
-let request_params: {string: Value} = {"rootUri": Text("file:///tmp/axiom")}
-let expected: Value = Object({"id": Int(7), "jsonrpc": Text("2.0"), "method": Text("initialize"), "params": Object(expected_params)})
-let payload: string = request(7, method_initialize(), request_params)
-match parse_message(payload) {
-Ok(value) {
-return property("lsp request parse", value == expected)
-}
-Err(_error) {
-return property("lsp request parse", false)
-}
-}
+    let expected_params: {string: Value} = {"rootUri": Text("file:///tmp/axiom")}
+    let request_params: {string: Value} = {"rootUri": Text("file:///tmp/axiom")}
+    let expected: Value = Object({"id": Int(7), "jsonrpc": Text("2.0"), "method": Text("initialize"), "params": Object(expected_params)})
+    let payload: string = request(7, method_initialize(), request_params)
+    match parse_message(payload) {
+        Ok(value) {
+            return property("lsp request parse", value == expected)
+        }
+        Err(_error) {
+            return property("lsp request parse", false)
+        }
+    }
 }
 
 fn publishes_diagnostic(): int {
-let diagnostic_payload: Diagnostic = diagnostic(range(position(0, 0), position(0, 1)), 1, "axiomc", "parse", "unexpected closing brace")
-let expected_diagnostic: Value = Object({"code": Text("parse"), "message": Text("unexpected closing brace"), "range": Object({"end": Object({"character": Int(1), "line": Int(0)}), "start": Object({"character": Int(0), "line": Int(0)})}), "severity": Int(1), "source": Text("axiomc")})
-let expected_params: {string: Value} = {"diagnostics": Array([expected_diagnostic]), "uri": Text("file:///tmp/bad.ax")}
-let expected: Value = Object({"jsonrpc": Text("2.0"), "method": Text("textDocument/publishDiagnostics"), "params": Object(expected_params)})
-let payload: string = publish_diagnostic("file:///tmp/bad.ax", diagnostic_payload)
-match parse_message(payload) {
-Ok(value) {
-return property("lsp diagnostic notification", value == expected)
-}
-Err(_error) {
-return property("lsp diagnostic notification", false)
-}
-}
+    let diagnostic_payload: Diagnostic = diagnostic(range(position(0, 0), position(0, 1)), 1, "axiomc", "parse", "unexpected closing brace")
+    let expected_diagnostic: Value = Object({"code": Text("parse"), "message": Text("unexpected closing brace"), "range": Object({"end": Object({"character": Int(1), "line": Int(0)}), "start": Object({"character": Int(0), "line": Int(0)})}), "severity": Int(1), "source": Text("axiomc")})
+    let expected_params: {string: Value} = {"diagnostics": Array([expected_diagnostic]), "uri": Text("file:///tmp/bad.ax")}
+    let expected: Value = Object({"jsonrpc": Text("2.0"), "method": Text("textDocument/publishDiagnostics"), "params": Object(expected_params)})
+    let payload: string = publish_diagnostic("file:///tmp/bad.ax", diagnostic_payload)
+    match parse_message(payload) {
+        Ok(value) {
+            return property("lsp diagnostic notification", value == expected)
+        }
+        Err(_error) {
+            return property("lsp diagnostic notification", false)
+        }
+    }
 }
 
 fn completion_has_items(): int {
-let item: {string: Value} = {"kind": Int(3), "label": Text("fn")}
-let result: {string: Value} = {"isIncomplete": Bool(false), "items": Array([Object(item)])}
-let expected: Value = Object({"id": Int(9), "jsonrpc": Text("2.0"), "result": Object(result)})
-let payload: string = completion_response(9)
-match parse_message(payload) {
-Ok(value) {
-return property("lsp completion response", value == expected)
-}
-Err(_error) {
-return property("lsp completion response", false)
-}
-}
+    let item: {string: Value} = {"kind": Int(3), "label": Text("fn")}
+    let result: {string: Value} = {"isIncomplete": Bool(false), "items": Array([Object(item)])}
+    let expected: Value = Object({"id": Int(9), "jsonrpc": Text("2.0"), "result": Object(result)})
+    let payload: string = completion_response(9)
+    match parse_message(payload) {
+        Ok(value) {
+            return property("lsp completion response", value == expected)
+        }
+        Err(_error) {
+            return property("lsp completion response", false)
+        }
+    }
 }
 
 fn supports_required_methods(): int {
-return property("lsp required methods", supports_method(method_initialize()) && supports_method(method_did_open()) && supports_method(method_did_change()) && supports_method(method_completion()) && supports_method(method_shutdown()) && supports_method(method_exit()) && supports_method("workspace/symbol") == false)
+    return property("lsp required methods", supports_method(method_initialize()) && supports_method(method_did_open()) && supports_method(method_did_change()) && supports_method(method_completion()) && supports_method(method_shutdown()) && supports_method(method_exit()) && supports_method("workspace/symbol") == false)
 }
 
 fn no_text(value: Option<string>): bool {
-match value {
-Some(_text) {
-return false
-}
-None {
-return true
-}
-}
+    match value {
+        Some(_text) {
+            return false
+        }
+        None {
+            return true
+        }
+    }
 }
 
 fn no_request_id(value: Option<RequestId>): bool {
-match value {
-Some(_id) {
-return false
-}
-None {
-return true
-}
-}
+    match value {
+        Some(_id) {
+            return false
+        }
+        None {
+            return true
+        }
+    }
 }
 
 fn dispatches_request_responses(): int {
-let params: {string: Value} = {"rootUri": Text("file:///tmp/axiom")}
-let initialize_payload: string = request(7, method_initialize(), params)
-let completion_params: {string: Value} = {"uri": Text("file:///tmp/axiom/main.ax")}
-let completion_payload: string = request(9, method_completion(), completion_params)
-let shutdown_payload: string = request(10, method_shutdown(), {"reason": Text("done")})
-return property("lsp request dispatch", message_method(initialize_payload) == Some(method_initialize()) && message_number_id(initialize_payload) == Some(7) && message_supported(initialize_payload) && response_for_request(initialize_payload) == Some(initialize_response(7)) && response_for_request(completion_payload) == Some(completion_response(9)) && response_for_request(shutdown_payload) == Some(shutdown_response(10)))
+    let params: {string: Value} = {"rootUri": Text("file:///tmp/axiom")}
+    let initialize_payload: string = request(7, method_initialize(), params)
+    let completion_params: {string: Value} = {"uri": Text("file:///tmp/axiom/main.ax")}
+    let completion_payload: string = request(9, method_completion(), completion_params)
+    let shutdown_payload: string = request(10, method_shutdown(), {"reason": Text("done")})
+    return property("lsp request dispatch", message_method(initialize_payload) == Some(method_initialize()) && message_number_id(initialize_payload) == Some(7) && message_supported(initialize_payload) && response_for_request(initialize_payload) == Some(initialize_response(7)) && response_for_request(completion_payload) == Some(completion_response(9)) && response_for_request(shutdown_payload) == Some(shutdown_response(10)))
 }
 
 fn dispatches_string_request_ids(): int {
-let params: {string: Value} = {"rootUri": Text("file:///tmp/axiom")}
-let initialize_payload: string = request_with_text_id("abc", method_initialize(), params)
-let completion_payload: string = request_with_text_id("completion-1", method_completion(), {"uri": Text("file:///tmp/axiom/main.ax")})
-return property("lsp string request id dispatch", message_text_id(initialize_payload) == Some("abc") && response_for_request(initialize_payload) == Some(initialize_response_id(TextId("abc"))) && response_for_request(completion_payload) == Some(completion_response_id(TextId("completion-1"))))
+    let params: {string: Value} = {"rootUri": Text("file:///tmp/axiom")}
+    let initialize_payload: string = request_with_text_id("abc", method_initialize(), params)
+    let completion_payload: string = request_with_text_id("completion-1", method_completion(), {"uri": Text("file:///tmp/axiom/main.ax")})
+    return property("lsp string request id dispatch", message_text_id(initialize_payload) == Some("abc") && response_for_request(initialize_payload) == Some(initialize_response_id(TextId("abc"))) && response_for_request(completion_payload) == Some(completion_response_id(TextId("completion-1"))))
 }
 
 fn extracts_text_document_notifications(): int {
-let open_payload: string = did_open("file:///tmp/axiom/main.ax", "axiom", 3, "print 1")
-let change_payload: string = did_change("file:///tmp/axiom/main.ax", 4, "print 2")
-return property("lsp text document extraction", message_method(open_payload) == Some(method_did_open()) && message_method(change_payload) == Some(method_did_change()) && did_open_uri(open_payload) == Some("file:///tmp/axiom/main.ax") && did_open_language_id(open_payload) == Some("axiom") && did_open_version(open_payload) == Some(3) && did_open_text(open_payload) == Some("print 1") && did_change_uri(change_payload) == Some("file:///tmp/axiom/main.ax") && did_change_version(change_payload) == Some(4) && did_change_text(change_payload) == Some("print 2"))
+    let open_payload: string = did_open("file:///tmp/axiom/main.ax", "axiom", 3, "print 1")
+    let change_payload: string = did_change("file:///tmp/axiom/main.ax", 4, "print 2")
+    return property("lsp text document extraction", message_method(open_payload) == Some(method_did_open()) && message_method(change_payload) == Some(method_did_change()) && did_open_uri(open_payload) == Some("file:///tmp/axiom/main.ax") && did_open_language_id(open_payload) == Some("axiom") && did_open_version(open_payload) == Some(3) && did_open_text(open_payload) == Some("print 1") && did_change_uri(change_payload) == Some("file:///tmp/axiom/main.ax") && did_change_version(change_payload) == Some(4) && did_change_text(change_payload) == Some("print 2"))
 }
 
 fn rejects_invalid_messages(): int {
-let initialized_payload: string = notification(method_initialized(), {"ready": Bool(true)})
-let invalid_payload: string = "{"
-return property("lsp invalid message rejected", no_text(message_method(invalid_payload)) && no_request_id(message_id(invalid_payload)) && message_supported(invalid_payload) == false && no_text(response_for_request(initialized_payload)))
+    let initialized_payload: string = notification(method_initialized(), {"ready": Bool(true)})
+    let invalid_payload: string = "{"
+    return property("lsp invalid message rejected", no_text(message_method(invalid_payload)) && no_request_id(message_id(invalid_payload)) && message_supported(invalid_payload) == false && no_text(response_for_request(initialized_payload)))
 }
 
 fn frames_protocol_messages(): int {
-let params: {string: Value} = {"rootUri": Text("file:///tmp/axiom")}
-let initialize_payload: string = request(7, method_initialize(), params)
-let initialize_response_payload: string = initialize_response(7)
-let initialized_payload: string = notification(method_initialized(), {"ready": Bool(true)})
-return property("lsp content-length framing", content_length_header("hi") == "Content-Length: 2" && frame_message("hi") == "Content-Length: 2\r\n\r\nhi" && response_frame_for_request(initialize_payload) == Some(frame_message(initialize_response_payload)) && no_text(response_frame_for_request(initialized_payload)))
+    let params: {string: Value} = {"rootUri": Text("file:///tmp/axiom")}
+    let initialize_payload: string = request(7, method_initialize(), params)
+    let initialize_response_payload: string = initialize_response(7)
+    let initialized_payload: string = notification(method_initialized(), {"ready": Bool(true)})
+    return property("lsp content-length framing", content_length_header("hi") == "Content-Length: 2" && frame_message("hi") == "Content-Length: 2\r\n\r\nhi" && response_frame_for_request(initialize_payload) == Some(frame_message(initialize_response_payload)) && no_text(response_frame_for_request(initialized_payload)))
 }
 
 print parses_request()

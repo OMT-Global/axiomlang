@@ -1,7 +1,7 @@
 pub fn answer(): int {
-return 42
+    return 42
 }
 
 pub fn label(): string {
-return "dependency"
+    return "dependency"
 }

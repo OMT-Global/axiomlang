@@ -14,12 +14,12 @@ let sent: Channel<string> = send<string>(channel, "message")
 let mutex_ok: int = property("sync mutex replace", into_inner<int>(final_guard) == 2)
 let once_ok: int = property("sync once state", once_is_set<string>(ready))
 let none_ok: int = match once_take<int>(empty) {
-Some(_value) => property("sync once empty", false)
-None => property("sync once empty", true)
+    Some(_value) => property("sync once empty", false)
+    None => property("sync once empty", true)
 }
 let channel_ok: int = match try_recv<string>(sent) {
-Some(message) => property("sync channel recv", message == "message")
-None => property("sync channel recv", false)
+    Some(message) => property("sync channel recv", message == "message")
+    None => property("sync channel recv", false)
 }
 
 print mutex_ok + once_ok + none_ok + channel_ok
