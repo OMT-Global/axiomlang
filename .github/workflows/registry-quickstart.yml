@@ -1,0 +1,114 @@
+name: Registry Quickstart Fixtures
+
+# Issue #1663 phase-1 lane: keep the checked-in ./registry quickstart fixtures
+# executable and honest. The fixtures (signed index, published release, trust
+# roots, offline expectation) are regenerated deterministically by
+# scripts/registry-fixtures/generate-registry-fixtures.sh using the real
+# `axiomc publish` / `registry-index` / `registry-validate` tooling; this lane
+# fails when regeneration drifts from the checked-in bytes, when the pinned
+# expectation no longer matches the signed index, or when the documented
+# README quickstart `registry-validate` command stops exiting 0.
+#
+# Standalone workflow on purpose: `.github/workflows/pr-fast-ci.yml` is
+# queue-hot (fmt-gate work), and this lane must not collide with it.
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened, ready_for_review]
+    paths:
+      - 'registry/**'
+      - 'scripts/registry-fixtures/**'
+      - 'stage1/crates/axiomc/**'
+      - 'stage1/package-trust/contract/package-trust.json'
+      - 'stage1/examples/hello/**'
+      - 'stage1/schemas/**'
+      - '.github/workflows/registry-quickstart.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'registry/**'
+      - 'scripts/registry-fixtures/**'
+      - 'stage1/crates/axiomc/**'
+      - 'stage1/package-trust/contract/package-trust.json'
+      - 'stage1/examples/hello/**'
+      - 'stage1/schemas/**'
+      - '.github/workflows/registry-quickstart.yml'
+
+concurrency:
+  group: registry-quickstart-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  registry-quickstart-fixtures:
+    name: Registry Quickstart Fixtures
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4 pinned 2026-04-19
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable pinned 2026-04-19
+
+      - name: Ensure Rust linker availability
+        run: |
+          host_triple="$(rustc -vV | awk '/^host:/ { print $2 }')"
+          rust_lld="$(rustc --print sysroot)/lib/rustlib/${host_triple}/bin/rust-lld"
+          cargo_linker_var="CARGO_TARGET_$(printf '%s' "$host_triple" | tr '[:lower:]-' '[:upper:]_')_LINKER"
+
+          for candidate in cc gcc clang; do
+            if command -v "$candidate" >/dev/null 2>&1; then
+              exit 0
+            fi
+          done
+
+          if command -v apt-get >/dev/null 2>&1 && [[ "$(id -u)" == "0" ]]; then
+            apt_cache="${RUNNER_TEMP:-/tmp}/axiom-registry-quickstart-apt-cache"
+            apt_lists="${RUNNER_TEMP:-/tmp}/axiom-registry-quickstart-apt-lists"
+            mkdir -p "$apt_cache/partial" "$apt_lists/partial"
+            apt_get=(
+              apt-get
+              -o Acquire::Retries=3
+              -o Dpkg::Use-Pty=0
+              -o APT::Sandbox::User=root
+              -o Dir::Cache::archives="$apt_cache"
+              -o Dir::State::lists="$apt_lists"
+            )
+            "${apt_get[@]}" update || true
+            DEBIAN_FRONTEND=noninteractive "${apt_get[@]}" install -y --no-install-recommends gcc libc6-dev || true
+          fi
+
+          for candidate in cc gcc clang; do
+            if command -v "$candidate" >/dev/null 2>&1; then
+              exit 0
+            fi
+          done
+
+          if [[ -x "$rust_lld" ]]; then
+            {
+              printf '%s=%s\n' "$cargo_linker_var" "$rust_lld"
+              printf 'RUSTFLAGS=-C linker=%s\n' "$rust_lld"
+            } >> "$GITHUB_ENV"
+            exit 0
+          fi
+
+          echo "::error::no usable Rust linker found; the registry fixture lane requires native build support"
+          exit 1
+
+      - name: Build axiomc and the fixture generator
+        run: cargo build --manifest-path stage1/Cargo.toml -p axiomc --bins --examples
+
+      - name: Regenerate the quickstart registry fixtures and validate them
+        run: bash scripts/registry-fixtures/generate-registry-fixtures.sh
+
+      - name: Checked-in fixtures must be byte-identical to regeneration
+        run: |
+          git diff --exit-code --stat -- registry/
+          test -z "$(git status --porcelain -- registry/)"
+
+      - name: Run the documented quickstart registry-validate command verbatim
+        run: |
+          cargo run --manifest-path stage1/Cargo.toml -p axiomc -- registry-validate ./registry/index.json --packages-dir ./registry/packages --trust-roots ./registry/trust-roots.json --expectation ./registry/verification-request.json
