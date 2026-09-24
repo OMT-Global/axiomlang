@@ -413,7 +413,7 @@ resolver = next(row for row in payload["rows"] if row["id"] == "package_resolver
 assert resolver["status"] == "partial"
 assert resolver["targetTier"] == "production_qualified"
 assert resolver["currentTier"] == "static_spike"
-assert resolver["blockerIssues"] == [1457, 1459]
+assert resolver["blockerIssues"] == [1459]
 assert resolver["governingIssue"] == 1459
 assert resolver["validatingCommand"] == (
     "make stage1-package-resolver && make stage1-package-graph-boundary "

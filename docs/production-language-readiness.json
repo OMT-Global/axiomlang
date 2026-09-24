@@ -202,12 +202,12 @@
       "currentTier": "static_spike",
       "status": "partial",
       "governingIssue": 1443,
-      "blockerIssues": [1443],
+      "blockerIssues": [1425, 1426, 1438],
       "dependencies": [1434, 1438, 1425, 1426],
       "evidence": ["docs/filesystem-v1.md", "stage1/compiler-contracts/snapshots/filesystem-v1.json", "stage1/examples/stdlib_fs_write/axiom.toml", "stage1/crates/axiomc/src/stdlib.rs"],
       "validatingCommand": "make stage1-filesystem-v1 && make stage1-filesystem-v1-test && make stage1-stdlib-test && make stage1-conformance",
       "rustCaptureRisk": "medium",
-      "agentInspectionImpact": "Expose authority, scoped root, runtime path origin, normalized path, operation, handle generation and lifetime, byte progress, and denial reason."
+      "agentInspectionImpact": "Expose authority, scoped root, runtime path origin, normalized path, operation, handle generation and lifetime, byte progress, and denial reason. #1443 landed the filesystem v1 contract; runtime-complete promotion remains blocked on the runtime lifecycle and resource-handle ABI (#1438) and the runtime-sized collection and string prerequisites (#1425, #1426)."
     },
     {
       "id": "program_host_abi",
@@ -394,12 +394,12 @@
       "currentTier": "syntax_only",
       "status": "blocked",
       "governingIssue": 1454,
-      "blockerIssues": [1454],
+      "blockerIssues": [1463, 1464],
       "dependencies": [1430, 1435],
       "evidence": ["scripts/ci/run-extended-validation.sh", ".github/workflows/extended-validation.yml"],
       "validatingCommand": "bash scripts/ci/run-extended-validation.sh",
       "rustCaptureRisk": "low",
-      "agentInspectionImpact": "Emit exact-head target, duration, failure class, and artifact paths."
+      "agentInspectionImpact": "Emit exact-head target, duration, failure class, and artifact paths. #1454 landed the qualification receipt wiring; blocking product evidence (fuzzing, coverage, mutation, and real property and benchmark execution) remains owned by #1463 and #1464."
     },
     {
       "id": "target_support_v1",
@@ -458,12 +458,12 @@
       "currentTier": "static_spike",
       "status": "partial",
       "governingIssue": 1457,
-      "blockerIssues": [1457],
+      "blockerIssues": [1456],
       "dependencies": [1418, 1433],
       "evidence": ["docs/bootstrap/versioning.md", "docs/semantic-diff-v0.md", "docs/compatibility-v1.md", "stage1/compatibility/policy-v1.json", "stage1/compatibility/source-inventory-v1.json", "stage1/compatibility/manifest-parser-contract-v1.json", "stage1/compatibility/abi-surface-v1.json", "stage1/compatibility/fixtures/current/metadata.json", "stage1/compatibility/fixtures/current/contract.json", "stage1/compatibility/fixtures/accepted-baseline/metadata.json", "stage1/compatibility/fixtures/accepted-baseline/policy.json", "stage1/compatibility/fixtures/accepted-baseline/contract.json", "stage1/compatibility/fixtures/previous-contract-fixture/metadata.json", "stage1/compatibility/fixtures/previous-contract-fixture/contract.json", "stage1/schemas/axiom-public-contract-v1.schema.json", "stage1/schemas/axiom-compatibility-policy-v1.schema.json", "stage1/schemas/axiom-compatibility-report-v1.schema.json", "stage1/schemas/axiom-migration-plan-v1.schema.json", "stage1/json-fixtures/migration-plan/success.plan.json"],
       "validatingCommand": "make compatibility-v1 compatibility-v1-test && cargo test --manifest-path stage1/Cargo.toml -p axiomc --test compatibility_v1 --test migration_plan_cli",
       "rustCaptureRisk": "critical",
-      "agentInspectionImpact": "Classify source-derived public nodes, exact compiler and contract ranges, severity, deprecation, replacement, and deterministic plan-only migration actions; do not infer a previous released compiler until immutable dual-compiler qualification exists."
+      "agentInspectionImpact": "Classify source-derived public nodes, exact compiler and contract ranges, severity, deprecation, replacement, and deterministic plan-only migration actions; do not infer a previous released compiler until immutable dual-compiler qualification exists. #1457 landed the compatibility v1 regime; the immutable released-compiler prerequisite for dual-compiler qualification is tracked by #1456."
     },
     {
       "id": "package_trust_v1",
@@ -490,7 +490,7 @@
       "currentTier": "static_spike",
       "status": "partial",
       "governingIssue": 1459,
-      "blockerIssues": [1457, 1459],
+      "blockerIssues": [1459],
       "dependencies": [1458, 1457],
       "evidence": ["docs/package.md", "docs/compiler-package-graph.md", "docs/supply-chain.md", "stage1/crates/axiomc/src/manifest.rs", "stage1/crates/axiomc/src/lockfile.rs", "stage1/crates/axiomc/src/package_version.rs", "stage1/crates/axiomc/src/package_resolver.rs", "stage1/crates/axiomc/src/registry_client.rs", "stage1/crates/axiomc/src/package_trust.rs", "stage1/crates/axiomc/src/package_archive.rs", "stage1/crates/axiomc/src/package_store.rs", "stage1/crates/axiomc/src/package_manager.rs", "stage1/crates/axiomc/tests/package_resolver_cli.rs", "stage1/package-resolver/fixtures/lockfile-v2.json", "stage1/package-resolver/fixtures/resolution-v1.json", "stage1/schemas/axiom.toml.schema.json", "stage1/schemas/axiom-lockfile-v2.schema.json", "stage1/schemas/axiom-package-resolution-v1.schema.json", "scripts/ci/run-toolchain-supply-chain.sh"],
       "validatingCommand": "make stage1-package-resolver && make stage1-package-graph-boundary && make supply-chain",
@@ -506,12 +506,12 @@
       "currentTier": "syntax_only",
       "status": "partial",
       "governingIssue": 1460,
-      "blockerIssues": [1460],
+      "blockerIssues": [1463],
       "dependencies": [],
       "evidence": ["stage1/crates/axiomc/src/formatter.rs", "stage1/schemas/axiom-format-edit-v1.schema.json", "docs/formatter-edit-contract.md", "docs/style.md"],
       "validatingCommand": "cargo test --manifest-path stage1/Cargo.toml -p axiomc --bin axiomc formatter",
       "rustCaptureRisk": "low",
-      "agentInspectionImpact": "Provide precise edits and unchanged semantic graph digest."
+      "agentInspectionImpact": "Provide precise edits and unchanged semantic graph digest. #1460 landed the formatter v1 contract; production qualification remains blocked on the blocking quality-evidence program (#1463)."
     },
     {
       "id": "lsp_v1",
@@ -522,12 +522,12 @@
       "currentTier": "syntax_only",
       "status": "partial",
       "governingIssue": 1461,
-      "blockerIssues": [1461],
+      "blockerIssues": [1463],
       "dependencies": [1418, 1454],
       "evidence": ["docs/stage1-lsp.md", "stage1/crates/axiomc/src/lsp.rs"],
       "validatingCommand": "make stage1-command-lsp-boundary",
       "rustCaptureRisk": "high",
-      "agentInspectionImpact": "Expose workspace generation, indexed nodes, request versions, capabilities, latency, and diagnostics."
+      "agentInspectionImpact": "Expose workspace generation, indexed nodes, request versions, capabilities, latency, and diagnostics. #1461 landed the LSP v1 contract; production qualification remains blocked on the blocking quality-evidence program (#1463)."
     },
     {
       "id": "documentation_v1",
@@ -538,12 +538,12 @@
       "currentTier": "syntax_only",
       "status": "partial",
       "governingIssue": 1462,
-      "blockerIssues": [1462],
+      "blockerIssues": [1463],
       "dependencies": [1418, 1460],
       "evidence": ["stage1/stdlib/std/doc.ax", "stage1/examples/stdlib_doc/axiom.toml"],
       "validatingCommand": "make stage1-command-lsp-boundary",
       "rustCaptureRisk": "medium",
-      "agentInspectionImpact": "Link public symbols to source, semantic nodes, capabilities, and evidence."
+      "agentInspectionImpact": "Link public symbols to source, semantic nodes, capabilities, and evidence. #1462 landed the documentation v1 contract; production qualification remains blocked on the blocking quality-evidence program (#1463)."
     },
     {
       "id": "compiler_quality_v1",

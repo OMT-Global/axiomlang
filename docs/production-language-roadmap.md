@@ -128,7 +128,7 @@ failure.
 | --- | --- | --- |
 | #1433 | Checked roadmap, manifest, schema, and validator | This roadmap PR. |
 | #1434 | Builds are effect-pure; unsupported runtime lowering fails closed | Completed by #1485; retain as historical proof, not an active dispatch target. |
-| #1435 | Generated capability ledger and documentation drift gate | Reconcile the completed #1434/#1437 contracts with the active leaf work. |
+| #1435 | Generated capability ledger and documentation drift gate | Completed; the generated ledger and drift gate shipped. Contract reconciliation executes through #1568, not as a closed-issue dispatch. |
 | #1437 | Axiom-neutral executable MIR v1 contract | Completed; its contract is the design input for #1436 and #1438-#1440. |
 | #1436 | First HIR → MIR → native runtime-complete vertical slice | Open implementation path after the #1437 contract and #1485 purity guard. |
 
@@ -150,7 +150,7 @@ failure.
 | #1441 | UTF-8 text, slicing, split, lines, scalar iteration, conversion | Runtime strings and collections. |
 | #1442 | Iteration protocol, `for`, `break`, and `continue` | Collections, MIR, ownership. |
 | #1477 | Running-program argv/env/stdin/stdout/stderr/cwd/exit ABI | Build purity and runtime value/lifecycle ABIs. |
-| #1443 | Paths, metadata, traversal, binary I/O, atomic and temporary resources | Build purity and lifecycle/value ABIs. |
+| #1443 | Paths, metadata, traversal, binary I/O, atomic and temporary resources | Landed; remaining runtime-complete promotion depends on #1438, #1425, and #1426. |
 | #1444 | Argv-safe child processes, pipes, signals, terminal, and cancellation | Program host ABI, values, structured concurrency. |
 | #1445 | Real scheduler, cancellation, channels, backpressure, and synchronization | Lifecycle/value/MIR foundation; human concurrency design. |
 
@@ -171,16 +171,16 @@ failure.
 
 | Issue | Outcome | Dependencies |
 | --- | --- | --- |
-| #1454 | Real extended/product qualification CI | #1430 and capability truth. |
+| #1454 | Real extended/product qualification CI | Landed; blocking product evidence depends on #1463 and #1464. |
 | #1455 | Supported Linux x86-64 and macOS arm64 native target matrix | CI and runtime foundations. |
 | #1481 | Runtime-origin hash/MAC/entropy/AEAD/signatures over vetted providers | Values, provider ABI, supported targets; human security policy. |
-| #1457 | Editions, SemVer, public API/ABI, package, CLI, and schema compatibility | Intent IR and roadmap policy; human approval. |
+| #1457 | Editions, SemVer, public API/ABI, package, CLI, and schema compatibility | Landed; dual-compiler qualification depends on released artifacts (#1456). |
 | #1456 | Reproducible signed compiler releases and no-Cargo install | CI, targets, compatibility; human publication. |
-| #1458 | Asymmetric publisher signatures, trust roots, rotation, and revocation | Compatibility policy. |
+| #1458 | Asymmetric publisher signatures, trust roots, rotation, and revocation | Landed; the package trust v1 ledger row is implemented. |
 | #1459 | Registry resolver, content-addressed cache, lockfile v2, and vendoring | Package trust and compatibility. |
-| #1460 | Syntax-aware idempotent formatter | Current syntax contract. |
-| #1461 | Persistent package-aware LSP navigation and completion | Intent IR and CI qualification. |
-| #1462 | Typed public API docs, search, links, and doctests | Intent IR and formatter. |
+| #1460 | Syntax-aware idempotent formatter | Landed; production qualification depends on #1463. |
+| #1461 | Persistent package-aware LSP navigation and completion | Landed; production qualification depends on #1463. |
+| #1462 | Typed public API docs, search, links, and doctests | Landed; production qualification depends on #1463. |
 | #1463 | Fuzzing, coverage, mutation, and complexity ratchets | CI qualification. |
 | #1464 | Real property cases, shrinking, and benchmark entrypoint execution | Runtime values and build purity. |
 | #1465 | Build profiles, optimization, module cache, and safe parallelism | Executable MIR, targets, compatibility. |
@@ -213,9 +213,10 @@ The safe first queue is:
 2. #1438 — lifecycle ABI implementation after the completed #1437 contract;
 3. #1425 and #1426 — runtime collections and string/slice ABI;
 4. #1439 and #1440 — dynamic aggregates and ownership analysis;
-5. #1454 — extended validation design after #1430;
-6. #1460 and #1463 — bounded tooling/quality work that does not claim runtime
-   readiness.
+5. #1463 — blocking quality and fuzz evidence after the landed #1454
+   qualification receipts;
+6. #1464 — real property cases and benchmark execution that does not claim
+   runtime readiness.
 
 Do not dispatch #1427, #1468 children, snapshot, release publication, external
 network authority, provider ABI, structured-concurrency policy, or final

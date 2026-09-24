@@ -178,7 +178,7 @@
       "governingIssue": 1251,
       "status": "blocked",
       "directNativeStatus": "blocked",
-      "blockerIssues": [1443, 1444, 1477, 1481],
+      "blockerIssues": [1444, 1477, 1481],
       "evidence": [
         "stage1/examples/stdlib_fs/axiom.toml",
         "stage1/examples/stdlib_env/axiom.toml",
@@ -192,7 +192,7 @@
         "stage1/conformance/fail/stdlib_net_tcp_without_capability/axiom.toml"
       ],
       "validatingCommand": "make stage1-stdlib-smoke && make stage1-conformance",
-      "notes": "Capability declarations and denial checks exist, but runtime-origin host effects remain incomplete across the open host ABI and provider issues; the compiler-side evaluator fallback was closed by #1485."
+      "notes": "Capability declarations and denial checks exist; the filesystem v1 contract (#1443) landed, while runtime-origin host effects remain incomplete across the open process, host ABI, and crypto issues; the compiler-side evaluator fallback was closed by #1485."
     },
     {
       "id": "program_host_abi",
