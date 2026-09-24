@@ -9,6 +9,7 @@ pub(crate) mod framed_protocol;
 pub mod diagnostic_catalog;
 pub mod diagnostics;
 pub mod doctor;
+pub mod executable_mir;
 pub mod hir;
 pub mod intent_ir;
 pub mod json_contract;
