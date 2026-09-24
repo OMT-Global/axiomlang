@@ -95,7 +95,7 @@
           "path": "stage1/compiler-contracts/snapshots/capability-ledger.json",
           "role": "cli_top_level_parity",
           "selector": "commands[*].name",
-          "sha256": "4523e981f0557c04f9c8818a39eb3b8b52993f40928179146a9f0720240cff81"
+          "sha256": "3020a447421a31e067c846a4c4f4ae609711abc5cded4741a1209bbd56a1541e"
         },
         {
           "path": "stage1/crates/axiomc/src/main.rs",
@@ -701,13 +701,31 @@
     {
       "id": "axiom://schema/axiom-selfhost-snapshot-manifest-v0",
       "kind": "schema",
-      "signature": "published schema id=https://axiom.omt.global/schemas/axiom-selfhost-snapshot-manifest-v0.schema.json; semantic_digest=2ed12243a6718bf19a4a8cbecba85bd8361525d574521886aea412d0ca62bf31; envelope=axiom.selfhost.snapshot_manifest.v0",
+      "migration": {
+        "action": "Snapshot manifest entries must carry chain identity and offline provenance evidence: snapshot_id, chain_id, sequence, artifact_path, source_head_sha, predecessor, and provenance_sha256 are required, and built_by is restricted to the schema's two enumerated producer identities, with sequence zero reserved for the genesis producer. Producers must emit the hardened shape and validate against schema surface version 0.2.0. Legacy pre-hardening manifests remain accepted at schema level by the frozen trusted-CI readiness harness; manifests in the new shape are validated fail-closed against the hardened contract."
+      },
+      "signature": "published schema id=https://axiom.omt.global/schemas/axiom-selfhost-snapshot-manifest-v0.schema.json; semantic_digest=acb365aab6f0b4db9fa93b4f16f7267e1fb125595bb162fd02cbb0df1cd01542; envelope=axiom.selfhost.snapshot_manifest.v0",
       "sources": [
         {
           "path": "stage1/schemas/axiom-selfhost-snapshot-manifest-v0.schema.json",
           "role": "published_schema",
           "selector": "$id,properties.schema_version.const",
-          "sha256": "13f8fa57d0b45059e8a9e545022f2acce808e04485cb0ed0dee9dacf602ab0b6"
+          "sha256": "6491372fdf45804876c1e9e17c68bfb475f84c7207e188e536f96afabed6f314"
+        }
+      ],
+      "stability": "experimental",
+      "version": "0.2.0"
+    },
+    {
+      "id": "axiom://schema/axiom-selfhost-snapshot-provenance-v0",
+      "kind": "schema",
+      "signature": "published schema id=https://axiom.omt.global/schemas/axiom-selfhost-snapshot-provenance-v0.schema.json; semantic_digest=c9f835333387094b2b45880c8a2ea25fea400d4d0987e3b9837e58d695a4200f; envelope=axiom.selfhost.snapshot_provenance.v0",
+      "sources": [
+        {
+          "path": "stage1/schemas/axiom-selfhost-snapshot-provenance-v0.schema.json",
+          "role": "published_schema",
+          "selector": "$id,properties.schema_version.const",
+          "sha256": "c5236b487f10a8c6b18883a4d8220c937b9c7e5939f9865d31300c423e7b3a52"
         }
       ],
       "stability": "experimental",

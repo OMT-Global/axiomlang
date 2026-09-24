@@ -18,7 +18,8 @@
       "axiom://schema/axiom.stage1.v1": "0.2.0",
       "axiom://schema/axiom-trust-roots-v1": "0.2.0",
       "axiom://schema/axiom.toml": "0.2.0",
-      "axiom://schema/axiom-quality-report-v1": "0.2.0"
+      "axiom://schema/axiom-quality-report-v1": "0.2.0",
+      "axiom://schema/axiom-selfhost-snapshot-manifest-v0": "0.2.0"
     }
   },
   "surface_migrations": {
@@ -45,6 +46,9 @@
     },
     "axiom://schema/axiom-quality-report-v1": {
       "action": "Quality reports retain the same single-test exclusion and profile semantics. The skippedTests field now uses the current renamed property-test identifier, matching the existing producer. Validate current reports with schema surface version 0.2.0; historical reports retain their historical schema."
+    },
+    "axiom://schema/axiom-selfhost-snapshot-manifest-v0": {
+      "action": "Snapshot manifest entries must carry chain identity and offline provenance evidence: snapshot_id, chain_id, sequence, artifact_path, source_head_sha, predecessor, and provenance_sha256 are required, and built_by is restricted to the schema's two enumerated producer identities, with sequence zero reserved for the genesis producer. Producers must emit the hardened shape and validate against schema surface version 0.2.0. Legacy pre-hardening manifests remain accepted at schema level by the frozen trusted-CI readiness harness; manifests in the new shape are validated fail-closed against the hardened contract."
     }
   },
   "snapshot_id": "axiom://compatibility/current-source-contract",
