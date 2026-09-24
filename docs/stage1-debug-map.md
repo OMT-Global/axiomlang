@@ -110,6 +110,21 @@ Consumers should treat `debug_manifest` as the integrity envelope:
 If `native_debug.axiom_dwarf` is `false`, tools must report that stepping is
 mediated through the sidecar map and not through native Axiom DWARF.
 
+## DAP Status
+
+`axiomc dap` currently provides a source simulator, not native process
+debugging. Launching that simulator requires the explicit
+`mode: "source-simulator"` argument. Breakpoints remain unverified, runtime
+objects carry `axiomRuntimeVerified = false`, and process-backed launch,
+attach, pause, and terminate requests fail closed.
+
+Clients can send `axiom/debugStatus` to read the
+closed `axiom.native_debug_status.v1` status envelope. It identifies the source
+generation and runtime state while keeping the binary digest and target unset
+until a real process-backed session can prove them. See
+[Native Debugging v1](native-debugging-v1.md) for the evidence contract and
+remaining dependencies.
+
 ## Native DWARF Readiness
 
 The direct-native DWARF closure check is intentionally fail-closed until the
@@ -127,5 +142,5 @@ DWARF line/info sections plus an `.ax` source path reported by either
 `llvm-dwarfdump --show-sources` or the generic `dwarfdump` fallback. Current
 generated-Rust and Cranelift spike builds are expected to fail this check
 honestly. Passing this check is not the whole debugger acceptance bar by
-itself, but it is the minimum artifact-level evidence a future #230 closure PR
+itself, but it is the minimum artifact-level evidence the #1466 implementation
 must satisfy before claiming native Axiom DWARF support.

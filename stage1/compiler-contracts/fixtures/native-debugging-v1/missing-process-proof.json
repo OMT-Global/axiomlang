@@ -1,0 +1,11 @@
+{
+  "claim": "process_backed_dap",
+  "identity": {
+    "binary_digest": "sha256:fixture-only",
+    "source_generation": "sha256:fixture-only",
+    "target": "x86_64-unknown-linux-gnu"
+  },
+  "evidence": {"process_launched": false, "native_breakpoint_confirmed": false, "runtime_state_observed": false},
+  "decision": "rejected",
+  "diagnostic": "native_debugging.process_proof_missing"
+}

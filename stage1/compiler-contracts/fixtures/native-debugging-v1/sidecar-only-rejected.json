@@ -1,0 +1,9 @@
+{
+  "claim": "native_debugging_qualified",
+  "evidence": ["debug_manifest", "debug_map", "source_spans"],
+  "native_dwarf": false,
+  "process_backed_dap": false,
+  "profile_symbolization": false,
+  "decision": "rejected",
+  "diagnostic": "native_debugging.sidecar_only"
+}

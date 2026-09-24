@@ -1,0 +1,8 @@
+{
+  "request": {"source": "src/main.ax", "line": 7},
+  "response": {
+    "verified": false,
+    "axiomSourceResolved": true,
+    "message": "Source line exists, but no process-backed native breakpoint was installed"
+  }
+}

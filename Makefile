@@ -120,6 +120,12 @@ stage1-axiom-dwarf-readiness-test:
 	python3 -m py_compile scripts/debug/check-axiom-dwarf.py scripts/debug/test-check-axiom-dwarf.py
 	python3 scripts/debug/test-check-axiom-dwarf.py
 
+stage1-native-debugging-v1:
+	python3 scripts/ci/check-native-debugging-v1.py --json
+
+stage1-native-debugging-v1-test:
+	python3 scripts/ci/test-check-native-debugging-v1.py
+
 stage1-iteration-control-v1:
 	python3 scripts/ci/check-iteration-control-v1.py --root . --json
 

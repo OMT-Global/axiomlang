@@ -132,6 +132,8 @@ bash "$script_repo_root/scripts/ci/test-check-hir-boundary.sh"
 bash "$script_repo_root/scripts/ci/test-check-mir-backend-boundary.sh"
 python3 "$script_repo_root/scripts/ci/test-check-iteration-control-v1.py" --root "$repo_root"
 python3 "$script_repo_root/scripts/ci/check-iteration-control-v1.py" --root "$repo_root" --json
+python3 "$script_repo_root/scripts/ci/test-check-native-debugging-v1.py"
+python3 "$script_repo_root/scripts/ci/check-native-debugging-v1.py" --root "$repo_root"
 python3 "$script_repo_root/scripts/ci/test-check-io-reactor-v1.py"
 python3 "$script_repo_root/scripts/ci/check-io-reactor-v1.py" --root "$repo_root"
 python3 "$script_repo_root/scripts/ci/test-check-semantic-mir-v1.py"

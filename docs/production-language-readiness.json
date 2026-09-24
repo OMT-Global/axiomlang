@@ -608,15 +608,15 @@
       "requirement": "Native AxiOM DWARF, real process-backed DAP, and profiling map runtime state to source and stable symbols.",
       "requiredForProduction": true,
       "targetTier": "production_qualified",
-      "currentTier": "syntax_only",
+      "currentTier": "static_spike",
       "status": "partial",
       "governingIssue": 1466,
       "blockerIssues": [1466],
       "dependencies": [1436, 1437, 1455, 1457],
-      "evidence": ["docs/stage1-debug-map.md", "stage1/crates/axiomc/src/dap.rs"],
-      "validatingCommand": "make stage1-axiom-dwarf-readiness-test",
+      "evidence": ["docs/native-debugging-v1.md", "docs/stage1-debug-map.md", "stage1/compiler-contracts/schemas/axiom.native_debug_status.v1.schema.json", "stage1/compiler-contracts/schemas/axiom.native_debugging.v1.schema.json", "stage1/compiler-contracts/snapshots/native-debugging-v1.json", "stage1/compiler-contracts/fixtures/native-debugging-v1", "scripts/ci/check-native-debugging-v1.py", "stage1/crates/axiomc/src/dap.rs"],
+      "validatingCommand": "make stage1-native-debugging-v1 stage1-native-debugging-v1-test stage1-axiom-dwarf-readiness-test && cargo test --manifest-path stage1/Cargo.toml -p axiomc dap --lib",
       "rustCaptureRisk": "medium",
-      "agentInspectionImpact": "Report binary digest, symbols, source generation, target, breakpoints, runtime state, and profiles."
+      "agentInspectionImpact": "Report binary digest, source generation, target, process-backed state, native breakpoint verification, native AxiOM DWARF, and profile symbolization; expose unavailable fields and blockers instead of promoting source simulation."
     },
     {
       "id": "production_workloads",

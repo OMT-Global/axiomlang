@@ -115,6 +115,8 @@ filesystem_behavior=$(grep -nF 'bash "$script_repo_root/scripts/ci/run-filesyste
 iteration_checker_count=$(grep -cF 'python3 "$script_repo_root/scripts/ci/check-iteration-control-v1.py" --root "$repo_root" --json' "$fast_checks_script" || true)
 iteration_self_test_count=$(grep -cF 'python3 "$script_repo_root/scripts/ci/test-check-iteration-control-v1.py" --root "$repo_root"' "$fast_checks_script" || true)
 iteration_head_code_reference=$(grep -nE '\$repo_root/scripts/ci/(test-)?check-iteration-control-v1\.py' "$fast_checks_script" || true)
+native_debugging_check=$(grep -nF 'python3 "$script_repo_root/scripts/ci/check-native-debugging-v1.py" --root "$repo_root"' "$fast_checks_script" || true)
+native_debugging_regression=$(grep -nF 'python3 "$script_repo_root/scripts/ci/test-check-native-debugging-v1.py"' "$fast_checks_script" || true)
 fast_checks_head_as_data=$(grep -nF 'AXIOM_CHECKOUT_PATH="$GITHUB_WORKSPACE" bash .trusted-ci/scripts/ci/run-fast-checks.sh' "$workflow" || true)
 makefile_route_count=$(grep -cF "              - 'Makefile'" "$workflow" || true)
 
@@ -329,6 +331,11 @@ fi
 if [[ -n "$iteration_head_code_reference" ]]; then
   echo "run-fast-checks must not execute iteration checker code from the PR-head checkout" >&2
   printf '%s\n' "$iteration_head_code_reference" >&2
+  exit 1
+fi
+
+if [[ -z "$native_debugging_check" || -z "$native_debugging_regression" ]]; then
+  echo "run-fast-checks must validate Native Debugging v1 evidence from explicit PR-head data and retain the trusted self-test" >&2
   exit 1
 fi
 
