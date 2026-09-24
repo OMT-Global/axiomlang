@@ -22,6 +22,7 @@ const MAX_WORKSPACE_DISCOVERY_ENTRIES: usize = 65_536;
 const MAX_WORKSPACE_DISCOVERY_MILLIS: u64 = 250;
 const MAX_LATENCY_SAMPLES: usize = 128;
 const DOCUMENT_METADATA_BYTES: usize = 256;
+const MAX_OMITTED_FILE_SAMPLES: usize = 16;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct LspResponse {
@@ -411,6 +412,19 @@ impl LspServer {
                     .entry(uri)
                     .or_default()
                     .push(truncation.clone());
+            }
+        }
+        if discovery.omitted_count > 0 {
+            let omission = workspace_files_omitted_diagnostic(
+                discovery.omitted_count,
+                &discovery.omitted_samples,
+            );
+            for root in &self.workspace_roots {
+                let uri = workspace_uri_for_path(root, &documents);
+                diagnostics
+                    .entry(uri)
+                    .or_default()
+                    .push(omission.clone());
             }
         }
         for (uri, text) in &documents {
@@ -880,6 +894,20 @@ struct WorkspaceDiscovery {
     directories_visited: usize,
     entries_visited: usize,
     bytes: usize,
+    omitted_count: usize,
+    omitted_samples: Vec<String>,
+}
+
+impl WorkspaceDiscovery {
+    /// Records a visited source file that a size budget forced discovery to
+    /// omit. Samples stay in deterministic traversal (path) order and are
+    /// capped so the omission evidence itself remains bounded (#1581).
+    fn record_omission(&mut self, uri: &str) {
+        self.omitted_count = self.omitted_count.saturating_add(1);
+        if self.omitted_samples.len() < MAX_OMITTED_FILE_SAMPLES {
+            self.omitted_samples.push(uri.to_owned());
+        }
+    }
 }
 
 fn workspace_discovery_truncation_diagnostic(budget: WorkspaceDiscoveryBudget) -> Diagnostic {
@@ -893,6 +921,17 @@ fn workspace_discovery_truncation_diagnostic(budget: WorkspaceDiscoveryBudget) -
     .with_code("workspace-discovery-truncated")
 }
 
+fn workspace_files_omitted_diagnostic(count: usize, samples: &[String]) -> Diagnostic {
+    Diagnostic::new(
+        "lsp",
+        format!(
+            "workspace discovery omitted {count} source file(s) that exceed the per-file or workspace byte budget; samples: {}",
+            samples.join(", ")
+        ),
+    )
+    .with_code("workspace-files-omitted")
+}
+
 /// Collects workspace sources from `roots` with a deterministic, path-ordered
 /// breadth-first traversal.
 ///
@@ -902,6 +941,10 @@ fn workspace_discovery_truncation_diagnostic(budget: WorkspaceDiscoveryBudget) -
 /// edge and reports the exhausted budget through
 /// [`WorkspaceDiscovery::stopped_at`] so callers can publish a stable
 /// truncation diagnostic instead of silently omitting files (#1581).
+/// Visited files that a per-file or remaining-byte size limit forces
+/// discovery to skip are counted in [`WorkspaceDiscovery::omitted_count`]
+/// with bounded path-ordered samples so callers can also publish a stable
+/// omission diagnostic for them (#1581).
 fn workspace_files(
     roots: &BTreeSet<PathBuf>,
     limits: &WorkspaceDiscoveryLimits,
@@ -995,6 +1038,7 @@ fn workspace_files(
                     .saturating_add(file_size)
                     > limits.byte_limit
             {
+                discovery.record_omission(&uri);
                 continue;
             }
             let Ok(mut file) = fs::File::open(&entry_path) else {
@@ -1005,8 +1049,11 @@ fn workspace_files(
                 .take((MAX_DOCUMENT_BYTES as u64).saturating_add(1))
                 .read_to_end(&mut source)
                 .is_err()
-                || source.len() > MAX_DOCUMENT_BYTES
             {
+                continue;
+            }
+            if source.len() > MAX_DOCUMENT_BYTES {
+                discovery.record_omission(&uri);
                 continue;
             }
             let Ok(text) = String::from_utf8(source) else {
@@ -1014,6 +1061,7 @@ fn workspace_files(
             };
             let storage_bytes = document_memory_bytes(&uri, &text);
             if discovery.bytes.saturating_add(storage_bytes) > limits.byte_limit {
+                discovery.record_omission(&uri);
                 continue;
             }
             discovery.bytes += storage_bytes;
@@ -3065,6 +3113,104 @@ mod tests {
                         }))
             }),
             "{response:?}"
+        );
+    }
+
+    #[test]
+    fn oversized_workspace_file_publishes_stable_omission_diagnostic() {
+        let directory = tempfile::tempdir().expect("workspace");
+        fs::write(
+            directory.path().join("axiom.toml"),
+            "[package]\nname = \"lsp-omission\"\nversion = \"0.1.0\"\n\n[build]\nentry = \"main.ax\"\nout_dir = \"dist\"\n",
+        )
+        .expect("manifest");
+        let main_path = directory.path().join("main.ax");
+        fs::write(&main_path, "pub fn main(): int {\nreturn 1\n}\n").expect("main");
+        let oversized_path = directory.path().join("oversized.ax");
+        let oversized = fs::File::create(&oversized_path).expect("oversized source");
+        oversized
+            .set_len((MAX_DOCUMENT_BYTES as u64) + 1)
+            .expect("set oversized source length");
+
+        let main_uri = uri_for_path(&main_path);
+        let mut server = LspServer::default();
+        server
+            .handle_message(&request(
+                1,
+                "initialize",
+                json!({ "rootUri": uri_for_path(directory.path()) }),
+            ))
+            .expect("initialize");
+        let response = server
+            .handle_message(&notification(
+                "textDocument/didOpen",
+                json!({ "textDocument": { "uri": main_uri, "languageId": "axiom", "version": 1, "text": "pub fn main(): int {\nreturn 1\n}\n" } }),
+            ))
+            .expect("open");
+        assert!(
+            response.messages.iter().any(|message| {
+                message["method"] == json!("textDocument/publishDiagnostics")
+                    && message["params"]["diagnostics"]
+                        .as_array()
+                        .is_some_and(|items| items.iter().any(|item| {
+                            item["code"] == json!("workspace-files-omitted")
+                                && item["message"].as_str().is_some_and(|text| text
+                                    .contains("omitted 1 source file(s)")
+                                    && text.contains(&uri_for_path(&oversized_path)))
+                        }))
+            }),
+            "{response:?}"
+        );
+    }
+
+    #[test]
+    fn workspace_files_records_size_limit_omissions_in_path_order() {
+        let directory = tempfile::tempdir().expect("workspace");
+        let oversized = directory.path().join("a-oversized.ax");
+        let file = fs::File::create(&oversized).expect("oversized source");
+        file.set_len((MAX_DOCUMENT_BYTES as u64) + 1)
+            .expect("set oversized source length");
+        let small = directory.path().join("small.ax");
+        fs::write(&small, "pub fn small(): int {\nreturn 1\n}\n").expect("small source");
+
+        let roots = BTreeSet::from([directory.path().to_path_buf()]);
+        let discovery = workspace_files(
+            &roots,
+            &default_workspace_discovery_limits(MAX_WORKSPACE_BYTES, 8),
+        );
+        assert_eq!(discovery.omitted_count, 1);
+        assert_eq!(discovery.omitted_samples, vec![uri_for_path(&oversized)]);
+        assert_eq!(discovery.stopped_at, None);
+        assert!(discovery.documents.contains_key(&uri_for_path(&small)));
+    }
+
+    #[test]
+    fn workspace_files_records_byte_budget_omissions_with_bounded_samples() {
+        let directory = tempfile::tempdir().expect("workspace");
+        let total = MAX_OMITTED_FILE_SAMPLES + 4;
+        for index in 0..total {
+            fs::write(
+                directory.path().join(format!("module-{index:03}.ax")),
+                "x".repeat(64 * 1024),
+            )
+            .expect("source");
+        }
+        let roots = BTreeSet::from([directory.path().to_path_buf()]);
+        let limits = default_workspace_discovery_limits(160 * 1024, MAX_WORKSPACE_DOCUMENTS);
+        let discovery = workspace_files(&roots, &limits);
+        assert_eq!(discovery.stopped_at, None);
+        assert_eq!(
+            discovery.omitted_count + discovery.documents.len(),
+            total,
+            "every visited source is either indexed or explicitly omitted"
+        );
+        assert!(discovery.omitted_count > MAX_OMITTED_FILE_SAMPLES);
+        assert_eq!(discovery.omitted_samples.len(), MAX_OMITTED_FILE_SAMPLES);
+        let mut sorted = discovery.omitted_samples.clone();
+        sorted.sort();
+        assert_eq!(
+            discovery.omitted_samples, sorted,
+            "omission samples keep deterministic path order"
         );
     }
 }
