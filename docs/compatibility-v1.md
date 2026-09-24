@@ -84,13 +84,13 @@ historical main commit `b3149c5e9bf10a4a244b0d89c6e6cd804b47ae3f`, blob
 `e5ad22e48e4504d62de8ea343e58fd4c1e262cb4`. Its metadata freezes the SHA-256,
 `0.4.0` version, and 68-surface count; it is not release history.
 
-The current source contract is version `0.20.0` with 85 surfaces. Its changes
+The current source contract is version `0.20.0` with 86 surfaces. Its changes
 from the byte-frozen 52-surface `0.1.0` accepted baseline include the five
 Package Trust v1 schemas, eighteen additive base-contract schemas (Runtime Observability Evidence v1, HTTP Server v1, Compiler Scale Proof v1, Dynamic Aggregate ABI v1, Compiler Native Backend Runtime v1, Compiler Syntax Migration v1, Iteration Control v1, Filesystem v1, SQLite v1,
 Native Debug Status v1, Native Debugging v1, Provider ABI, Structured Concurrency v1, I/O Reactor v1, runtime crypto provider policy, HTTP
 client, runtime observability, Semantic MIR, runtime lifecycle, target support,
 and persistent LSP), two quality
-schemas (quality policy and quality report), and three package-resolver schemas.
+schemas (quality policy and quality report), one self-host snapshot bootstrap schema (Snapshot Provenance v0), and three package-resolver schemas.
 The existing CLI, manifest, lockfile, `axiom.toml` schema, and stage1
 JSON-envelope schema surfaces also carry their governed package-resolver
 changes. Per-surface versions remain `0.1.0` for unchanged surfaces and are
@@ -101,6 +101,10 @@ The runtime crypto provider policy schema is additive, while the direct-native
 ABI surface is version `0.2.0`: Ed25519 signing accepts exactly the canonical
 32-byte private seed and rejects the former 64-byte seed-plus-public-key input.
 Existing callers must retain or recover the 32-byte seed before upgrading.
+The self-host snapshot manifest schema surface is version `0.2.0`: manifest
+entries must carry chain identity and offline provenance evidence, while the
+frozen trusted-CI readiness harness still accepts legacy pre-hardening
+manifests at schema level.
 
 `before-iteration-v1/contract.json` freezes the 73-surface `0.9.0` source
 contract from main commit `351493a02a59cd8f9f970ff6513fdfc18be5032b`. The
