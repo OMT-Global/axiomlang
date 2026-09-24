@@ -41,7 +41,8 @@ Therefore:
 
 - `generated_rust: null` proves only that generated Rust was bypassed;
 - a green static or known-input spike does not prove runtime execution;
-- #1434 is the first product and self-hosting blocker;
+- #1434's effect-purity correction shipped in #1485; runtime completeness now
+  routes through the open executable-MIR and lifecycle leaves;
 - #1427 cannot certify a compiler-scale workload until one built binary
   processes different runtime source inputs without rebuilding.
 
@@ -68,12 +69,18 @@ make production-language-readiness
 ```
 
 The command is expected to report `ready: false` until the required rows have
-real evidence. Release or final-gate work may additionally require live issue
+real evidence. Release or final-gate work may additionally validate live issue
 state:
 
 ```bash
 make production-language-readiness-github
 ```
+
+The live mode requires every referenced issue state to be available. It treats
+`blockerIssues` as active execution contracts that must remain `OPEN`; closed
+governing or historical dependency references are allowed. A structurally
+valid but not-ready ledger remains a report, not a live-state validation
+failure.
 
 ## Current Baseline
 
@@ -120,21 +127,21 @@ make production-language-readiness-github
 | Issue | Outcome | Dispatch rule |
 | --- | --- | --- |
 | #1433 | Checked roadmap, manifest, schema, and validator | This roadmap PR. |
-| #1434 | Builds are effect-pure; unsupported runtime lowering fails closed | First implementation task; blocks all higher runtime claims. |
-| #1435 | Generated capability ledger and documentation drift gate | May proceed in parallel with #1434. |
-| #1437 | Axiom-neutral executable MIR v1 contract | Human design approval before implementation. |
-| #1436 | First HIR → MIR → native runtime-complete vertical slice | After #1437 and #1434. |
+| #1434 | Builds are effect-pure; unsupported runtime lowering fails closed | Completed by #1485; retain as historical proof, not an active dispatch target. |
+| #1435 | Generated capability ledger and documentation drift gate | Completed; the generated ledger and drift gate shipped. Contract reconciliation executes through #1568, not as a closed-issue dispatch. |
+| #1437 | Axiom-neutral executable MIR v1 contract | Completed; its contract is the design input for #1436 and #1438-#1440. |
+| #1436 | First HIR → MIR → native runtime-complete vertical slice | Open implementation path after the #1437 contract and #1485 purity guard. |
 
 ### Wave 1 — native value and ownership foundation
 
 | Issue | Outcome | Dependencies |
 | --- | --- | --- |
 | #1438 | Allocation, ownership, drop, and resource lifecycle ABI | MIR design; human approval. |
-| #1425 | Runtime-sized sequence/vector allocation and growth | #1434, #1437, #1438. |
-| #1426 | Runtime string and slice calls, returns, aliases, and cleanup | #1434, #1437, #1438, coordinated with #1425. |
+| #1425 | Runtime-sized sequence/vector allocation and growth | #1436, #1438. |
+| #1426 | Runtime string and slice calls, returns, aliases, and cleanup | #1436, #1438, coordinated with #1425. |
 | #1439 | Dynamic non-Copy aggregates across calls, returns, and storage | #1438, #1425, #1426, #1436. |
-| #1440 | Dedicated MIR move, borrow, drop, and resource analysis | #1437-#1439. |
-| #1476 | Runtime maps/sets, equality/hashing, deterministic iteration, and collision bounds | Lifecycle, sequences, and ownership; human collection-contract approval. |
+| #1440 | Dedicated MIR move, borrow, drop, and resource analysis | #1436, #1438, #1439. |
+| #1476 | Runtime maps/sets, equality/hashing, deterministic iteration, and collision bounds | #1438, #1425, #1440; human collection-contract approval. |
 
 ### Wave 2 — serious CLI and worker runtime
 
@@ -143,7 +150,7 @@ make production-language-readiness-github
 | #1441 | UTF-8 text, slicing, split, lines, scalar iteration, conversion | Runtime strings and collections. |
 | #1442 | Iteration protocol, `for`, `break`, and `continue` | Collections, MIR, ownership. |
 | #1477 | Running-program argv/env/stdin/stdout/stderr/cwd/exit ABI | Build purity and runtime value/lifecycle ABIs. |
-| #1443 | Paths, metadata, traversal, binary I/O, atomic and temporary resources | Build purity and lifecycle/value ABIs. |
+| #1443 | Paths, metadata, traversal, binary I/O, atomic and temporary resources | Landed; remaining runtime-complete promotion depends on #1438, #1425, and #1426. |
 | #1444 | Argv-safe child processes, pipes, signals, terminal, and cancellation | Program host ABI, values, structured concurrency. |
 | #1445 | Real scheduler, cancellation, channels, backpressure, and synchronization | Lifecycle/value/MIR foundation; human concurrency design. |
 
@@ -164,16 +171,16 @@ make production-language-readiness-github
 
 | Issue | Outcome | Dependencies |
 | --- | --- | --- |
-| #1454 | Real extended/product qualification CI | #1430 and capability truth. |
+| #1454 | Real extended/product qualification CI | Landed; blocking product evidence depends on #1463 and #1464. |
 | #1455 | Supported Linux x86-64 and macOS arm64 native target matrix | CI and runtime foundations. |
 | #1481 | Runtime-origin hash/MAC/entropy/AEAD/signatures over vetted providers | Values, provider ABI, supported targets; human security policy. |
-| #1457 | Editions, SemVer, public API/ABI, package, CLI, and schema compatibility | Intent IR and roadmap policy; human approval. |
+| #1457 | Editions, SemVer, public API/ABI, package, CLI, and schema compatibility | Landed; dual-compiler qualification depends on released artifacts (#1456). |
 | #1456 | Reproducible signed compiler releases and no-Cargo install | CI, targets, compatibility; human publication. |
-| #1458 | Asymmetric publisher signatures, trust roots, rotation, and revocation | Compatibility policy. |
+| #1458 | Asymmetric publisher signatures, trust roots, rotation, and revocation | Landed; the package trust v1 ledger row is implemented. |
 | #1459 | Registry resolver, content-addressed cache, lockfile v2, and vendoring | Package trust and compatibility. |
-| #1460 | Syntax-aware idempotent formatter | Current syntax contract. |
-| #1461 | Persistent package-aware LSP navigation and completion | Intent IR and CI qualification. |
-| #1462 | Typed public API docs, search, links, and doctests | Intent IR and formatter. |
+| #1460 | Syntax-aware idempotent formatter | Landed; production qualification depends on #1463. |
+| #1461 | Persistent package-aware LSP navigation and completion | Landed; production qualification depends on #1463. |
+| #1462 | Typed public API docs, search, links, and doctests | Landed; production qualification depends on #1463. |
 | #1463 | Fuzzing, coverage, mutation, and complexity ratchets | CI qualification. |
 | #1464 | Real property cases, shrinking, and benchmark entrypoint execution | Runtime values and build purity. |
 | #1465 | Build profiles, optimization, module cache, and safe parallelism | Executable MIR, targets, compatibility. |
@@ -202,13 +209,14 @@ make production-language-readiness-github
 
 The safe first queue is:
 
-1. #1434 — effect-pure builds and fail-closed runtime lowering;
-2. #1435 — canonical capability truth and documentation reconciliation;
-3. #1437 — Pheidon-led MIR v1 design;
-4. #1438 — Pheidon-led lifecycle ABI design;
-5. #1454 — extended validation design after #1430;
-6. #1460 and #1463 — bounded tooling/quality work that does not claim runtime
-   readiness.
+1. #1436 — first executable-MIR to native runtime-complete vertical slice;
+2. #1438 — lifecycle ABI implementation after the completed #1437 contract;
+3. #1425 and #1426 — runtime collections and string/slice ABI;
+4. #1439 and #1440 — dynamic aggregates and ownership analysis;
+5. #1463 — blocking quality and fuzz evidence after the landed #1454
+   qualification receipts;
+6. #1464 — real property cases and benchmark execution that does not claim
+   runtime readiness.
 
 Do not dispatch #1427, #1468 children, snapshot, release publication, external
 network authority, provider ABI, structured-concurrency policy, or final

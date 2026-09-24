@@ -255,6 +255,37 @@ fi
 grep -Fq 'dependencies must be an array' "$tmpdir/null-dependencies.json"
 
 write_blocked_manifest
+python3 "$checker" --json --validate-live-issue-states --manifest "$manifest" --doc "$doc" \
+  --schema-file "$schema" --issue-state-file "$issues_open" > "$tmpdir/live-blocked.json"
+python3 - "$tmpdir/live-blocked.json" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    payload = json.load(handle)
+
+assert payload["valid"] is True
+assert payload["ready"] is False
+statuses = {item["name"]: item["status"] for item in payload["checks"]}
+assert statuses["production_readiness_issue_1434_closed"] == "pass"
+assert statuses["production_readiness_required_rows"] == "fail"
+PY
+
+if python3 "$checker" --json --validate-live-issue-states --manifest "$manifest" --doc "$doc" \
+  --schema-file "$schema" --issue-state-file "$issues_closed" > "$tmpdir/live-closed-blocker.json"; then
+  echo "expected live validation to reject a closed active blocker" >&2
+  exit 1
+fi
+grep -Fq 'active blocker' "$tmpdir/live-closed-blocker.json"
+
+if python3 "$checker" --json --validate-live-issue-states --manifest "$manifest" --doc "$doc" \
+  --schema-file "$schema" --issue-state-file "$tmpdir/missing-live.txt" > "$tmpdir/live-missing-issue.json"; then
+  echo "expected live validation to reject unavailable issue state" >&2
+  exit 1
+fi
+grep -Fq 'state is unavailable' "$tmpdir/live-missing-issue.json"
+
+write_blocked_manifest
 python3 - "$manifest" <<'PY'
 import json
 import sys
@@ -382,7 +413,7 @@ resolver = next(row for row in payload["rows"] if row["id"] == "package_resolver
 assert resolver["status"] == "partial"
 assert resolver["targetTier"] == "production_qualified"
 assert resolver["currentTier"] == "static_spike"
-assert resolver["blockerIssues"] == [1457, 1459]
+assert resolver["blockerIssues"] == [1459]
 assert resolver["governingIssue"] == 1459
 assert resolver["validatingCommand"] == (
     "make stage1-package-resolver && make stage1-package-graph-boundary "

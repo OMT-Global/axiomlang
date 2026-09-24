@@ -43,14 +43,15 @@ implementation surfaces; see
   repair plans, provenance, semantic diff, decision records, target contracts,
   and OpenAPI/policy/SQL/OpenTofu/runbook generators.
 - Direct-native object emission and Rust-exit command-surface structure for
-  user programs; generated Rust is no longer a supported CLI backend. Runtime
-  truth beyond the supported native lowering subset remains gated by #1434.
+  user programs; generated Rust is no longer a supported CLI backend. The
+  #1434 effect-purity correction shipped in #1485; runtime truth beyond the
+  supported native lowering subset remains gated by #1436 and #1438-#1440.
 
 ## Current Focus
 
-- Restore runtime truth first: prohibit effectful compile-time replay and fail
-  closed on unsupported native lowering (#1434), define executable MIR (#1437),
-  and establish the runtime lifecycle ABI (#1438).
+- Restore runtime truth first: implement the executable-MIR vertical slice
+  (#1436), then establish lifecycle, value, aggregate, and ownership semantics
+  (#1438-#1440) on the completed #1437 contract and #1485 purity guard.
 - Execute the [Production Language Roadmap](production-language-roadmap.md)
   (#1432) in dependency waves from runtime values and ownership through serious
   CLI/worker/service capabilities, productized tooling, and final workloads.
