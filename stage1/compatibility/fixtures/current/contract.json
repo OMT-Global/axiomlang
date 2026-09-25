@@ -191,7 +191,7 @@
           "path": "stage1/runtime-abi/direct-native-v0.json",
           "role": "runtime_abi_readiness_parity",
           "selector": "value_features[*].id,capability_shims[*].(id,capability)",
-          "sha256": "8a03f82820516beb78911e8cfc6c72f800583579cc76abfb6d1670f1bca67ed8"
+          "sha256": "d6e46abc3396a2457dfcee7e6ae74cfb282c9e9adda6be69b3390e8cd8611e8c"
         }
       ],
       "stability": "experimental",

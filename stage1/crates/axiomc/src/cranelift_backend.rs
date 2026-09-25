@@ -42,7 +42,12 @@ mod host_cli;
 mod cranelift_unicode_scalars;
 use host_cli::lower_i64_top_level_runtime_stmts;
 mod compilation_mode;
+mod owned_projections;
 mod static_output_purity;
+use owned_projections::{
+    lower_i64_runtime_fixed_array_projection_move_stmts,
+    lower_i64_runtime_struct_projection_let_stmts,
+};
 pub use compilation_mode::CraneliftCompilationMode;
 use compilation_mode::{direct_native_mode, known_value_fold_call, runtime_lowering_required};
 use static_output_purity::allows_static_output_evaluation;
@@ -5130,6 +5135,11 @@ fn lower_i64_runtime_let_stmts(
         helper_signatures,
         static_bindings,
     ) {
+        return Some(assigns);
+    }
+    if let Some(assigns) =
+        lower_i64_runtime_fixed_array_projection_move_stmts(stmt, local_indexes, local_conditions)
+    {
         return Some(assigns);
     }
     if let Stmt::Let {
@@ -14633,30 +14643,6 @@ fn lower_i64_runtime_indexed_projection_let_stmts(
         stmts.push(lower_i64_runtime_projection_assign(
             key_for_index(name, index),
             element,
-            locals,
-            local_indexes,
-            local_conditions,
-            helper_signatures,
-            static_bindings,
-        )?);
-    }
-    Some(stmts)
-}
-
-fn lower_i64_runtime_struct_projection_let_stmts(
-    name: &str,
-    fields: &[crate::mir::StructFieldValue],
-    locals: &mut Vec<CraneliftI64Expr>,
-    local_indexes: &mut HashMap<String, usize>,
-    local_conditions: &mut HashMap<String, CraneliftI64Condition>,
-    helper_signatures: &HashMap<&str, I64HelperSignature>,
-    static_bindings: &I64StaticBindings,
-) -> Option<Vec<CraneliftI64Stmt>> {
-    let mut stmts = Vec::new();
-    for field in fields {
-        stmts.push(lower_i64_runtime_projection_assign(
-            i64_struct_projection_key(name, &field.name),
-            &field.expr,
             locals,
             local_indexes,
             local_conditions,

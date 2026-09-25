@@ -40,6 +40,7 @@ assert report["incomplete_rows"] == [
     "network.udp",
     "owned.move_state",
 ]
+# Issue 1438 remains while the crypto.aead and crypto.signature rows are partial.
 assert report["blocker_issues"] == [1438, 1445, 1447, 1448, 1449]
 assert report["errors"] == []
 PY
@@ -146,7 +147,9 @@ assert fs_read["coverage"]["backend_artifact_evidence"]["focused_tests"]
 assert fs_read["coverage"]["backend_artifact_evidence"]["artifact_assertion_tests"]
 owned = rows[("value_features", "owned.move_state")]
 assert owned["status"] == "partial"
-assert owned["coverage"]["positive_runtime_evidence"] == []
+assert owned["coverage"]["positive_runtime_evidence"]
+assert owned["coverage"]["backend_artifact_evidence"]["generated_rust_absent"] is True
+assert owned["coverage"]["backend_artifact_evidence"]["artifact_assertion_tests"]
 assert owned["blockers"] == [1438]
 PY
 
