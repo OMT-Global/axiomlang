@@ -1,0 +1,1 @@
+{"direction":"dns","host":"api.service.internal","first_ip":"10.2.3.4","second_ip":"203.0.113.7","rebinding":"allow_without_revalidation","expected":"deny"}

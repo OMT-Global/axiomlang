@@ -10,7 +10,7 @@
       "sha256": "273ee68db93ee7659512994a8078c2034cc17e0f7bf28a045ab93be155f75f2a"
     }
   },
-  "contract_version": "0.20.0",
+  "contract_version": "0.21.0",
   "edition": {
     "id": "2026",
     "source": {
@@ -95,7 +95,7 @@
           "path": "stage1/compiler-contracts/snapshots/capability-ledger.json",
           "role": "cli_top_level_parity",
           "selector": "commands[*].name",
-          "sha256": "d6734ca29095a7b9c922c61b8ef82f8986bfca8e11fae0c80687974f31fc8842"
+          "sha256": "00a5dc9680d0bc4b0275a8bebba005a6c29f07ea2758d4756406c51ab8c77825"
         },
         {
           "path": "stage1/crates/axiomc/src/main.rs",
@@ -1269,6 +1269,21 @@
           "role": "published_schema",
           "selector": "$id,properties.schema_version.const",
           "sha256": "4c0a9942c4d636ec842fa1753c2d604c72b9f8f8fa0a01b7ce9dd6be9f3d258d"
+        }
+      ],
+      "stability": "experimental",
+      "version": "0.1.0"
+    },
+    {
+      "id": "axiom://schema/axiom.runtime_network_authority.v2",
+      "kind": "schema",
+      "signature": "published schema id=https://omt-global.github.io/axiom/schemas/axiom.runtime_network_authority.v2.schema.json; semantic_digest=3fe4a6f261c4a893ed3b6e076a653902aebb0b82a22d750eda95857a98e9d0b2; envelope=axiom.runtime_network_authority.v2",
+      "sources": [
+        {
+          "path": "stage1/compiler-contracts/schemas/axiom.runtime_network_authority.v2.schema.json",
+          "role": "published_schema",
+          "selector": "$id,properties.schema_version.const",
+          "sha256": "94161ee9889a4dea3d9a78e8fcc7fd9e774fa2dc27256882d568c07dbf3a6d63"
         }
       ],
       "stability": "experimental",

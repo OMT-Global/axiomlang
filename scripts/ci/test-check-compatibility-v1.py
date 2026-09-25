@@ -252,6 +252,7 @@ def main() -> int:
         "axiom://schema/axiom.runtime_observability.v1",
         "axiom://schema/axiom.runtime_http_client.v1",
         "axiom://schema/axiom.runtime_lifecycle.v1",
+        "axiom://schema/axiom.runtime_network_authority.v2",
         "axiom://schema/axiom.semantic_mir.v1",
         "axiom://schema/axiom.sqlite-v1",
     }
@@ -299,10 +300,10 @@ def main() -> int:
         "axiom://schema/axiom.stage1.v1",
     }
     assert len(baseline_ids) == 52, "accepted baseline must remain the frozen 52-surface ratchet"
-    assert len(current_ids) == 86, "current contract must include Self-Host Snapshot Provenance v0, Native Debugging v1, I/O Reactor v1, Runtime Process v1 and all current-main package trust, quality, parser fuzz, compiler, runtime, target support, persistent LSP, and package resolver schemas"
+    assert len(current_ids) == 87, "current contract must include Network Authority v2, Self-Host Snapshot Provenance v0, Native Debugging v1, I/O Reactor v1, Runtime Process v1 and all current-main package trust, quality, parser fuzz, compiler, runtime, target support, persistent LSP, and package resolver schemas"
     assert set(baseline_ids) < set(current_ids)
     assert set(current_ids) - set(baseline_ids) == new_public_schema_ids | new_package_resolver_ids | runtime_process_schema_ids
-    assert current_payload["contract_version"] == "0.20.0"
+    assert current_payload["contract_version"] == "0.21.0"
     assert surface(current_payload, "axiom://schema/axiom-quality-report-v1")["version"] == "0.2.0"
     assert surface(current_payload, "axiom://stdlib/catalog")["version"] == "2.0.0"
     assert surface(current_payload, "axiom://schema/axiom.compiler.stdlib_catalog.v1")["version"] == "0.4.0"
@@ -457,8 +458,8 @@ def main() -> int:
     obs_ratchet = run(BEFORE_OBSERVABILITY, CURRENT, policy=CURRENT_POLICY)
     assert obs_ratchet.returncode == 0, obs_ratchet.stdout + obs_ratchet.stderr
     obs_report = json.loads(obs_ratchet.stdout)
-    assert obs_report["contracts"] == {"old": "0.16.0", "new": "0.20.0"}
-    assert obs_report["summary"] == {"additive": 7, "breaking": 3, "compatible": 0, "deprecated": 0}
+    assert obs_report["contracts"] == {"old": "0.16.0", "new": "0.21.0"}
+    assert obs_report["summary"] == {"additive": 8, "breaking": 3, "compatible": 0, "deprecated": 0}
     assert [(i["surface_id"], i["change"], i["severity"]) for i in obs_report["changes"]] == [
         ("axiom://cli/axiomc", "modified", "breaking"),
         ("axiom://schema/axiom-selfhost-snapshot-manifest-v0", "modified", "breaking"),
@@ -467,6 +468,7 @@ def main() -> int:
         ("axiom://schema/axiom.io_reactor.v1", "added", "additive"),
         ("axiom://schema/axiom.native_debug_status.v1", "added", "additive"),
         ("axiom://schema/axiom.native_debugging.v1", "added", "additive"),
+        ("axiom://schema/axiom.runtime_network_authority.v2", "added", "additive"),
         ("axiom://schema/axiom.runtime_observability_evidence.v1", "added", "additive"),
         ("axiom://schema/axiom.runtime_process.v1", "added", "additive"),
         ("axiom://schema/axiom.sqlite-v1", "added", "additive"),
@@ -486,7 +488,7 @@ def main() -> int:
     assert canonical.returncode == 0, canonical.stdout + canonical.stderr
     canonical_report = json.loads(canonical.stdout)
     assert canonical_report["summary"] == {
-        "additive": 34,
+        "additive": 35,
         "breaking": 11,
         "compatible": 0,
         "deprecated": 0,

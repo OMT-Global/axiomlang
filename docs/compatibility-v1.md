@@ -84,7 +84,7 @@ historical main commit `b3149c5e9bf10a4a244b0d89c6e6cd804b47ae3f`, blob
 `e5ad22e48e4504d62de8ea343e58fd4c1e262cb4`. Its metadata freezes the SHA-256,
 `0.4.0` version, and 68-surface count; it is not release history.
 
-The current source contract is version `0.20.0` with 86 surfaces. Its changes
+The current source contract is version `0.21.0` with 87 surfaces. Its changes
 from the byte-frozen 52-surface `0.1.0` accepted baseline include the five
 Package Trust v1 schemas, eighteen additive base-contract schemas (Runtime Observability Evidence v1, HTTP Server v1, Compiler Scale Proof v1, Dynamic Aggregate ABI v1, Compiler Native Backend Runtime v1, Compiler Syntax Migration v1, Iteration Control v1, Filesystem v1, SQLite v1,
 Native Debug Status v1, Native Debugging v1, Provider ABI, Structured Concurrency v1, I/O Reactor v1, runtime crypto provider policy, HTTP
@@ -97,6 +97,9 @@ changes. Per-surface versions remain `0.1.0` for unchanged surfaces and are
 `0.2.0` for the schema additions and the CLI surface, so a contract-level
 version bump does not fabricate semantic drift across the existing inventory.
 The CLI surface is version `0.4.0`.
+Network Authority v2 adds one contract-only public schema in contract `0.21.0`;
+its surface starts at `0.1.0`. The cache CLI and command-schema surface versions
+from the landed compatibility repair remain unchanged.
 The runtime crypto provider policy schema is additive, while the direct-native
 ABI surface is version `0.2.0`: Ed25519 signing accepts exactly the canonical
 32-byte private seed and rejects the former 64-byte seed-plus-public-key input.

@@ -1,0 +1,1 @@
+{"direction":"outbound_connect","host":"runtime.example","resolved_ip":"198.51.100.8","port":443,"dynamic_endpoint":true,"decision":"allow_without_rule","expected":"deny"}

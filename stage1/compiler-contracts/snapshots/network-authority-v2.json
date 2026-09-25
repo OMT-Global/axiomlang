@@ -1,0 +1,30 @@
+{
+  "schema_version": "axiom.runtime_network_authority.v2",
+  "contract": "runtime.network_authority",
+  "issue": 1447,
+  "directions": ["accepted_peer", "dns", "inbound_listen", "outbound_connect"],
+  "rules": {
+    "dns": {
+      "decision": "allow", "host_patterns": ["*.service.internal"], "ip_cidrs": ["10.0.0.0/8"], "ports": ["53"], "interfaces": [], "unix_sockets": [], "dynamic_endpoints": "validate_each_resolution", "rebinding": "revalidate_before_use"
+    },
+    "outbound_connect": {
+      "decision": "deny", "host_patterns": [], "ip_cidrs": ["127.0.0.0/8", "::1/128"], "ports": ["80-443"], "interfaces": [], "unix_sockets": [], "dynamic_endpoints": "validate_each_resolution", "rebinding": "revalidate_before_use"
+    },
+    "inbound_listen": {
+      "decision": "deny", "host_patterns": [], "ip_cidrs": ["127.0.0.0/8", "::1/128"], "ports": ["1-65535"], "interfaces": ["loopback"], "unix_sockets": ["/tmp/axiom.sock"], "dynamic_endpoints": "deny", "rebinding": "deny"
+    },
+    "accepted_peer": {
+      "decision": "deny", "host_patterns": [], "ip_cidrs": ["127.0.0.0/8", "::1/128"], "ports": ["1-65535"], "interfaces": ["loopback"], "unix_sockets": [], "dynamic_endpoints": "deny", "rebinding": "deny"
+    }
+  },
+  "audit": {
+    "fields": ["requested_endpoint", "resolved_endpoint", "direction", "rule", "decision"],
+    "redaction": ["credentials", "query_values", "authorization_headers"]
+  },
+  "fixtures": [
+    {"id": "network-authority-v2/allow-rules", "kind": "positive", "path": "allow-rules.json", "asserts": ["DNS and explicitly scoped service endpoints can be allowed"]},
+    {"id": "network-authority-v2/deny-direction", "kind": "negative", "path": "deny-direction.json", "asserts": ["inbound authority is denied by default"]},
+    {"id": "network-authority-v2/dns-rebinding", "kind": "negative", "path": "dns-rebinding.json", "asserts": ["rebinding is revalidated before use"]},
+    {"id": "network-authority-v2/runtime-endpoint", "kind": "negative", "path": "runtime-endpoint.json", "asserts": ["dynamic endpoints cannot bypass authority"]}
+  ]
+}
