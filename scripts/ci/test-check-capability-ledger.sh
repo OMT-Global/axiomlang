@@ -129,4 +129,72 @@ for text, valid in [
         assert any("prose count" in error for error in errors), errors
 PY
 
+# Exercise the trusted checker with both pre- and post-cache Command enums.
+# These fixtures remain valid after cache itself lands; no PR checker is loaded.
+python3 - "$checker" "$tmpdir" <<'PY'
+import importlib.util
+import json
+import subprocess
+import sys
+from pathlib import Path
+
+checker = Path(sys.argv[1]).resolve()
+tmp = Path(sys.argv[2])
+spec = importlib.util.spec_from_file_location("trusted_capability_ledger", checker)
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+source = Path("stage1/crates/axiomc/src/main.rs").read_text(encoding="utf-8")
+variants = set(module.enum_variants(source, "Command")) - {"Cache"}
+assert "Build" in variants
+
+def fixture(name, commands):
+    path = tmp / f"{name}.rs"
+    path.write_text("enum Command {\n" + "".join(
+        f"    {item},\n" for item in sorted(commands)
+    ) + "}\n", encoding="utf-8")
+    return path
+
+def run(main, *args):
+    result = subprocess.run(
+        [sys.executable, str(checker), "--main-source", str(main), *args],
+        capture_output=True, text=True, check=False,
+    )
+    return result.returncode, json.loads(result.stdout)
+
+absent = fixture("without-cache", variants)
+present = fixture("with-cache", variants | {"Cache"})
+code, before = run(absent, "--render")
+assert code == 0, before
+assert all(row["name"] != "cache" for row in before["commands"])
+code, after = run(present, "--render")
+assert code == 0, after
+cache_rows = [row for row in after["commands"] if row["name"] == "cache"]
+assert len(cache_rows) == 1, cache_rows
+assert cache_rows[0]["evidenceTier"] == "static_spike", cache_rows
+assert [row for row in after["commands"] if row["name"] != "cache"] == before["commands"]
+
+snapshot = tmp / "cache-ledger.json"
+snapshot.write_text(json.dumps(after), encoding="utf-8")
+code, report = run(present, "--snapshot", str(snapshot), "--json")
+assert code == 0 and report["ok"], report
+
+for label, commands, diagnostic in (
+    ("unknown", variants | {"FutureProbe"}, "unclassified=['future-probe']"),
+    ("cache-and-unknown", variants | {"Cache", "FutureProbe"}, "unclassified=['future-probe']"),
+    ("missing-required", variants - {"Build"}, "stale=['build']"),
+    ("cache-missing-required", (variants | {"Cache"}) - {"Build"}, "stale=['build']"),
+):
+    code, report = run(fixture(label, commands), "--render", "--json")
+    assert code != 0 and any(diagnostic in error for error in report["errors"]), report
+
+# Exact snapshot comparison must reject phantom rows and promoted evidence.
+code, report = run(absent, "--snapshot", str(snapshot), "--json")
+assert code != 0 and any("checked capability ledger is stale" in error for error in report["errors"]), report
+cache_rows[0]["evidenceTier"] = "direct_runtime"
+snapshot.write_text(json.dumps(after), encoding="utf-8")
+code, report = run(present, "--snapshot", str(snapshot), "--json")
+assert code != 0 and any("checked capability ledger is stale" in error for error in report["errors"]), report
+print("trusted cache admission: absent/present pass; unknown/missing/phantom/promotion fail closed")
+PY
+
 echo "capability ledger regression cases passed"
