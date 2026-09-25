@@ -1,0 +1,52 @@
+AXIOM_PACKAGE_ARCHIVE_V1
+--- file axiom.lock 81 ---
+version = 1
+
+[[package]]
+name = "hello-stage1"
+version = "0.1.0"
+source = "path"
+--- file axiom.toml 194 ---
+[package]
+name = "hello-stage1"
+version = "0.1.0"
+
+[build]
+entry = "src/main.ax"
+out_dir = "dist"
+
+[capabilities]
+fs = false
+net = false
+process = false
+env = false
+clock = false
+crypto = false
+--- file src/main.ax 377 ---
+fn banner(name: string): string {
+    return "hello " + name
+}
+
+fn lucky(base: int): int {
+    return base + 2
+}
+
+fn is_ready(value: int): bool {
+    return value == 42
+}
+
+let answer: int = lucky(40)
+let ready: bool = is_ready(answer)
+
+while false {
+    print "never"
+}
+
+if ready {
+    print banner("from stage1")
+} else {
+    print "stage1 failed"
+}
+
+print answer
+print ready

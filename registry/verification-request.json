@@ -1,0 +1,205 @@
+{
+  "contract": "package.verification_expectation",
+  "contract_status": "implemented",
+  "expected": {
+    "decision": "trusted",
+    "primary_reason_code": "OK",
+    "reason_codes": [
+      "OK"
+    ]
+  },
+  "offline_lock": {
+    "index_generation": 1,
+    "index_sequence": 1,
+    "index_transcript_sha256": "d0319e7a8fa00367ee1ada89890ec48ecf4df4cefa9e4a8dfc0eb7b539a4b152",
+    "mode": "offline_locked",
+    "network_fallback": false,
+    "release": {
+      "archive": {
+        "digest": {
+          "algorithm": "sha-256",
+          "value": "7ed1418006b3ccafe692f9d9bc5bc5192708fe10ae740293eb5b5f0b6d1f37a2"
+        },
+        "length": 761
+      },
+      "manifest": {
+        "algorithm": "sha-256",
+        "value": "c0a48c860a57a17a255109193e35fc1fb88017d2cd59e3375976bd05d3c7e887"
+      },
+      "name": "hello-stage1",
+      "namespace": "axiom",
+      "package_signature_sha256": "a4ea10caa54cfdd3771baeea81b63e78f0cd4a89707f060d9f798a05c5964434",
+      "provenance_predicate_type": "https://slsa.dev/provenance/v1",
+      "provenance_statement_sha256": "19d9fa5da0ea3277e0aeae5f7caa28a10e2128f9eebf010825a5d31d82acfc42",
+      "provenance_subject": {
+        "digest": {
+          "sha256": "7ed1418006b3ccafe692f9d9bc5bc5192708fe10ae740293eb5b5f0b6d1f37a2"
+        },
+        "name": "axiom/hello-stage1/0.1.0/package.axp"
+      },
+      "publisher_identity": "https://publishers.example/foundation",
+      "registry_identity": "axiom-registry-production",
+      "source_identity": "registry:axiom-production",
+      "target_path": "axiom/hello-stage1/0.1.0/package.axp",
+      "version": "0.1.0"
+    },
+    "root_sequence": 2,
+    "root_transcript_sha256": "8684c858e3acf82c6c732329c98c9ddefdbe2c6ca9d21c202552036eda22e374",
+    "root_version": 2
+  },
+  "reason_precedence": [
+    "OFFLINE_INPUT_MISSING",
+    "ROOT_BOOTSTRAP_MISMATCH",
+    "METADATA_EXPIRED",
+    "ROOT_ROTATION_INVALID",
+    "ROOT_DIGEST_MISMATCH",
+    "ROOT_SIGNATURE_INVALID",
+    "ROOT_THRESHOLD_NOT_MET",
+    "ROOT_ROLLBACK",
+    "ROLLBACK_DETECTED",
+    "METADATA_REPLAYED",
+    "VERSION_DOWNGRADE",
+    "INDEX_DIGEST_MISMATCH",
+    "INDEX_SIGNATURE_INVALID",
+    "INDEX_THRESHOLD_NOT_MET",
+    "DUPLICATE_RELEASE",
+    "DUPLICATE_TARGET_PATH",
+    "DUPLICATE_PACKAGE_COORDINATE",
+    "TARGET_PATH_INVALID",
+    "ARCHIVE_DIGEST_MISMATCH",
+    "MANIFEST_DIGEST_MISMATCH",
+    "PROVENANCE_STATEMENT_MISMATCH",
+    "PROVENANCE_PREDICATE_MISMATCH",
+    "PROVENANCE_SUBJECT_MISMATCH",
+    "DELEGATION_INVALID",
+    "NAMESPACE_GRANT_MISMATCH",
+    "DUPLICATE_KEY",
+    "KEY_MALFORMED",
+    "KEY_ID_MISMATCH",
+    "KEY_SUPERSESSION_INVALID",
+    "KEY_UNKNOWN",
+    "KEY_REVOKED",
+    "KEY_RETIRED",
+    "KEY_NOT_YET_VALID",
+    "SIGNER_PUBLISHER_MISMATCH",
+    "PUBLISHER_MISMATCH",
+    "NAMESPACE_MISMATCH",
+    "PACKAGE_NAME_MISMATCH",
+    "PACKAGE_VERSION_MISMATCH",
+    "SOURCE_MISMATCH",
+    "TARGET_PATH_MISMATCH",
+    "SIGNATURE_MALFORMED",
+    "SIGNATURE_INVALID",
+    "PACKAGE_THRESHOLD_NOT_MET",
+    "OFFLINE_LOCK_MISMATCH"
+  ],
+  "request": {
+    "archive": {
+      "digest": {
+        "algorithm": "sha-256",
+        "value": "7ed1418006b3ccafe692f9d9bc5bc5192708fe10ae740293eb5b5f0b6d1f37a2"
+      },
+      "length": 761
+    },
+    "manifest": {
+      "algorithm": "sha-256",
+      "value": "c0a48c860a57a17a255109193e35fc1fb88017d2cd59e3375976bd05d3c7e887"
+    },
+    "name": "hello-stage1",
+    "namespace": "axiom",
+    "provenance": {
+      "selected_subject": {
+        "digest": {
+          "sha256": "7ed1418006b3ccafe692f9d9bc5bc5192708fe10ae740293eb5b5f0b6d1f37a2"
+        },
+        "name": "axiom/hello-stage1/0.1.0/package.axp"
+      },
+      "statement": {
+        "canonical_bytes_hex": "7b225f74797065223a2268747470733a2f2f696e2d746f746f2e696f2f53746174656d656e742f7631222c22707265646963617465223a7b226275696c64446566696e6974696f6e223a7b226275696c6454797065223a226178696f6d3a6275696c642f7061636b6167652d7631222c2265787465726e616c506172616d6574657273223a7b7d2c22696e7465726e616c506172616d6574657273223a7b7d2c227265736f6c766564446570656e64656e63696573223a5b7b22646967657374223a7b22736861323536223a2231313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131227d2c22757269223a2272656769737472793a6178696f6d2d70726f64756374696f6e227d5d7d2c2272756e44657461696c73223a7b226275696c646572223a7b226275696c646572446570656e64656e63696573223a5b5d2c226964223a226178696f6d3a6275696c6465722f717569636b73746172742d66697874757265222c2276657273696f6e223a7b226178696f6d63223a22302e312e30227d7d2c22627970726f6475637473223a5b5d2c226d65746164617461223a7b2266696e69736865644f6e223a22323032362d30392d32345430303a30303a30315a222c22696e766f636174696f6e4964223a2275726e3a757569643a30303030303030302d303030302d343030302d383030302d303030303030303031363633222c22737461727465644f6e223a22323032362d30392d32345430303a30303a30305a227d7d7d2c2270726564696361746554797065223a2268747470733a2f2f736c73612e6465762f70726f76656e616e63652f7631222c227375626a656374223a5b7b22646967657374223a7b22736861323536223a2237656431343138303036623363636166653639326639643962633562633531393237303866653130616537343032393365623562356630623664316633376132227d2c226e616d65223a226178696f6d2f68656c6c6f2d7374616765312f302e312e302f7061636b6167652e617870227d5d7d",
+        "digest": {
+          "algorithm": "sha-256",
+          "value": "19d9fa5da0ea3277e0aeae5f7caa28a10e2128f9eebf010825a5d31d82acfc42"
+        },
+        "value": {
+          "_type": "https://in-toto.io/Statement/v1",
+          "predicate": {
+            "buildDefinition": {
+              "buildType": "axiom:build/package-v1",
+              "externalParameters": {},
+              "internalParameters": {},
+              "resolvedDependencies": [
+                {
+                  "digest": {
+                    "sha256": "1111111111111111111111111111111111111111111111111111111111111111"
+                  },
+                  "uri": "registry:axiom-production"
+                }
+              ]
+            },
+            "runDetails": {
+              "builder": {
+                "builderDependencies": [],
+                "id": "axiom:builder/quickstart-fixture",
+                "version": {
+                  "axiomc": "0.1.0"
+                }
+              },
+              "byproducts": [],
+              "metadata": {
+                "finishedOn": "2026-09-24T00:00:01Z",
+                "invocationId": "urn:uuid:00000000-0000-4000-8000-000000001663",
+                "startedOn": "2026-09-24T00:00:00Z"
+              }
+            }
+          },
+          "predicateType": "https://slsa.dev/provenance/v1",
+          "subject": [
+            {
+              "digest": {
+                "sha256": "7ed1418006b3ccafe692f9d9bc5bc5192708fe10ae740293eb5b5f0b6d1f37a2"
+              },
+              "name": "axiom/hello-stage1/0.1.0/package.axp"
+            }
+          ]
+        }
+      }
+    },
+    "publisher_identity": "https://publishers.example/foundation",
+    "registry_identity": "axiom-registry-production",
+    "source_identity": "registry:axiom-production",
+    "target_path": "axiom/hello-stage1/0.1.0/package.axp",
+    "version": "0.1.0"
+  },
+  "required_signers": {
+    "index_role_id": "registry-index",
+    "index_threshold": 2,
+    "package_role_id": "targets:axiom",
+    "package_threshold": 2,
+    "required_key_ids": [
+      "sha256:22b32d9d8311be7536cc719a80a54f95f727dc133064eb25aff78e3d0ba6cd74",
+      "sha256:c438fcc91acca0187547c0bd0a764a4c0efb3a6c5731a84154c072c4a7a615f0"
+    ]
+  },
+  "schema_version": "axiom.package_verification_expectation.v1",
+  "trusted_state": {
+    "highest_index_generation": 1,
+    "highest_index_sequence": 1,
+    "highest_root_sequence": 2,
+    "highest_root_version": 2,
+    "minimum_package_version": "0.1.0",
+    "seen_snapshots": [
+      {
+        "generation": 1,
+        "index_transcript_sha256": "d0319e7a8fa00367ee1ada89890ec48ecf4df4cefa9e4a8dfc0eb7b539a4b152",
+        "sequence": 1,
+        "snapshot_id": "axiom-registry-production.1.1"
+      }
+    ],
+    "trusted_root_anchor": {
+      "root_sequence": 1,
+      "root_transcript_sha256": "a82bf10888eefa252e02206ee595c9654aa41120f701472e9e1eef55ff44dc2e",
+      "root_version": 1
+    }
+  },
+  "verification_time": "2026-09-24T12:00:00Z"
+}
