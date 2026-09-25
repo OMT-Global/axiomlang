@@ -202,6 +202,17 @@ Pass `--base-url` when the registry is behind a proxy or stable hostname;
 otherwise it derives a local URL from the bound address. Uploads remain a
 separate `axiomc publish` operation.
 
+The `./registry/` tree in this repository is a checked-in quickstart fixture:
+genuine `axiomc publish` and `axiomc registry-index` output signed with
+deterministic test-only material, so the consumer commands above run unchanged
+on a fresh clone. Regenerate it byte-identically with
+`scripts/registry-fixtures/generate-registry-fixtures.sh`; the
+`Registry Quickstart Fixtures` CI lane fails when the checked-in tree drifts
+from regeneration or when the documented validate command stops passing. The
+publisher examples above are the operator-side flow: they use placeholder
+coordinates (generation 42, sequence 1042) and protected seed files, and they
+are not meant to write over the checked-in fixture paths.
+
 ## Package Resolver v1
 
 The bounded Package Resolver v1 contract is an executable static spike under
