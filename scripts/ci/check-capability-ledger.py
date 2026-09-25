@@ -35,6 +35,7 @@ COMMAND_TIERS = {
     "parse": "static_spike",
     "check": "static_spike",
     "build": "static_spike",
+    "cache": "static_spike",
     "run": "static_spike",
     "trace": "static_spike",
     "test": "static_spike",
@@ -63,6 +64,11 @@ COMMAND_TIERS = {
     "lsp": "scaffold",
     "dap": "scaffold",
 }
+
+# Trusted-base CI must recognize this command before its implementation lands.
+# Absence is allowed only for this explicit forward-admission entry; ledger rows
+# still come exclusively from the inspected Command enum.
+FORWARD_COMMANDS = {"cache"}
 
 LANGUAGE_SURFACES = {
     "Stmt": {
@@ -282,11 +288,13 @@ def build_ledger(root: Path, main_source: Path | None = None) -> dict[str, Any]:
     registry = (root / "stage1/crates/axiomc/src/registry.rs").read_text(encoding="utf-8")
 
     command_names = [camel_to_kebab(item) for item in enum_variants(main, "Command")]
-    if set(command_names) != set(COMMAND_TIERS):
+    unclassified = set(command_names) - set(COMMAND_TIERS)
+    stale = set(COMMAND_TIERS) - set(command_names) - FORWARD_COMMANDS
+    if unclassified or stale:
         raise ValueError(
             "command classification drift: "
-            f"unclassified={sorted(set(command_names) - set(COMMAND_TIERS))}, "
-            f"stale={sorted(set(COMMAND_TIERS) - set(command_names))}"
+            f"unclassified={sorted(unclassified)}, "
+            f"stale={sorted(stale)}"
         )
     commands = [
         fact(name, "implemented", COMMAND_TIERS[name], "stage1/crates/axiomc/src/main.rs")
