@@ -1,6 +1,6 @@
 # Stage1 bootstrap
 
-<!-- capability-ledger:v1 commands=31 stdlib_modules=34 stdlib_functions=307 capabilities=9 backend=cranelift -->
+<!-- capability-ledger:v1 commands=32 stdlib_modules=34 stdlib_functions=307 capabilities=9 backend=cranelift -->
 
 The Rust bootstrap compiler in `stage1/` is the supported Axiom toolchain.
 The Python `stage0` interpreter, bytecode compiler, bytecode format, bytecode
@@ -16,7 +16,7 @@ standard-library, runtime-ABI, and schema inventories. It is generated from
 compiler-owned tables and validated by
 `python3 scripts/ci/check-capability-ledger.py --check-docs --json`.
 
-The current inventory contains 31 CLI commands, 34 synthetic standard-library
+The current inventory contains 32 CLI commands, 34 synthetic standard-library
 modules with 307 exported functions, and 9 manifest capability kinds. Cranelift
 is the only supported CLI backend. Those counts describe discovered surfaces,
 not production qualification: the ledger currently records zero
@@ -173,7 +173,7 @@ concrete member package with `-p/--package`.
 ## JSON contract
 
 `axiomc check --json`, `build --json`, `run --json`, `test --json`,
-`caps --json`, and `mutation-report --json` all now emit the versioned schema
+`caps --json`, `cache --json`, and `mutation-report --json` all now emit the versioned schema
 envelope `schema_version = "axiom.stage1.v1"`.
 The checked-in compiler JSON schema is
 `stage1/schemas/axiom.stage1.v1.schema.json`; the manifest editor schema is
@@ -243,6 +243,21 @@ and mapping counts for debugger/tooling consumers. See
 `axiomc build --timings` prints total build time, cache hit/miss counts, and
 per-package compile timing/cache status for the incremental generated-Rust
 cache.
+The bounded package-level cache command, `axiomc cache <path> --json`, inventories
+compiler-owned build-cache metadata, Cranelift objects, and generated source for
+all members of a workspace (or the selected package root), in deterministic path
+order. `--clean` removes only those inventoried regular files after validating
+that their resolved paths stay inside their owning package; binaries, provenance,
+symlinks, and directories are preserved. The returned `entries` retain the
+pre-clean inventory as an audit record; byte totals cover only that inventory.
+Test-target caches under `dist/tests` and dependency-package caches outside the
+selected workspace are not inventoried or cleaned. There is no per-member
+`--package` selector. Graph loading still requires resolvable package dependencies;
+this is not an offline repair command. Stop builds and tests before cleaning;
+concurrent writers are not coordinated. Cleanup is not transactional: a failure
+may follow some removals, and its diagnostic reports how many completed. Profile
+selection, broader cache coverage, dependency-closure invalidation, parallel build
+coordination, eviction, and timing critical-path records remain open under #1465.
 Build payloads also expose persisted lowering evidence that distinguishes
 direct-native runtime execution, hybrid runtime binaries with known-value
 static folds, bounded effect-free static output, and fail-closed legacy

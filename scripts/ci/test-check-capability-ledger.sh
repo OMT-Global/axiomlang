@@ -129,8 +129,8 @@ for text, valid in [
         assert any("prose count" in error for error in errors), errors
 PY
 
-# Exercise the trusted checker with both pre- and post-cache Command enums.
-# These fixtures remain valid after cache itself lands; no PR checker is loaded.
+# Cache has landed: its classification is required, not forward-admitted.
+# Exercise strict present/absent and unknown-command controls without loading a PR checker.
 python3 - "$checker" "$tmpdir" <<'PY'
 import importlib.util
 import json
@@ -163,15 +163,16 @@ def run(main, *args):
 
 absent = fixture("without-cache", variants)
 present = fixture("with-cache", variants | {"Cache"})
-code, before = run(absent, "--render")
-assert code == 0, before
-assert all(row["name"] != "cache" for row in before["commands"])
+code, before = run(absent, "--json")
+assert code != 0 and not before["ok"], before
+assert any("stale=['cache']" in error for error in before["errors"]), before
 code, after = run(present, "--render")
 assert code == 0, after
 cache_rows = [row for row in after["commands"] if row["name"] == "cache"]
 assert len(cache_rows) == 1, cache_rows
 assert cache_rows[0]["evidenceTier"] == "static_spike", cache_rows
-assert [row for row in after["commands"] if row["name"] != "cache"] == before["commands"]
+assert {row["name"]: row["evidenceTier"] for row in after["commands"]} == module.COMMAND_TIERS
+assert len(after["commands"]) == len(module.COMMAND_TIERS)
 
 snapshot = tmp / "cache-ledger.json"
 snapshot.write_text(json.dumps(after), encoding="utf-8")
@@ -181,7 +182,7 @@ assert code == 0 and report["ok"], report
 for label, commands, diagnostic in (
     ("unknown", variants | {"FutureProbe"}, "unclassified=['future-probe']"),
     ("cache-and-unknown", variants | {"Cache", "FutureProbe"}, "unclassified=['future-probe']"),
-    ("missing-required", variants - {"Build"}, "stale=['build']"),
+    ("missing-required", variants - {"Build"}, "stale=['build', 'cache']"),
     ("cache-missing-required", (variants | {"Cache"}) - {"Build"}, "stale=['build']"),
 ):
     code, report = run(fixture(label, commands), "--render", "--json")
@@ -189,12 +190,12 @@ for label, commands, diagnostic in (
 
 # Exact snapshot comparison must reject phantom rows and promoted evidence.
 code, report = run(absent, "--snapshot", str(snapshot), "--json")
-assert code != 0 and any("checked capability ledger is stale" in error for error in report["errors"]), report
+assert code != 0 and any("stale=['cache']" in error for error in report["errors"]), report
 cache_rows[0]["evidenceTier"] = "direct_runtime"
 snapshot.write_text(json.dumps(after), encoding="utf-8")
 code, report = run(present, "--snapshot", str(snapshot), "--json")
 assert code != 0 and any("checked capability ledger is stale" in error for error in report["errors"]), report
-print("trusted cache admission: absent/present pass; unknown/missing/phantom/promotion fail closed")
+print("cache classification sunset: present static_spike pass; absent stale-cache, unknown, missing-required, phantom, and promotion fail closed")
 PY
 
 echo "capability ledger regression cases passed"

@@ -291,7 +291,7 @@ matching ceiling in this table in the same PR.
 | Tracked item | Ceiling |
 | --- | ---: |
 | `summary.top_file_line_share` | 0.5170617007997446 |
-| `summary.top_file_lines` | 71234 |
+| `summary.top_file_lines` | 71545 |
 | `stage1/crates/axiomc/src/cranelift_backend.rs` | 20165 |
 | `stage1/crates/axiomc/src/cranelift_backend/owned_projections.rs` | 216 |
 | `stage1/crates/axiomc/src/cranelift_backend/static_output_purity.rs` | 282 |
@@ -304,9 +304,9 @@ matching ceiling in this table in the same PR.
 | `stage1/crates/axiomc/src/cranelift_backend/host_net_http.rs` | 1121 |
 | `stage1/crates/axiomc/src/hir.rs` | 5842 |
 | `stage1/crates/axiomc/src/hir/loop_ownership.rs` | 181 |
-| `stage1/crates/axiomc/src/project.rs` | 13732 |
+| `stage1/crates/axiomc/src/project.rs` | 14014 |
 | `stage1/crates/axiomc/src/build_contract.rs` | 118 |
-| `stage1/crates/axiomc/src/main.rs` | 11934 |
+| `stage1/crates/axiomc/src/main.rs` | 11963 |
 | `stage1/crates/axiomc/src/formatter.rs` | 191 |
 | `stage1/crates/axiomc/src/formatter_tests.rs` | 154 |
 | `stage1/crates/axiomc/src/codegen.rs` | 7681 |

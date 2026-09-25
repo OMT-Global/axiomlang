@@ -65,11 +65,6 @@ COMMAND_TIERS = {
     "dap": "scaffold",
 }
 
-# Trusted-base CI must recognize this command before its implementation lands.
-# Absence is allowed only for this explicit forward-admission entry; ledger rows
-# still come exclusively from the inspected Command enum.
-FORWARD_COMMANDS = {"cache"}
-
 LANGUAGE_SURFACES = {
     "Stmt": {
         "Let", "Assign", "Print", "Panic", "Defer", "If", "IfLet", "While",
@@ -289,7 +284,7 @@ def build_ledger(root: Path, main_source: Path | None = None) -> dict[str, Any]:
 
     command_names = [camel_to_kebab(item) for item in enum_variants(main, "Command")]
     unclassified = set(command_names) - set(COMMAND_TIERS)
-    stale = set(COMMAND_TIERS) - set(command_names) - FORWARD_COMMANDS
+    stale = set(COMMAND_TIERS) - set(command_names)
     if unclassified or stale:
         raise ValueError(
             "command classification drift: "
