@@ -51,6 +51,56 @@ fn cli_json_outputs_match_checked_in_contract_snapshots() {
 }
 
 #[test]
+fn cache_json_inventory_and_clean_validate_against_published_schema() {
+    let schema = read_json(&contract_root().join("schemas/axiom.stage1.command.schema.json"));
+    let validator = jsonschema::validator_for(&schema).expect("compile cache schema");
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path();
+    fs::write(project.join("axiom.toml"), "[package]\nname = \"cache-contract\"\nversion = \"0.1.0\"\n[build]\nentry = \"src/main.ax\"\nout_dir = \"dist\"\n").expect("manifest");
+    let out = project.join("dist");
+    fs::create_dir_all(out.join(".axiom")).expect("output directory");
+    for (name, content) in [
+        ("cache-contract.generated.rs", "generated"),
+        ("cache-contract.generated.build-cache.toml", "metadata"),
+        ("cache-contract.cranelift.o", "object"),
+        ("cache-contract", "binary"),
+        (".axiom/provenance.json", "provenance"),
+    ] {
+        fs::write(out.join(name), content).expect("artifact fixture");
+    }
+    let path = project.to_str().expect("project path");
+    let report = run_axiomc_json(&["cache", path, "--json"]);
+    assert_payload_matches_schema(&validator, "cache", &report);
+    assert_eq!(report, run_axiomc_json(&["cache", path, "--json"]));
+    assert_eq!(report["bytes_before"], 23);
+    assert_eq!(report["bytes_after"], 23);
+    assert_eq!(report["removed"], 0);
+    assert_eq!(report["entries"].as_array().expect("entries").len(), 3);
+    let cleaned = run_axiomc_json(&["cache", path, "--json", "--clean"]);
+    assert_payload_matches_schema(&validator, "cache", &cleaned);
+    assert_eq!(cleaned["bytes_before"], 23);
+    assert_eq!(cleaned["bytes_after"], 0);
+    assert_eq!(cleaned["removed"], 3);
+    assert_eq!(cleaned["entries"], report["entries"]);
+    let empty = run_axiomc_json(&["cache", path, "--json", "--clean"]);
+    assert_payload_matches_schema(&validator, "cache", &empty);
+    assert_eq!(empty["removed"], 0);
+    assert_eq!(empty["bytes_before"], 0);
+    assert_eq!(
+        fs::read_to_string(out.join("cache-contract")).unwrap(),
+        "binary"
+    );
+    assert_eq!(
+        fs::read_to_string(out.join(".axiom/provenance.json")).unwrap(),
+        "provenance"
+    );
+    fs::remove_file(project.join("axiom.toml")).expect("remove manifest for failure control");
+    let (success, failure) = run_axiomc_json_with_status(&["cache", path, "--json"]);
+    assert!(!success);
+    assert_payload_matches_schema(&validator, "cache", &failure);
+}
+
+#[test]
 fn command_failure_envelopes_validate_against_the_published_schema() {
     let schema = read_json(&contract_root().join("schemas/axiom.stage1.command.schema.json"));
     let validator = jsonschema::validator_for(&schema).expect("compile JSON contract schema");
@@ -59,6 +109,7 @@ fn command_failure_envelopes_validate_against_the_published_schema() {
     for command in [
         "check",
         "build",
+        "cache",
         "run",
         "test",
         "caps",

@@ -77,31 +77,31 @@
       "migration": {
         "action": "Existing command invocations require no changes. To adopt registry dependencies, run axiomc pkg fetch to create the v2 lock and verified cache, use axiomc pkg update for explicit re-resolution, and run axiomc pkg vendor before cache-independent locked offline builds. Package Trust v1 remains available through axiomc pkg verify with exact artifact and trust metadata paths plus --json."
       },
-      "signature": "commands=bench,build,caps,caps diff,check,dap,doc,doctor,evidence,explain,fmt,generate,generate openapi,generate policy,generate runbook,generate sql,generate terraform,inspect,inspect artifacts,inspect effects,inspect evidence,inspect graph,inspect intent,inspect symbols,lsp,migrate,mutation-report,new,parse,pkg,pkg fetch,pkg graph,pkg update,pkg vendor,pkg verify,publish,registry-index,registry-serve,registry-validate,repair-plan,repl,run,semantic-diff,task-contract,test,trace,verification-plan,verify; command_semantic_digest=9a6558998fdbbf2ec144668a5f042790e18a2aa827360e5f64192908baebe102; flags_status=experimental_partial; flags=--json is the versioned machine envelope opt-in where the command publishes JSON; command-specific optional flags remain additive.; exit=0 means the requested operation completed successfully; nonzero means diagnostics or an operational failure.; json=axiom.stage1.v1 for governed stage1 command payloads; command-specific schemas retain their own AxiOM schema IDs.",
+      "signature": "commands=bench,build,cache,caps,caps diff,check,dap,doc,doctor,evidence,explain,fmt,generate,generate openapi,generate policy,generate runbook,generate sql,generate terraform,inspect,inspect artifacts,inspect effects,inspect evidence,inspect graph,inspect intent,inspect symbols,lsp,migrate,mutation-report,new,parse,pkg,pkg fetch,pkg graph,pkg update,pkg vendor,pkg verify,publish,registry-index,registry-serve,registry-validate,repair-plan,repl,run,semantic-diff,task-contract,test,trace,verification-plan,verify; command_semantic_digest=13b0bba38f47e6368186f8ddadc76e0cf888382c9e9a7850eddbe75b7115d8ff; flags_status=experimental_partial; flags=--json is the versioned machine envelope opt-in where the command publishes JSON; command-specific optional flags remain additive.; exit=0 means the requested operation completed successfully; nonzero means diagnostics or an operational failure.; json=axiom.stage1.v1 for governed stage1 command payloads; command-specific schemas retain their own AxiOM schema IDs.",
       "sources": [
         {
           "path": "stage1/compatibility/cli-surface-v1.json",
           "role": "cli_public_surface",
           "selector": "command_paths,flags,exit_status,migration",
-          "sha256": "a742f334a6eae8bdf958e3d8b757873b7639160ffcd57af0cbc53b8b17c88be5"
+          "sha256": "8c2de1ff27bfaf92a07350a391fd3840aa77b7969ce3c8fe8af6362a9bfb16fe"
         },
         {
           "path": "stage1/compiler-contracts/schemas/axiom.stage1.command.schema.json",
           "role": "cli_json_envelope",
           "selector": "$id,oneOf",
-          "sha256": "2e39b9d0a192e208c440d361c007bcca5b144e8dc06c050d2b48ffb89232f2e0"
+          "sha256": "dc99e7e7c9d08fdc467a606cae13aba8f7a0caddcd328cc7efe9e4e2a966a39f"
         },
         {
           "path": "stage1/compiler-contracts/snapshots/capability-ledger.json",
           "role": "cli_top_level_parity",
           "selector": "commands[*].name",
-          "sha256": "3020a447421a31e067c846a4c4f4ae609711abc5cded4741a1209bbd56a1541e"
+          "sha256": "d6734ca29095a7b9c922c61b8ef82f8986bfca8e11fae0c80687974f31fc8842"
         },
         {
           "path": "stage1/crates/axiomc/src/main.rs",
           "role": "cli_command_graph_parity",
           "selector": "Command and nested command variant names",
-          "sha256": "764f1e726cde37de60746d0e31fd32335f1a36b60df6cc4f75ab93909080d3f0"
+          "sha256": "d6550f596cc53b7f98f276da4a21be22c686d8d895e5bc49d1ca10927deb8cc7"
         }
       ],
       "stability": "experimental",
@@ -1355,13 +1355,13 @@
       "migration": {
         "action": "Update consumers to understand the new diagnostic and lowering fields before consuming axiom.stage1.command envelopes."
       },
-      "signature": "published schema id=https://omt-global.github.io/axiom/schemas/axiom.stage1.command.schema.json; semantic_digest=b178c57975139e6dcd13ed5597cc2965b1875b75fe3d3f088edc574ec944f298",
+      "signature": "published schema id=https://omt-global.github.io/axiom/schemas/axiom.stage1.command.schema.json; semantic_digest=af9d81f8190930b6e8bff7726198f2dfb2f1792985b34967bb2355cdc2f67b0f",
       "sources": [
         {
           "path": "stage1/compiler-contracts/schemas/axiom.stage1.command.schema.json",
           "role": "published_schema",
           "selector": "$id,properties.schema_version.const",
-          "sha256": "2e39b9d0a192e208c440d361c007bcca5b144e8dc06c050d2b48ffb89232f2e0"
+          "sha256": "dc99e7e7c9d08fdc467a606cae13aba8f7a0caddcd328cc7efe9e4e2a966a39f"
         }
       ],
       "stability": "experimental",
