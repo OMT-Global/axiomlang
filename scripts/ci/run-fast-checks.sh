@@ -139,6 +139,8 @@ python3 "$script_repo_root/scripts/ci/check-network-authority-v2.py" --root "$re
 python3 "$script_repo_root/scripts/ci/test-check-io-reactor-v1.py"
 python3 "$script_repo_root/scripts/ci/check-io-reactor-v1.py" --root "$repo_root"
 python3 "$script_repo_root/scripts/ci/test-check-semantic-mir-v1.py"
+python3 "$script_repo_root/scripts/ci/test-check-runtime-associative-collections-v1.py"
+python3 "$script_repo_root/scripts/ci/check-runtime-associative-collections-v1.py"
 python3 "$script_repo_root/scripts/ci/check-semantic-mir-v1.py"
 python3 "$script_repo_root/scripts/ci/test-check-runtime-lifecycle-v1.py"
 python3 "$script_repo_root/scripts/ci/check-runtime-lifecycle-v1.py"
