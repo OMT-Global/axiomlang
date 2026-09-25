@@ -307,7 +307,7 @@ def main() -> int:
     assert surface(current_payload, "axiom://stdlib/catalog")["version"] == "2.0.0"
     assert surface(current_payload, "axiom://schema/axiom.compiler.stdlib_catalog.v1")["version"] == "0.4.0"
     current_cli = surface(current_payload, "axiom://cli/axiomc")
-    assert current_cli["version"] == "0.3.0"
+    assert current_cli["version"] == "0.4.0"
     current_abi = surface(current_payload, "axiom://abi/direct-native")
     assert current_abi["version"] == "0.2.0"
     current_stage1_schema = surface(current_payload, "axiom://schema/axiom.stage1.v1")
@@ -458,9 +458,11 @@ def main() -> int:
     assert obs_ratchet.returncode == 0, obs_ratchet.stdout + obs_ratchet.stderr
     obs_report = json.loads(obs_ratchet.stdout)
     assert obs_report["contracts"] == {"old": "0.16.0", "new": "0.20.0"}
-    assert obs_report["summary"] == {"additive": 7, "breaking": 1, "compatible": 0, "deprecated": 0}
+    assert obs_report["summary"] == {"additive": 7, "breaking": 3, "compatible": 0, "deprecated": 0}
     assert [(i["surface_id"], i["change"], i["severity"]) for i in obs_report["changes"]] == [
+        ("axiom://cli/axiomc", "modified", "breaking"),
         ("axiom://schema/axiom-selfhost-snapshot-manifest-v0", "modified", "breaking"),
+        ("axiom://schema/axiom.stage1.command", "modified", "breaking"),
         ("axiom://schema/axiom-selfhost-snapshot-provenance-v0", "added", "additive"),
         ("axiom://schema/axiom.io_reactor.v1", "added", "additive"),
         ("axiom://schema/axiom.native_debug_status.v1", "added", "additive"),

@@ -96,7 +96,7 @@ JSON-envelope schema surfaces also carry their governed package-resolver
 changes. Per-surface versions remain `0.1.0` for unchanged surfaces and are
 `0.2.0` for the schema additions and the CLI surface, so a contract-level
 version bump does not fabricate semantic drift across the existing inventory.
-The CLI surface is version `0.3.0`.
+The CLI surface is version `0.4.0`.
 The runtime crypto provider policy schema is additive, while the direct-native
 ABI surface is version `0.2.0`: Ed25519 signing accepts exactly the canonical
 32-byte private seed and rejects the former 64-byte seed-plus-public-key input.
