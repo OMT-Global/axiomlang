@@ -70,3 +70,31 @@ fn malformed_input_does_not_panic() {
     let once = format_axiom_source(source);
     assert_eq!(format_axiom_source(&once), once);
 }
+
+#[test]
+fn mutable_borrow_formatting_round_trips_through_parser() {
+    let source = "fn bump(values: &mut [int]): int {
+return values[0]
+}
+";
+    let formatted = format_axiom_source(source);
+    assert!(formatted.contains("values: &mut [int]"), "{formatted}");
+    axiomc::syntax::parse_program(&formatted, std::path::Path::new("mutable-borrow.ax"))
+        .expect("formatted mutable-borrow type must parse");
+    assert_eq!(format_axiom_source(&formatted), formatted);
+}
+
+#[test]
+fn parenthesized_statement_expressions_round_trip_through_parser() {
+    let source = "fn verdict(input: int): bool {
+return (input == input) == true
+}
+print (1 + 2)
+";
+    let formatted = format_axiom_source(source);
+    assert!(formatted.contains("return (input == input)"), "{formatted}");
+    assert!(formatted.contains("print (1 + 2)"), "{formatted}");
+    axiomc::syntax::parse_program(&formatted, std::path::Path::new("statement-expressions.ax"))
+        .expect("formatted statement expressions must parse");
+    assert_eq!(format_axiom_source(&formatted), formatted);
+}

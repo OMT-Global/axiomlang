@@ -3,8 +3,8 @@ import "std/testing.ax"
 
 let found: Option<string> = find("[0-9]+", "issue-238-ready")
 let find_ok: int = match found {
-Some(value) => property("regex find", value == "238")
-None => property("regex find", false)
+    Some(value) => property("regex find", value == "238")
+    None => property("regex find", false)
 }
 let replace_ok: int = property("regex replace all", replace_all("[0-9]+", "issue-238-ready", "#") == "issue-#-ready")
 

@@ -1,29 +1,29 @@
 struct Window {
-view: &[int]
+    view: &[int]
 }
 
 enum Snapshot {
-Window(Window)
-Named { window: Window }
+    Window(Window)
+    Named {window: Window}
 }
 
 fn tail(values: &[int]): Window {
-return Window { view: values[1:] }
+    return Window {view: values[1:]}
 }
 
 fn read(snapshot: Snapshot): int {
-match snapshot {
-Window(window) {
-return first(window.view)
-}
-Named { window } {
-return last(window.view)
-}
-}
+    match snapshot {
+        Window(window) {
+            return first(window.view)
+        }
+        Named {window} {
+            return last(window.view)
+        }
+    }
 }
 
 let numbers: [int] = [3, 7, 9, 11]
 let window: Window = tail(numbers[:])
 print first(window.view)
 print read(Window(tail(numbers[:])))
-print read(Named { window: tail(numbers[:]) })
+print read(Named {window: tail(numbers[:])})

@@ -1,8 +1,8 @@
+import "request.ax"
+import "response.ax"
 import "std/env.ax"
 import "std/http.ax"
 import "std/time.ax"
-import "request.ax"
-import "response.ax"
 
 let started: bool = now_ms() > 0
 let method: string = request_method(get_env("REQUEST_METHOD"))

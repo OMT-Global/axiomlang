@@ -1,5 +1,5 @@
 fn label(pair: (int, string)): string {
-return pair.1
+    return pair.1
 }
 
 let pair: (int, string) = (7, "stage1 tuples")

@@ -8,20 +8,20 @@ let ciphertext: [u8] = aead_seal(Aes256Gcm, key[:], nonce[:], aad[:], plaintext[
 
 print len(ciphertext)
 match aead_open(Aes256Gcm, key[:], nonce[:], aad[:], ciphertext[:]) {
-Some(opened) {
-print opened == plaintext
-}
-None {
-print false
-}
+    Some(opened) {
+        print opened == plaintext
+    }
+    None {
+        print false
+    }
 }
 
 let tampered: [u8] = [0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8]
 match aead_open(Aes256Gcm, key[:], nonce[:], aad[:], tampered[:]) {
-Some(_opened) {
-print false
-}
-None {
-print true
-}
+    Some(_opened) {
+        print false
+    }
+    None {
+        print true
+    }
 }

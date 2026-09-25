@@ -1,22 +1,22 @@
+import "core/command.ax"
+import "core/render.ax"
 import "std/env.ax"
 import "std/fs.ax"
 import "std/time.ax"
-import "core/command.ax"
-import "core/render.ax"
 import "ui/render.ax"
 
 fn configured_profile(raw: Option<string>): string {
-match raw {
-Some(value) {
-if value == "audit\n" {
-return "audit"
-}
-return value
-}
-None {
-return "default"
-}
-}
+    match raw {
+        Some(value) {
+            if value == "audit\n" {
+                return "audit"
+            }
+            return value
+        }
+        None {
+            return "default"
+        }
+    }
 }
 
 let configured: string = configured_profile(read_file("src/config.txt"))

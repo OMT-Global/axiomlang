@@ -1,6 +1,6 @@
+import "authorize.ax"
 import "std/env.ax"
 import "std/time.ax"
-import "authorize.ax"
 
 axiom AuthorizationDecisionAuditable {
     scope security

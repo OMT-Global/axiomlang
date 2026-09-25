@@ -1,474 +1,474 @@
 property fn array_identity(input: [int]): bool {
-return input == input && true
+    return input == input && true
 }
 
 property fn scalar_assertion_form(input: int): bool {
-return assert_true(input == input || false)
+    return assert_true(input == input || false)
 }
 
 property fn nested_boolean_verdict(input: int): bool {
-return true && (false || input == input)
+    return true && (false || input == input)
 }
 
 property fn int_property_001(input: int): bool {
-return input == input
+    return input == input
 }
 
 property fn int_property_002(input: int): bool {
-let alias: int = input
-return alias == input
+    let alias: int = input
+    return alias == input
 }
 
 property fn int_property_003(input: int): bool {
-let value: int = input + 0
-return value == input
+    let value: int = input + 0
+    return value == input
 }
 
 property fn int_property_004(input: int): bool {
-let value: int = input - 0
-return value == input
+    let value: int = input - 0
+    return value == input
 }
 
 property fn int_property_005(input: int): bool {
-let value: int = input * 1
-return value == input
+    let value: int = input * 1
+    return value == input
 }
 
 property fn int_property_006(input: int): bool {
-return input <= input
+    return input <= input
 }
 
 property fn int_property_007(input: int): bool {
-return input >= input
+    return input >= input
 }
 
 property fn int_property_008(input: int): bool {
-return assert_true(input == input)
+    return assert_true(input == input)
 }
 
 property fn int_property_009(input: int): bool {
-let values: [int] = [input]
-return len(values) == 1
+    let values: [int] = [input]
+    return len(values) == 1
 }
 
 property fn int_property_010(input: int): bool {
-let values: [int] = [input, input]
-return len(values) == 2
+    let values: [int] = [input, input]
+    return len(values) == 2
 }
 
 property fn int_property_011(input: int): bool {
-return (input == input) == true
+    return (input == input) == true
 }
 
 property fn int_property_012(input: int): bool {
-let ready: bool = input == input
-return ready
+    let ready: bool = input == input
+    return ready
 }
 
 property fn int_property_013(input: int): bool {
-return input == input && 0 == 0
+    return input == input && 0 == 0
 }
 
 property fn int_property_014(input: int): bool {
-return input == input || 0 == 1
+    return input == input || 0 == 1
 }
 
 property fn int_property_015(input: int): bool {
-let ready: bool = input <= input
-return ready
+    let ready: bool = input <= input
+    return ready
 }
 
 property fn int_property_016(input: int): bool {
-let ready: bool = input >= input
-return ready
+    let ready: bool = input >= input
+    return ready
 }
 
 property fn int_property_017(input: int): bool {
-let zero: int = 0
-return input + zero == input
+    let zero: int = 0
+    return input + zero == input
 }
 
 property fn int_property_018(input: int): bool {
-let one: int = 1
-return input * one == input
+    let one: int = 1
+    return input * one == input
 }
 
 property fn int_property_019(input: int): bool {
-let values: [int] = [0, input]
-return len(values) == 2
+    let values: [int] = [0, input]
+    return len(values) == 2
 }
 
 property fn int_property_020(input: int): bool {
-let values: [int] = [input]
-let size: int = len(values)
-return size == 1
+    let values: [int] = [input]
+    let size: int = len(values)
+    return size == 1
 }
 
 property fn int_property_021(input: int): bool {
-let same: bool = input == input
-return assert_true(same)
+    let same: bool = input == input
+    return assert_true(same)
 }
 
 property fn int_property_022(input: int): bool {
-let left: int = input
-let right: int = input
-return left == right
+    let left: int = input
+    let right: int = input
+    return left == right
 }
 
 property fn int_property_023(input: int): bool {
-let value: int = input + 0
-return value >= input
+    let value: int = input + 0
+    return value >= input
 }
 
 property fn int_property_024(input: int): bool {
-let value: int = input - 0
-return value <= input
+    let value: int = input - 0
+    return value <= input
 }
 
 property fn bool_property_001(input: bool): bool {
-return input == input
+    return input == input
 }
 
 property fn bool_property_002(input: bool): bool {
-return input || (input == false)
+    return input || (input == false)
 }
 
 property fn bool_property_003(input: bool): bool {
-return (input == true) || (input == false)
+    return (input == true) || (input == false)
 }
 
 property fn bool_property_004(input: bool): bool {
-let normalized: bool = input && true
-return normalized == input
+    let normalized: bool = input && true
+    return normalized == input
 }
 
 property fn bool_property_005(input: bool): bool {
-let normalized: bool = input || false
-return normalized == input
+    let normalized: bool = input || false
+    return normalized == input
 }
 
 property fn bool_property_006(input: bool): bool {
-let normalized: bool = input && input
-return normalized == input
+    let normalized: bool = input && input
+    return normalized == input
 }
 
 property fn bool_property_007(input: bool): bool {
-let normalized: bool = input || input
-return normalized == input
+    let normalized: bool = input || input
+    return normalized == input
 }
 
 property fn bool_property_008(input: bool): bool {
-return assert_true(input == input)
+    return assert_true(input == input)
 }
 
 property fn bool_property_009(input: bool): bool {
-return true || input
+    return true || input
 }
 
 property fn bool_property_010(input: bool): bool {
-return input || true
+    return input || true
 }
 
 property fn bool_property_011(input: bool): bool {
-let negated: bool = input == false
-return input || negated
+    let negated: bool = input == false
+    return input || negated
 }
 
 property fn bool_property_012(input: bool): bool {
-let same: bool = input == input
-return same
+    let same: bool = input == input
+    return same
 }
 
 property fn bool_property_013(input: bool): bool {
-return (input && true) || (input == false)
+    return (input && true) || (input == false)
 }
 
 property fn bool_property_014(input: bool): bool {
-return (input || false) || (input == false)
+    return (input || false) || (input == false)
 }
 
 property fn bool_property_015(input: bool): bool {
-let values: [bool] = [input]
-return len(values) == 1
+    let values: [bool] = [input]
+    return len(values) == 1
 }
 
 property fn bool_property_016(input: bool): bool {
-let values: [bool] = [input, input]
-return len(values) == 2
+    let values: [bool] = [input, input]
+    return len(values) == 2
 }
 
 property fn bool_property_017(input: bool): bool {
-let left: bool = input || false
-let right: bool = input
-return left == right
+    let left: bool = input || false
+    let right: bool = input
+    return left == right
 }
 
 property fn bool_property_018(input: bool): bool {
-let left: bool = input && true
-let right: bool = input
-return left == right
+    let left: bool = input && true
+    let right: bool = input
+    return left == right
 }
 
 property fn bool_property_019(input: bool): bool {
-let verdict: bool = input == true || input == false
-return verdict
+    let verdict: bool = input == true || input == false
+    return verdict
 }
 
 property fn bool_property_020(input: bool): bool {
-let verdict: bool = input || input == false
-return assert_true(verdict)
+    let verdict: bool = input || input == false
+    return assert_true(verdict)
 }
 
 property fn bool_property_021(input: bool): bool {
-return (input == input) && true
+    return (input == input) && true
 }
 
 property fn bool_property_022(input: bool): bool {
-return (input == input) || false
+    return (input == input) || false
 }
 
 property fn bool_property_023(input: bool): bool {
-let same: bool = input == input
-return same == true
+    let same: bool = input == input
+    return same == true
 }
 
 property fn bool_property_024(input: bool): bool {
-let same: bool = input || input == false
-return same == true
+    let same: bool = input || input == false
+    return same == true
 }
 
 property fn string_property_001(input: string): bool {
-return input == input
+    return input == input
 }
 
 property fn string_property_002(input: string): bool {
-return len(input) == len(input)
+    return len(input) == len(input)
 }
 
 property fn string_property_003(input: string): bool {
-return len(input) >= 0
+    return len(input) >= 0
 }
 
 property fn string_property_004(input: string): bool {
-let size: int = len(input)
-return size == size
+    let size: int = len(input)
+    return size == size
 }
 
 property fn string_property_005(input: string): bool {
-let same: bool = input == input
-return same
+    let same: bool = input == input
+    return same
 }
 
 property fn string_property_006(input: string): bool {
-return input == input && len(input) >= 0
+    return input == input && len(input) >= 0
 }
 
 property fn string_property_007(input: string): bool {
-return input == input || len(input) >= 0
+    return input == input || len(input) >= 0
 }
 
 property fn string_property_008(input: string): bool {
-return assert_true(input == input)
+    return assert_true(input == input)
 }
 
 property fn string_property_009(input: string): bool {
-let values: [string] = [input]
-return len(values) == 1
+    let values: [string] = [input]
+    return len(values) == 1
 }
 
 property fn string_property_010(input: string): bool {
-let alias: string = input
-return alias == alias
+    let alias: string = input
+    return alias == alias
 }
 
 property fn string_property_011(input: string): bool {
-return "compiler" == "compiler" && input == input
+    return "compiler" == "compiler" && input == input
 }
 
 property fn string_property_012(input: string): bool {
-let size: int = len(input)
-return size >= 0
+    let size: int = len(input)
+    return size >= 0
 }
 
 property fn string_property_013(input: string): bool {
-let same: bool = len(input) == len(input)
-return same
+    let same: bool = len(input) == len(input)
+    return same
 }
 
 property fn string_property_014(input: string): bool {
-let same: bool = input == input
-return assert_true(same)
+    let same: bool = input == input
+    return assert_true(same)
 }
 
 property fn string_property_015(input: string): bool {
-let values: [string] = [input]
-let size: int = len(values)
-return size == 1
+    let values: [string] = [input]
+    let size: int = len(values)
+    return size == 1
 }
 
 property fn string_property_016(input: string): bool {
-return len(input) <= len(input)
+    return len(input) <= len(input)
 }
 
 property fn string_property_017(input: string): bool {
-return len(input) >= len(input)
+    return len(input) >= len(input)
 }
 
 property fn string_property_018(input: string): bool {
-let size: int = len(input)
-return size <= size
+    let size: int = len(input)
+    return size <= size
 }
 
 property fn string_property_019(input: string): bool {
-let size: int = len(input)
-return size >= size
+    let size: int = len(input)
+    return size >= size
 }
 
 property fn string_property_020(input: string): bool {
-return input == input && "ok" == "ok"
+    return input == input && "ok" == "ok"
 }
 
 property fn string_property_021(input: string): bool {
-return input == input || "ok" != "ok"
+    return input == input || "ok" != "ok"
 }
 
 property fn string_property_022(input: string): bool {
-let empty: string = ""
-return empty == "" && input == input
+    let empty: string = ""
+    return empty == "" && input == input
 }
 
 property fn string_property_023(input: string): bool {
-let label: string = "property"
-return label == "property" && input == input
+    let label: string = "property"
+    return label == "property" && input == input
 }
 
 property fn string_property_024(input: string): bool {
-let same: bool = input == input && len(input) >= 0
-return same
+    let same: bool = input == input && len(input) >= 0
+    return same
 }
 
 property fn array_property_001(input: [int]): bool {
-return input == input
+    return input == input
 }
 
 property fn array_property_002(input: [int]): bool {
-return len(input) == len(input)
+    return len(input) == len(input)
 }
 
 property fn array_property_003(input: [int]): bool {
-return len(input) >= 0
+    return len(input) >= 0
 }
 
 property fn array_property_004(input: [int]): bool {
-let view: &[int] = input[:]
-return len(view) == len(input)
+    let view: &[int] = input[:]
+    return len(view) == len(input)
 }
 
 property fn array_property_005(input: [int]): bool {
-let view: &[int] = input[:]
-return len(view) >= 0
+    let view: &[int] = input[:]
+    return len(view) >= 0
 }
 
 property fn array_property_006(input: [int]): bool {
-let same: bool = input == input
-return same
+    let same: bool = input == input
+    return same
 }
 
 property fn array_property_007(input: [int]): bool {
-let sample: [int] = [0]
-return len(sample) == 1 && input == input
+    let sample: [int] = [0]
+    return len(sample) == 1 && input == input
 }
 
 property fn array_property_008(input: [int]): bool {
-let one: [int] = [1]
-return len(one) == 1 && input == input
+    let one: [int] = [1]
+    return len(one) == 1 && input == input
 }
 
 property fn array_property_009(input: [int]): bool {
-let view: &[int] = input[:]
-let size: int = len(view)
-return size == len(input)
+    let view: &[int] = input[:]
+    let size: int = len(view)
+    return size == len(input)
 }
 
 property fn array_property_010(input: [int]): bool {
-let view: &[int] = input[:]
-let size: int = len(view)
-return size >= 0
+    let view: &[int] = input[:]
+    let size: int = len(view)
+    return size >= 0
 }
 
 property fn array_property_011(input: [int]): bool {
-return assert_true(input == input)
+    return assert_true(input == input)
 }
 
 property fn array_property_012(input: [int]): bool {
-return input == input && len(input) >= 0
+    return input == input && len(input) >= 0
 }
 
 property fn array_property_013(input: [int]): bool {
-return input == input || len(input) >= 0
+    return input == input || len(input) >= 0
 }
 
 property fn array_property_014(input: [int]): bool {
-let size: int = len(input)
-return size == size
+    let size: int = len(input)
+    return size == size
 }
 
 property fn array_property_015(input: [int]): bool {
-let size: int = len(input)
-return size <= size
+    let size: int = len(input)
+    return size <= size
 }
 
 property fn array_property_016(input: [int]): bool {
-let size: int = len(input)
-return size >= size
+    let size: int = len(input)
+    return size >= size
 }
 
 property fn array_property_017(input: [int]): bool {
-let sample: [int] = [0]
-let size: int = len(sample)
-return size == 1 && input == input
+    let sample: [int] = [0]
+    let size: int = len(sample)
+    return size == 1 && input == input
 }
 
 property fn array_property_018(input: [int]): bool {
-let sample: [int] = [1, 2]
-return len(sample) == 2 && input == input
+    let sample: [int] = [1, 2]
+    return len(sample) == 2 && input == input
 }
 
 property fn array_property_019(input: [int]): bool {
-let sample: [int] = [3, 5, 8]
-return len(sample) == 3 && input == input
+    let sample: [int] = [3, 5, 8]
+    return len(sample) == 3 && input == input
 }
 
 property fn array_property_020(input: [int]): bool {
-let view: &[int] = input[:]
-return len(view) <= len(input)
+    let view: &[int] = input[:]
+    return len(view) <= len(input)
 }
 
 property fn array_property_021(input: [int]): bool {
-let view: &[int] = input[:]
-return len(view) >= len(input)
+    let view: &[int] = input[:]
+    return len(view) >= len(input)
 }
 
 property fn array_property_022(input: [int]): bool {
-let same: bool = len(input) == len(input)
-return assert_true(same)
+    let same: bool = len(input) == len(input)
+    return assert_true(same)
 }
 
 property fn array_property_023(input: [int]): bool {
-let same: bool = input == input
-return assert_true(same)
+    let same: bool = input == input
+    return assert_true(same)
 }
 
 property fn array_property_024(input: [int]): bool {
-let view: &[int] = input[:]
-let same: bool = len(view) == len(input)
-return same
+    let view: &[int] = input[:]
+    let same: bool = len(view) == len(input)
+    return same
 }
 
 property fn array_property_025(input: [int]): bool {
-let view: &[int] = input[:]
-let same: bool = len(view) >= 0
-return same
+    let view: &[int] = input[:]
+    let same: bool = len(view) >= 0
+    return same
 }
 
 print "ok"

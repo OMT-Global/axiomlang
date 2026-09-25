@@ -1,12 +1,12 @@
-import "std/http.ax"
 import "response.ax"
+import "std/http.ax"
 
 pub fn health_route(started: bool): HttpRoute {
-let selected_response: HttpResponse = response(200, body("/health", started), [header("content-type", "application/json")])
-return route_response("/health", selected_response)
+    let selected_response: HttpResponse = response(200, body("/health", started), [header("content-type", "application/json")])
+    return route_response("/health", selected_response)
 }
 
 pub fn serve_health(started: bool): bool {
-let selected_route: HttpRoute = health_route(started)
-return serve("127.0.0.1:18081", selected_route, 1)
+    let selected_route: HttpRoute = health_route(started)
+    return serve("127.0.0.1:18081", selected_route, 1)
 }

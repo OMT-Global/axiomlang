@@ -307,7 +307,7 @@ matching ceiling in this table in the same PR.
 | `stage1/crates/axiomc/src/build_contract.rs` | 118 |
 | `stage1/crates/axiomc/src/main.rs` | 11934 |
 | `stage1/crates/axiomc/src/formatter.rs` | 191 |
-| `stage1/crates/axiomc/src/formatter_tests.rs` | 122 |
+| `stage1/crates/axiomc/src/formatter_tests.rs` | 154 |
 | `stage1/crates/axiomc/src/codegen.rs` | 7681 |
 | `stage1/crates/axiomc/src/cranelift_backend/intrinsics/json.rs` | 196 |
 | `stage1/crates/axiomc/src/cranelift_backend/evaluator/json_errors.rs` | 85 |

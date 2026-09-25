@@ -1,5 +1,5 @@
 fn answer(values: [int]): int {
-return values[1]
+    return values[1]
 }
 
 let values: [int] = [40, 42]

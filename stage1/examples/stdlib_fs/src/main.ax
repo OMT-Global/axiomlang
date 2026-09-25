@@ -1,10 +1,10 @@
 import "std/fs.ax"
 
 match read_file("src/fixture.txt") {
-Some(value) {
-print value
-}
-None {
-print "missing"
-}
+    Some(value) {
+        print value
+    }
+    None {
+        print "missing"
+    }
 }

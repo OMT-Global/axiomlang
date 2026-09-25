@@ -2,16 +2,16 @@ import "greetings.ax"
 import "math.ax"
 
 fn is_ready(value: int): bool {
-return value == 42
+    return value == 42
 }
 
 let answer: int = lucky(40)
 let ready: bool = is_ready(answer)
 
 if ready {
-print banner("from modules")
+    print banner("from modules")
 } else {
-print "stage1 failed"
+    print "stage1 failed"
 }
 
 print answer

@@ -1,14 +1,14 @@
 struct Pipeline {
-name: string
-steps: int
-ready: bool
+    name: string
+    steps: int
+    ready: bool
 }
 
 fn label_of(pipeline: Pipeline): string {
-return pipeline.name
+    return pipeline.name
 }
 
-let pipeline: Pipeline = Pipeline { name: "stage1 structs", steps: 3, ready: true }
+let pipeline: Pipeline = Pipeline {name: "stage1 structs", steps: 3, ready: true}
 print pipeline.steps
 print pipeline.ready
 print label_of(pipeline)

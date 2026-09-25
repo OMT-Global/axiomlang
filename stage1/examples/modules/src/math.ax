@@ -1,7 +1,7 @@
 pub fn lucky(base: int): int {
-return bump(base)
+    return bump(base)
 }
 
 fn bump(base: int): int {
-return base + 2
+    return base + 2
 }
