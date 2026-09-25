@@ -1279,6 +1279,12 @@
     },
     {
       "evidenceTier": "static_spike",
+      "name": "https://omt-global.github.io/axiom/schemas/axiom.runtime_associative_collections.v1.schema.json",
+      "source": "stage1/compiler-contracts/schemas/axiom.runtime_associative_collections.v1.schema.json",
+      "status": "checked"
+    },
+    {
+      "evidenceTier": "static_spike",
       "name": "https://omt-global.github.io/axiom/schemas/axiom.runtime_concurrency.v1.schema.json",
       "source": "stage1/compiler-contracts/schemas/axiom.runtime_concurrency.v1.schema.json",
       "status": "checked"
@@ -2011,11 +2017,11 @@
       "direct_runtime": 2,
       "production_qualified": 0,
       "scaffold": 5,
-      "static_spike": 242,
+      "static_spike": 243,
       "unsupported": 5
     },
     "runtimeAbiRows": 34,
-    "schemas": 80,
+    "schemas": 81,
     "stdlibFunctions": 307,
     "stdlibModules": 34,
     "supportedNativeBackend": "cranelift"
