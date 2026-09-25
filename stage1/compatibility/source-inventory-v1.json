@@ -5,7 +5,7 @@
     "default": "0.1.0",
     "overrides": {
       "axiom://abi/direct-native": "0.2.0",
-      "axiom://cli/axiomc": "0.3.0",
+      "axiom://cli/axiomc": "0.4.0",
       "axiom://schema/axiom.compiler.stdlib_catalog.v1": "0.4.0",
       "axiom://package/lockfile": "0.2.0",
       "axiom://package/manifest": "0.2.0",
@@ -14,7 +14,7 @@
       "axiom://schema/axiom-package-verification-expectation-v1": "0.2.0",
       "axiom://schema/axiom-package-verification-v1": "0.2.0",
       "axiom://schema/axiom-registry-index-v2": "0.2.0",
-      "axiom://schema/axiom.stage1.command": "0.2.0",
+      "axiom://schema/axiom.stage1.command": "0.3.0",
       "axiom://schema/axiom.stage1.v1": "0.2.0",
       "axiom://schema/axiom-trust-roots-v1": "0.2.0",
       "axiom://schema/axiom.toml": "0.2.0",
