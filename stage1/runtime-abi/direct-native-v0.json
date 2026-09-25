@@ -168,7 +168,10 @@
       "denial_evidence": [
         "stage1/conformance/fail/ownership_use_after_move/expected-error.json"
       ],
-      "notes": "Projection-sensitive move-state programs fail closed with backend.runtime_lowering_required until owned aggregate movement is lowered into the native runtime.",
+      "runtime_evidence": [
+        "stage1/crates/axiomc/tests/cranelift_backend.rs"
+      ],
+      "notes": "The direct-native path has executable evidence for moving fixed-array fields, including nested integer and boolean slots, out of a local owned struct. Field and literal-index projections transfer materialized slots and boolean conditions to the destination; chained moves work and unmoved struct fields remain readable. Unsized owned-array moves still fail closed with backend.runtime_lowering_required. Dynamic projections and aggregate storage, calls, returns, and cleanup remain unsupported; this generic row stays partial under #1438, with broader lifecycle work tracked by #1439.",
       "blockers": [
         1438
       ]

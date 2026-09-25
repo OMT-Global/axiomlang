@@ -127,9 +127,23 @@ native backend attempts lowering or native execution.
 ## Current Status
 
 The checked-in contract is partial. Direct-native builds fail closed instead of
-executing unsupported program effects during compilation. Nine rows retain
+executing unsupported program effects during compilation. Eight rows retain
 compiler-side or denial evidence but no longer claim runtime-positive proof; their
 blocker issues track the native lowering required before the contract is ready.
+
+### Owned move-state implementation ceiling
+
+The generic owned.move_state row remains **partial**, blocked by #1438. Positive
+runtime evidence covers nonempty fixed-size integer/boolean arrays materialized
+inside local struct fields, including nested arrays, field/literal-index source
+projections, and chained destination moves. Unmoved struct fields remain readable.
+
+This is not general aggregate ownership lowering: unsized owned-array moves still
+fail closed with backend.runtime_lowering_required (an executable regression
+retains that ceiling). Dynamic-index moves, arbitrary aggregate storage/calls/
+returns/cleanup, and general nested-array literal binding outside this struct-field
+path are not covered by the supported slice. Front-end use-after-move rejection
+and the existing array-root ownership rules are unchanged.
 
 <!-- direct-native-runtime-abi-status:start -->
 
@@ -145,7 +159,7 @@ _Generated from `stage1/runtime-abi/direct-native-v0.json`; run `make stage1-dir
 | `map.lookup` | `implemented` | - | evidence:1, runtime:1 | The Cranelift spike covers direct map indexing, get, get_or_default, map_contains_key, map_keys, helper-returned direct index, contains-key, and de... |
 | `numeric.scalars` | `implemented` | - | evidence:1, runtime:1, denial:2 | The Cranelift spike covers several scalar widths and casts. |
 | `option` | `implemented` | - | evidence:1, runtime:1, denial:1 | The direct-native path now has narrow runtime evidence for local Option<int> and Option<bool> construction as tag/payload locals, scalar option rea... |
-| `owned.move_state` | `partial` | #1438 | evidence:1, denial:1 | Projection-sensitive move-state programs fail closed with backend.runtime_lowering_required until owned aggregate movement is lowered into the nati... |
+| `owned.move_state` | `partial` | #1438 | evidence:1, runtime:1, denial:1 | The direct-native path has executable evidence for moving fixed-array fields, including nested integer and boolean slots, out of a local owned struct. |
 | `result` | `implemented` | - | evidence:1, runtime:1, denial:1 | The Cranelift spike evaluates Result<T, E> through std/outcome.ax helpers, direct match arms, scalar payloads, string errors, and struct payloads. |
 | `slice.borrowed` | `implemented` | - | evidence:1, runtime:1, denial:2 | The Cranelift spike evaluates borrowed array slices for len, first, last, indexing, and function returns. |
 | `string` | `implemented` | - | evidence:2, runtime:2, denial:1 | The Cranelift spike builds and runs pure string intrinsics including string_clone, string_starts_with, string_strip_prefix, string_strip_suffix, st... |

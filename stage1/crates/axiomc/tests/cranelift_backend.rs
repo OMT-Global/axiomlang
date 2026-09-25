@@ -5044,7 +5044,7 @@ fn cranelift_backend_builds_borrowed_slice_binary() {
 
 #[cfg(not(windows))]
 #[test]
-fn cranelift_backend_rejects_owned_move_state_without_runtime_lowering() {
+fn cranelift_backend_lowers_owned_move_state_to_runtime() {
     let temp = tempfile::tempdir().expect("tempdir");
     let project = temp.path().join("owned-move-state");
     write_owned_move_state_project(&project);
@@ -5059,8 +5059,95 @@ fn cranelift_backend_rejects_owned_move_state_without_runtime_lowering() {
         ])
         .output()
         .expect("run axiomc build --backend cranelift");
-    // assert_runtime_lowering_required verifies generated_rust and binary are absent.
+    assert!(
+        output.status.success(),
+        "cranelift owned-move build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["backend"], "cranelift");
+    assert_eq!(payload["generated_rust"], Value::Null);
+    assert_eq!(
+        payload["lowering"]["execution_mode"],
+        "direct_native_runtime"
+    );
+    assert_eq!(payload["lowering"]["direct_native_runtime"], true);
+    assert_eq!(payload["lowering"]["legacy_fallback_attempted"], false);
+    let binary = payload["binary"].as_str().expect("binary path");
+    let run = Command::new(binary)
+        .output()
+        .expect("run cranelift owned-move binary");
+    assert!(
+        run.status.success(),
+        "cranelift owned-move binary failed: stderr={}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&run.stdout),
+        "2\n3\n4\n41\nfalse\ntrue\n99\n"
+    );
+}
+
+#[cfg(not(windows))]
+#[test]
+fn cranelift_backend_rejects_owned_move_state_without_runtime_lowering() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("owned-move-state");
+    write_owned_move_state_project(&project);
+    fs::write(
+        project.join("src/main.ax"),
+        r#"struct Pair {
+name: string
+values: [int]
+}
+
+let pair: Pair = Pair { name: "left", values: [1, 2, 3] }
+let moved: [int] = pair.values
+print len(moved)
+print pair.name
+"#,
+    )
+    .expect("write unsized owned move source");
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run cranelift unsized owned-move build");
     assert_runtime_lowering_required(&output, "owned-move-state");
+}
+
+#[cfg(not(windows))]
+#[test]
+fn cranelift_backend_rejects_owned_move_source_reuse() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("owned-move-reuse");
+    write_owned_move_state_project(&project);
+    let source_path = project.join("src/main.ax");
+    let mut source = fs::read_to_string(&source_path).expect("read owned move source");
+    source.push_str("print moved_flags[0]\n");
+    fs::write(&source_path, source).expect("write invalid source reuse");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .args([
+            "build",
+            project.to_str().expect("project path"),
+            "--backend",
+            "cranelift",
+            "--json",
+        ])
+        .output()
+        .expect("run cranelift invalid owned-move build");
+    assert!(!output.status.success(), "moved source must not be reusable");
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build JSON");
+    assert_eq!(payload["error"]["code"], "use_after_move");
+    assert!(!project.join("dist/app").exists());
 }
 
 #[cfg(not(windows))]
@@ -12268,7 +12355,7 @@ out_dir = "dist"
 fs = false
 net = false
 process = false
-env = true
+env = ["AXIOM_OWNED_MOVE_RUNTIME"]
 clock = false
 crypto = false
 
@@ -12290,14 +12377,26 @@ source = "path"
     fs::write(
         project.join("src/main.ax"),
         r#"struct Pair {
-name: string
-values: [int]
+name: int
+values: [[int; 2]; 2]
+flags: [[bool; 2]; 2]
 }
 
-let pair: Pair = Pair { name: "left", values: [1, 2, 3] }
-let moved: [int] = pair.values
+let pair: Pair = Pair { name: 41, values: [[1, 2], [3, 4]], flags: [[true, false], [false, true]] }
+let matrix: [[int; 2]; 2] = pair.values
+let moved: [int; 2] = matrix[1]
+let flag_matrix: [[bool; 2]; 2] = pair.flags
+let moved_flags: [bool; 2] = flag_matrix[1]
+let final_flags: [bool; 2] = moved_flags
 print len(moved)
+print moved[0]
+print moved[1]
 print pair.name
+print final_flags[0]
+print final_flags[1]
+if final_flags[1] {
+print 99
+}
 "#,
     )
     .expect("write owned move source");
