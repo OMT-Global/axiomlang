@@ -57,7 +57,7 @@ property fn int_property_010(input: int): bool {
 }
 
 property fn int_property_011(input: int): bool {
-    return(input == input) == true
+    return (input == input) == true
 }
 
 property fn int_property_012(input: int): bool {
@@ -134,7 +134,7 @@ property fn bool_property_002(input: bool): bool {
 }
 
 property fn bool_property_003(input: bool): bool {
-    return(input == true) || (input == false)
+    return (input == true) || (input == false)
 }
 
 property fn bool_property_004(input: bool): bool {
@@ -180,11 +180,11 @@ property fn bool_property_012(input: bool): bool {
 }
 
 property fn bool_property_013(input: bool): bool {
-    return(input && true) || (input == false)
+    return (input && true) || (input == false)
 }
 
 property fn bool_property_014(input: bool): bool {
-    return(input || false) || (input == false)
+    return (input || false) || (input == false)
 }
 
 property fn bool_property_015(input: bool): bool {
@@ -220,11 +220,11 @@ property fn bool_property_020(input: bool): bool {
 }
 
 property fn bool_property_021(input: bool): bool {
-    return(input == input) && true
+    return (input == input) && true
 }
 
 property fn bool_property_022(input: bool): bool {
-    return(input == input) || false
+    return (input == input) || false
 }
 
 property fn bool_property_023(input: bool): bool {

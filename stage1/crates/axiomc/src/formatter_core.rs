@@ -229,7 +229,19 @@ fn needs_space(previous: &Lexeme<'_>, current: &Lexeme<'_>) -> bool {
     if matches!(previous.text, ":" | ",") {
         return true;
     }
-    if current.text == "(" && matches!(previous.text, "if" | "while" | "match" | "for") {
+    // Statement keywords need a separator before a parenthesized expression;
+    // otherwise the parser reads e.g. `return(` as an unrecognized statement.
+    if current.text == "("
+        && matches!(
+            previous.text,
+            "if" | "while" | "match" | "for" | "return" | "print" | "panic" | "defer"
+        )
+    {
+        return true;
+    }
+    // Keep the borrow prefix tight, but retain the mutable-type separator:
+    // `&mut [int]` is valid; `&mut[int]` is not.
+    if previous.text == "mut" && current.text == "[" {
         return true;
     }
     if previous.text == "}" && current.kind == Kind::Word {

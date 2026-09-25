@@ -17,7 +17,7 @@ fn wrap(values: &[int]): LocalView {
     return LocalView {view: tail(values)}
 }
 
-fn bump_first(values: &mut[int]): int {
+fn bump_first(values: &mut [int]): int {
     values[0] = values[0] + 1
     return values[0]
 }
