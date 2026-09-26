@@ -105,3 +105,62 @@ fn manifest_dependency_paths_reject_blank_in_both_forms() {
         );
     }
 }
+
+fn registry_config(name: &str) -> String {
+    format!(
+        "[registry]\nname = \"{name}\"\nindex = \"https://registry.example.test/index.json\"\n\
+         trust_roots = \"trust/roots.json\"\nexpectation = \"trust/expectation.json\"\n"
+    )
+}
+
+#[test]
+fn manifest_registry_dependencies_require_root_registry() {
+    let v = validator();
+    for name in ["official", "default", "custom_42-registry"] {
+        for root in [PACKAGE, "[workspace]\nmembers = []\n"] {
+            for paths in ["", "local = \"../local\"\nother = { path = \"../other\" }\n"] {
+                let source = format!(
+                    "{root}[dependencies]\n{paths}dep = {{ registry = \"{name}\", namespace = \"team\", version = \"^1.2.3\" }}\n"
+                );
+                assert_parity(&v, &source, false);
+                assert_parity(&v, &format!("{source}{}", registry_config(name)), true);
+            }
+        }
+    }
+}
+
+#[test]
+fn manifest_without_registry_dependencies_does_not_require_root_registry() {
+    let v = validator();
+    for dependencies in [
+        "",
+        "[dependencies]\n",
+        "[dependencies]\nlocal = \"../local\"\n",
+        "[dependencies.local]\npath = \"../local\"\n",
+        // A dependency *named* registry is not a registry source.
+        "[dependencies.registry]\npath = \"../local\"\n",
+    ] {
+        for root in [PACKAGE, "[workspace]\nmembers = []\n"] {
+            let source = format!("{root}{dependencies}");
+            assert_parity(&v, &source, true);
+            // The converse does not hold: an unused registry is allowed.
+            assert_parity(&v, &format!("{source}{}", registry_config("custom")), true);
+        }
+    }
+}
+
+#[test]
+fn manifest_registry_name_equality_remains_parser_only() {
+    let v = validator();
+    let source = format!(
+        "{PACKAGE}{}[dependencies]\ndep = {{ registry = \"other\", namespace = \"team\", version = \"^1.2.3\" }}\n",
+        registry_config("official")
+    );
+    let decoded: toml::Value = toml::from_str(&source).unwrap();
+    let instance = serde_json::to_value(decoded).unwrap();
+    // Standard JSON Schema cannot compare arbitrary instance strings. The root
+    // prerequisite is supported; matching the configured name remains parser-only.
+    assert!(v.is_valid(&instance));
+    let error = parse_manifest_exact(source.as_bytes(), Path::new("axiom.toml")).unwrap_err();
+    assert!(error.message.contains("configured registry"), "{error:?}");
+}
