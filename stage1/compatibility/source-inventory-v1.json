@@ -1,6 +1,6 @@
 {
   "schema_version": "axiom.compatibility_source_inventory.v1",
-  "contract_version": "0.23.0",
+  "contract_version": "0.24.0",
   "surface_versions": {
     "default": "0.1.0",
     "overrides": {
@@ -8,7 +8,7 @@
       "axiom://cli/axiomc": "0.4.0",
       "axiom://schema/axiom.compiler.stdlib_catalog.v1": "0.4.0",
       "axiom://package/lockfile": "0.2.0",
-      "axiom://package/manifest": "0.2.0",
+      "axiom://package/manifest": "0.2.1",
       "axiom://schema/axiom-build-lowering-evidence-v1": "0.2.0",
       "axiom://schema/axiom-package-signature-v1": "0.2.0",
       "axiom://schema/axiom-package-verification-expectation-v1": "0.2.0",
@@ -18,7 +18,7 @@
       "axiom://schema/axiom.stage1.command": "0.3.0",
       "axiom://schema/axiom.stage1.v1": "0.2.0",
       "axiom://schema/axiom-trust-roots-v1": "0.2.0",
-      "axiom://schema/axiom.toml": "0.2.0",
+      "axiom://schema/axiom.toml": "0.2.1",
       "axiom://schema/axiom-quality-report-v1": "0.2.0",
       "axiom://schema/axiom-selfhost-snapshot-manifest-v0": "0.2.0"
     }
