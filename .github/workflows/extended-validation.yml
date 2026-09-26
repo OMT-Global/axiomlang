@@ -362,8 +362,6 @@ jobs:
       || (github.event_name == 'workflow_dispatch' && github.event.inputs.evidence_pr_sha != ''))
     runs-on: ubuntu-24.04
     timeout-minutes: 120
-    env:
-      CARGO_TARGET_DIR: ${{ runner.temp }}/axiom-target-evidence-linux-x86-64
     steps:
       - name: Validate approval-gated evidence dispatch input
         if: github.event_name == 'workflow_dispatch'
