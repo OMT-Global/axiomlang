@@ -199,7 +199,7 @@ if not target_job:
 for fragment in (
     "name: Target Support Evidence (linux-x86-64)",
     "runs-on: ubuntu-24.04",
-    "toolchain: ${{ env.RUST_VERSION }}",
+    "uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8",
     "cargo fetch --locked --manifest-path stage1/Cargo.toml",
     "python3 scripts/ci/run-target-support-evidence-v1.py run",
     "--expected-target 'x86_64-unknown-linux-gnu'",
@@ -244,8 +244,8 @@ elif not (
     < target_job.index(upload_marker)
 ):
     errors.append("target-support-evidence steps must run in validation, checkout, evidence, upload order")
-if not re.search(r"^  RUST_VERSION: '1\.90\.0'$", workflow, re.MULTILINE):
-    errors.append("extended validation must pin Rust 1.90.0")
+if "RUST_VERSION" in workflow:
+    errors.append("extended validation must not reintroduce a stale RUST_VERSION pin below the locked dependency MSRV")
 if "evidence_pr_sha:" not in workflow:
     errors.append("workflow_dispatch must declare the evidence_pr_sha input")
 # Fail-closed runner policy: hosted ubuntu-24.04 only. macOS arm64 evidence
