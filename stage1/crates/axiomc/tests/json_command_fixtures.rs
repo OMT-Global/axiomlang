@@ -352,3 +352,65 @@ fn doc_fixtures_cover_public_api_extraction_and_missing_sources() {
             .contains("no .ax files found")
     );
 }
+
+#[test]
+fn manifest_failure_fixture_matches_real_check_json_and_both_schemas() {
+    let generic = schema_validator();
+    let schema_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../compiler-contracts/schemas/axiom.stage1.command.schema.json");
+    let schema: Value = serde_json::from_str(&fs::read_to_string(schema_path).unwrap()).unwrap();
+    let command = jsonschema::validator_for(&schema).unwrap();
+    let expected = fixture("check", "manifest-failure.json");
+    let project = tempfile::tempdir().unwrap();
+    fs::write(project.path().join("axiom.toml"), "[package\n").unwrap();
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .arg("check")
+        .arg(project.path())
+        .arg("--json")
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    assert!(output.stderr.is_empty());
+    let mut actual: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(
+        actual["error"]["path"],
+        project.path().join("axiom.toml").to_str().unwrap()
+    );
+    actual["error"]["path"] = Value::String("<project>/axiom.toml".into());
+    assert_eq!(actual, expected);
+    let is_manifest_failure = |value: &Value| {
+        generic.is_valid(value)
+            && command.is_valid(value)
+            && value["command"] == "check"
+            && value["ok"] == false
+            && value["error"]["kind"] == "manifest"
+            && value["error"]["code"] == "manifest.invalid"
+    };
+    for value in [&actual, &expected] {
+        assert_matches_stage1_schema(&generic, value);
+        assert!(command.is_valid(value));
+        assert_envelope(value, "check", false);
+        assert!(is_manifest_failure(value));
+    }
+    let mut missing_error = expected.clone();
+    missing_error.as_object_mut().unwrap().remove("error");
+    assert!(!is_manifest_failure(&missing_error));
+    let mut missing_command = expected.clone();
+    missing_command.as_object_mut().unwrap().remove("command");
+    assert!(!generic.is_valid(&missing_command));
+    assert!(!command.is_valid(&missing_command));
+    assert!(!is_manifest_failure(&missing_command));
+    for (field, replacement) in [
+        ("command", Value::String("run".into())),
+        ("ok", Value::Bool(true)),
+    ] {
+        let mut mutant = expected.clone();
+        mutant[field] = replacement;
+        assert!(!is_manifest_failure(&mutant));
+    }
+    for field in ["kind", "code"] {
+        let mut mutant = expected.clone();
+        mutant["error"][field] = Value::String("not-manifest".into());
+        assert!(!is_manifest_failure(&mutant));
+    }
+}
