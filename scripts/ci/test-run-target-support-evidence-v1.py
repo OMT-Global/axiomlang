@@ -8,6 +8,7 @@ import io
 import json
 import os
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -331,6 +332,45 @@ class TargetSupportEvidenceTests(unittest.TestCase):
             path = Path(temporary) / "evidence.json"
             path.write_text(json.dumps(passing_evidence()), encoding="utf-8")
             self.assertEqual(runner.main(["validate", "--evidence", str(path)]), 0)
+
+    def test_validate_cli_never_writes_bytecode_cache_into_the_checkout(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            script_directory = root / "scripts" / "ci"
+            script_directory.mkdir(parents=True)
+            schema_directory = root / "stage1" / "schemas"
+            schema_directory.mkdir(parents=True)
+            for name in ("run-target-support-evidence-v1.py", "json_schema_v1.py"):
+                source = ROOT / "scripts" / "ci" / name
+                (script_directory / name).write_bytes(source.read_bytes())
+            schema = ROOT / "stage1/schemas/axiom-target-support-evidence-v1.schema.json"
+            (schema_directory / schema.name).write_bytes(schema.read_bytes())
+            evidence = root / "evidence.json"
+            evidence.write_text(json.dumps(passing_evidence()), encoding="utf-8")
+            environment = {
+                key: value
+                for key, value in os.environ.items()
+                if key != "PYTHONDONTWRITEBYTECODE"
+            }
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    str(script_directory / "run-target-support-evidence-v1.py"),
+                    "validate",
+                    "--evidence",
+                    str(evidence),
+                ],
+                cwd=root,
+                env=environment,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
+            self.assertFalse(
+                (script_directory / "__pycache__").exists(),
+                "the evidence CLI must never dirty an exact-head checkout with its own bytecode cache",
+            )
 
     def test_run_cli_rejects_malformed_runner_labels_before_execution(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

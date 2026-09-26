@@ -13,6 +13,11 @@ import sys
 from pathlib import Path
 from typing import Any
 
+# Never write __pycache__/*.pyc beside this script: the exact-head checkout
+# purity gate below rejects any untracked or ignored input, including this
+# interpreter's own bytecode cache for the local json_schema_v1 import.
+sys.dont_write_bytecode = True
+
 from json_schema_v1 import validate_draft_2020_12
 
 
