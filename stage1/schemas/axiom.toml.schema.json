@@ -465,6 +465,22 @@
     }
   },
   "dependentRequired": {"build": ["package"]},
+  "$comment": "Registry dependencies require a root registry. Equality with its arbitrary configured name remains parser-only.",
+  "if": {
+    "not": {"required": ["registry"]}
+  },
+  "then": {
+    "properties": {
+      "dependencies": {
+        "additionalProperties": {
+          "not": {
+            "type": "object",
+            "required": ["registry"]
+          }
+        }
+      }
+    }
+  },
   "anyOf": [
     {
       "required": [
