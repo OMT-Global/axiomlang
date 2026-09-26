@@ -24,6 +24,14 @@ fn git(root: &Path, args: &[&str]) -> String {
     String::from_utf8(output.stdout).expect("git output is UTF-8")
 }
 
+/// Publish a race-result file atomically. The parent polls for existence, so
+/// a plain create-then-write can be observed empty mid-publication.
+fn publish_result(root: &Path, id: &str, bytes: &[u8]) {
+    let tmp = root.join(format!("result-{id}.tmp"));
+    fs::write(&tmp, bytes).unwrap();
+    fs::rename(&tmp, root.join(format!("result-{id}"))).unwrap();
+}
+
 fn fixture() -> (TempDir, PathBuf, String) {
     let root = TempDir::new().expect("create fixture root");
     let source = root.path().join("source");
@@ -646,13 +654,13 @@ fn simultaneous_recovery_child() {
         Ok(mut transaction) => {
             transaction.resume().unwrap();
             transaction.read("allowed.txt").unwrap();
-            fs::write(root.join(format!("result-{id}")), b"owned").unwrap();
+            publish_result(&root, &id, b"owned");
             // Parent kills this owner after its acknowledged event is durable.
             thread::sleep(Duration::from_secs(20));
             drop(transaction);
             panic!("parent failed to terminate crash fixture");
         }
-        Err(error) => fs::write(root.join(format!("result-{id}")), error).unwrap(),
+        Err(error) => publish_result(&root, &id, error.as_bytes()),
     }
 }
 
