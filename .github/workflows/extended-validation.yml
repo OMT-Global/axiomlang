@@ -6,6 +6,11 @@ on:
   schedule:
     - cron: '0 7 * * *'
   workflow_dispatch:
+    inputs:
+      evidence_pr_sha:
+        description: 'Optional exact 40-hex PR head SHA for the approval-gated pre-merge Linux target-support evidence path'
+        required: false
+        type: string
 
 concurrency:
   group: extended-validation-${{ github.ref }}
@@ -340,6 +345,104 @@ jobs:
           path: artifacts/toolchain-qualification
           if-no-files-found: error
 
+  target-support-evidence:
+    name: Target Support Evidence (linux-x86-64)
+    needs: changes
+    # Continuous exact-head Linux evidence for protected main plus the
+    # approval-gated exact-PR-SHA dispatch path for pre-merge evidence.
+    # macOS arm64 exact-head evidence is produced only by the explicitly
+    # reviewed specialized evidence lane documented in
+    # docs/target-support-v1.md and is never a CI job; ordinary CI stays on
+    # hosted ubuntu-24.04.
+    if: >-
+      (needs.changes.outputs.extended == 'true' || needs.changes.outputs.app == 'true')
+      && github.repository == 'OMT-Global/axiomlang'
+      && (github.ref == 'refs/heads/main'
+      || (github.event_name == 'workflow_dispatch' && github.event.inputs.evidence_pr_sha != ''))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - name: Validate approval-gated evidence dispatch input
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          EVIDENCE_PR_SHA: ${{ github.event.inputs.evidence_pr_sha }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$EVIDENCE_PR_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::evidence_pr_sha must be an exact 40-hex commit SHA" >&2
+            exit 1
+          fi
+
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4 pinned 2026-05-30
+        with:
+          ref: ${{ github.event.inputs.evidence_pr_sha || github.sha }}
+
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable pinned 2026-04-19
+
+      - name: Ensure C compiler availability
+        run: |
+          set -euo pipefail
+
+          for candidate in cc gcc clang; do
+            if command -v "$candidate" >/dev/null 2>&1; then
+              exit 0
+            fi
+          done
+
+          if command -v apt-get >/dev/null 2>&1; then
+            apt_cache="${RUNNER_TEMP:-/tmp}/axiom-extended-apt-cache"
+            apt_lists="${RUNNER_TEMP:-/tmp}/axiom-extended-apt-lists"
+            mkdir -p "$apt_cache/partial" "$apt_lists/partial"
+            apt_get=(
+              apt-get
+              -o Acquire::Retries=3
+              -o Dpkg::Use-Pty=0
+              -o APT::Sandbox::User=root
+              -o Dir::Cache::archives="$apt_cache"
+              -o Dir::State::lists="$apt_lists"
+            )
+            if [[ "$(id -u)" != "0" ]]; then
+              if command -v sudo >/dev/null 2>&1; then
+                apt_get=(sudo "${apt_get[@]}")
+              else
+                apt_get=()
+              fi
+            fi
+            if (( ${#apt_get[@]} )); then
+              "${apt_get[@]}" update || true
+              DEBIAN_FRONTEND=noninteractive "${apt_get[@]}" install -y --no-install-recommends gcc libc6-dev || true
+            fi
+          fi
+
+          for candidate in cc gcc clang; do
+            if command -v "$candidate" >/dev/null 2>&1; then
+              exit 0
+            fi
+          done
+
+          echo "::error::Extended validation requires a usable C compiler (cc, gcc, or clang)" >&2
+          exit 1
+
+      - name: Fetch locked Rust dependencies
+        run: cargo fetch --locked --manifest-path stage1/Cargo.toml
+
+      - name: Produce exact-head target evidence
+        run: >-
+          python3 scripts/ci/run-target-support-evidence-v1.py run
+          --expected-target 'x86_64-unknown-linux-gnu'
+          --head-sha '${{ github.event.inputs.evidence_pr_sha || github.sha }}'
+          --trigger '${{ github.event_name }}'
+          --runner-labels-json '["ubuntu-24.04"]'
+          --output 'artifacts/target-support/linux-x86-64.json'
+
+      - name: Upload target support evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v4 pinned 2026-04-19
+        with:
+          name: target-support-linux-x86-64-${{ github.event.inputs.evidence_pr_sha || github.sha }}
+          path: artifacts/target-support/linux-x86-64.json
+          if-no-files-found: error
+
   validate-secrets:
     name: Validate Secrets
     runs-on: ubuntu-24.04
@@ -357,6 +460,7 @@ jobs:
       - changes
       - fast-checks
       - extended-checks
+      - target-support-evidence
       - validate-secrets
     steps:
       - name: Check extended validation jobs
@@ -365,6 +469,7 @@ jobs:
             changes=${{ needs.changes.result }}
             fast-checks=${{ needs.fast-checks.result }}
             extended-checks=${{ needs.extended-checks.result }}
+            target-support-evidence=${{ needs.target-support-evidence.result }}
             validate-secrets=${{ needs.validate-secrets.result }}
         run: |
           failed=0

@@ -193,6 +193,76 @@ else:
     if canonical is None or canonical.group("body").strip() != vet_setup.group("body").strip():
         errors.append("extended-checks cargo-vet setup must match pinned supply-chain provisioning")
 
+target_job = next((body for name, body in jobs if name == "target-support-evidence"), "")
+if not target_job:
+    errors.append("target-support-evidence job is missing")
+for fragment in (
+    "name: Target Support Evidence (linux-x86-64)",
+    "runs-on: ubuntu-24.04",
+    "uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8",
+    "cargo fetch --locked --manifest-path stage1/Cargo.toml",
+    "python3 scripts/ci/run-target-support-evidence-v1.py run",
+    "--expected-target 'x86_64-unknown-linux-gnu'",
+    "--head-sha '${{ github.event.inputs.evidence_pr_sha || github.sha }}'",
+    "--trigger '${{ github.event_name }}'",
+    "--runner-labels-json '[\"ubuntu-24.04\"]'",
+    "--output 'artifacts/target-support/linux-x86-64.json'",
+    "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+    "ref: ${{ github.event.inputs.evidence_pr_sha || github.sha }}",
+):
+    if fragment not in target_job:
+        errors.append(f"target-support-evidence is missing required contract: {fragment}")
+if "needs.changes.outputs.extended == 'true'" not in target_job:
+    errors.append("target-support-evidence must consume the extended selection output")
+if "github.repository == 'OMT-Global/axiomlang'" not in target_job:
+    errors.append("target-support-evidence must be bound to the governed repository")
+if "github.ref == 'refs/heads/main'" not in target_job:
+    errors.append("continuous target evidence must remain bound to the protected main ref")
+if "github.event_name == 'workflow_dispatch'" not in target_job:
+    errors.append("pre-merge target evidence must require an explicit manual dispatch")
+if "github.event.inputs.evidence_pr_sha != ''" not in target_job:
+    errors.append("manual dispatches must pin an exact evidence_pr_sha to produce pre-merge evidence")
+if "^[0-9a-f]{40}$" not in target_job:
+    errors.append("evidence_pr_sha validation must fail closed on malformed input")
+if "if: always()" not in target_job:
+    errors.append("target-support-evidence must upload partial evidence after failures")
+validate_marker = "- name: Validate approval-gated evidence dispatch input"
+checkout_marker = "uses: actions/checkout@"
+produce_marker = "- name: Produce exact-head target evidence"
+upload_marker = "- name: Upload target support evidence"
+if (
+    validate_marker not in target_job
+    or checkout_marker not in target_job
+    or produce_marker not in target_job
+    or upload_marker not in target_job
+):
+    errors.append("target-support-evidence must validate the dispatch input, check out the exact head, produce evidence, and upload artifacts")
+elif not (
+    target_job.index(validate_marker)
+    < target_job.index(checkout_marker)
+    < target_job.index(produce_marker)
+    < target_job.index(upload_marker)
+):
+    errors.append("target-support-evidence steps must run in validation, checkout, evidence, upload order")
+if "RUST_VERSION" in workflow:
+    errors.append("extended validation must not reintroduce a stale RUST_VERSION pin below the locked dependency MSRV")
+if "evidence_pr_sha:" not in workflow:
+    errors.append("workflow_dispatch must declare the evidence_pr_sha input")
+# Fail-closed runner policy: hosted ubuntu-24.04 only. macOS arm64 evidence
+# comes from the specialized node lane documented in docs/target-support-v1.md,
+# never from a CI job or a self-hosted pool.
+if "self-hosted" in workflow:
+    errors.append("extended validation must not schedule self-hosted runners; ordinary CI stays on hosted ubuntu-24.04")
+for forbidden in ("aarch64-apple-darwin", "macos-arm64", "matrix.runner", "fromJSON(matrix"):
+    if forbidden in workflow:
+        errors.append(f"macOS target evidence must stay out of CI: forbidden fragment {forbidden}")
+
+gate_job = next((body for name, body in jobs if name == "extended-validation-gate"), "")
+if "- target-support-evidence" not in gate_job:
+    errors.append("extended validation gate must depend on target-support-evidence")
+if "target-support-evidence=${{ needs.target-support-evidence.result }}" not in gate_job:
+    errors.append("extended validation gate must inspect target-support-evidence")
+
 if errors:
     for error in errors:
         print(f"error: {error}", file=sys.stderr)
