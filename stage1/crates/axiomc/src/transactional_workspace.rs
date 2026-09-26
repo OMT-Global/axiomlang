@@ -566,6 +566,7 @@ impl TransactionalWorkspace {
     pub fn write(&mut self, path: &str, bytes: &[u8]) -> Result<(), String> {
         self.require_active()?;
         let target = self.authorize_write(path)?;
+        let creates_structure = self.write_creates_structure(path, &target)?;
         let before = self.file_digest_authorized(path, &target)?;
         self.record("checkpoint", path, "before_write")?;
         self.begin_effect(&format!("write:{path}"))?;
@@ -575,6 +576,7 @@ impl TransactionalWorkspace {
             path,
             &format!("{}|{}", optional_digest(&before), sha256_digest(bytes)),
             &[path],
+            creates_structure,
         )
     }
 
@@ -585,11 +587,15 @@ impl TransactionalWorkspace {
         self.record("checkpoint", path, "before_delete")?;
         self.begin_effect(&format!("delete:{path}"))?;
         self.delete_authorized(path, &target)?;
+        // An authorized delete removes an existing scoped file (directory
+        // subjects fail closed at the before-digest) and cannot create
+        // structure, so the unscoped baseline never changes here.
         self.finish_effect(
             "delete",
             path,
             &format!("{}|-", optional_digest(&before)),
             &[path],
+            false,
         )
     }
 
@@ -601,11 +607,15 @@ impl TransactionalWorkspace {
         self.record("checkpoint", &format!("{from}->{to}"), "before_rename")?;
         self.begin_effect(&format!("rename:{from}->{to}"))?;
         self.rename_authorized(from, &source, to, &target)?;
+        // Both rename endpoints are scoped paths, and the anchored rename
+        // requires an existing target parent, so unscoped structure is
+        // unchanged.
         self.finish_effect(
             "rename",
             &format!("{from}->{to}"),
             &format!("{}|{}", optional_digest(&before), optional_digest(&before)),
             &[from, to],
+            false,
         )
     }
 
@@ -625,6 +635,7 @@ impl TransactionalWorkspace {
             path,
             &format!("{}|{}", optional_digest(&digest), optional_digest(&digest)),
             &[path],
+            false,
         )
     }
 
@@ -978,6 +989,22 @@ impl TransactionalWorkspace {
         secure_chmod(&self.root_dir, path, mode)
     }
 
+    /// Reports whether an authorized write must first create missing parent
+    /// directories. Created ancestors are unscoped workspace structure, so
+    /// the caller re-journals the unscoped baseline after such an effect.
+    fn write_creates_structure(&self, path: &str, target: &Path) -> Result<bool, String> {
+        #[cfg(unix)]
+        {
+            let _ = target;
+            return creates_missing_ancestors(&self.root_dir, path);
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = path;
+            Ok(missing_ancestor_dirs(target))
+        }
+    }
+
     fn record(&mut self, operation: &str, subject: &str, result: &str) -> Result<(), String> {
         self.state.events.push(AuditEvent {
             sequence: self.state.events.len() as u64,
@@ -1019,6 +1046,7 @@ impl TransactionalWorkspace {
         subject: &str,
         result: &str,
         changed_paths: &[&str],
+        structure_changed: bool,
     ) -> Result<(), String> {
         self.record(operation, subject, result)?;
         self.state.pending_effect = None;
@@ -1035,6 +1063,17 @@ impl TransactionalWorkspace {
             &self.state.policy,
             &self.state.authorized_path_fingerprints,
         )?;
+        if structure_changed {
+            // Authorized writes can create parent directories, which belong
+            // to the unscoped workspace baseline. Re-journal that baseline
+            // after structure-creating effects so interrupt/resume and crash
+            // recovery compare against post-effect truth instead of
+            // rejecting the transaction's own authorized scaffolding as
+            // unjournaled drift. Structure-free effects keep the walk-free
+            // fast path.
+            self.state.unscoped_workspace_fingerprint =
+                unscoped_workspace_fingerprint(&root, &self.state.policy)?;
+        }
         self.persist()
     }
 }
@@ -1348,6 +1387,52 @@ fn validate_anchored_existing_path(root: &File, relative: &str) -> Result<(), St
     let (parent, leaf) = open_anchored_parent(root, relative, false)?;
     anchored_entry_stat(&parent, &leaf)?.ok_or_else(|| "path does not exist".to_string())?;
     Ok(())
+}
+
+#[cfg(unix)]
+fn creates_missing_ancestors(root: &File, relative: &str) -> Result<bool, String> {
+    let mut components = relative_components(relative)?;
+    // The leaf itself never contributes an unscoped row; only ancestors can.
+    components.pop();
+    let mut parent = root
+        .try_clone()
+        .map_err(|error| format!("cannot duplicate worktree root descriptor: {error}"))?;
+    for component in components {
+        match anchored_entry_stat(&parent, &component)? {
+            None => return Ok(true),
+            Some(stat) if (stat.st_mode & libc::S_IFMT) == libc::S_IFDIR => {}
+            // A non-directory ancestor makes the anchored effect fail closed;
+            // there is no structure to journal.
+            Some(_) => return Ok(false),
+        }
+        let descriptor = unsafe {
+            libc::openat(
+                parent.as_raw_fd(),
+                component.as_ptr(),
+                libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+            )
+        };
+        if descriptor < 0 {
+            return Err(path_authority_error(
+                "path authority rejected parent component",
+                io::Error::last_os_error(),
+            ));
+        }
+        parent = unsafe { File::from_raw_fd(descriptor) };
+    }
+    Ok(false)
+}
+
+#[cfg(not(unix))]
+fn missing_ancestor_dirs(target: &Path) -> bool {
+    let mut ancestor = target.parent();
+    while let Some(dir) = ancestor {
+        if !dir.is_dir() {
+            return true;
+        }
+        ancestor = dir.parent();
+    }
+    false
 }
 
 #[cfg(unix)]
@@ -1850,11 +1935,30 @@ fn open_lease(_path: &Path) -> io::Result<File> {
 #[cfg(unix)]
 fn lock_lease(file: &File) -> io::Result<()> {
     use std::os::unix::io::AsRawFd;
+    use std::time::{Duration, Instant};
 
-    if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } < 0 {
-        Err(io::Error::last_os_error())
-    } else {
-        Ok(())
+    // flock rides the open file description, and O_CLOEXEC descriptors only
+    // close at execve. A subprocess spawned anywhere in this process
+    // therefore references every live lease descriptor between fork and
+    // exec; if a transaction is dropped inside that window, the inherited
+    // reference keeps the lock alive past the parent's close until the child
+    // execs (observed: ~1ms). A bounded retry absorbs this same-process
+    // spawn artifact. A genuine live owner, in this process or another,
+    // still holds the lease after the deadline and fails closed with the
+    // same error.
+    const ACQUIRE_DEADLINE: Duration = Duration::from_millis(250);
+    const ACQUIRE_INTERVAL: Duration = Duration::from_millis(1);
+
+    let deadline = Instant::now() + ACQUIRE_DEADLINE;
+    loop {
+        if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0 {
+            return Ok(());
+        }
+        let error = io::Error::last_os_error();
+        if error.raw_os_error() != Some(libc::EWOULDBLOCK) || Instant::now() >= deadline {
+            return Err(error);
+        }
+        std::thread::sleep(ACQUIRE_INTERVAL);
     }
 }
 
@@ -2336,6 +2440,59 @@ mod tests {
         drop(txn);
 
         assert!(TransactionalWorkspace::recover(&worktree).is_err());
+    }
+
+    fn nested_policy() -> WorkspacePolicy {
+        WorkspacePolicy {
+            allowed_read_paths: BTreeSet::from([
+                "allowed.txt".into(),
+                "out/deep/result.json".into(),
+            ]),
+            allowed_write_paths: BTreeSet::from([
+                "allowed.txt".into(),
+                "out/deep/result.json".into(),
+            ]),
+            ..WorkspacePolicy::default()
+        }
+    }
+
+    #[test]
+    fn nested_scope_write_survives_interrupt_resume_and_recovery() {
+        let (repo, source, sha) = fixture();
+        let worktree = repo.path().join("txn");
+        let mut txn =
+            TransactionalWorkspace::create(&source, &worktree, &sha, nested_policy()).unwrap();
+        txn.write("out/deep/result.json", b"{\"ok\":true}")
+            .unwrap();
+        assert!(worktree.join("out/deep").is_dir());
+        txn.mark_interrupted().unwrap();
+        drop(txn);
+        let mut recovered = TransactionalWorkspace::recover(&worktree).unwrap();
+        assert_eq!(recovered.state().phase, TransactionPhase::Interrupted);
+        recovered.resume().unwrap();
+        recovered
+            .write("out/deep/result.json", b"{\"ok\":false}")
+            .unwrap();
+        recovered.abort().unwrap();
+        assert_eq!(recovered.state().phase, TransactionPhase::Aborted);
+        assert!(!worktree.join("out").exists());
+    }
+
+    #[test]
+    fn unscoped_drift_under_created_ancestors_is_still_rejected() {
+        let (repo, source, sha) = fixture();
+        let worktree = repo.path().join("txn");
+        let mut txn =
+            TransactionalWorkspace::create(&source, &worktree, &sha, nested_policy()).unwrap();
+        txn.write("out/deep/result.json", b"{}").unwrap();
+        txn.mark_interrupted().unwrap();
+        drop(txn);
+        fs::write(worktree.join("out/evil.txt"), b"unjournaled").unwrap();
+        let error = TransactionalWorkspace::recover(&worktree).unwrap_err();
+        assert!(
+            error.contains("does not match its durable journal"),
+            "{error}"
+        );
     }
 
     #[test]
