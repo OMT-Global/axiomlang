@@ -1,0 +1,26 @@
+=== specialized macOS evidence lane node identity (H1d binding run; relaunch after companion-app interruption killed the first attempt) ===
+2026-09-26T01:42:54Z
+ProductName:		macOS
+ProductVersion:		27.0
+BuildVersion:		26A428
+Darwin JMCTE-Macbook.local 27.0.0 Darwin Kernel Version 27.0.0: Tue Aug 11 21:05:48 PDT 2026; root:xnu-13432.1.9~1/RELEASE_ARM64_T6041 arm64
+hostname: JMCTE-Macbook.local
+user: johnteneyckjr.
+hw.model: Mac16,5
+hw.ncpu: 16
+
+rustc 1.93.1 (01f6ddf75 2026-02-11)
+binary: rustc
+commit-hash: 01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf
+commit-date: 2026-02-11
+host: aarch64-apple-darwin
+release: 1.93.1
+LLVM version: 21.1.8
+
+cargo 1.93.1 (083ac5135 2025-12-15)
+Python 3.9.6
+git version 2.54.0 (Apple Git-157)
+GNU bash, version 3.2.57(1)-release (arm64-apple-darwin26)
+
+lane dir: /tmp/axiom-1642-evidence-h1d.RW9art
+code head: ff5e549ea3fe238204c1e12a34a39606eb80e412

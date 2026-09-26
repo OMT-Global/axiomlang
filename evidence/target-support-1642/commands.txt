@@ -1,0 +1,81 @@
+# Exact commands — specialized macOS evidence lane (binding H1d run) and Linux dispatches
+# All node commands executed via OpenClaw node exec (host=node, node="JMCTE Macbook").
+# Read-mostly compliance: writes confined to the /tmp lane dir and the script's default
+# /tmp cargo target dir; no installs; no host config changes; no benchmarks.
+
+## Binding macOS lane run (START 2026-09-26T01:42:54Z, RC=0, END 2026-09-26T01:44:14Z)
+
+export PATH="$HOME/.cargo/bin:$PATH"
+export GIT_TERMINAL_PROMPT=0
+H1D=ff5e549ea3fe238204c1e12a34a39606eb80e412
+
+# 1. Verify the remote branch tip is the exact code head:
+git ls-remote https://github.com/OMT-Global/axiomlang.git \
+  refs/heads/pheidon/axiom-1642-target-evidence-20260925   # -> ff5e549ea3fe238204c1e12a34a39606eb80e412
+
+# 2. Fresh isolated lane:
+LANE=$(mktemp -d /tmp/axiom-1642-evidence-h1d.XXXXXX)      # -> /tmp/axiom-1642-evidence-h1d.RW9art
+git clone --quiet https://github.com/OMT-Global/axiomlang.git "$LANE/repo"
+cd "$LANE/repo"
+git checkout --quiet --detach "$H1D"
+git rev-parse HEAD                                          # -> ff5e549e...
+
+# 3. Preflight purity + offline dependency completeness (fail-closed):
+git status --porcelain=v1 --untracked-files=all --ignored=matching   # -> empty (CLEAN_OK)
+cargo fetch --locked --offline --manifest-path stage1/Cargo.toml     # -> rc 0 (OFFLINE_CACHE_OK)
+
+# 4. Node identity capture -> "$LANE/node-identity.txt":
+#    date -u; sw_vers; uname -a; hostname; whoami; sysctl -n hw.model; sysctl -n hw.ncpu;
+#    rustc -vV; cargo --version; python3 --version; git --version; bash --version
+
+# 5. Binding evidence run (detached: nohup caffeinate -i bash "$LANE/run-lane.sh" > "$LANE/macos-run.log" 2>&1 &)
+#    run-lane.sh contents:
+#      echo "START $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+#      RC=0
+#      PYTHONDONTWRITEBYTECODE=1 python3 scripts/ci/run-target-support-evidence-v1.py run \
+#        --expected-target aarch64-apple-darwin \
+#        --head-sha ff5e549ea3fe238204c1e12a34a39606eb80e412 \
+#        --trigger specialized-macos-evidence-lane \
+#        --runner-label JMCTE-Macbook \
+#        --runner-label specialized-macos-evidence-lane \
+#        --output /tmp/axiom-1642-evidence-h1d.RW9art/macos-arm64.json || RC=$?
+#      echo "RC=$RC"
+#      echo "END $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+#    (cwd = "$LANE/repo"; CARGO_TARGET_DIR left unset -> script default
+#     /tmp/axiom-target-evidence-macos-arm64, outside the worktree)
+
+# 6. Post-run verification:
+python3 scripts/ci/run-target-support-evidence-v1.py validate \
+  --evidence "$LANE/macos-arm64.json"                       # -> "target-support-evidence-v1: valid", rc 0
+shasum -a 256 "$LANE/macos-arm64.json" "$LANE/node-identity.txt" "$LANE/macos-run.log"
+git rev-parse HEAD                                          # -> ff5e549e...
+git status --porcelain=v1                                   # -> empty (tracked clean)
+
+# 7. Artifact transport to the author workspace: base64 -i <file> over node exec,
+#    decoded locally and sha256-verified against the values above (byte-exact match).
+
+## Superseded rehearsal runs (disclosure; artifacts NOT in the binding set)
+
+# H1b rehearsal (passed, ~100s): lane /tmp/axiom-1642-evidence.u78wq0 at
+#   f5ae3590f9d59a61d11f8e54a1cee2f82bdb44c0, START 2026-09-26T01:00:18Z;
+#   artifact sha256 e371dadb17c82ec937370727385f7909e4aedc715ed49a72b8912cca73437314
+#   (preserved in author checkpoint evidence/macos-lane-h1b/).
+# H1c rehearsal (passed, 76s): lane /tmp/axiom-1642-evidence-h1c.ZSmvL5 at
+#   4f2e329f18f251f1dd806a0309370bc8fcad04e1, 01:20:13Z->01:21:29Z;
+#   artifact sha256 ca6dffacf07abb168eee72aa8daafa28dca9fc9b696736878604d42dea899ac3.
+# First H1d attempt (killed by companion-app disconnect; no artifact):
+#   lane /tmp/axiom-1642-evidence-h1d.wotRh5, START 2026-09-26T01:39:13Z, no RC/END;
+#   forensics: repo clean, zero byproducts, no live processes.
+
+## Linux approval-gated dispatches (hosted ubuntu-24.04)
+
+# Dispatch attempt at H1 (NO run created): gh workflow run extended-validation.yml \
+#   --ref pheidon/axiom-1642-target-evidence-20260925 \
+#   -f evidence_pr_sha=91ec57036c32e9873149281c582d0c413beb9dbc
+#   -> rejected by GitHub's workflow parser (HTTP 422: runner context in job-level env); fixed by H1b
+# Run 1 (H1b) -> run 36206756482: gh workflow run extended-validation.yml \
+#   --ref pheidon/axiom-1642-target-evidence-20260925 \
+#   -f evidence_pr_sha=f5ae3590f9d59a61d11f8e54a1cee2f82bdb44c0
+# Run 2 (H1c): gh workflow run extended-validation.yml \
+#   --ref pheidon/axiom-1642-target-evidence-20260925 \
+#   -f evidence_pr_sha=4f2e329f18f251f1dd806a0309370bc8fcad04e1   # -> run 36207965390
