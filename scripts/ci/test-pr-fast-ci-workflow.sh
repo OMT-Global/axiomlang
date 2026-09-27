@@ -15,6 +15,43 @@ if [[ ! -f "$fast_checks_script" ]]; then
   exit 1
 fi
 
+# Fail closed if the fixture target loses ordinary PR execution or gate linkage.
+python3 - "$workflow" <<'PY'
+import pathlib
+import re
+import sys
+
+text = pathlib.Path(sys.argv[1]).read_text()
+def require(ok, message):
+    if not ok:
+        raise SystemExit("JSON command fixture coverage: " + message)
+
+def job(name):
+    match = re.search(r"^  " + name + r":\n.*?(?=^  [\w-]+:|\Z)", text, re.M | re.S)
+    require(match is not None, name + " job missing")
+    return match.group(0)
+
+require("\non:\n  pull_request:\n    types: [opened, edited, synchronize, reopened, ready_for_review]\n\n" in text,
+        "normal PR trigger changed")
+changes = job("changes")
+app_filter = changes.split("            app:\n", 1)[-1].split("            ci:\n", 1)[0]
+require("      app: ${{ steps.filter.outputs.app }}\n" in changes
+        and "        id: filter\n" in changes
+        and all("              - '" + path + "'\n" in app_filter
+                for path in ("stage1/**", ".github/workflows/**", "scripts/**")),
+        "source and CI changes must select the PR suite")
+suite = job("full-lib-suite")
+require(suite.split("    steps:\n", 1)[0] == "  full-lib-suite:\n    name: Full Lib Suite\n    runs-on: ubuntu-24.04\n    timeout-minutes: 45\n    needs: changes\n    if: >-\n      github.event.pull_request.draft == false &&\n      github.event.pull_request.head.repo.full_name == github.repository &&\n      (needs.changes.outputs.app == 'true' || needs.changes.outputs.ci == 'true')\n",
+        "hosted PR job reachability changed")
+require(suite.count("      - name: Run JSON command fixtures\n        # Exercise real CLI fixture envelopes, including manifest failure (#1738).\n        run: RUST_MIN_STACK=8388608 cargo test --manifest-path stage1/Cargo.toml -p axiomc --test json_command_fixtures --locked -- --test-threads=1\n\n") == 1,
+        "required unfiltered CLI fixture step missing or changed")
+gate = job("ci-gate")
+require("    if: always()\n" in gate and "      - full-lib-suite\n" in gate.split("    steps:\n", 1)[0],
+        "required gate dependency missing")
+require('            full-lib-suite=${{ needs.full-lib-suite.result }}\n' in gate,
+        "required gate result linkage missing")
+PY
+
 section="$({
   awk '
     /^  validate-pr-description:$/ { in_job=1; print; next }
