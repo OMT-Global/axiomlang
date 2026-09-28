@@ -164,3 +164,27 @@ fn manifest_registry_name_equality_remains_parser_only() {
     let error = parse_manifest_exact(source.as_bytes(), Path::new("axiom.toml")).unwrap_err();
     assert!(error.message.contains("configured registry"), "{error:?}");
 }
+
+#[test]
+fn package_required_strings_reject_whitespace() {
+    let v = validator();
+    for field in ["name", "version"] {
+        for value in ["", " ", "\t", "\n", "\u{00a0}"] {
+            let mut instance = serde_json::json!({
+                "package": {"name": "sample", "version": "0.1.0"}
+            });
+            instance["package"][field] = Value::String(value.to_string());
+            let source = toml::to_string(&instance).expect("serialize fixture");
+            assert_parity(&v, &source, false);
+            let error = parse_manifest_exact(source.as_bytes(), Path::new("axiom.toml"))
+                .expect_err("blank package field must fail");
+            assert_eq!(error.message, format!("missing or empty package.{field}"));
+        }
+    }
+    // Whitespace surrounding a nonblank value remains accepted.
+    assert_parity(
+        &v,
+        "[package]\nname = \" sample \"\nversion = \" 0.1.0 \"\n",
+        true,
+    );
+}
