@@ -9,6 +9,9 @@
 use crate::mir;
 use std::collections::{HashMap, HashSet};
 
+#[cfg(test)]
+mod package_tests;
+
 pub type BlockId = usize;
 pub type ValueId = usize;
 
@@ -392,7 +395,6 @@ pub fn lower_scalar_program(source: &mir::Program) -> Option<Program> {
         .functions
         .iter()
         .filter(|function| !function.path.starts_with("<stdlib>"))
-        .filter(|function| !function.is_property && !function.is_async && !function.is_extern)
         .collect::<Vec<_>>();
     let main = user_functions.iter().find(|function| {
         function.source_name == "main"
@@ -415,10 +417,10 @@ pub fn lower_scalar_program(source: &mir::Program) -> Option<Program> {
     let mut lowered = user_functions
         .iter()
         .filter(|function| function.name != main.name)
-        .filter_map(|function| {
+        .map(|function| {
             FunctionLowerer::new(function, &known_functions).and_then(FunctionLowerer::lower)
         })
-        .collect::<Vec<_>>();
+        .collect::<Option<Vec<_>>>()?;
     let main = FunctionLowerer::new(main, &known_functions)?.lower()?;
     let lowered_names = lowered
         .iter()
