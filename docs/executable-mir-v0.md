@@ -19,6 +19,11 @@ slice.  The API never returns a partial program and does not alter normal build
 output.  This makes the model suitable for snapshots and backend migration
 work while preserving the existing compatibility path.
 
+Every user function must fit the slice, including unused helpers. Unsupported
+bodies, non-scalar signatures, and property, async, or external functions reject
+the complete inspection instead of being silently omitted. Embedded standard
+library definitions remain outside the user-function inventory.
+
 The next implementation slice can make Cranelift consume this model directly
 after the explicit block and effect contracts have independent backend
 coverage.
