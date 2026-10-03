@@ -7977,6 +7977,180 @@ fn cranelift_backend_lowers_cli_args_at_runtime() {
 
 #[cfg(not(windows))]
 #[test]
+fn cranelift_backend_rejects_host_option_matches_with_unsupported_some_bodies() {
+    let directory = tempfile::tempdir().expect("host option projects");
+    for (label, module, setup, matched) in [
+        ("direct-argv", "cli", "", "arg(0)"),
+        (
+            "bound-argv",
+            "cli",
+            "let selected: Option<string> = arg(1)\n",
+            "selected",
+        ),
+        ("readline", "io", "", "readline()"),
+    ] {
+        for main in [false, true] {
+            for (body_label, body) in [
+                ("constant", "print \"present\""),
+                ("extra", "print payload\nprint \"tail\""),
+                ("number", "print 42"),
+                ("empty", ""),
+            ] {
+                let label = format!("{label}-{main}-{body_label}");
+                let project = directory.path().join(&label);
+                write_host_option_match_project(&project, module, setup, matched, body, main);
+                let build = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+                    .arg("build")
+                    .arg(&project)
+                    .args(["--backend", "cranelift", "--json"])
+                    .output()
+                    .expect("build unsupported host option body");
+                assert_runtime_lowering_required(&build, &label);
+                let payload: Value = serde_json::from_slice(&build.stdout).expect("build JSON");
+                assert_eq!(
+                    payload["lowering"]["execution_mode"], "not_produced",
+                    "{label}"
+                );
+                assert_eq!(
+                    payload["lowering"]["known_value_static_folds"], false,
+                    "{label}"
+                );
+                assert!(
+                    payload["error"]["help"]
+                        .as_str()
+                        .expect("fallback diagnostic")
+                        .contains("fallback selection was blocked before evaluator execution"),
+                    "{label}"
+                );
+                assert!(build.stderr.is_empty(), "{label}");
+            }
+        }
+    }
+}
+
+#[cfg(not(windows))]
+#[test]
+fn cranelift_backend_preserves_host_option_payload_printing_at_runtime() {
+    if which::which("cc").is_err() {
+        assert!(
+            !cfg!(feature = "run-native-tests"),
+            "run-native-tests requires cc for host option runtime evidence"
+        );
+        eprintln!("skipping host option runtime test because cc is unavailable");
+        return;
+    }
+
+    let directory = tempfile::tempdir().expect("host option projects");
+    for (label, module, setup, matched) in [
+        ("direct-argv", "cli", "", "arg(0)"),
+        (
+            "bound-argv",
+            "cli",
+            "let selected: Option<string> = arg(1)\n",
+            "selected",
+        ),
+        ("readline", "io", "", "readline()"),
+    ] {
+        for main in [false, true] {
+            let project = directory.path().join(format!("{label}-{main}"));
+            write_host_option_match_project(
+                &project,
+                module,
+                setup,
+                matched,
+                "print payload",
+                main,
+            );
+            let build = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+                .arg("build")
+                .arg(&project)
+                .args(["--backend", "cranelift", "--json"])
+                .output()
+                .expect("build host option payload print");
+            assert!(
+                build.status.success(),
+                "{label}: {}",
+                String::from_utf8_lossy(&build.stdout)
+            );
+            assert!(build.stderr.is_empty(), "{label}");
+            let payload: Value = serde_json::from_slice(&build.stdout).expect("build JSON");
+            assert_eq!(payload["generated_rust"], Value::Null);
+            assert_eq!(
+                payload["lowering"]["execution_mode"],
+                "direct_native_runtime"
+            );
+            assert_eq!(payload["lowering"]["known_value_static_folds"], false);
+            assert_eq!(payload["lowering"]["legacy_fallback_attempted"], false);
+            let binary = payload["binary"].as_str().expect("native binary");
+            let cases: Vec<(Vec<&str>, &str, &str)> = match label {
+                "direct-argv" => vec![
+                    (vec![], "", "missing\n"),
+                    (vec!["alpha"], "", "alpha\n"),
+                    (vec!["βeta", "tail"], "", "βeta\n"),
+                ],
+                "bound-argv" => vec![
+                    (vec![], "", "missing\n"),
+                    (vec!["alpha"], "", "missing\n"),
+                    (vec!["alpha", "βeta"], "", "βeta\n"),
+                ],
+                "readline" => vec![
+                    (vec![], "", "missing\n"),
+                    (vec![], "\n", "\n"),
+                    (vec![], "βeta\nignored\n", "βeta\n"),
+                ],
+                _ => unreachable!("fixed host option cases"),
+            };
+            // Every input reuses this same artifact; no known-value replay can
+            // account for the different argv/stdin payloads or None controls.
+            for (args, input, expected) in cases {
+                let mut child = Command::new(binary)
+                    .args(args)
+                    .stdin(Stdio::piped())
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::piped())
+                    .spawn()
+                    .expect("start host option binary");
+                child
+                    .stdin
+                    .take()
+                    .expect("stdin")
+                    .write_all(input.as_bytes())
+                    .expect("runtime input");
+                let run = child.wait_with_output().expect("run host option binary");
+                assert_eq!(run.status.code(), Some(0), "{label}");
+                assert_eq!(String::from_utf8_lossy(&run.stdout), expected, "{label}");
+                assert!(run.stderr.is_empty(), "{label}");
+            }
+        }
+    }
+}
+
+fn write_host_option_match_project(
+    project: &Path,
+    module: &str,
+    setup: &str,
+    matched: &str,
+    body: &str,
+    main: bool,
+) {
+    write_std_cli_project(project);
+    let statements = format!(
+        "{setup}match {matched} {{\nSome(payload) {{\n{body}\n}}\nNone {{\nprint \"missing\"\n}}\n}}\n"
+    );
+    let statements = if main {
+        format!("fn main(): int {{\n{statements}return 0\n}}\n")
+    } else {
+        statements
+    };
+    fs::write(
+        project.join("src/main.ax"),
+        format!("import \"std/{module}.ax\"\n\n{statements}"),
+    )
+    .expect("write host option match source");
+}
+
+#[cfg(not(windows))]
+#[test]
 fn cranelift_backend_rejects_float_map_keys() {
     let temp = tempfile::tempdir().expect("tempdir");
     let project = temp.path().join("float-map-key");
