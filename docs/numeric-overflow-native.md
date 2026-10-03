@@ -1,6 +1,6 @@
-# Direct-native signed addition overflow
+# Direct-native addition overflow evidence
 
-This document records the supported signed addition slice of [issue #1659](https://github.com/OMT-Global/axiomlang/issues/1659). It applies the existing [Stage1 numeric overflow policy](stage1.md#numeric-overflow-policy) to the direct-native Cranelift path; it does not close the broader numeric-operations contract.
+This document records the signed and unsigned addition evidence slices of [issue #1659](https://github.com/OMT-Global/axiomlang/issues/1659). It applies the existing [Stage1 numeric overflow policy](stage1.md#numeric-overflow-policy) to the direct-native Cranelift path; it does not close the broader numeric-operations contract.
 
 ## Contract
 
@@ -33,6 +33,34 @@ Each built binary runs twice with different stdin. The byte count from `std/io.a
 
 The matrix passed on macOS arm64 on 2026-09-07: 20 native builds and 40 binary executions. The sentinel is test instrumentation confirming the wrapped value, not a language runtime exit code. All cases have empty stdout.
 
+### Unsigned addition and unsupported widths
+
+The unsigned matrix uses the same compiled artifact with empty stdin and one
+byte of stdin. It adds the runtime byte count to the type's maximum, prints the
+result as `int`, and verifies both the exact value and a control/sentinel exit.
+For `u8`, `u16`, and `u32`, both build modes produce `direct_native_runtime`
+artifacts without generated Rust, static folds, or evaluator fallback. Six
+native builds supply twelve runtime cases:
+
+| Mode | Type | Empty stdin: stdout / exit | One byte: stdout / exit | stderr |
+| --- | --- | --- | --- | --- |
+| Debug and release | `u8` | `255` / 0 | `0` / 42 | Empty |
+| Debug and release | `u16` | `65535` / 0 | `0` / 42 | Empty |
+| Debug and release | `u32` | `4294967295` / 0 | `0` / 42 | Empty |
+
+Each printed value ends with a newline. The unchanged signed matrix and these
+unsigned cases passed together on macOS arm64 on 2026-10-03: 26 native builds
+and 52 runtime executions.
+
+`u64` and `usize` are outside the current general direct-native scalar ABI.
+Their four debug/release build attempts are explicit negative controls:
+`backend.runtime_lowering_required`, `execution_mode = not_produced`, no binary
+or generated Rust, and no static-fold evidence. The diagnostic states that
+fallback selection was blocked before evaluator execution. These cases did
+not execute arithmetic and do not qualify full-width unsigned support.
+Special-case intrinsics that expose `u64` values are not evidence for general
+unsigned arithmetic.
+
 Run the native matrix and the existing narrow-width regression with:
 
 ```sh
@@ -47,4 +75,4 @@ feature retain the capability-based skip when `cc` is absent.
 
 ## Remaining issue scope
 
-Issue #1659 remains open for an explicit cross-backend contract and runtime matrix for subtraction, multiplication, unary negation, division edge cases, and explicit wrapping/checked operations. Those operations must not be assigned new semantics merely by extrapolating this addition repair. Broader profile-policy changes require a separate language decision.
+Issue #1659 remains open for full-width unsigned execution, an explicit cross-backend contract and runtime matrix for subtraction, multiplication, unary negation, division edge cases, and explicit wrapping/checked operations. Those operations must not be assigned new semantics merely by extrapolating this addition repair. Broader profile-policy changes require a separate language decision. The unsigned evidence adds tests only; it changes no production arithmetic or profile policy. Linux and Windows execution of the new cases is not claimed by the local macOS result.
