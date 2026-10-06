@@ -139,7 +139,8 @@ fn lower_i64_top_level_cli_arg_match(expr: &Expr, arms: &[MatchArm]) -> Option<C
         return None;
     };
     let index = usize::try_from(*index).ok()?;
-    let (_some_arm, none_arm) = i64_option_stmt_match_arms(arms)?;
+    let (some_arm, none_arm) = i64_option_stmt_match_arms(arms)?;
+    require_printed_option_payload(some_arm)?;
     Some(CraneliftI64Stmt::WriteArgLine {
         stream: OutputStream::Stdout,
         index,
@@ -156,7 +157,8 @@ fn lower_i64_top_level_cli_option_match(
         return None;
     };
     let index = *cli_options.get(name)?;
-    let (_some_arm, none_arm) = i64_option_stmt_match_arms(arms)?;
+    let (some_arm, none_arm) = i64_option_stmt_match_arms(arms)?;
+    require_printed_option_payload(some_arm)?;
     Some(CraneliftI64Stmt::WriteArgLine {
         stream: OutputStream::Stdout,
         index,
@@ -171,12 +173,31 @@ fn lower_i64_top_level_readline_match(expr: &Expr, arms: &[MatchArm]) -> Option<
     if !is_i64_top_level_io_readline_name(name) || !args.is_empty() {
         return None;
     }
-    let (_some_arm, none_arm) = i64_option_stmt_match_arms(arms)?;
+    let (some_arm, none_arm) = i64_option_stmt_match_arms(arms)?;
+    require_printed_option_payload(some_arm)?;
     Some(CraneliftI64Stmt::WriteStdinLine {
         stream: OutputStream::Stdout,
         fallback: i64_single_printed_static_text(&none_arm.body)?,
         max_bytes: I64_STDIN_BUFFER_BYTES,
     })
+}
+
+fn require_printed_option_payload(arm: &MatchArm) -> Option<()> {
+    let [binding] = arm.bindings.as_slice() else {
+        return None;
+    };
+    let [
+        Stmt::Print {
+            expr: Expr::VarRef { name, .. },
+            ..
+        },
+    ] = arm.body.as_slice()
+    else {
+        return None;
+    };
+    // WriteArgLine/WriteStdinLine emit only the payload. Accepting another
+    // branch body would replace or discard the user's statements.
+    (!arm.ignore_payloads && binding == name).then_some(())
 }
 
 fn i64_single_printed_static_text(stmts: &[Stmt]) -> Option<String> {
