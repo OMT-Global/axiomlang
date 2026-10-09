@@ -88,6 +88,8 @@ bash "$script_repo_root/scripts/ci/test-check-self-hosting-language-readiness.sh
 python3 "$script_repo_root/scripts/ci/test-compatibility-checkout-routing.py"
 bash "$script_repo_root/scripts/ci/test-check-compatibility-v1.sh"
 bash "$script_repo_root/scripts/ci/test-check-package-trust-contract.sh"
+cargo test --manifest-path "$repo_root/stage1/Cargo.toml" -p axiomc \
+  --test package_metadata_fuzz --locked
 bash "$script_repo_root/scripts/ci/test-check-cargo-audit-policy.sh"
 python3 "$script_repo_root/scripts/ci/test-run-stage1-quality-gate.py"
 python3 "$script_repo_root/scripts/ci/test-run-stage1-parser-fuzz.py"
