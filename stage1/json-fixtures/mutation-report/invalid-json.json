@@ -1,0 +1,12 @@
+{
+  "command": "mutation-report",
+  "error": {
+    "column": null,
+    "kind": "mutation-report",
+    "line": null,
+    "message": "invalid JSON: EOF while parsing an object at line 1 column 1",
+    "path": null
+  },
+  "ok": false,
+  "schema_version": "axiom.stage1.v1"
+}

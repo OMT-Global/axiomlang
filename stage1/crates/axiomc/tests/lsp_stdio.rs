@@ -173,3 +173,32 @@ fn wait_for_child(child: &mut Child, timeout: Duration) -> io::Result<std::proce
         std::thread::sleep(Duration::from_millis(10));
     }
 }
+
+#[test]
+fn malformed_lsp_input_matches_real_stderr_fixture_without_json_envelope() {
+    let fixtures = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../json-fixtures/lsp");
+    let mut child = Command::new(env!("CARGO_BIN_EXE_axiomc"))
+        .arg("lsp")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn axiomc lsp");
+    let mut input = child.stdin.take().unwrap();
+    input
+        .write_all(&std::fs::read(fixtures.join("invalid-json.lsp")).unwrap())
+        .unwrap();
+    drop(input);
+    let status =
+        wait_for_child(&mut child, Duration::from_secs(5)).expect("malformed LSP exits promptly");
+    assert_eq!(status.code(), Some(1));
+    let output = child.wait_with_output().unwrap();
+    assert!(
+        output.stdout.is_empty(),
+        "transport failure must not corrupt the JSON-RPC stream"
+    );
+    assert_eq!(
+        output.stderr,
+        std::fs::read(fixtures.join("invalid-json.stderr")).unwrap()
+    );
+}
