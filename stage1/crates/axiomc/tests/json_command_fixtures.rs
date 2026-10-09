@@ -374,7 +374,11 @@ fn manifest_failure_fixture_matches_real_check_json_and_both_schemas() {
     let mut actual: Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(
         actual["error"]["path"],
-        project.path().join("axiom.toml").to_str().unwrap()
+        fs::canonicalize(project.path())
+            .unwrap()
+            .join("axiom.toml")
+            .to_str()
+            .unwrap()
     );
     actual["error"]["path"] = Value::String("<project>/axiom.toml".into());
     assert_eq!(actual, expected);
@@ -412,5 +416,96 @@ fn manifest_failure_fixture_matches_real_check_json_and_both_schemas() {
         let mut mutant = expected.clone();
         mutant["error"][field] = Value::String("not-manifest".into());
         assert!(!is_manifest_failure(&mutant));
+    }
+}
+
+#[test]
+fn remaining_failure_fixtures_match_real_cli_output_and_both_schemas() {
+    let generic = schema_validator();
+    let schema_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../compiler-contracts/schemas/axiom.stage1.command.schema.json");
+    let schema: Value = serde_json::from_str(&fs::read_to_string(schema_path).unwrap()).unwrap();
+    let command_schema = jsonschema::validator_for(&schema).unwrap();
+    let project = tempfile::tempdir().unwrap();
+    let project_path = fs::canonicalize(project.path()).unwrap();
+    fs::write(project_path.join("axiom.toml"), "[package\n").unwrap();
+    fs::write(project_path.join("invalid.json"), "{").unwrap();
+
+    for command in [
+        "build",
+        "cache",
+        "run",
+        "test",
+        "caps",
+        "doc",
+        "parse",
+        "mutation-report",
+    ] {
+        let mutation = command == "mutation-report";
+        let input = if mutation {
+            project_path.join("invalid.json")
+        } else {
+            project_path.clone()
+        };
+        let output = std::process::Command::new(env!("CARGO_BIN_EXE_axiomc"))
+            .arg(command)
+            .arg(input)
+            .arg("--json")
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(1), "{command} exit status");
+        assert!(output.stderr.is_empty(), "{command} must emit JSON only");
+        let mut actual: Value = serde_json::from_slice(&output.stdout).unwrap();
+        if !mutation {
+            assert_eq!(
+                actual["error"]["path"],
+                project_path.join("axiom.toml").to_str().unwrap()
+            );
+            actual["error"]["path"] = Value::String("<project>/axiom.toml".into());
+        }
+        let expected = fixture(
+            command,
+            if mutation {
+                "invalid-json.json"
+            } else {
+                "manifest-failure.json"
+            },
+        );
+        assert_eq!(actual, expected, "{command} real failure fixture drifted");
+        for value in [&actual, &expected] {
+            assert_matches_stage1_schema(&generic, value);
+            command_schema
+                .validate(value)
+                .unwrap_or_else(|error| panic!("{command}: {error}"));
+            assert_envelope(value, command, false);
+            assert_eq!(
+                value["error"]["kind"],
+                if mutation {
+                    "mutation-report"
+                } else {
+                    "manifest"
+                }
+            );
+        }
+        for field in ["schema_version", "command", "ok", "error"] {
+            let mut invalid = expected.clone();
+            invalid.as_object_mut().unwrap().remove(field);
+            assert!(
+                !command_schema.is_valid(&invalid),
+                "{command} requires {field}"
+            );
+        }
+        let mut invalid = expected.clone();
+        invalid["ok"] = Value::Bool(true);
+        assert!(
+            !command_schema.is_valid(&invalid),
+            "{command} failure is not success"
+        );
+        invalid = expected.clone();
+        invalid["unexpected"] = Value::Bool(true);
+        assert!(
+            !command_schema.is_valid(&invalid),
+            "{command} failure must stay closed"
+        );
     }
 }

@@ -346,6 +346,26 @@ targeted-build no-fallback failures, build failures, test filters, duration
 fields, failing cases, and unsafe capability state.
 
 
+Failure-fixture replay tests invoke the built CLI and compare its complete JSON
+output against checked-in fixtures, validating both the public stage1 envelope
+and `axiom.stage1.command.schema.json`. Malformed `axiom.toml` covers `check`,
+`build`, `cache`, `run`, `test`, `caps`, `doc`, and `parse`; malformed input JSON
+covers `mutation-report`. Only the verified canonical temporary manifest path is
+normalized to `<project>/axiom.toml`; diagnostic messages and fields remain exact.
+
+LSP deliberately has no `--json` CLI mode. Its malformed JSON-RPC input and real
+stderr diagnostic are retained under `stage1/json-fixtures/lsp/` and replayed by
+`lsp_stdio`. The test requires exit 1 and empty protocol stdout. These are transport
+fixtures, not fabricated stage1 command envelopes: the existing serializer/schema
+unit tests cover the `lsp` envelope shape, but no real CLI JSON envelope is claimed.
+
+Regenerate these cases with the current locked `axiomc` binary using a temporary
+project containing `[package\n` in `axiom.toml`, or `{` in `invalid.json` for
+`mutation-report`, and the checked-in framed LSP input. Run
+`cargo test --manifest-path stage1/Cargo.toml -p axiomc --locked --test json_command_fixtures --test lsp_stdio`
+to verify the resulting fixtures against live output.
+
+
 ## Current gaps
 
 The compiler-owned inventory is broader than its qualified behavior. The
