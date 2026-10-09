@@ -1,0 +1,6 @@
+AXIOM_PACKAGE_ARCHIVE_V1
+--- file axiom.toml 24 ---
+[package]
+name = "demo"
+--- file src/main.ax 13 ---
+fn main() {}
