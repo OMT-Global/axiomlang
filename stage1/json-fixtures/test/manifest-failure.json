@@ -1,0 +1,17 @@
+{
+  "command": "test",
+  "error": {
+    "code": "manifest.invalid",
+    "column": null,
+    "kind": "manifest",
+    "line": null,
+    "message": "invalid axiom.toml: TOML parse error at line 1, column 9\n  |\n1 | [package\n  |         ^\nunclosed table, expected `]`\n",
+    "path": "<project>/axiom.toml",
+    "repair": {
+      "action": "edit_manifest",
+      "edit": "Update axiom.toml with the narrowest required package, dependency, or capability change."
+    }
+  },
+  "ok": false,
+  "schema_version": "axiom.stage1.v1"
+}
