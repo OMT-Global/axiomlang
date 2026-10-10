@@ -1083,3 +1083,7 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "package_archive/filesystem_tests.rs"]
+mod filesystem_tests;
