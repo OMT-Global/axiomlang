@@ -2948,3 +2948,7 @@ mod hostile_state_tests;
 #[cfg(test)]
 #[path = "package_store/contention_tests.rs"]
 mod contention_tests;
+
+#[cfg(test)]
+#[path = "package_store/lease_marker_tests.rs"]
+mod lease_marker_tests;
