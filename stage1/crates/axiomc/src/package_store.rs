@@ -2940,3 +2940,7 @@ mod tests {
 #[cfg(test)]
 #[path = "package_store/vendor_lifecycle_tests.rs"]
 mod vendor_lifecycle_tests;
+
+#[cfg(test)]
+#[path = "package_store/hostile_state_tests.rs"]
+mod hostile_state_tests;
