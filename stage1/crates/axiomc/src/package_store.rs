@@ -2944,3 +2944,7 @@ mod vendor_lifecycle_tests;
 #[cfg(test)]
 #[path = "package_store/hostile_state_tests.rs"]
 mod hostile_state_tests;
+
+#[cfg(test)]
+#[path = "package_store/contention_tests.rs"]
+mod contention_tests;
