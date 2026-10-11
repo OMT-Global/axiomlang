@@ -35,8 +35,8 @@ jobs:
       contents: read # Required to check out and inspect source; this workflow must not push commits.
       pull-requests: write # Required to post and update Claude responses on PR review threads.
       issues: write # Required to respond to @claude issue comments and maintain sticky comments.
-      actions: read # Required by additional_permissions so Claude can inspect CI status and logs.
-      # No id-token permission: this workflow uses ANTHROPIC_API_KEY and does not use OIDC.
+      actions: read # Let the supplied workflow token inspect CI status and logs.
+      # No id-token permission: GitHub auth uses the supplied job-scoped token.
     steps:
       - name: Checkout repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4 pinned 2026-04-19
@@ -56,9 +56,11 @@ jobs:
         uses: anthropics/claude-code-action@6fed3ca145920b639991cb756090506e1bcaf515 # v1 pinned 2026-04-19
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          track_progress: true
+          github_token: ${{ github.token }}
+          # Upstream rejects progress tracking for manual dispatches. Keep tag
+          # mode for comment requests even with the policy prompt below.
+          track_progress: ${{ github.event_name != 'workflow_dispatch' }}
           use_sticky_comment: true
-          additional_permissions: "actions: read"
           prompt: |
             REPO: ${{ github.repository }}
             DEFAULT BRANCH: main
