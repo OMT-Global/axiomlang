@@ -56,7 +56,9 @@ jobs:
         uses: anthropics/claude-code-action@6fed3ca145920b639991cb756090506e1bcaf515 # v1 pinned 2026-04-19
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          track_progress: true
+          # Upstream rejects progress tracking for manual dispatches. Keep tag
+          # mode for comment requests even with the policy prompt below.
+          track_progress: ${{ github.event_name != 'workflow_dispatch' }}
           use_sticky_comment: true
           additional_permissions: "actions: read"
           prompt: |
