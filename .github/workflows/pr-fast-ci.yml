@@ -181,6 +181,10 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha }}
 
+      - name: Run snapshot bootstrap readiness controls
+        # Execute the paired checker and fixtures at PR head, not in the trusted base lane.
+        run: bash scripts/ci/test-check-snapshot-bootstrap-readiness.sh
+
       - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable pinned 2026-04-19
 
       - name: Ensure Rust linker availability
