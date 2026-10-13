@@ -23,6 +23,33 @@ sys.modules[SPEC.name] = fuzz
 SPEC.loader.exec_module(fuzz)
 
 
+class ParserFuzzBudgetTest(unittest.TestCase):
+    def test_nonfinite_budgets_fail_before_profile_execution(self) -> None:
+        for value in ("nan", "NaN", "inf", "+inf", "-inf", "1e309", "-1e309"):
+            with self.subTest(value=value), patch.object(
+                fuzz, "run_profile", return_value=({}, 0)
+            ) as runner:
+                with self.assertRaises(SystemExit) as error:
+                    fuzz.main([
+                        "--axiomc", "unused-axiomc",
+                        "--output", "unused-report.json",
+                        f"--budget-seconds={value}",
+                    ])
+                self.assertEqual(2, error.exception.code)
+                runner.assert_not_called()
+
+    def test_nonpositive_budgets_are_rejected(self) -> None:
+        for value in ("0", "-0.0", "-1", "-inf"):
+            with self.subTest(value=value):
+                with self.assertRaises(fuzz.argparse.ArgumentTypeError):
+                    fuzz.positive_seconds(value)
+
+    def test_positive_finite_budgets_are_preserved(self) -> None:
+        for value in ("0.001", "0.5", "1", "90", "1e3"):
+            with self.subTest(value=value):
+                self.assertEqual(float(value), fuzz.positive_seconds(value))
+
+
 class ParserFuzzTest(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
