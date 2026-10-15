@@ -207,7 +207,7 @@ for fragment in (
     "--trigger '${{ github.event_name }}'",
     "--runner-labels-json '[\"ubuntu-24.04\"]'",
     "--output 'artifacts/target-support/linux-x86-64.json'",
-    "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+    "actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9",
     "ref: ${{ github.event.inputs.evidence_pr_sha || github.sha }}",
 ):
     if fragment not in target_job:
