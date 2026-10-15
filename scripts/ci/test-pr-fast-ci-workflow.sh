@@ -45,6 +45,10 @@ require(suite.split("    steps:\n", 1)[0] == "  full-lib-suite:\n    name: Full 
         "hosted PR job reachability changed")
 require(suite.count("      - name: Run JSON command fixtures\n        # Exercise real CLI fixture envelopes, including manifest failure (#1738).\n        run: RUST_MIN_STACK=8388608 cargo test --manifest-path stage1/Cargo.toml -p axiomc --test json_command_fixtures --locked -- --test-threads=1\n\n") == 1,
         "required unfiltered CLI fixture step missing or changed")
+require(suite.count("      - name: Run snapshot bootstrap readiness controls\n        # Execute the paired checker and fixtures at PR head, not in the trusted base lane.\n        run: bash scripts/ci/test-check-snapshot-bootstrap-readiness.sh\n\n") == 1,
+        "snapshot readiness controls require exact PR-head execution")
+require(suite.count("          ref: ${{ github.event.pull_request.head.sha }}\n") == 1,
+        "paired snapshot readiness controls must use the PR-head checkout")
 gate = job("ci-gate")
 require("    if: always()\n" in gate and "      - full-lib-suite\n" in gate.split("    steps:\n", 1)[0],
         "required gate dependency missing")
