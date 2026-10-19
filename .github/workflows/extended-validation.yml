@@ -147,6 +147,8 @@ jobs:
           exit 1
 
       - name: Run fast checks
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: bash scripts/ci/run-fast-checks.sh
 
   extended-checks:
