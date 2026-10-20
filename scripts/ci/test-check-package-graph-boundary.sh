@@ -373,4 +373,62 @@ expect_resolver_failure \
   "resolved package source must match the authenticated lock registry source identity" \
   --resolution-fixture "$temp_dir/resolver-resolution-source.json"
 
+python3 - "$repo_root" "$temp_dir" <<'PY'
+import copy
+import json
+import subprocess
+import sys
+from pathlib import Path
+
+root, temporary = map(Path, sys.argv[1:])
+script = root / "scripts/ci/check-package-graph-boundary.py"
+snapshot = json.loads((root / "stage1/compiler-contracts/snapshots/package-graph.json").read_text())
+manifest = (root / snapshot["inputs"]["manifest"]).read_text()
+lockfile = (root / snapshot["inputs"]["lockfile"]).read_text()
+cases = [
+    ("duplicate-key", manifest.replace('name = "workspace-stage1"',
+      'name = "workspace-stage1"\nname = "workspace-stage1"'), lockfile, False, None),
+    ("duplicate-table", manifest + '\n[package]\nname = "workspace-stage1"\n', lockfile, False, None),
+    ("duplicate-lock-key", manifest, lockfile.replace('version = 1', 'version = 1\nversion = 1'), False, None),
+    ("pristine", manifest, lockfile, True, None),
+    ("quoted-hash", manifest.replace('out_dir = "dist"', 'out_dir = "dist#artifact" # outside comment'),
+      lockfile, True, "dist#artifact"),
+    ("multiline-array", manifest.replace('members = ["members/core", "members/util"]',
+      'members = [\n  "members/core", # member comment\n  "members/util",\n]'), lockfile, True, None),
+    ("escaped-string", manifest.replace('"workspace-stage1"', '"workspace\\u002dstage1"'),
+      lockfile, True, None),
+    ("literal-string", manifest.replace('version = "0.1.0"', "version = '0.1.0'"), lockfile, True, None),
+]
+failures = []
+for name, manifest_text, lock_text, valid, out_dir in cases:
+    directory = temporary / name
+    directory.mkdir()
+    manifest_path, lock_path = directory / "axiom.toml", directory / "axiom.lock"
+    manifest_path.write_text(manifest_text, encoding="utf-8")
+    lock_path.write_text(lock_text, encoding="utf-8")
+    candidate = copy.deepcopy(snapshot)
+    candidate["inputs"]["manifest"] = str(manifest_path)
+    candidate["inputs"]["lockfile"] = str(lock_path)
+    candidate["outputs"]["packages"][0]["manifest"] = str(manifest_path)
+    for package in candidate["outputs"]["packages"]:
+        package["lockfile"] = str(lock_path)
+    if out_dir is not None:
+        candidate["outputs"]["packages"][0]["out_dir"] = out_dir
+    snapshot_path = directory / "snapshot.json"
+    snapshot_path.write_text(json.dumps(candidate), encoding="utf-8")
+    result = subprocess.run([sys.executable, str(script), "--snapshot", str(snapshot_path), "--json"],
+                            cwd=root, capture_output=True, text=True, timeout=10)
+    if valid:
+        if result.returncode != 0:
+            failures.append((name, "valid TOML rejected", result.stderr))
+        else:
+            assert json.loads(result.stdout)["ok"] is True
+    elif result.returncode != 1 or "invalid TOML fixture" not in result.stderr:
+        failures.append((name, "invalid TOML not cleanly rejected", result.returncode, result.stderr))
+    elif result.stdout or "Traceback" in result.stderr:
+        failures.append((name, "unexpected success output or traceback", result.stderr))
+assert not failures, failures
+print("TOML CLI controls: three invalid rejected, five valid preserved")
+PY
+
 echo "check-package-graph-boundary regression cases passed"
