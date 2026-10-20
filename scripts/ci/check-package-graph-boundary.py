@@ -7,6 +7,7 @@ import argparse
 import json
 import re
 import sys
+import tomllib
 from pathlib import Path
 from typing import Any
 
@@ -35,59 +36,10 @@ def load_json(path: Path) -> Any:
 
 
 def load_toml(path: Path) -> dict[str, Any]:
-    data: dict[str, Any] = {}
-    current: dict[str, Any] = data
-    current_array: list[dict[str, Any]] | None = None
-
-    for raw_line in path.read_text(encoding="utf-8").splitlines():
-        line = raw_line.split("#", 1)[0].strip()
-        if not line:
-            continue
-        if line.startswith("[[") and line.endswith("]]"):
-            section = line[2:-2].strip()
-            current_array = data.setdefault(section, [])
-            if not isinstance(current_array, list):
-                fail(f"mixed TOML table types in {path}: {section}")
-            current = {}
-            current_array.append(current)
-            continue
-        if line.startswith("[") and line.endswith("]"):
-            section = line[1:-1].strip()
-            current_array = None
-            current = data.setdefault(section, {})
-            if not isinstance(current, dict):
-                fail(f"mixed TOML table types in {path}: {section}")
-            continue
-        if "=" not in line:
-            fail(f"unsupported TOML line in {path}: {raw_line}")
-        key, value = [part.strip() for part in line.split("=", 1)]
-        current[key] = parse_toml_value(value)
-    return data
-
-
-def parse_toml_value(value: str) -> Any:
-    value = value.strip()
-    if value.startswith('"') and value.endswith('"'):
-        return value[1:-1]
-    if value in {"true", "false"}:
-        return value == "true"
-    if value.startswith("[") and value.endswith("]"):
-        inner = value[1:-1].strip()
-        if not inner:
-            return []
-        return [parse_toml_value(part.strip()) for part in inner.split(",")]
-    if value.startswith("{") and value.endswith("}"):
-        inner = value[1:-1].strip()
-        result: dict[str, Any] = {}
-        if not inner:
-            return result
-        for part in inner.split(","):
-            key, nested = [item.strip() for item in part.split("=", 1)]
-            result[key] = parse_toml_value(nested)
-        return result
-    if value.isdigit():
-        return int(value)
-    return value
+    try:
+        return tomllib.loads(path.read_text(encoding="utf-8"))
+    except tomllib.TOMLDecodeError as error:
+        fail(f"invalid TOML fixture {path}: {error}")
 
 
 def fail(message: str) -> None:
