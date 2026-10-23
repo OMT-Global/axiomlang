@@ -84,8 +84,20 @@ historical main commit `b3149c5e9bf10a4a244b0d89c6e6cd804b47ae3f`, blob
 `e5ad22e48e4504d62de8ea343e58fd4c1e262cb4`. Its metadata freezes the SHA-256,
 `0.4.0` version, and 68-surface count; it is not release history.
 
-The current source contract is version `0.24.0` with 89 surfaces. Its changes
-from the byte-frozen 52-surface `0.1.0` accepted baseline include the five
+The current source contract is version `0.25.0` with 89 surfaces.
+The manifest and `axiom.toml` schema surfaces are version `0.2.2`: per-test
+`name`, `entry`, and any present `package` must contain a non-whitespace
+character, matching existing compiler acceptance. An explicit Unicode
+White_Space class keeps Rust and ECMAScript validation aligned, including
+U+0085; U+FEFF and U+200B remain nonblank. Replace blank values with
+the intended identity or source path, or omit `package` to use the default.
+Padded nonblank values, paths containing spaces, and empty `stdin`, `stdout`,
+and `stderr` remain valid. This metadata tightening is reported as breaking
+schema drift, hence the minor contract bump; parser semantics and diagnostics
+are unchanged. Frozen historical contracts and earlier migration guidance are
+preserved.
+
+Changes from the byte-frozen 52-surface `0.1.0` accepted baseline include the five
 Package Trust v1 schemas, nineteen additive base-contract schemas (Runtime Observability Evidence v1, HTTP Server v1, Compiler Scale Proof v1, Dynamic Aggregate ABI v1, Compiler Native Backend Runtime v1, Compiler Syntax Migration v1, Iteration Control v1, Filesystem v1, SQLite v1,
 Native Debug Status v1, Native Debugging v1, Provider ABI, Structured Concurrency v1, I/O Reactor v1, runtime crypto provider policy, HTTP
 client, runtime observability, Semantic MIR, runtime lifecycle, Runtime Associative Collections v1, target support, target
