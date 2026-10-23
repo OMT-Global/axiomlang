@@ -107,7 +107,14 @@ Existing callers must retain or recover the 32-byte seed before upgrading.
 The self-host snapshot manifest schema surface is version `0.2.0`: manifest
 entries must carry chain identity and offline provenance evidence, while the
 frozen trusted-CI readiness harness still accepts legacy pre-hardening
-manifests at schema level.
+manifests at schema level. Schema acceptance does not qualify those legacy
+entries for bootstrap readiness: the readiness checker reports `ready: false`
+and exits with status 1 until producers migrate to the hardened shape with
+chain identity and pinned artifact/provenance evidence. It does not fetch
+legacy artifact or provenance URLs. This addresses only the legacy-readiness
+bypass in #1575, not the full executable snapshot-chain qualification. The
+base-pinned trusted-CI harness continues to execute its own paired checker and
+self-test; ordinary PR-head fixtures validate the updated readiness boundary.
 The target support schema surface is version `0.2.0`: the target-row
 qualification fields `libc`, `provider_policy`, `profiles`, and
 `unsupported_features` are additive optional metadata that current `axiomc`
