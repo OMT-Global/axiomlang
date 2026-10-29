@@ -166,6 +166,62 @@ fn manifest_registry_name_equality_remains_parser_only() {
 }
 
 #[test]
+fn test_target_strings_reject_blank_but_preserve_nonblank_values() {
+    let v = validator();
+    let blank_values = [
+        "", "\t", "\n", "\u{000b}", "\u{000c}", "\r", " ", "\u{0085}", "\u{00a0}", "\u{1680}",
+        "\u{2000}", "\u{2001}", "\u{2002}", "\u{2003}", "\u{2004}", "\u{2005}", "\u{2006}",
+        "\u{2007}", "\u{2008}", "\u{2009}", "\u{200a}", "\u{2028}", "\u{2029}", "\u{202f}",
+        "\u{205f}", "\u{3000}", "\r\n",
+    ];
+    let expected_whitespace = blank_values
+        .iter()
+        .flat_map(|value| value.chars())
+        .collect::<std::collections::BTreeSet<_>>();
+    let actual_whitespace = (0..=0x10ffff)
+        .filter_map(char::from_u32)
+        .filter(|value| value.is_whitespace())
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(expected_whitespace, actual_whitespace);
+    for field in ["name", "entry", "package"] {
+        for value in blank_values {
+            let mut instance = serde_json::json!({
+                "package": {"name": "sample", "version": "0.1.0"},
+                "tests": [{"name": "unit", "entry": "src/main.ax"}]
+            });
+            instance["tests"][0][field] = Value::String(value.to_string());
+            let source = toml::to_string(&instance).expect("serialize fixture");
+            assert_parity(&v, &source, false);
+            let error = parse_manifest_exact(source.as_bytes(), Path::new("axiom.toml"))
+                .expect_err("blank test target field must fail");
+            assert_eq!(error.message, format!("missing or empty tests[0].{field}"));
+        }
+    }
+    for field in ["name", "entry", "package"] {
+        for value in ["\u{feff}", "\u{200b}"] {
+            let mut instance = serde_json::json!({
+                "package": {"name": "sample", "version": "0.1.0"},
+                "tests": [{"name": "unit", "entry": "src/main.ax"}]
+            });
+            instance["tests"][0][field] = Value::String(value.to_string());
+            let source = toml::to_string(&instance).expect("serialize fixture");
+            assert_parity(&v, &source, true);
+        }
+    }
+    for source in [
+        format!("{PACKAGE}[[tests]]\nname = \" unit \"\nentry = \"src/my main.ax\"\n"),
+        format!(
+            "{PACKAGE}[[tests]]\nname = \"unit\"\nentry = \"src/main.ax\"\npackage = \" sample \"\n"
+        ),
+        format!(
+            "{PACKAGE}[[tests]]\nname = \"unit\"\nentry = \"src/main.ax\"\nstdin = \"\"\nstdout = \"\"\nstderr = \"\"\n"
+        ),
+    ] {
+        assert_parity(&v, &source, true);
+    }
+}
+
+#[test]
 fn package_required_strings_reject_whitespace() {
     let v = validator();
     for field in ["name", "version"] {
