@@ -101,6 +101,8 @@ cargo test --manifest-path "$repo_root/stage1/Cargo.toml" -p axiomc \
 cargo test --manifest-path "$repo_root/stage1/Cargo.toml" -p axiomc \
   --test package_archive_fuzz --locked
 cargo test --manifest-path "$repo_root/stage1/Cargo.toml" -p axiomc \
+  --test package_integrity_regressions --locked
+cargo test --manifest-path "$repo_root/stage1/Cargo.toml" -p axiomc \
   --test migration_plan_cli --locked
 python3 "$script_repo_root/scripts/ci/check-capability-ledger.py" \
   --checkout-root "$repo_root" --check-docs --json >/dev/null
