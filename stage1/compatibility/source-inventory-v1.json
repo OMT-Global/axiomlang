@@ -1,6 +1,6 @@
 {
   "schema_version": "axiom.compatibility_source_inventory.v1",
-  "contract_version": "0.24.0",
+  "contract_version": "0.25.0",
   "surface_versions": {
     "default": "0.1.0",
     "overrides": {
@@ -8,7 +8,7 @@
       "axiom://cli/axiomc": "0.4.0",
       "axiom://schema/axiom.compiler.stdlib_catalog.v1": "0.4.0",
       "axiom://package/lockfile": "0.2.0",
-      "axiom://package/manifest": "0.2.1",
+      "axiom://package/manifest": "0.2.2",
       "axiom://schema/axiom-build-lowering-evidence-v1": "0.2.0",
       "axiom://schema/axiom-package-signature-v1": "0.2.0",
       "axiom://schema/axiom-package-verification-expectation-v1": "0.2.0",
@@ -18,12 +18,15 @@
       "axiom://schema/axiom.stage1.command": "0.3.0",
       "axiom://schema/axiom.stage1.v1": "0.2.0",
       "axiom://schema/axiom-trust-roots-v1": "0.2.0",
-      "axiom://schema/axiom.toml": "0.2.1",
+      "axiom://schema/axiom.toml": "0.2.2",
       "axiom://schema/axiom-quality-report-v1": "0.2.0",
       "axiom://schema/axiom-selfhost-snapshot-manifest-v0": "0.2.0"
     }
   },
   "surface_migrations": {
+    "axiom://package/manifest": {
+      "action": "Existing path dependencies remain valid. Registry consumers add one root [registry] table with index, trust_roots, and expectation paths, then use the closed registry dependency form with registry, namespace, package, and an exact or caret version requirement before running axiomc pkg fetch. Per-test name, entry, and any present package must contain a non-whitespace character. Replace blank values with the intended test identity or source path, or omit package to use the default. This aligns validation metadata with existing compiler acceptance; padded nonblank values and empty stdin/stdout/stderr remain valid."
+    },
     "axiom://abi/direct-native": {
       "action": "Ed25519 signing callers must pass the canonical 32-byte private seed. The former 64-byte seed-plus-public-key input is rejected; retain or recover the 32-byte seed before upgrading."
     },
@@ -43,7 +46,7 @@
       "action": "Accept schema surface version 0.4.0, catalog_version 2.0.0 and source stage1/compiler-contracts/sources/stdlib-catalog-authority-v1.json. Adopt per-symbol effects while preserving provider identities and the pending qualified-consumer boundary."
     },
     "axiom://schema/axiom.toml": {
-      "action": "Existing path-only manifests remain valid. To adopt registry dependencies, add the root registry configuration and use the closed registry dependency object documented by the 0.2 schema, then run axiomc pkg fetch to create axiom.lock version 2."
+      "action": "Existing path-only manifests remain valid. To adopt registry dependencies, add the root registry configuration and use the closed registry dependency object documented by the 0.2 schema, then run axiomc pkg fetch to create axiom.lock version 2. Per-test name, entry, and any present package must contain a non-whitespace character; replace blank values or omit package to use the default. Existing compiler acceptance, padded nonblank values, and empty stdin/stdout/stderr are unchanged."
     },
     "axiom://schema/axiom-quality-report-v1": {
       "action": "Quality reports retain the same single-test exclusion and profile semantics. The skippedTests field now uses the current renamed property-test identifier, matching the existing producer. Validate current reports with schema surface version 0.2.0; historical reports retain their historical schema."
