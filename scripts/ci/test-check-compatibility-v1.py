@@ -305,7 +305,16 @@ def main() -> int:
     assert len(current_ids) == 89, "current contract must include Runtime Associative Collections v1, Network Authority v2, Self-Host Snapshot Provenance v0, Native Debugging v1, I/O Reactor v1, Runtime Process v1 and all current-main package trust, quality, parser fuzz, compiler, runtime, target support, target support evidence, persistent LSP, and package resolver schemas"
     assert set(baseline_ids) < set(current_ids)
     assert set(current_ids) - set(baseline_ids) == new_public_schema_ids | new_package_resolver_ids | runtime_process_schema_ids
-    assert current_payload["contract_version"] == "0.24.0"
+    assert current_payload["contract_version"] == "0.25.0"
+    for identifier in ["axiom://package/manifest", "axiom://schema/axiom.toml"]:
+        assert surface(current_payload, identifier)["version"] == "0.2.2"
+        assert "Per-test name, entry, and any present package" in surface(current_payload, identifier)["migration"]["action"]
+    test_properties = load(ROOT / "stage1/schemas/axiom.toml.schema.json")["properties"]["tests"]["items"]["properties"]
+    for field in ["name", "entry", "package"]:
+        assert test_properties[field]["pattern"] == r"[^\u0009-\u000D\u0020\u0085\u00A0\u1680\u2000-\u200A\u2028\u2029\u202F\u205F\u3000]"
+    assert "package" not in load(ROOT / "stage1/schemas/axiom.toml.schema.json")["properties"]["tests"]["items"]["required"]
+    for field in ["stdin", "stdout", "stderr"]:
+        assert test_properties[field] == {"type": "string"}
     assert surface(current_payload, "axiom://schema/axiom-quality-report-v1")["version"] == "0.2.0"
     assert surface(current_payload, "axiom://stdlib/catalog")["version"] == "2.0.0"
     assert surface(current_payload, "axiom://schema/axiom.compiler.stdlib_catalog.v1")["version"] == "0.4.0"
@@ -462,7 +471,7 @@ def main() -> int:
     obs_ratchet = run(BEFORE_OBSERVABILITY, CURRENT, policy=CURRENT_POLICY)
     assert obs_ratchet.returncode == 0, obs_ratchet.stdout + obs_ratchet.stderr
     obs_report = json.loads(obs_ratchet.stdout)
-    assert obs_report["contracts"] == {"old": "0.16.0", "new": "0.24.0"}
+    assert obs_report["contracts"] == {"old": "0.16.0", "new": "0.25.0"}
     assert obs_report["summary"] == {"additive": 10, "breaking": 6, "compatible": 0, "deprecated": 0}
     assert [(i["surface_id"], i["change"], i["severity"]) for i in obs_report["changes"]] == [
         ("axiom://cli/axiomc", "modified", "breaking"),
