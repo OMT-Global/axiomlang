@@ -165,6 +165,12 @@ elif case == "fixpoint":
     entries[1]["provenance_sha256"] = digest(provenance_path)
 elif case == "continuity":
     entries[1]["predecessor"] = f"{chain_id}@9"
+elif case in ("mixed-legacy", "mixed-legacy-last"):
+    index = 0 if case == "mixed-legacy" else 1
+    entries[index] = {
+        key: entries[index][key]
+        for key in ("version", "target", "sha256", "source", "built_by", "provenance")
+    }
 
 readiness = {
     "schemaVersion": 1,
@@ -227,12 +233,15 @@ run_blocked_fixture cargo-rustc 'snapshot_OMT-Global/axiomlang@x86_64-unknown-li
 run_blocked_fixture divergent-output 'snapshot_OMT-Global/axiomlang@x86_64-unknown-linux-gnu@1_output'
 run_blocked_fixture fixpoint 'snapshot_OMT-Global/axiomlang@x86_64-unknown-linux-gnu@1_fixpoint'
 run_blocked_fixture continuity 'snapshot_predecessor_OMT-Global/axiomlang@x86_64-unknown-linux-gnu@1'
+run_blocked_fixture mixed-legacy 'snapshot_manifest_schema'
+run_blocked_fixture mixed-legacy-last 'snapshot_manifest_schema'
 
 run_legacy_fixture() {
-  # Trusted-CI compat (#1543): the base-pinned regression harness emits
-  # legacy-shape manifests. Keep them accepted until that harness lands on
-  # main; the hardened contract above still governs new-shape manifests.
-  local fixture="$tmpdir/legacy"
+  # Trusted-CI compat (#1543): retain legacy schema acceptance, not readiness.
+  # The trusted base always executes its own paired checker and self-test.
+  local case_name="$1"
+  local digest="$2"
+  local fixture="$tmpdir/$case_name"
   mkdir -p "$fixture"
   local snapshots="$fixture/snapshots.json"
   local manifest="$fixture/readiness.json"
@@ -243,7 +252,7 @@ run_legacy_fixture() {
   "snapshots": [{
     "version": "0.0.0-legacy",
     "target": "x86_64-unknown-linux-gnu",
-    "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "sha256": "$digest",
     "source": "https://example.invalid/axiomc",
     "built_by": "cargo",
     "provenance": "https://example.invalid/provenance.json"
@@ -268,13 +277,23 @@ JSON
 }
 JSON
 
-  python3 scripts/ci/check-snapshot-bootstrap-readiness.py --json --manifest "$manifest" > "$fixture/result.json"
+  local status=0
+  python3 scripts/ci/check-snapshot-bootstrap-readiness.py --json --manifest "$manifest" > "$fixture/result.json" || status=$?
+  if [[ "$status" != 1 ]]; then
+    echo "expected $case_name to be unqualified with exit 1, got $status" >&2
+    exit 1
+  fi
   python3 - "$fixture/result.json" <<'PY'
 import json
 import sys
 
 payload = json.load(open(sys.argv[1], encoding="utf-8"))
-assert payload["ready"] is True, payload
+assert payload["ready"] is False, payload
+statuses = {item["name"]: item for item in payload["checks"]}
+assert statuses["snapshot_manifest_schema"]["status"] == "pass", payload["checks"]
+assert statuses["snapshot_manifest_readiness"]["status"] == "fail", payload["checks"]
+assert "hardened" in statuses["snapshot_manifest_readiness"]["detail"], payload["checks"]
+assert not any("artifact_present" in name for name in statuses), payload["checks"]
 PY
 
   python3 - "$snapshots" <<'PY'
@@ -305,6 +324,7 @@ assert "sha256" in statuses["snapshot_manifest_schema"]["detail"], payload["chec
 PY
 }
 
-run_legacy_fixture
+run_legacy_fixture legacy-zero "$(printf '0%.0s' {1..64})"
+run_legacy_fixture legacy-nonzero "$(printf 'a%.0s' {1..64})"
 
 echo "check-snapshot-bootstrap-readiness realistic offline fixtures passed"
