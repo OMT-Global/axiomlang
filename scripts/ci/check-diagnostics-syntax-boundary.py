@@ -105,7 +105,8 @@ def assert_check_fixture(name: str, fixture: dict[str, Any]) -> None:
     if "command_check" in assertions:
         require(payload.get("command") == "check", f"{name} must be a check payload")
     if "statement_count_present" in assertions:
-        require(isinstance(payload.get("statement_count"), int), f"{name} must include statement_count")
+        statement_count = payload.get("statement_count")
+        require(isinstance(statement_count, int) and not isinstance(statement_count, bool), f"{name} must include statement_count")
 
     error = payload.get("error")
     if any(assertion.startswith("kind_") or assertion.endswith("_span_present") or assertion == "stable_code_present" for assertion in assertions):
