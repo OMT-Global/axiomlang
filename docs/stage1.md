@@ -198,6 +198,20 @@ optional generated-Rust artifact path without changing the default
 human-readable streaming behavior. `axiomc test --json` likewise reports the
 selected backend and keeps per-case generated-Rust artifact paths optional so
 direct-native test runs can report only their native binaries.
+
+When the native binary is killed by a signal on Unix (for example `SIGSEGV`
+from native stack exhaustion), `axiomc run` writes one line to its own stderr naming the
+signal, such as `run: <binary> was terminated by SIGSEGV (11); exit code 139`,
+and exits with the shell convention `128 + signal`. With `--json` the envelope
+shape is unchanged: `exit_code` carries the same `128 + signal` value and
+`result` is `failure`; the signal line is on axiomc's stderr, not inside the
+envelope's captured `stderr` field. `axiomc test` reports a signal-killed case
+as `was terminated by SIGSEGV (11)` instead of `exited with status 1`.
+
+Native stack exhaustion has no runtime diagnostic of its own. Direct-native
+binaries install no alternate signal stack or stack-depth check, so unbounded
+recursion ends in a raw `SIGSEGV` with no `{"kind":"runtime",...}` line. Run
+directly, the binary reports only what the shell reports for the signal.
 `axiomc inspect artifacts` reports direct-native package binaries and target
 artifacts as the planned build surface. It does not plan generated Rust for
 packages; stale `.generated.rs` files in `dist/` are classified as
