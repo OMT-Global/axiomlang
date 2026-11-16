@@ -4676,6 +4676,9 @@ fn parse_term(raw: &str, path: &Path, line_no: usize, column: usize) -> Result<E
                     .with_path(path.display().to_string())
                     .with_span(line_no, column + dot + 1)
             })?;
+            if let Some(error) = unsuffixed_float_diagnostic(base_raw, field, path, line_no, column) {
+                return Err(error);
+            }
             return Ok(Expr::TupleIndex {
                 base: Box::new(parse_term(base_raw, path, line_no, column)?),
                 index,
@@ -4863,6 +4866,9 @@ fn parse_term(raw: &str, path: &Path, line_no: usize, column: usize) -> Result<E
             });
         }
     }
+    if let Some(error) = unsupported_expression_diagnostic(raw, path, line_no, column) {
+        return Err(error);
+    }
     validate_ident(raw, path, line_no, column)?;
     Ok(Expr::VarRef {
         name: raw.to_string(),
@@ -4870,6 +4876,12 @@ fn parse_term(raw: &str, path: &Path, line_no: usize, column: usize) -> Result<E
         column,
     })
 }
+
+mod expression_diagnostics;
+use expression_diagnostics::{
+    looks_like_invalid_numeric_literal, unsuffixed_float_diagnostic,
+    unsupported_expression_diagnostic,
+};
 
 const NUMERIC_LITERAL_SUFFIXES: &[&str] = &[
     "isize", "usize", "i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64", "f32", "f64",
@@ -4892,20 +4904,6 @@ fn parse_numeric_literal(raw: &str) -> Option<Literal> {
         }
     }
     None
-}
-
-fn looks_like_invalid_numeric_literal(raw: &str) -> bool {
-    NUMERIC_LITERAL_SUFFIXES.iter().any(|suffix| {
-        let Some(number) = raw.strip_suffix(suffix) else {
-            return false;
-        };
-        !number.is_empty()
-            && (number.parse::<f64>().is_ok()
-                || number
-                    .chars()
-                    .next()
-                    .is_some_and(|ch| ch.is_ascii_digit() || ch == '-' || ch == '.'))
-    })
 }
 
 fn numeric_literal_fits(number: &str, ty: NumericType) -> bool {
