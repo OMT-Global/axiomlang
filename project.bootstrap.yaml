@@ -329,8 +329,8 @@ ci:
     securityUpdates: true
     versionUpdates: true
     ecosystems:
-      - packageEcosystem: npm
-        directory: /
+      - packageEcosystem: cargo
+        directory: /stage1
         interval: weekly
         groupMinorAndPatch: true
         ignoreMajorUpdates: true
