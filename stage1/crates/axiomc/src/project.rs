@@ -51,6 +51,7 @@ mod bounded_test_runner;
 mod expected_build_failure;
 mod lsp_analysis;
 mod module_parse_cache;
+mod paths;
 #[cfg(test)]
 mod stdlib_catalog_tests;
 use bounded_test_runner::{
@@ -59,6 +60,7 @@ use bounded_test_runner::{
 use expected_build_failure::{expected_build_error_path, run_build_fail_case};
 pub use lsp_analysis::{LspResolvedModule, analyze_package_for_lsp};
 use module_parse_cache::ModuleParseCache;
+use paths::{normalize_path, resolve_project_root};
 mod test_case_result;
 pub use test_case_result::{ExpectedDiagnostic, TestCaseResult};
 
@@ -10894,46 +10896,6 @@ fn ensure_output_path_stays_inside_package(
     Ok(())
 }
 
-/// Resolves a caller-supplied project path with operating-system semantics.
-///
-/// The path is canonicalized as given, so `.` and a leading `..` are resolved
-/// against the current directory and `..` after a symlink follows the link's
-/// real parent. Lexically collapsing the path first would silently select a
-/// different directory (issue #1779).
-fn resolve_project_root(project_root: &Path) -> Result<PathBuf, Diagnostic> {
-    let requested = if project_root.as_os_str().is_empty() {
-        Path::new(".")
-    } else {
-        project_root
-    };
-    canonicalize_existing_path(requested, "project root")
-}
-
-/// Lexically removes `.` and resolvable `..` components.
-///
-/// A `..` that has no preceding normal component to cancel is kept on a
-/// relative path and ignored at a filesystem root; it is never discarded,
-/// because that would retarget the path at a different directory.
-fn normalize_path(path: impl AsRef<Path>) -> PathBuf {
-    let mut normalized = PathBuf::new();
-    for component in path.as_ref().components() {
-        match component {
-            Component::CurDir => {}
-            Component::ParentDir => match normalized.components().next_back() {
-                Some(Component::Normal(_)) => {
-                    normalized.pop();
-                }
-                Some(Component::RootDir | Component::Prefix(_)) => {}
-                Some(Component::ParentDir | Component::CurDir) | None => {
-                    normalized.push(component.as_os_str());
-                }
-            },
-            other => normalized.push(other.as_os_str()),
-        }
-    }
-    normalized
-}
-
 fn module_id_for_path(path: &Path, source_root: &Path, package_name: &str) -> String {
     let relative = path.strip_prefix(source_root).unwrap_or(path);
     let stem = relative.with_extension("");
@@ -13090,20 +13052,6 @@ return async_serve_route(1, "/", "ok", 1)
             Some(manifest_path(&root).display().to_string())
         );
         assert_eq!(sbom_error, regular_error);
-    }
-
-    #[test]
-    fn normalize_path_never_discards_unresolvable_parent_components() {
-        assert_eq!(normalize_path("../app"), PathBuf::from("../app"));
-        assert_eq!(normalize_path("../../app/./src"), PathBuf::from("../../app/src"));
-        assert_eq!(normalize_path("a/../../b"), PathBuf::from("../b"));
-        assert_eq!(normalize_path("a/b/../c"), PathBuf::from("a/c"));
-        assert_eq!(normalize_path("./a/./b"), PathBuf::from("a/b"));
-        #[cfg(unix)]
-        {
-            assert_eq!(normalize_path("/a/../../b"), PathBuf::from("/b"));
-            assert_eq!(normalize_path("/a/b/../c"), PathBuf::from("/a/c"));
-        }
     }
 
     #[test]
