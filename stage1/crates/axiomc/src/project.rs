@@ -48,6 +48,7 @@ const PACKAGE_GRAPH_RUNTIME_SCHEMA_VERSION: &str = "axiom.compiler.package_graph
 const PACKAGE_GRAPH_RUNTIME_CONTRACT: &str = "compiler.package_graph.runtime";
 
 mod bounded_test_runner;
+mod exit_status;
 mod expected_build_failure;
 mod lsp_analysis;
 mod module_parse_cache;
@@ -56,6 +57,7 @@ mod stdlib_catalog_tests;
 use bounded_test_runner::{
     run_bounded_command, run_bounded_http_fixture_case, run_command_with_stdin, run_test_command,
 };
+use exit_status::{exit_description, report_signal_termination, run_exit_code};
 use expected_build_failure::{expected_build_error_path, run_build_fail_case};
 pub use lsp_analysis::{LspResolvedModule, analyze_package_for_lsp};
 use module_parse_cache::ModuleParseCache;
@@ -960,76 +962,6 @@ fn validate_build_resolution_mode(options: &BuildOptions) -> Result<(), Diagnost
     Ok(())
 }
 
-/// The signal that terminated a child process, when the platform reports one.
-fn terminating_signal(status: &std::process::ExitStatus) -> Option<i32> {
-    #[cfg(unix)]
-    {
-        std::os::unix::process::ExitStatusExt::signal(status)
-    }
-    #[cfg(not(unix))]
-    {
-        let _ = status;
-        None
-    }
-}
-
-/// Exit code to report for a finished child: its own code, or the shell
-/// convention `128 + signal` when it was killed by a signal. A signal death
-/// must stay distinguishable from a program that chose to exit 1.
-fn run_exit_code(status: &std::process::ExitStatus) -> i32 {
-    status
-        .code()
-        .or_else(|| terminating_signal(status).map(|signal| 128 + signal))
-        .unwrap_or(1)
-}
-
-fn signal_name(signal: i32) -> String {
-    #[cfg(unix)]
-    {
-        let name = match signal {
-            libc::SIGHUP => "SIGHUP",
-            libc::SIGINT => "SIGINT",
-            libc::SIGQUIT => "SIGQUIT",
-            libc::SIGILL => "SIGILL",
-            libc::SIGTRAP => "SIGTRAP",
-            libc::SIGABRT => "SIGABRT",
-            libc::SIGBUS => "SIGBUS",
-            libc::SIGFPE => "SIGFPE",
-            libc::SIGKILL => "SIGKILL",
-            libc::SIGUSR1 => "SIGUSR1",
-            libc::SIGSEGV => "SIGSEGV",
-            libc::SIGUSR2 => "SIGUSR2",
-            libc::SIGPIPE => "SIGPIPE",
-            libc::SIGALRM => "SIGALRM",
-            libc::SIGTERM => "SIGTERM",
-            libc::SIGSYS => "SIGSYS",
-            _ => return format!("signal {signal}"),
-        };
-        format!("{name} ({signal})")
-    }
-    #[cfg(not(unix))]
-    {
-        format!("signal {signal}")
-    }
-}
-
-fn signal_termination_message(binary: &str, signal: i32) -> String {
-    format!(
-        "run: {binary} was terminated by {}; exit code {}",
-        signal_name(signal),
-        128 + signal
-    )
-}
-
-/// How a failed test process ended, for diagnostics.
-fn exit_description(status: &std::process::ExitStatus) -> String {
-    match (status.code(), terminating_signal(status)) {
-        (Some(code), _) => format!("exited with status {code}"),
-        (None, Some(signal)) => format!("was terminated by {}", signal_name(signal)),
-        (None, None) => "exited with status 1".to_owned(),
-    }
-}
-
 pub fn run_project(project_root: &Path) -> Result<i32, Diagnostic> {
     run_project_with_options(project_root, &RunOptions::default())
 }
@@ -1044,9 +976,7 @@ pub fn run_project_with_options(
         .map_err(|err| {
             Diagnostic::new("run", format!("failed to execute {}: {err}", built.binary))
         })?;
-    if let Some(signal) = terminating_signal(&status) {
-        eprintln!("{}", signal_termination_message(&built.binary, signal));
-    }
+    report_signal_termination(&built.binary, &status);
     Ok(run_exit_code(&status))
 }
 
@@ -1061,11 +991,7 @@ pub fn run_project_report_with_options(
         .map_err(|err| {
             Diagnostic::new("run", format!("failed to execute {}: {err}", built.binary))
         })?;
-    if let Some(signal) = terminating_signal(&output.status) {
-        // The JSON envelope goes to stdout; the signal is reported on axiomc's
-        // own stderr and through the conventional 128 + signal exit code.
-        eprintln!("{}", signal_termination_message(&built.binary, signal));
-    }
+    report_signal_termination(&built.binary, &output.status);
     let exit_code = run_exit_code(&output.status);
     Ok(RunOutput {
         backend: built.backend,
