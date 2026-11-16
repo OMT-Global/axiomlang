@@ -48,6 +48,7 @@ const PACKAGE_GRAPH_RUNTIME_SCHEMA_VERSION: &str = "axiom.compiler.package_graph
 const PACKAGE_GRAPH_RUNTIME_CONTRACT: &str = "compiler.package_graph.runtime";
 
 mod bounded_test_runner;
+mod exit_status;
 mod expected_build_failure;
 mod lsp_analysis;
 mod module_parse_cache;
@@ -56,6 +57,7 @@ mod stdlib_catalog_tests;
 use bounded_test_runner::{
     run_bounded_command, run_bounded_http_fixture_case, run_command_with_stdin, run_test_command,
 };
+use exit_status::{exit_description, report_signal_termination, run_exit_code};
 use expected_build_failure::{expected_build_error_path, run_build_fail_case};
 pub use lsp_analysis::{LspResolvedModule, analyze_package_for_lsp};
 use module_parse_cache::ModuleParseCache;
@@ -974,7 +976,8 @@ pub fn run_project_with_options(
         .map_err(|err| {
             Diagnostic::new("run", format!("failed to execute {}: {err}", built.binary))
         })?;
-    Ok(status.code().unwrap_or(1))
+    report_signal_termination(&built.binary, &status);
+    Ok(run_exit_code(&status))
 }
 
 pub fn run_project_report_with_options(
@@ -988,7 +991,8 @@ pub fn run_project_report_with_options(
         .map_err(|err| {
             Diagnostic::new("run", format!("failed to execute {}: {err}", built.binary))
         })?;
-    let exit_code = output.status.code().unwrap_or(1);
+    report_signal_termination(&built.binary, &output.status);
+    let exit_code = run_exit_code(&output.status);
     Ok(RunOutput {
         backend: built.backend,
         manifest: built.manifest,
@@ -1031,7 +1035,7 @@ pub fn run_project_report_with_limits(
             format!("bounded execution of {} failed: {err}", built.binary),
         )
     })?;
-    let exit_code = output.status.code().unwrap_or(1);
+    let exit_code = run_exit_code(&output.status);
     Ok(RunOutput {
         backend: built.backend,
         manifest: built.manifest,
@@ -5127,23 +5131,19 @@ fn run_test_case(
                         Diagnostic::new(
                             "test",
                             if detail.is_empty() {
-                                format!(
-                                    "test {:?} exited with status {}",
-                                    test.name,
-                                    exit_code.unwrap_or(1)
-                                )
+                                format!("test {:?} {}", test.name, exit_description(&output.status))
                             } else if mismatches.is_empty() {
                                 format!(
-                                    "test {:?} exited with status {}: {}",
+                                    "test {:?} {}: {}",
                                     test.name,
-                                    exit_code.unwrap_or(1),
+                                    exit_description(&output.status),
                                     detail
                                 )
                             } else {
                                 format!(
-                                    "test {:?} exited with status {}: {}; {}",
+                                    "test {:?} {}: {}; {}",
                                     test.name,
-                                    exit_code.unwrap_or(1),
+                                    exit_description(&output.status),
                                     detail,
                                     mismatches.join("; ")
                                 )
