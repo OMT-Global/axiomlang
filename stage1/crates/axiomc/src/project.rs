@@ -960,6 +960,76 @@ fn validate_build_resolution_mode(options: &BuildOptions) -> Result<(), Diagnost
     Ok(())
 }
 
+/// The signal that terminated a child process, when the platform reports one.
+fn terminating_signal(status: &std::process::ExitStatus) -> Option<i32> {
+    #[cfg(unix)]
+    {
+        std::os::unix::process::ExitStatusExt::signal(status)
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = status;
+        None
+    }
+}
+
+/// Exit code to report for a finished child: its own code, or the shell
+/// convention `128 + signal` when it was killed by a signal. A signal death
+/// must stay distinguishable from a program that chose to exit 1.
+fn run_exit_code(status: &std::process::ExitStatus) -> i32 {
+    status
+        .code()
+        .or_else(|| terminating_signal(status).map(|signal| 128 + signal))
+        .unwrap_or(1)
+}
+
+fn signal_name(signal: i32) -> String {
+    #[cfg(unix)]
+    {
+        let name = match signal {
+            libc::SIGHUP => "SIGHUP",
+            libc::SIGINT => "SIGINT",
+            libc::SIGQUIT => "SIGQUIT",
+            libc::SIGILL => "SIGILL",
+            libc::SIGTRAP => "SIGTRAP",
+            libc::SIGABRT => "SIGABRT",
+            libc::SIGBUS => "SIGBUS",
+            libc::SIGFPE => "SIGFPE",
+            libc::SIGKILL => "SIGKILL",
+            libc::SIGUSR1 => "SIGUSR1",
+            libc::SIGSEGV => "SIGSEGV",
+            libc::SIGUSR2 => "SIGUSR2",
+            libc::SIGPIPE => "SIGPIPE",
+            libc::SIGALRM => "SIGALRM",
+            libc::SIGTERM => "SIGTERM",
+            libc::SIGSYS => "SIGSYS",
+            _ => return format!("signal {signal}"),
+        };
+        format!("{name} ({signal})")
+    }
+    #[cfg(not(unix))]
+    {
+        format!("signal {signal}")
+    }
+}
+
+fn signal_termination_message(binary: &str, signal: i32) -> String {
+    format!(
+        "run: {binary} was terminated by {}; exit code {}",
+        signal_name(signal),
+        128 + signal
+    )
+}
+
+/// How a failed test process ended, for diagnostics.
+fn exit_description(status: &std::process::ExitStatus) -> String {
+    match (status.code(), terminating_signal(status)) {
+        (Some(code), _) => format!("exited with status {code}"),
+        (None, Some(signal)) => format!("was terminated by {}", signal_name(signal)),
+        (None, None) => "exited with status 1".to_owned(),
+    }
+}
+
 pub fn run_project(project_root: &Path) -> Result<i32, Diagnostic> {
     run_project_with_options(project_root, &RunOptions::default())
 }
@@ -974,7 +1044,10 @@ pub fn run_project_with_options(
         .map_err(|err| {
             Diagnostic::new("run", format!("failed to execute {}: {err}", built.binary))
         })?;
-    Ok(status.code().unwrap_or(1))
+    if let Some(signal) = terminating_signal(&status) {
+        eprintln!("{}", signal_termination_message(&built.binary, signal));
+    }
+    Ok(run_exit_code(&status))
 }
 
 pub fn run_project_report_with_options(
@@ -988,7 +1061,12 @@ pub fn run_project_report_with_options(
         .map_err(|err| {
             Diagnostic::new("run", format!("failed to execute {}: {err}", built.binary))
         })?;
-    let exit_code = output.status.code().unwrap_or(1);
+    if let Some(signal) = terminating_signal(&output.status) {
+        // The JSON envelope goes to stdout; the signal is reported on axiomc's
+        // own stderr and through the conventional 128 + signal exit code.
+        eprintln!("{}", signal_termination_message(&built.binary, signal));
+    }
+    let exit_code = run_exit_code(&output.status);
     Ok(RunOutput {
         backend: built.backend,
         manifest: built.manifest,
@@ -1031,7 +1109,7 @@ pub fn run_project_report_with_limits(
             format!("bounded execution of {} failed: {err}", built.binary),
         )
     })?;
-    let exit_code = output.status.code().unwrap_or(1);
+    let exit_code = run_exit_code(&output.status);
     Ok(RunOutput {
         backend: built.backend,
         manifest: built.manifest,
@@ -5127,23 +5205,19 @@ fn run_test_case(
                         Diagnostic::new(
                             "test",
                             if detail.is_empty() {
-                                format!(
-                                    "test {:?} exited with status {}",
-                                    test.name,
-                                    exit_code.unwrap_or(1)
-                                )
+                                format!("test {:?} {}", test.name, exit_description(&output.status))
                             } else if mismatches.is_empty() {
                                 format!(
-                                    "test {:?} exited with status {}: {}",
+                                    "test {:?} {}: {}",
                                     test.name,
-                                    exit_code.unwrap_or(1),
+                                    exit_description(&output.status),
                                     detail
                                 )
                             } else {
                                 format!(
-                                    "test {:?} exited with status {}: {}; {}",
+                                    "test {:?} {}: {}; {}",
                                     test.name,
-                                    exit_code.unwrap_or(1),
+                                    exit_description(&output.status),
                                     detail,
                                     mismatches.join("; ")
                                 )
