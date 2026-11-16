@@ -1,35 +1,7 @@
-//! Line-comment handling: `//` stripping and the `#` comment diagnostic.
+//! Line-comment helpers: per-line `//` stripping and the `#` comment diagnostic.
 
 use crate::diagnostics::Diagnostic;
 use std::path::Path;
-
-/// Strip `//` comments before macro expansion; `//` inside strings is untouched.
-pub(super) fn strip_line_comments(source: &str) -> String {
-    if !source.contains("//") { return source.to_string(); }
-    let mut cleaned = String::with_capacity(source.len());
-    let mut rest = source;
-    loop {
-        let (line, remainder) = match rest.split_once('\n') {
-            Some((line, remainder)) => (line, Some(remainder)),
-            None => (rest, None),
-        };
-        cleaned.push_str(strip_line_comment(line));
-        match remainder {
-            Some(remainder) => {
-                cleaned.push('\n');
-                rest = remainder;
-            }
-            None => break,
-        }
-    }
-    cleaned
-}
-
-fn strip_line_comment(line: &str) -> &str {
-    let (mut in_string, mut escaped) = (false, false);
-    for (index, byte) in line.bytes().enumerate() { match (in_string, escaped, byte) { (true, true, _) => escaped = false, (true, false, b'\\') => escaped = true, (true, false, b'"') => in_string = false, (false, _, b'"') => in_string = true, (false, _, b'/') if line.as_bytes().get(index + 1) == Some(&b'/') => return &line[..index], _ => {} } }
-    line
-}
 
 /// Diagnoses a statement line that starts with `#`, which other languages use
 /// for comments, so the author is pointed at `//` instead of a generic error.
@@ -47,6 +19,13 @@ pub(super) fn hash_comment_diagnostic(line: &str, path: &Path, line_no: usize) -
         .with_path(path.display().to_string())
         .with_span(line_no, column),
     )
+}
+
+/// Returns `line` up to its `//` comment, ignoring `//` inside string literals.
+pub(super) fn strip_line_comment(line: &str) -> &str {
+    let (mut in_string, mut escaped) = (false, false);
+    for (index, byte) in line.bytes().enumerate() { match (in_string, escaped, byte) { (true, true, _) => escaped = false, (true, false, b'\\') => escaped = true, (true, false, b'"') => in_string = false, (false, _, b'"') => in_string = true, (false, _, b'/') if line.as_bytes().get(index + 1) == Some(&b'/') => return &line[..index], _ => {} } }
+    line
 }
 
 #[cfg(test)]

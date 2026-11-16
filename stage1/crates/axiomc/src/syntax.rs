@@ -893,7 +893,28 @@ pub fn parse_program_with_options(
 }
 
 mod comments;
-use comments::{hash_comment_diagnostic, strip_line_comments};
+
+/// Strip `//` comments before macro expansion; `//` inside strings is untouched.
+fn strip_line_comments(source: &str) -> String {
+    if !source.contains("//") { return source.to_string(); }
+    let mut cleaned = String::with_capacity(source.len());
+    let mut rest = source;
+    loop {
+        let (line, remainder) = match rest.split_once('\n') {
+            Some((line, remainder)) => (line, Some(remainder)),
+            None => (rest, None),
+        };
+        cleaned.push_str(comments::strip_line_comment(line));
+        match remainder {
+            Some(remainder) => {
+                cleaned.push('\n');
+                rest = remainder;
+            }
+            None => break,
+        }
+    }
+    cleaned
+}
 
 pub fn parse_program_with_options_and_recovery(
     source: &str,
@@ -2350,7 +2371,7 @@ fn parse_stmt(
 ) -> Result<Stmt, Diagnostic> {
     let line_no = *index + 1;
     let trimmed = lines[*index].trim();
-    if let Some(error) = hash_comment_diagnostic(lines[*index], path, line_no) {
+    if let Some(error) = comments::hash_comment_diagnostic(lines[*index], path, line_no) {
         return Err(error);
     }
     if trimmed.starts_with("for ") {
