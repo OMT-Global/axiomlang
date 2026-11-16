@@ -91,6 +91,10 @@ jobs:
           path: .trusted-ci
 
       - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable pinned 2026-04-19
+        with:
+          # Pin the compiler so a new stable release cannot turn the required
+          # gate red on its own (Rust 1.100.0 did on 2026-11-09). Bump on purpose.
+          toolchain: 1.99.1
 
       - name: Ensure Rust linker availability
         run: |
@@ -182,6 +186,10 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha }}
 
       - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable pinned 2026-04-19
+        with:
+          # Pin the compiler so a new stable release cannot turn the required
+          # gate red on its own (Rust 1.100.0 did on 2026-11-09). Bump on purpose.
+          toolchain: 1.99.1
 
       - name: Ensure Rust linker availability
         run: |
