@@ -1655,6 +1655,12 @@ fn main() {
                     "served {} registry request(s) from {}",
                     output.requests, output.base_url
                 );
+                if output.dropped_connections > 0 {
+                    eprintln!(
+                        "dropped {} registry connection(s) without a response",
+                        output.dropped_connections
+                    );
+                }
                 0
             }
             Err(error) => print_error("registry-serve", error, false),
