@@ -3,12 +3,12 @@
 # this file governs routine scheduled version update PRs.
 version: 2
 updates:
-  - package-ecosystem: "npm"
-    directory: "/"
+  - package-ecosystem: "cargo"
+    directory: "/stage1"
     schedule:
       interval: "weekly"
     groups:
-      npm-minor-patch:
+      cargo-minor-patch:
         update-types:
           - "minor"
           - "patch"
