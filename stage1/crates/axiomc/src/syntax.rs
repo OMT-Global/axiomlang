@@ -6307,7 +6307,11 @@ mod ast_identity_tests {
     fn hash_prefixed_line_reports_the_supported_comment_syntax() {
         for (source, line, column) in [
             ("# leading\nprint 1\n", 1, 1),
-            ("fn f(x: int): int {\n    # inner\n    return x\n}\nprint f(1)\n", 2, 5),
+            (
+                "fn f(x: int): int {\n    # inner\n    return x\n}\nprint f(1)\n",
+                2,
+                5,
+            ),
         ] {
             let error = parse_program(source, Path::new("main.ax")).expect_err("hash comment");
             assert!(
@@ -6318,8 +6322,11 @@ mod ast_identity_tests {
             assert_eq!((error.line, error.column), (Some(line), Some(column)));
         }
         // `#` inside a string literal and after `//` is ordinary text.
-        parse_program("print \"# not a comment\" // # still fine\n", Path::new("main.ax"))
-            .expect("hash inside string and comment");
+        parse_program(
+            "print \"# not a comment\" // # still fine\n",
+            Path::new("main.ax"),
+        )
+        .expect("hash inside string and comment");
     }
 
     #[test]
