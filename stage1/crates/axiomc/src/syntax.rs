@@ -2375,6 +2375,15 @@ fn parse_stmt(
 ) -> Result<Stmt, Diagnostic> {
     let line_no = *index + 1;
     let trimmed = lines[*index].trim();
+    if trimmed.starts_with('#') {
+        let column = lines[*index].len() - lines[*index].trim_start().len() + 1;
+        return Err(Diagnostic::new(
+            "parse",
+            "`#` does not start a comment; use `//` for comments and `///` for doc comments",
+        )
+        .with_path(path.display().to_string())
+        .with_span(line_no, column));
+    }
     if trimmed.starts_with("for ") {
         return Err(Diagnostic::new(
             "parse",
@@ -6293,6 +6302,25 @@ impl ArithmeticOp {
 mod ast_identity_tests {
     use super::*;
     use std::path::Path;
+
+    #[test]
+    fn hash_prefixed_line_reports_the_supported_comment_syntax() {
+        for (source, line, column) in [
+            ("# leading\nprint 1\n", 1, 1),
+            ("fn f(x: int): int {\n    # inner\n    return x\n}\nprint f(1)\n", 2, 5),
+        ] {
+            let error = parse_program(source, Path::new("main.ax")).expect_err("hash comment");
+            assert!(
+                error.message.contains("use `//` for comments"),
+                "{}",
+                error.message
+            );
+            assert_eq!((error.line, error.column), (Some(line), Some(column)));
+        }
+        // `#` inside a string literal and after `//` is ordinary text.
+        parse_program("print \"# not a comment\" // # still fine\n", Path::new("main.ax"))
+            .expect("hash inside string and comment");
+    }
 
     #[test]
     fn line_comments_are_blanked_and_preserve_line_numbers() {
