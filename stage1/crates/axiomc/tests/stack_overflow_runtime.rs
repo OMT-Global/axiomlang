@@ -100,7 +100,7 @@ fn a_sigsegv_that_is_not_a_stack_fault_still_terminates_by_signal() {
         dir.path(),
         "import \"std/io.ax\"\nfn main(): int {\nreturn len(read_to_string())\n}\n",
     );
-    let mut child = Command::new(&binary)
+    let child = Command::new(&binary)
         .stdin(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
