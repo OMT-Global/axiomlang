@@ -36,6 +36,9 @@ jobs:
         - language: rust
           build-mode: none
           runner: ubuntu-24.04
+        - language: actions
+          build-mode: none
+          runner: ubuntu-24.04
     permissions:
       contents: read
       security-events: write
