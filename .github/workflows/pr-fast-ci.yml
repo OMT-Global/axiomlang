@@ -412,7 +412,7 @@ jobs:
           pr_body="${PR_BODY:-}"
           failed=0
 
-          if [[ "${PR_AUTHOR:-}" == "dependabot[bot]" ]] && grep -Eq '^Bumps \[[^]]+\]\([^)]+\) from [^[:space:]]+ to [^[:space:]]+\.' <<<"$pr_body"; then
+          if [[ "${PR_AUTHOR:-}" == "dependabot[bot]" ]] && grep -Eq '^Bumps (\[[^]]+\]\([^)]+\) from [^[:space:]]+ to [^[:space:]]+\.|the [^[:space:]]+ group( in [^[:space:]]+)? with [0-9]+ updates?(:|\.|$))' <<<"$pr_body"; then
             echo "Dependabot PR body detected; accepting generated dependency update summary."
             exit 0
           fi
