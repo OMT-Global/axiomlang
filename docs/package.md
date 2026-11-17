@@ -190,6 +190,17 @@ full verification before binding its listener, captures the verified index and
 release bytes in memory, and serves that immutable snapshot. Later filesystem
 changes cannot alter the bytes being served.
 
+The server handles one connection at a time. A client has five seconds to
+deliver a complete request head of at most 16 KiB; an oversize head is answered
+with `431`, a head that stalls part-way with `408`, and a connection that sends
+nothing is closed. A slow, idle, or disconnecting client is logged to stderr as
+a dropped connection and never stops the server, but it can delay the next
+client by up to that timeout. `--once` exits after the first connection that
+receives a complete HTTP response of any status; dropped connections do not
+count. The default bind address is loopback, and the server has no TLS,
+authentication, or concurrency, so binding `--addr` to a non-loopback interface
+is unsupported outside a trusted network.
+
 The read-only server exposes:
 
 - `/index.json` and `/` as the verified signed index

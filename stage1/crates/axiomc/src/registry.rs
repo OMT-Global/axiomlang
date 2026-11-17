@@ -135,7 +135,10 @@ pub struct RegistryServeOptions {
 pub struct RegistryServeOutput {
     pub addr: String,
     pub base_url: String,
+    /// Connections that received a complete HTTP response, of any status.
     pub requests: usize,
+    /// Connections abandoned without a complete response (idle, reset, stalled).
+    pub dropped_connections: usize,
 }
 
 #[derive(Debug, Default, serde::Deserialize)]
@@ -2063,6 +2066,9 @@ fn ensure_signers_authorized(
     Ok(())
 }
 
+mod serve;
+use serve::serve_registry_listener;
+
 pub fn serve_registry(
     packages_root: &Path,
     options: &RegistryServeOptions,
@@ -2084,26 +2090,17 @@ pub fn serve_registry(
         &options.trust_roots,
         &options.verification_expectation,
     )?;
-    let mut requests = 0;
-    for stream in listener.incoming() {
-        let mut stream = stream
-            .map_err(|error| registry_error(None, format!("failed to accept request: {error}")))?;
-        stream
-            .set_read_timeout(Some(REGISTRY_IO_TIMEOUT))
-            .and_then(|()| stream.set_write_timeout(Some(REGISTRY_IO_TIMEOUT)))
-            .map_err(|error| {
-                registry_error(None, format!("failed to set registry I/O timeout: {error}"))
-            })?;
-        serve_registry_stream(&context, &mut stream)?;
-        requests += 1;
-        if options.once {
-            break;
-        }
-    }
+    let served = serve_registry_listener(
+        &listener,
+        &context,
+        options.once.then_some(1),
+        REGISTRY_IO_TIMEOUT,
+    )?;
     Ok(RegistryServeOutput {
         addr,
         base_url,
-        requests,
+        requests: served.requests,
+        dropped_connections: served.dropped_connections,
     })
 }
 
@@ -2180,19 +2177,6 @@ impl RegistryServeContext {
             artifacts,
         })
     }
-}
-
-fn serve_registry_stream(
-    context: &RegistryServeContext,
-    stream: &mut TcpStream,
-) -> Result<(), Diagnostic> {
-    let mut buffer = [0_u8; 16 * 1024];
-    let length = stream
-        .read(&mut buffer)
-        .map_err(|error| registry_error(None, format!("failed to read request: {error}")))?;
-    let request = String::from_utf8_lossy(&buffer[..length]);
-    let response = registry_http_response(context, &request);
-    write_registry_http_response(stream, &response)
 }
 
 fn registry_http_response<'a>(
@@ -2641,6 +2625,7 @@ fn registry_error(path: Option<&Path>, message: impl Into<String>) -> Diagnostic
 #[cfg(test)]
 mod tests {
     use super::*;
+    mod serve_tests;
     use ed25519_dalek::{Signer, SigningKey};
     use std::cell::Cell;
     use std::rc::Rc;
