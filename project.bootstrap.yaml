@@ -304,6 +304,7 @@ ci:
   codeqlLanguages:
     - python
     - rust
+    - actions
   runnerPolicy: github-hosted-public
   nodeVersion: "20"
   pythonVersion: "3.12"
