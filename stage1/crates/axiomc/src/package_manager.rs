@@ -3537,9 +3537,15 @@ fn normalize_lexical_path(path: &Path) -> PathBuf {
     for component in path.components() {
         match component {
             std::path::Component::CurDir => {}
-            std::path::Component::ParentDir => {
-                let _ = normalized.pop();
-            }
+            std::path::Component::ParentDir => match normalized.components().next_back() {
+                Some(std::path::Component::Normal(_)) => {
+                    let _ = normalized.pop();
+                }
+                Some(std::path::Component::RootDir | std::path::Component::Prefix(_)) => {}
+                Some(std::path::Component::ParentDir | std::path::Component::CurDir) | None => {
+                    normalized.push(component.as_os_str());
+                }
+            },
             std::path::Component::Prefix(prefix) => normalized.push(prefix.as_os_str()),
             std::path::Component::RootDir => normalized.push(std::path::MAIN_SEPARATOR.to_string()),
             std::path::Component::Normal(component) => normalized.push(component),
