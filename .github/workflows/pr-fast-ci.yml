@@ -326,6 +326,11 @@ jobs:
         # cranelift_backend. Explicit native mode requires cc rather than skipping.
         run: RUST_MIN_STACK=8388608 cargo test --manifest-path stage1/Cargo.toml -p axiomc --test cranelift_numeric_overflow --features run-native-tests -- --test-threads=1
 
+      - name: Run native stack overflow diagnostics
+        # #1784: unbounded recursion reports a structured runtime error on
+        # Linux x86-64, and other SIGSEGVs still terminate by signal.
+        run: RUST_MIN_STACK=8388608 cargo test --manifest-path stage1/Cargo.toml -p axiomc --test stack_overflow_runtime --features run-native-tests -- --test-threads=1
+
   provider-abi-target-matrix:
     name: Provider ABI C Fixture (${{ matrix.target }})
     runs-on: ubuntu-24.04

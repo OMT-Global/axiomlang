@@ -200,7 +200,7 @@ selected backend and keeps per-case generated-Rust artifact paths optional so
 direct-native test runs can report only their native binaries.
 
 When the native binary is killed by a signal on Unix (for example `SIGSEGV`
-from native stack exhaustion), `axiomc run` writes one line to its own stderr naming the
+from an invalid memory access), `axiomc run` writes one line to its own stderr naming the
 signal, such as `run: <binary> was terminated by SIGSEGV (11); exit code 139`,
 and exits with the shell convention `128 + signal`. With `--json` the envelope
 shape is unchanged: `exit_code` carries the same `128 + signal` value and
@@ -208,10 +208,16 @@ shape is unchanged: `exit_code` carries the same `128 + signal` value and
 envelope's captured `stderr` field. `axiomc test` reports a signal-killed case
 as `was terminated by SIGSEGV (11)` instead of `exited with status 1`.
 
-Native stack exhaustion has no runtime diagnostic of its own. Direct-native
-binaries install no alternate signal stack or stack-depth check, so unbounded
-recursion ends in a raw `SIGSEGV` with no `{"kind":"runtime",...}` line. Run
-directly, the binary reports only what the shell reports for the signal.
+On Linux x86-64, native stack exhaustion is a runtime error like an out-of-bounds
+index. Direct-native binaries install a `SIGSEGV` handler on an alternate signal
+stack. When the fault address lies in the main thread's stack region, unbounded
+recursion prints `{"kind":"runtime","message":"stack overflow"}` to stderr and
+exits with status 1. Any other `SIGSEGV`, including one sent with `kill`,
+restores the default action and re-raises the signal, so the process still dies
+by `SIGSEGV` and `axiomc run` reports it as above. A process running with an
+unlimited stack (`ulimit -s unlimited`) has no stack fault to catch; the kernel
+ends it when memory runs out. Other hosts, including macOS arm64, install no
+handler yet: unbounded recursion there still ends in a raw `SIGSEGV`.
 `axiomc inspect artifacts` reports direct-native package binaries and target
 artifacts as the planned build surface. It does not plan generated Rust for
 packages; stale `.generated.rs` files in `dist/` are classified as
