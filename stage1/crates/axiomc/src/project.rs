@@ -52,6 +52,7 @@ mod exit_status;
 mod expected_build_failure;
 mod lsp_analysis;
 mod module_parse_cache;
+mod paths;
 #[cfg(test)]
 mod stdlib_catalog_tests;
 use bounded_test_runner::{
@@ -61,6 +62,7 @@ use exit_status::{exit_description, report_signal_termination, run_exit_code};
 use expected_build_failure::{expected_build_error_path, run_build_fail_case};
 pub use lsp_analysis::{LspResolvedModule, analyze_package_for_lsp};
 use module_parse_cache::ModuleParseCache;
+use paths::{normalize_path, resolve_project_root};
 mod test_case_result;
 pub use test_case_result::{ExpectedDiagnostic, TestCaseResult};
 
@@ -628,7 +630,7 @@ pub fn check_project_with_options(
     project_root: &Path,
     options: &CheckOptions,
 ) -> Result<CheckOutput, Diagnostic> {
-    let project_root = canonicalize_existing_path(&normalize_path(project_root), "project root")?;
+    let project_root = resolve_project_root(project_root)?;
     let graph = load_package_graph(&project_root)?;
     check_project_with_graph(&project_root, &graph, options)
 }
@@ -693,7 +695,7 @@ fn check_project_with_graph(
 pub fn documentation_packages(
     project_root: &Path,
 ) -> Result<Vec<DocumentationPackage>, Diagnostic> {
-    let project_root = canonicalize_existing_path(&normalize_path(project_root), "project root")?;
+    let project_root = resolve_project_root(project_root)?;
     let graph = load_package_graph(&project_root)?;
     validate_workspace_root_lockfile(&graph, &project_root)?;
     let mut packages = Vec::new();
@@ -717,7 +719,7 @@ pub fn documentation_packages(
 pub fn executable_mir_packages(
     project_root: &Path,
 ) -> Result<Vec<ExecutableMirPackage>, Diagnostic> {
-    let project_root = canonicalize_existing_path(&normalize_path(project_root), "project root")?;
+    let project_root = resolve_project_root(project_root)?;
     let graph = load_package_graph(&project_root)?;
     validate_workspace_root_lockfile(&graph, &project_root)?;
     let mut packages = Vec::new();
@@ -760,7 +762,7 @@ pub fn build_project_with_options(
     project_root: &Path,
     options: &BuildOptions,
 ) -> Result<BuildOutput, Diagnostic> {
-    let project_root = canonicalize_existing_path(&normalize_path(project_root), "project root")?;
+    let project_root = resolve_project_root(project_root)?;
     let graph = load_package_graph(&project_root)?;
     build_project_with_graph(&project_root, &graph, options)
 }
@@ -769,7 +771,7 @@ pub fn inspect_build_cache(
     project_root: &Path,
     clean: bool,
 ) -> Result<BuildCacheOutput, Diagnostic> {
-    let project_root = canonicalize_existing_path(&normalize_path(project_root), "project root")?;
+    let project_root = resolve_project_root(project_root)?;
     let graph = load_package_graph(&project_root)?;
     let mut entries = Vec::new();
     for package_root in workspace_package_roots(&graph, &project_root, None)? {
@@ -1060,7 +1062,7 @@ fn prepare_run_project(
     project_root: &Path,
     options: &RunOptions,
 ) -> Result<(PathBuf, BuildOutput, PathBuf), Diagnostic> {
-    let project_root = canonicalize_existing_path(&normalize_path(project_root), "project root")?;
+    let project_root = resolve_project_root(project_root)?;
     let graph = load_package_graph(&project_root)?;
     prepare_run_project_with_graph(&project_root, &graph, options)
 }
@@ -1114,7 +1116,7 @@ pub fn list_project_tests_with_options(
     project_root: &Path,
     options: &TestOptions,
 ) -> Result<TestListOutput, Diagnostic> {
-    let project_root = canonicalize_existing_path(&normalize_path(project_root), "project root")?;
+    let project_root = resolve_project_root(project_root)?;
     let graph = load_package_graph(&project_root)?;
     validate_workspace_root_lockfile(&graph, &project_root)?;
     let manifest_path_text = manifest_path(&project_root).display().to_string();
@@ -1193,7 +1195,7 @@ pub fn run_project_tests_with_retry_plan(
     options: &TestOptions,
     retry_plan: Option<&TestRetryPlan>,
 ) -> Result<TestRetryOutput, Diagnostic> {
-    let project_root = canonicalize_existing_path(&normalize_path(project_root), "project root")?;
+    let project_root = resolve_project_root(project_root)?;
     let graph = load_package_graph(&project_root)?;
     let (output, retries) = run_project_tests_with_graph(&project_root, &graph, options, retry_plan)?;
     Ok(TestRetryOutput { output, retries })
@@ -1845,7 +1847,7 @@ pub fn project_capabilities(project_root: &Path) -> Result<Vec<CapabilityDescrip
 }
 
 pub fn capability_sbom(project_root: &Path) -> Result<CapabilitySbomOutput, Diagnostic> {
-    let project_root = canonicalize_existing_path(&normalize_path(project_root), "project root")?;
+    let project_root = resolve_project_root(project_root)?;
     let graph = load_package_graph(&project_root)?;
     capability_sbom_with_graph(&project_root, &graph)
 }
@@ -1922,7 +1924,7 @@ fn capability_sbom_with_graph(
 }
 
 pub fn package_graph_metadata(project_root: &Path) -> Result<PackageGraphOutput, Diagnostic> {
-    let project_root = canonicalize_existing_path(&normalize_path(project_root), "project root")?;
+    let project_root = resolve_project_root(project_root)?;
     let graph = load_package_graph(&project_root)?;
     package_graph_metadata_with_graph(&project_root, &graph)
 }
@@ -2581,7 +2583,7 @@ fn validate_package_lockfile(
 }
 
 fn load_package_graph(project_root: &Path) -> Result<PackageGraph, Diagnostic> {
-    let project_root = canonicalize_existing_path(&normalize_path(project_root), "project root")?;
+    let project_root = resolve_project_root(project_root)?;
     let manifest = load_manifest(&project_root)?;
     let has_direct_registry_dependency = manifest
         .dependencies
@@ -3227,8 +3229,7 @@ fn load_package_graph_recursive(
     visiting: &mut Vec<PathBuf>,
     allowed_workspace_members: &BTreeSet<PathBuf>,
 ) -> Result<(), Diagnostic> {
-    let project_root = normalize_path(project_root);
-    let project_root = canonicalize_existing_path(&project_root, "project root")?;
+    let project_root = resolve_project_root(project_root)?;
     if graph.packages.contains_key(&project_root) {
         return Ok(());
     }
@@ -3684,13 +3685,7 @@ fn backend_input_hash(
 }
 
 pub fn provenance_path_for_project(project_root: &Path) -> Result<PathBuf, Diagnostic> {
-    let normalized = normalize_path(project_root);
-    let project_root = if normalized.as_os_str().is_empty() {
-        PathBuf::from(".")
-    } else {
-        normalized
-    };
-    let project_root = canonicalize_existing_path(&project_root, "project root")?;
+    let project_root = resolve_project_root(project_root)?;
     let manifest = load_manifest(&project_root)?;
     Ok(provenance_path(&project_root, &manifest))
 }
@@ -10899,20 +10894,6 @@ fn ensure_output_path_stays_inside_package(
         }
     }
     Ok(())
-}
-
-fn normalize_path(path: impl AsRef<Path>) -> PathBuf {
-    let mut normalized = PathBuf::new();
-    for component in path.as_ref().components() {
-        match component {
-            Component::CurDir => {}
-            Component::ParentDir => {
-                normalized.pop();
-            }
-            other => normalized.push(other.as_os_str()),
-        }
-    }
-    normalized
 }
 
 fn module_id_for_path(path: &Path, source_root: &Path, package_name: &str) -> String {
