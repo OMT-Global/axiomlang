@@ -1974,9 +1974,15 @@ fn normalize_path(path: impl AsRef<Path>) -> PathBuf {
     for component in path.as_ref().components() {
         match component {
             Component::CurDir => {}
-            Component::ParentDir => {
-                normalized.pop();
-            }
+            Component::ParentDir => match normalized.components().next_back() {
+                Some(Component::Normal(_)) => {
+                    normalized.pop();
+                }
+                Some(Component::RootDir | Component::Prefix(_)) => {}
+                Some(Component::ParentDir | Component::CurDir) | None => {
+                    normalized.push(component.as_os_str());
+                }
+            },
             other => normalized.push(other.as_os_str()),
         }
     }
