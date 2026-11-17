@@ -1,3 +1,5 @@
+mod stack_overflow;
+
 use cranelift_codegen::ir::{
     AbiParam, ArgumentPurpose, Block, BlockArg, FuncRef, InstBuilder, MemFlags, StackSlotData,
     StackSlotKind, TrapCode, Value, condcodes::IntCC, types,
@@ -1261,6 +1263,7 @@ fn emit_i64_exit_object(
         )?;
     }
 
+    let stack_overflow_guard = stack_overflow::declare(&mut module)?;
     let mut context = module.make_context();
     context
         .func
@@ -1293,6 +1296,9 @@ fn emit_i64_exit_object(
             argv: block_params[1],
         };
         let function_refs = i64_function_refs(&mut module, &mut builder, &function_ids);
+        if let Some(guard) = &stack_overflow_guard {
+            stack_overflow::install(&mut module, &mut builder, guard);
+        }
         let write_ref = module.declare_func_in_func(write_id, builder.func);
         let read_ref = module.declare_func_in_func(read_id, builder.func);
         let sleep_ref = module.declare_func_in_func(sleep_id, builder.func);

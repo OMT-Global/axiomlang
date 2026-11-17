@@ -139,6 +139,7 @@ axiomc_manifest_schema_parity_suite=$(printf '%s\n' "$full_lib_suite_section" | 
 axiomc_syntax_migration_suite=$(printf '%s\n' "$full_lib_suite_section" | grep -E -- '^[[:space:]]*run: RUST_MIN_STACK=8388608 cargo test --manifest-path stage1/Cargo\.toml -p axiomc --test syntax_migration_v1 --locked -- --test-threads=1[[:space:]]*$' || true)
 axiomc_json_contract_suite=$(printf '%s\n' "$full_lib_suite_section" | grep -E -- '^[[:space:]]*run: RUST_MIN_STACK=8388608 cargo test --manifest-path stage1/Cargo\.toml -p axiomc --test json_contract_snapshots --locked -- --test-threads=1[[:space:]]*$' || true)
 axiomc_numeric_overflow_suite=$(printf '%s\n' "$full_lib_suite_section" | grep -F -- 'cargo test --manifest-path stage1/Cargo.toml -p axiomc --test cranelift_numeric_overflow --features run-native-tests' || true)
+axiomc_stack_overflow_suite=$(printf '%s\n' "$full_lib_suite_section" | grep -F -- 'cargo test --manifest-path stage1/Cargo.toml -p axiomc --test stack_overflow_runtime --features run-native-tests' || true)
 # Keep the intentional schema-rejection test byte-pinned; reject legacy tables elsewhere.
 python3 "$repo_root/scripts/ci/check-cranelift-manifest-fixtures.py"
 proof_workload_test=$(grep -nF 'bash scripts/ci/run-stage1-proof-test.sh' "$fast_checks_script" || true)
@@ -315,6 +316,11 @@ fi
 
 if [[ -z "$axiomc_numeric_overflow_suite" ]]; then
   echo "pr-fast-ci must execute the native numeric overflow matrix in required native mode (#1659)" >&2
+  exit 1
+fi
+
+if [[ -z "$axiomc_stack_overflow_suite" ]]; then
+  echo "pr-fast-ci must execute the native stack overflow diagnostics in required native mode (#1784)" >&2
   exit 1
 fi
 
