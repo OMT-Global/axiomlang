@@ -12,6 +12,7 @@ mod control_flow;
 mod definitions;
 mod diagnostics;
 mod expressions;
+mod fs_intrinsics;
 mod generics;
 mod maps;
 mod loop_ownership;
@@ -55,6 +56,7 @@ use self::expressions::{
     numeric_method_return_ty, static_bool_value,
 };
 use self::generics::monomorphize_program;
+use self::fs_intrinsics::lower_fs_read_intrinsic;
 use self::maps::lower_map_lookup_intrinsic;
 use self::matches::{
     MatchArmInput, MatchExprArmInput, lower_match_expr, lower_match_stmt, match_variants,
@@ -2621,30 +2623,8 @@ fn lower_expr_with_expected_inner(
                     ty: Type::Option(Box::new(Type::String)),
                 });
             }
-            if name == "fs_read" {
-                require_capability(ctx.capabilities, CapabilityKind::Fs, name, *line, *column)?;
-                if args.len() != 1 {
-                    return Err(Diagnostic::new(
-                        "type",
-                        format!("fs_read expects 1 argument, got {}", args.len()),
-                    )
-                    .with_span(*line, *column));
-                }
-                let lowered = lower_expr_with_expected(&args[0], Some(&Type::String), env, ctx)?;
-                if lowered.ty() != &Type::String {
-                    return Err(Diagnostic::new(
-                        "type",
-                        format!("fs_read expects a string argument, got {}", lowered.ty()),
-                    )
-                    .with_span(args[0].line(), args[0].column()));
-                }
-                move_lowered_value(&lowered, env)?;
-                return Ok(Expr::Call {
-                    span: SourceSpan::point(*line, *column),
-                    name: name.clone(),
-                    args: vec![lowered],
-                    ty: Type::Option(Box::new(Type::String)),
-                });
+            if matches!(name.as_str(), "fs_read" | "fs_file_exists" | "fs_file_size") {
+                return lower_fs_read_intrinsic(name, args, *line, *column, env, ctx);
             }
             if matches!(name.as_str(), "fs_write" | "fs_append" | "fs_replace") {
                 require_capability(
