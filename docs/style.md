@@ -123,10 +123,10 @@ let pipeline: Pipeline = Pipeline {
 
 ## Comments and docs
 
-- Use `#` comments sparingly for intent, invariants, or temporary limitations.
+- Use `//` comments sparingly for intent, invariants, or temporary limitations.
 - Prefer explaining why a constraint exists instead of narrating the code.
 - Keep comments updated when behavior changes.
-- Use doc comments on public APIs when they should appear in generated docs.
+- Use `///` doc comments on public APIs when they should appear in generated docs.
 
 ```axiom
 /// Returns the display name for a job.
