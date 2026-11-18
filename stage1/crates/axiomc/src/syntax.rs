@@ -5522,6 +5522,7 @@ fn split_top_level_with_offsets(raw: &str, delimiter: char) -> Vec<(usize, &str)
     parts
 }
 
+mod numeric_exponent;
 fn split_top_level_arithmetic<'a>(
     raw: &'a str,
     operators: &[(char, ArithmeticOp)],
@@ -5559,7 +5560,9 @@ fn split_top_level_arithmetic<'a>(
             '[' => bracket_depth += 1,
             ']' => bracket_depth = bracket_depth.saturating_sub(1),
             _ if paren_depth == 0 && brace_depth == 0 && bracket_depth == 0 => {
-                if ch == '-' && is_unary_minus(raw, cursor, &chars) {
+                if numeric_exponent::is_exponent_sign(raw, index, ch)
+                    || (ch == '-' && is_unary_minus(raw, cursor, &chars))
+                {
                     continue;
                 }
                 if ch == '*' && is_unary_deref(raw, cursor, &chars) {
@@ -5583,9 +5586,6 @@ fn is_unary_minus(raw: &str, cursor: usize, chars: &[(usize, char)]) -> bool {
         return true;
     }
     let before = raw[..chars[cursor].0].trim_end();
-    if before.ends_with('e') || before.ends_with('E') {
-        return true;
-    }
     matches!(
         before.chars().next_back(),
         None | Some('(' | '[' | '{' | ',' | ':' | '=' | '<' | '>' | '+' | '-' | '*' | '/')
