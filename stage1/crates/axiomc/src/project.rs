@@ -5828,6 +5828,16 @@ fn load_modules_with_parse_cache(
     Ok(ordered)
 }
 
+/// A cycle is detected when a module is re-entered, where the closing import is
+/// unknown. Report it at the cycle module's own import that starts the cycle.
+fn locate_import_cycle(error: Diagnostic, module: &Path, import: &syntax::Import) -> Diagnostic {
+    let starts_here = error.path.as_deref() == Some(module.display().to_string().as_str());
+    if error.code.as_deref() != Some("import_cycle") || error.line.is_some() || !starts_here {
+        return error;
+    }
+    error.with_span(import.line, import.column)
+}
+
 fn load_module_recursive(
     graph: &PackageGraph,
     package_root: &Path,
@@ -5905,7 +5915,8 @@ fn load_module_recursive(
             loaded,
             visiting,
             parse_cache,
-        )?;
+        )
+        .map_err(|error| locate_import_cycle(error, &module_path, import))?;
     }
     visiting.pop();
 

@@ -1,0 +1,8 @@
+{
+  "kind": "parse",
+  "code": "parse.float_literal_requires_suffix",
+  "message": "float literal 2.25 needs a type suffix, for example 2.25f64",
+  "path": "src/main.ax",
+  "line": 2,
+  "column": 7
+}

@@ -1,0 +1,2 @@
+let x: int = 7
+print x % 2

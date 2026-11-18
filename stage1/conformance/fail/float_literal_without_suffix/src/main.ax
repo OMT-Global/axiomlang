@@ -1,0 +1,2 @@
+let total: f64 = 0.5f64
+print total + 2.25

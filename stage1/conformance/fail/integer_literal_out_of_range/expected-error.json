@@ -1,0 +1,8 @@
+{
+  "kind": "parse",
+  "code": "parse.integer_literal_out_of_range",
+  "message": "integer literal 9223372036854775808 is out of range for `int` (-9223372036854775808 to 9223372036854775807)",
+  "path": "src/main.ax",
+  "line": 1,
+  "column": 7
+}

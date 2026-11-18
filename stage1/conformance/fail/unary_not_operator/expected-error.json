@@ -1,0 +1,8 @@
+{
+  "kind": "parse",
+  "code": "parse.unsupported_operator",
+  "message": "unary `!` is not supported in stage1; compare with `== false` instead",
+  "path": "src/main.ax",
+  "line": 2,
+  "column": 7
+}

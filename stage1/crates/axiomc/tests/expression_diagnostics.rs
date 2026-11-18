@@ -1,5 +1,6 @@
 //! Issue #1786: common expression mistakes get a targeted parse diagnostic
-//! with a span instead of "invalid identifier" or a tuple-index type error.
+//! with a span and a stable code instead of "invalid identifier" or a
+//! tuple-index type error.
 use axiomc::syntax;
 use std::path::Path;
 
@@ -60,5 +61,22 @@ fn valid_neighbouring_forms_still_parse() {
     ] {
         syntax::parse_program(source, Path::new("main.ax"))
             .unwrap_or_else(|error| panic!("{source:?} must parse: {error:?}"));
+    }
+}
+
+#[test]
+fn each_mistake_has_a_stable_catalogued_code() {
+    for (source, code) in [
+        ("print 1.5 + 2.25\n", "parse.float_literal_requires_suffix"),
+        ("print 9223372036854775808\n", "parse.integer_literal_out_of_range"),
+        ("let a: bool = true\nprint !a\n", "parse.unsupported_operator"),
+        ("let x: int = 7\nprint x % 2\n", "parse.unsupported_operator"),
+        ("print 1 < 2 == true\n", "parse.chained_comparison"),
+    ] {
+        let error = parse_error(source);
+        assert_eq!(error.code.as_deref(), Some(code), "{source:?}: {error:?}");
+        let info = axiomc::diagnostic_catalog::diagnostic_code_info(code)
+            .unwrap_or_else(|| panic!("{code} must be in the diagnostic catalog"));
+        assert_eq!(info.kind, "parse");
     }
 }

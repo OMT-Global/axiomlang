@@ -1,0 +1,8 @@
+{
+  "kind": "parse",
+  "code": "parse.unsupported_operator",
+  "message": "operator `%` is not supported in stage1",
+  "path": "src/main.ax",
+  "line": 2,
+  "column": 7
+}
