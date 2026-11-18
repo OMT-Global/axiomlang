@@ -1,0 +1,8 @@
+{
+  "kind": "parse",
+  "code": null,
+  "message": "`#` does not start a comment; use `//` for comments and `///` for doc comments",
+  "path": "src/main.ax",
+  "line": 5,
+  "column": 11
+}

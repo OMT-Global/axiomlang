@@ -893,6 +893,7 @@ pub fn parse_program_with_options(
 }
 
 mod comments;
+pub use comments::{hash_comment_diagnostics, reject_hash_comments};
 
 /// Strip `//` comments before macro expansion; `//` inside strings is untouched.
 fn strip_line_comments(source: &str) -> String {
@@ -921,6 +922,10 @@ pub fn parse_program_with_options_and_recovery(
     path: &Path,
     options: &ParseOptions,
 ) -> Result<Program, Vec<Diagnostic>> {
+    let hash_comments = comments::hash_comment_diagnostics(source, path);
+    if !hash_comments.is_empty() {
+        return Err(hash_comments);
+    }
     let source = strip_line_comments(source);
     let expanded_source = expand_declarative_macros(&source, path, options)?;
     let lines: Vec<&str> = expanded_source.source.lines().collect();
@@ -2371,9 +2376,6 @@ fn parse_stmt(
 ) -> Result<Stmt, Diagnostic> {
     let line_no = *index + 1;
     let trimmed = lines[*index].trim();
-    if let Some(error) = comments::hash_comment_diagnostic(lines[*index], path, line_no) {
-        return Err(error);
-    }
     if trimmed.starts_with("for ") {
         return Err(Diagnostic::new(
             "parse",

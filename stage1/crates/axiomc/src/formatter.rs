@@ -6,7 +6,7 @@ use std::path::Path;
 
 #[path = "formatter_report.rs"]
 mod formatter_report;
-use formatter_report::format_edits;
+use formatter_report::{ends_with_line_ending, format_edits, splits_crlf};
 
 const FORMAT_SCHEMA_PATH: &str = "stage1/schemas/axiom-format-edit-v1.schema.json";
 
@@ -55,13 +55,18 @@ pub(super) fn format_axiom_sources(path: &Path, check: bool) -> Result<FormatRep
             format!("no .ax files found under {}", path.display()),
         ));
     }
-    let mut reports = Vec::new();
-    let mut changed = 0;
+    let mut sources = Vec::new();
     for file in files {
         let original = fs::read_to_string(&file).map_err(|err| {
             Diagnostic::new("fmt", format!("failed to read {}: {err}", file.display()))
                 .with_path(file.display().to_string())
         })?;
+        axiomc::syntax::reject_hash_comments(&original, &file)?;
+        sources.push((file, original));
+    }
+    let mut reports = Vec::new();
+    let mut changed = 0;
+    for (file, original) in sources {
         let formatted = format_axiom_source(&original);
         let is_changed = formatted != original;
         let edits = format_edits(&original, &formatted);
@@ -98,6 +103,7 @@ pub(super) fn format_axiom_stdin(
     check: bool,
     range: Option<FormatRange>,
 ) -> Result<(String, FormatReport), Diagnostic> {
+    axiomc::syntax::reject_hash_comments(source, Path::new("<stdin>"))?;
     let formatted = match range {
         Some(range) => format_axiom_range(source, range)?,
         None => format_axiom_source(source),
@@ -161,16 +167,6 @@ fn format_axiom_range(source: &str, range: FormatRange) -> Result<String, Diagno
     Ok(formatted)
 }
 
-fn ends_with_line_ending(source: &str) -> bool {
-    source.ends_with('\n') || source.ends_with('\r')
-}
-
-fn splits_crlf(source: &str, byte: usize) -> bool {
-    byte > 0
-        && byte < source.len()
-        && source.as_bytes()[byte - 1] == b'\r'
-        && source.as_bytes()[byte] == b'\n'
-}
 pub(super) fn format_axiom_source(source: &str) -> String {
     formatter_core::format(source)
 }
