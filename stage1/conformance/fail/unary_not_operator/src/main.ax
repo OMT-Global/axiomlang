@@ -1,0 +1,2 @@
+let ready: bool = true
+print !ready

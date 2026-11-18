@@ -22,6 +22,7 @@ mod properties;
 mod reachability;
 mod signatures;
 mod source_locations;
+mod statement_spans;
 mod symbols;
 mod types;
 mod variants;
@@ -46,9 +47,8 @@ use self::definitions::{
     collect_type_names, validate_recursive_type_cycles, validate_trait_bounds_in_program,
     validate_trait_type_uses_in_program,
 };
-use self::diagnostics::{
-    append_diagnostic, primary_diagnostic, single_diagnostic, sort_diagnostics,
-};
+use self::diagnostics::{append_diagnostic, primary_diagnostic, single_diagnostic, sort_diagnostics};
+use self::statement_spans::lower_stmt;
 use self::expressions::{
     coerce_lowered_expr_to_expected, is_castable_numeric, is_ordered_numeric, is_string_like_type,
     lower_binary_add_chain, lower_call_arg_with_expected, method_owner_name,
@@ -764,7 +764,7 @@ fn is_supported_local_assignment_type_inner(
     }
 }
 
-fn lower_stmt(
+fn lower_stmt_unspanned(
     stmt: &syntax::Stmt,
     env: &mut HashMap<String, Binding>,
     ctx: &LowerContext<'_>,

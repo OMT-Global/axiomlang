@@ -1,0 +1,8 @@
+{
+  "kind": "parse",
+  "code": "parse.chained_comparison",
+  "message": "comparison operators cannot be chained in \"2 == true\"; parenthesize one comparison",
+  "path": "src/main.ax",
+  "line": 1,
+  "column": 7
+}

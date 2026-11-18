@@ -7,8 +7,22 @@ use super::{NUMERIC_LITERAL_SUFFIXES, find_compare_operator, find_top_level_char
 use crate::diagnostics::Diagnostic;
 use std::path::Path;
 
-fn parse_error(message: String, path: &Path, line_no: usize, column: usize) -> Diagnostic {
+/// Stable codes for the expression mistakes below (#1786). Each is in the
+/// diagnostic catalog, so `axiomc explain <code>` describes it.
+pub const FLOAT_LITERAL_REQUIRES_SUFFIX: &str = "parse.float_literal_requires_suffix";
+pub const INTEGER_LITERAL_OUT_OF_RANGE: &str = "parse.integer_literal_out_of_range";
+pub const UNSUPPORTED_OPERATOR: &str = "parse.unsupported_operator";
+pub const CHAINED_COMPARISON: &str = "parse.chained_comparison";
+
+fn parse_error(
+    code: &'static str,
+    message: String,
+    path: &Path,
+    line_no: usize,
+    column: usize,
+) -> Diagnostic {
     Diagnostic::new("parse", message)
+        .with_code(code)
         .with_path(path.display().to_string())
         .with_span(line_no, column)
 }
@@ -27,6 +41,7 @@ pub(super) fn unsuffixed_float_diagnostic(
         return None;
     }
     Some(parse_error(
+        FLOAT_LITERAL_REQUIRES_SUFFIX,
         format!(
             "float literal {whole}.{fraction} needs a type suffix, for example {whole}.{fraction}f64"
         ),
@@ -44,29 +59,38 @@ pub(super) fn unsupported_expression_diagnostic(
     line_no: usize,
     column: usize,
 ) -> Option<Diagnostic> {
-    unsupported_expression_message(raw).map(|message| parse_error(message, path, line_no, column))
+    unsupported_expression_message(raw)
+        .map(|(code, message)| parse_error(code, message, path, line_no, column))
 }
 
-fn unsupported_expression_message(raw: &str) -> Option<String> {
+fn unsupported_expression_message(raw: &str) -> Option<(&'static str, String)> {
     let digits = raw.strip_prefix('-').unwrap_or(raw);
     if !digits.is_empty() && digits.chars().all(|ch| ch.is_ascii_digit()) {
-        return Some(format!(
-            "integer literal {raw} is out of range for `int` ({} to {})",
-            i64::MIN,
-            i64::MAX
+        return Some((
+            INTEGER_LITERAL_OUT_OF_RANGE,
+            format!(
+                "integer literal {raw} is out of range for `int` ({} to {})",
+                i64::MIN,
+                i64::MAX
+            ),
         ));
     }
     if raw.starts_with('!') && !raw.starts_with("!=") {
-        return Some(
+        return Some((
+            UNSUPPORTED_OPERATOR,
             "unary `!` is not supported in stage1; compare with `== false` instead".to_string(),
-        );
+        ));
     }
     if find_top_level_char(raw, '%').is_some() {
-        return Some("operator `%` is not supported in stage1".to_string());
+        return Some((
+            UNSUPPORTED_OPERATOR,
+            "operator `%` is not supported in stage1".to_string(),
+        ));
     }
     if find_compare_operator(raw).is_some() {
-        return Some(format!(
-            "comparison operators cannot be chained in {raw:?}; parenthesize one comparison"
+        return Some((
+            CHAINED_COMPARISON,
+            format!("comparison operators cannot be chained in {raw:?}; parenthesize one comparison"),
         ));
     }
     None

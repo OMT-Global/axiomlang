@@ -26,6 +26,11 @@ version = "0.1.0"
 source = "path:fail/borrow_escape_tuple_element"
 
 [[package]]
+name = "conformance-chained-comparison"
+version = "0.1.0"
+source = "path:fail/chained_comparison"
+
+[[package]]
 name = "conformance-closure-borrowed-slice-return"
 version = "0.1.0"
 source = "path:fail/closure_borrowed_slice_return"
@@ -74,6 +79,11 @@ source = "path:fail/dyn_trait_not_supported"
 name = "conformance-ffi-call-without-capability"
 version = "0.1.0"
 source = "path:fail/ffi_call_without_capability"
+
+[[package]]
+name = "conformance-float-literal-without-suffix"
+version = "0.1.0"
+source = "path:fail/float_literal_without_suffix"
 
 [[package]]
 name = "conformance-for-loop-requires-iteration-protocol"
@@ -139,6 +149,11 @@ source = "path:fail/import_reserved_namespace"
 name = "conformance-import-unsupported-alias"
 version = "0.1.0"
 source = "path:fail/import_unsupported_alias"
+
+[[package]]
+name = "conformance-integer-literal-out-of-range"
+version = "0.1.0"
+source = "path:fail/integer_literal_out_of_range"
 
 [[package]]
 name = "conformance-lowercase-const-match-pattern"
@@ -356,6 +371,11 @@ version = "0.1.0"
 source = "path:fail/recursive_struct_without_indirection"
 
 [[package]]
+name = "conformance-remainder-operator"
+version = "0.1.0"
+source = "path:fail/remainder_operator"
+
+[[package]]
 name = "conformance-result-ok-without-context"
 version = "0.1.0"
 source = "path:fail/result_ok_without_context"
@@ -519,6 +539,11 @@ source = "path:fail/trait_unbound_method_call"
 name = "conformance-trait-unbound-projected-method-call"
 version = "0.1.0"
 source = "path:fail/trait_unbound_projected_method_call"
+
+[[package]]
+name = "conformance-unary-not-operator"
+version = "0.1.0"
+source = "path:fail/unary_not_operator"
 
 [[package]]
 name = "conformance-borrow-return-elision"

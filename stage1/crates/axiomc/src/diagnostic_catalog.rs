@@ -172,6 +172,38 @@ pub const STABLE_DIAGNOSTIC_CODES: &[DiagnosticCodeInfo] = &[
         suggested_fix: "Replace the unsupported form with an equivalent supported construct or track the language feature issue before depending on it.",
     },
     DiagnosticCodeInfo {
+        code: "parse.float_literal_requires_suffix",
+        kind: "parse",
+        title: "Float literal requires a type suffix",
+        explanation: "Stage1 has no default float type, so a decimal literal must name its type with a suffix. Without one, `1.5` would read as tuple index `5` on the value `1`.",
+        example: "Before: print 1.5 + 2.25\nAfter: print 1.5f64 + 2.25f64",
+        suggested_fix: "Add the float type suffix the value needs, such as `f64` or `f32`, directly after the literal.",
+    },
+    DiagnosticCodeInfo {
+        code: "parse.integer_literal_out_of_range",
+        kind: "parse",
+        title: "Integer literal out of range",
+        explanation: "An integer literal does not fit the 64-bit signed `int` type, which ranges from -9223372036854775808 to 9223372036854775807.",
+        example: "Before: print 9223372036854775808\nAfter: print 9223372036854775807",
+        suggested_fix: "Use a value inside the `int` range, or compute the value from smaller literals if the program needs a wider intermediate result.",
+    },
+    DiagnosticCodeInfo {
+        code: "parse.unsupported_operator",
+        kind: "parse",
+        title: "Unsupported operator",
+        explanation: "The expression uses an operator that stage1 does not implement, such as unary `!` or `%`.",
+        example: "Before: print !ready\nAfter: print ready == false",
+        suggested_fix: "Rewrite the expression with supported operators: compare with `== false` instead of unary `!`, and compute remainders with division and subtraction instead of `%`.",
+    },
+    DiagnosticCodeInfo {
+        code: "parse.chained_comparison",
+        kind: "parse",
+        title: "Chained comparison",
+        explanation: "Comparison operators are not associative in Axiom, so an expression such as `a < b == c` has no single meaning.",
+        example: "Before: print 1 < 2 == true\nAfter: print (1 < 2) == true",
+        suggested_fix: "Parenthesize one comparison so the order of evaluation is explicit, or split the expression into separate bindings.",
+    },
+    DiagnosticCodeInfo {
         code: "manifest.invalid_capability",
         kind: "manifest",
         title: "Invalid capability declaration",
@@ -306,6 +338,10 @@ mod tests {
         assert!(codes.contains(&"parse.invalid_syntax"));
         assert!(codes.contains(&"parse.missing_token"));
         assert!(codes.contains(&"parse.unsupported_syntax"));
+        assert!(codes.contains(&"parse.float_literal_requires_suffix"));
+        assert!(codes.contains(&"parse.integer_literal_out_of_range"));
+        assert!(codes.contains(&"parse.unsupported_operator"));
+        assert!(codes.contains(&"parse.chained_comparison"));
         assert!(codes.contains(&"manifest.invalid_capability"));
         assert!(codes.contains(&"manifest.bad_dependency_path"));
         assert!(codes.contains(&"import.unresolved"));
@@ -389,5 +425,39 @@ mod tests {
             "conformance fail diagnostics without catalog entries:\n{}",
             missing.join("\n")
         );
+    }
+
+    #[test]
+    fn conformance_fail_source_diagnostics_carry_a_path_and_span() {
+        // #1786: no diagnostic reachable from user source is emitted without a
+        // location. Manifest diagnostics point at `axiom.toml`, which has no
+        // source span, so only those are exempt.
+        use crate::project::check_project;
+        use std::fs;
+        use std::path::Path;
+
+        let fail_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../conformance/fail");
+        let mut checked = 0usize;
+        let mut unlocated = Vec::new();
+        for entry in fs::read_dir(&fail_dir).expect("read conformance fail corpus") {
+            let path = entry.expect("read conformance fail entry").path();
+            if !path.is_dir() {
+                continue;
+            }
+            checked += 1;
+            let error = check_project(&path).expect_err("conformance fail entries must fail");
+            let Some(source) = error.path.as_deref() else {
+                unlocated.push(format!("{}: no path: {}", path.display(), error.message));
+                continue;
+            };
+            if source.ends_with("axiom.toml") {
+                continue;
+            }
+            if !matches!((error.line, error.column), (Some(line), Some(column)) if line > 0 && column > 0) {
+                unlocated.push(format!("{}: no span: {}", path.display(), error.message));
+            }
+        }
+        assert!(checked > 0, "conformance fail corpus should not be empty");
+        assert!(unlocated.is_empty(), "unlocated diagnostics:\n{}", unlocated.join("\n"));
     }
 }

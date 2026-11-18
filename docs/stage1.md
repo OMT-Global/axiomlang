@@ -337,6 +337,10 @@ Common non-ownership diagnostic codes:
 | `parse.invalid_syntax` | Source does not fit a supported stage1 grammar form. |
 | `parse.missing_token` | A declaration or expression is incomplete because a required token is missing. |
 | `parse.unsupported_syntax` | Source uses a syntactic form that stage1 deliberately does not implement yet. |
+| `parse.float_literal_requires_suffix` | A decimal literal has no type suffix; write `1.5f64`, not `1.5`. |
+| `parse.integer_literal_out_of_range` | An integer literal does not fit the 64-bit signed `int` range. |
+| `parse.unsupported_operator` | An expression uses an operator stage1 does not implement, such as unary `!` or `%`. |
+| `parse.chained_comparison` | Comparisons are chained, as in `a < b == c`; parenthesize one comparison. |
 | `manifest.invalid_capability` | `axiom.toml` declares a capability with an unsupported shape. |
 | `manifest.bad_dependency_path` | A dependency or workspace member path is empty, missing, or escapes the workspace boundary. |
 | `import.unresolved` | A package or dependency import path could not be resolved to source. |

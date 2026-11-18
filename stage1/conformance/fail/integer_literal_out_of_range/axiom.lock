@@ -1,0 +1,6 @@
+version = 1
+
+[[package]]
+name = "conformance-integer-literal-out-of-range"
+version = "0.1.0"
+source = "path"
