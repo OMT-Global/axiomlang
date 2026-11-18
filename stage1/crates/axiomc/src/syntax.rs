@@ -892,6 +892,8 @@ pub fn parse_program_with_options(
     })
 }
 
+mod comments;
+
 /// Strip `//` comments before macro expansion; `//` inside strings is untouched.
 fn strip_line_comments(source: &str) -> String {
     if !source.contains("//") { return source.to_string(); }
@@ -902,7 +904,7 @@ fn strip_line_comments(source: &str) -> String {
             Some((line, remainder)) => (line, Some(remainder)),
             None => (rest, None),
         };
-        cleaned.push_str(strip_line_comment(line));
+        cleaned.push_str(comments::strip_line_comment(line));
         match remainder {
             Some(remainder) => {
                 cleaned.push('\n');
@@ -912,12 +914,6 @@ fn strip_line_comments(source: &str) -> String {
         }
     }
     cleaned
-}
-
-fn strip_line_comment(line: &str) -> &str {
-    let (mut in_string, mut escaped) = (false, false);
-    for (index, byte) in line.bytes().enumerate() { match (in_string, escaped, byte) { (true, true, _) => escaped = false, (true, false, b'\\') => escaped = true, (true, false, b'"') => in_string = false, (false, _, b'"') => in_string = true, (false, _, b'/') if line.as_bytes().get(index + 1) == Some(&b'/') => return &line[..index], _ => {} } }
-    line
 }
 
 pub fn parse_program_with_options_and_recovery(
@@ -2375,6 +2371,9 @@ fn parse_stmt(
 ) -> Result<Stmt, Diagnostic> {
     let line_no = *index + 1;
     let trimmed = lines[*index].trim();
+    if let Some(error) = comments::hash_comment_diagnostic(lines[*index], path, line_no) {
+        return Err(error);
+    }
     if trimmed.starts_with("for ") {
         return Err(Diagnostic::new(
             "parse",
