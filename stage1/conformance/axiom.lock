@@ -111,6 +111,11 @@ version = "0.1.0"
 source = "path:fail/generic_tuple_enum_constructor_type_args"
 
 [[package]]
+name = "conformance-hash-comment-after-statement"
+version = "0.1.0"
+source = "path:fail/hash_comment_after_statement"
+
+[[package]]
 name = "conformance-import-cycle"
 version = "0.1.0"
 source = "path:fail/import_cycle"
@@ -539,6 +544,11 @@ source = "path:pass/collection_lookup_helpers"
 name = "conformance-collection-operations"
 version = "0.1.0"
 source = "path:pass/collection_operations"
+
+[[package]]
+name = "conformance-comment-syntax"
+version = "0.1.0"
+source = "path:pass/comment_syntax"
 
 [[package]]
 name = "conformance-comparison-package-imports"

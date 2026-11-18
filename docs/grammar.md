@@ -95,8 +95,10 @@ expr           := literal
 Comments start with `//` and run to end-of-line; `//` inside a string literal
 is ordinary text. A comment may stand on its own line or trail a statement,
 declaration, or opening `{`. Lines starting with `///` are doc comments and are
-collected by `axiomc doc`. `#` does not start a comment: a statement line that
-begins with `#` is rejected with a diagnostic pointing at `//`. See
+collected by `axiomc doc`. `#` is not part of Axiom syntax and does not start a
+comment: any `#` outside a string literal and before `//`, whether it begins a
+line or trails code, is rejected with a diagnostic pointing at `//`. `axiomc fmt`
+reports the same diagnostic and leaves the file unchanged. See
 [stage1.md](stage1.md) for the current implementation scope and known gaps.
 Pattern guards and nested destructuring patterns are not supported in the
 current stage1 parser.

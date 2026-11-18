@@ -1,0 +1,5 @@
+struct Point {
+    x: int // fields may carry // comments
+}
+let p: Point = Point { x: 1 }
+print p.x # `#` is not a comment marker

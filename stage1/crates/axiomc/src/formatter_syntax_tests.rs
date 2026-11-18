@@ -98,3 +98,29 @@ print (1 + 2)
         .expect("formatted statement expressions must parse");
     assert_eq!(format_axiom_source(&formatted), formatted);
 }
+
+#[test]
+fn fmt_refuses_hash_comments_the_parser_rejects_without_writing_any_file() {
+    // #1783: `fmt` used to format `#` as a comment, so `fmt --check` passed on
+    // files the parser rejects. Every file is checked before any is written.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let src = dir.path().join("src");
+    fs::create_dir_all(&src).expect("mkdir");
+    let clean = "fn   add(a:int,b:int):int{\nreturn a+b\n}\n";
+    let hashed = "print add(1, 2) # trailing\n";
+    fs::write(src.join("a.ax"), clean).expect("write a");
+    fs::write(src.join("b.ax"), hashed).expect("write b");
+
+    for check in [true, false] {
+        let error = format_axiom_sources(dir.path(), check).expect_err("hash comment");
+        assert!(error.message.contains("use `//` for comments"), "{}", error.message);
+        assert!(error.path.as_deref().is_some_and(|path| path.ends_with("b.ax")), "{:?}", error.path);
+        assert_eq!((error.line, error.column), (Some(1), Some(17)));
+    }
+    assert_eq!(fs::read_to_string(src.join("a.ax")).expect("read a"), clean);
+    assert_eq!(fs::read_to_string(src.join("b.ax")).expect("read b"), hashed);
+
+    let error = format_axiom_stdin("let x: int = 1\nprint x # t\n", true, None).expect_err("stdin");
+    assert_eq!((error.path.as_deref(), error.line, error.column), (Some("<stdin>"), Some(2), Some(9)));
+    format_axiom_stdin("print \"# kept\" // # also kept\n", true, None).expect("hash in string and comment");
+}

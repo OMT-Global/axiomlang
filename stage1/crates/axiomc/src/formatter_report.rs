@@ -68,3 +68,14 @@ fn common_suffix_bytes(left: &str, right: &str) -> usize {
 fn trim_line_ending(line: &str) -> &str {
     line.strip_suffix('\n').and_then(|line| line.strip_suffix('\r').or(Some(line))).unwrap_or(line)
 }
+
+pub(super) fn ends_with_line_ending(source: &str) -> bool {
+    source.ends_with('\n') || source.ends_with('\r')
+}
+
+pub(super) fn splits_crlf(source: &str, byte: usize) -> bool {
+    byte > 0
+        && byte < source.len()
+        && source.as_bytes()[byte - 1] == b'\r'
+        && source.as_bytes()[byte] == b'\n'
+}
