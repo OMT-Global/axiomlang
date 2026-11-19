@@ -22,10 +22,10 @@ COMMAND_TOOL = re.compile(r"(^|[^a-z0-9])(cargo|rustc)([^a-z0-9]|$)", re.IGNOREC
 
 # Transitional contract for legacy snapshot manifests. Fast Checks executes this
 # checker from the base-pinned trusted-CI harness (#1543), whose regression
-# fixtures still emit pre-#1575 manifests without chain identity or offline
-# provenance evidence. Accept those fixtures under the legacy schema so the gate
-# stays green until the updated harness lands on main; manifests in the new
-# shape remain fail-closed under the hardened contract below.
+# fixtures can emit pre-#1575 manifests without chain identity or offline
+# provenance evidence. Preserve their legacy schema acceptance, but do not
+# qualify them as ready. The base-pinned harness executes its own paired checker
+# and self-test; new-shape manifests retain the hardened checks below.
 LEGACY_SNAPSHOT_SCHEMA = {
     "type": "object",
     "additionalProperties": False,
@@ -243,10 +243,17 @@ def validate_snapshot_manifest(path, schema_path, provenance_schema_path):
     if not schema_valid:
         return checks, snapshots
     if legacy_manifest:
-        # Legacy entries predate chain identity, artifact digests, and offline
-        # provenance evidence; the frozen trusted-CI harness only holds them to
-        # schema-level validation. The hardened checks below apply once the
-        # manifest uses the new shape.
+        # Schema-level compatibility is not proof of bootstrap readiness.
+        # Keep legacy parsing intact without fetching its unverified URLs.
+        checks.append(
+            check(
+                "snapshot_manifest_readiness",
+                "fail",
+                "legacy snapshot evidence is unqualified for readiness; migrate "
+                "to the hardened manifest shape with chain identity and pinned "
+                "artifact/provenance evidence",
+            )
+        )
         return checks, snapshots
 
     by_id = {}
