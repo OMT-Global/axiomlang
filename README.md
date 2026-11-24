@@ -145,7 +145,7 @@ make smoke
 The checked
 [capability ledger](stage1/compiler-contracts/snapshots/capability-ledger.json)
 is the canonical machine-readable inventory. Its compiler-derived counts cover
-31 commands, 34 stdlib modules with 307 exported functions, and 9 manifest
+32 commands, 34 stdlib modules with 307 exported functions, and 9 manifest
 capabilities. These are discovered surfaces, not a production-readiness claim;
 the ledger currently records zero production-qualified rows.
 

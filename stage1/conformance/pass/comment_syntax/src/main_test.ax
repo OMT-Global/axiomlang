@@ -1,0 +1,18 @@
+// A leading comment on its own line.
+/// Doc comment collected by `axiomc doc`.
+fn add(left: int, right: int): int { // trailing after an opening brace
+    // A comment on its own line inside a block.
+    return left + right // trailing after a statement
+}
+
+struct Point { // trailing after a struct header
+    x: int
+    y: int
+}
+
+let url: string = "http://example.test//path # not a comment" // `//` and `#` inside a string are text
+let point: Point = Point {x: 1, y: 2}
+if point.x < point.y { // trailing after a condition
+    print add(point.x, point.y)
+}
+print url

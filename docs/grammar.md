@@ -92,7 +92,11 @@ expr           := literal
                | "&" expr "[" range? "]" ;
 ```
 
-Comments start with `#` and run to end-of-line. See
+Comments start with `//` and run to end-of-line; `//` inside a string literal
+is ordinary text. A comment may stand on its own line or trail a statement,
+declaration, or opening `{`. Lines starting with `///` are doc comments and are
+collected by `axiomc doc`. `#` does not start a comment: a statement line that
+begins with `#` is rejected with a diagnostic pointing at `//`. See
 [stage1.md](stage1.md) for the current implementation scope and known gaps.
 Pattern guards and nested destructuring patterns are not supported in the
 current stage1 parser.

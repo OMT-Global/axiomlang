@@ -892,6 +892,8 @@ pub fn parse_program_with_options(
     })
 }
 
+mod comments;
+
 /// Strip `//` comments before macro expansion; `//` inside strings is untouched.
 fn strip_line_comments(source: &str) -> String {
     if !source.contains("//") { return source.to_string(); }
@@ -902,7 +904,7 @@ fn strip_line_comments(source: &str) -> String {
             Some((line, remainder)) => (line, Some(remainder)),
             None => (rest, None),
         };
-        cleaned.push_str(strip_line_comment(line));
+        cleaned.push_str(comments::strip_line_comment(line));
         match remainder {
             Some(remainder) => {
                 cleaned.push('\n');
@@ -912,12 +914,6 @@ fn strip_line_comments(source: &str) -> String {
         }
     }
     cleaned
-}
-
-fn strip_line_comment(line: &str) -> &str {
-    let (mut in_string, mut escaped) = (false, false);
-    for (index, byte) in line.bytes().enumerate() { match (in_string, escaped, byte) { (true, true, _) => escaped = false, (true, false, b'\\') => escaped = true, (true, false, b'"') => in_string = false, (false, _, b'"') => in_string = true, (false, _, b'/') if line.as_bytes().get(index + 1) == Some(&b'/') => return &line[..index], _ => {} } }
-    line
 }
 
 pub fn parse_program_with_options_and_recovery(
@@ -2375,6 +2371,9 @@ fn parse_stmt(
 ) -> Result<Stmt, Diagnostic> {
     let line_no = *index + 1;
     let trimmed = lines[*index].trim();
+    if let Some(error) = comments::hash_comment_diagnostic(lines[*index], path, line_no) {
+        return Err(error);
+    }
     if trimmed.starts_with("for ") {
         return Err(Diagnostic::new(
             "parse",
@@ -4676,6 +4675,9 @@ fn parse_term(raw: &str, path: &Path, line_no: usize, column: usize) -> Result<E
                     .with_path(path.display().to_string())
                     .with_span(line_no, column + dot + 1)
             })?;
+            if let Some(error) = unsuffixed_float_diagnostic(base_raw, field, path, line_no, column) {
+                return Err(error);
+            }
             return Ok(Expr::TupleIndex {
                 base: Box::new(parse_term(base_raw, path, line_no, column)?),
                 index,
@@ -4863,6 +4865,9 @@ fn parse_term(raw: &str, path: &Path, line_no: usize, column: usize) -> Result<E
             });
         }
     }
+    if let Some(error) = unsupported_expression_diagnostic(raw, path, line_no, column) {
+        return Err(error);
+    }
     validate_ident(raw, path, line_no, column)?;
     Ok(Expr::VarRef {
         name: raw.to_string(),
@@ -4870,6 +4875,12 @@ fn parse_term(raw: &str, path: &Path, line_no: usize, column: usize) -> Result<E
         column,
     })
 }
+
+mod expression_diagnostics;
+use expression_diagnostics::{
+    looks_like_invalid_numeric_literal, unsuffixed_float_diagnostic,
+    unsupported_expression_diagnostic,
+};
 
 const NUMERIC_LITERAL_SUFFIXES: &[&str] = &[
     "isize", "usize", "i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64", "f32", "f64",
@@ -4892,20 +4903,6 @@ fn parse_numeric_literal(raw: &str) -> Option<Literal> {
         }
     }
     None
-}
-
-fn looks_like_invalid_numeric_literal(raw: &str) -> bool {
-    NUMERIC_LITERAL_SUFFIXES.iter().any(|suffix| {
-        let Some(number) = raw.strip_suffix(suffix) else {
-            return false;
-        };
-        !number.is_empty()
-            && (number.parse::<f64>().is_ok()
-                || number
-                    .chars()
-                    .next()
-                    .is_some_and(|ch| ch.is_ascii_digit() || ch == '-' || ch == '.'))
-    })
 }
 
 fn numeric_literal_fits(number: &str, ty: NumericType) -> bool {
